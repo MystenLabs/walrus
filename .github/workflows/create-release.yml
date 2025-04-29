@@ -46,7 +46,7 @@ jobs:
           ref: main
 
       - name: Setup Python
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # pin@v5.4.0
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # pin@v5.5.0
         with:
           python-version: 3.10.10
 
@@ -68,7 +68,7 @@ jobs:
       - name: Create Release
         uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # pin@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.WALRUS_CREATE_RELEASE }}
         with:
           tag_name: ${{ inputs.release_tag }}
           release_name: ${{ inputs.release_tag }}

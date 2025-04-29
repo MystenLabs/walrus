@@ -1,0 +1,27 @@
+style_edition = "2024"
+
+# Note that the following flags are still in the nightly version of rustfmt, and must be manually
+# supplied to your IDE. Generally the simplest way to do this is to add them to your `rust-analyzer`
+# settings.
+#
+# group_imports = "StdExternalCrate"
+# imports_granularity = "Crate"
+# imports_layout = "HorizontalVertical"
+#
+# To do so in Neovim, for example, add the following to your `init.lua`:
+#
+# vim.g.rustaceanvim = {
+#   server = {
+#     default_settings = {
+#       ['rust-analyzer'] = {
+#         rustfmt = {
+#           extraArgs = {
+#             "--config",
+#             "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
+#           }
+#         },
+#       }
+#     }
+#   }
+# }
+#

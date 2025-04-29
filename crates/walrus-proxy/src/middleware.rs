@@ -6,7 +6,7 @@ use anyhow::Error;
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, FromRequest},
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::Next,
     response::Response,
 };
@@ -19,7 +19,7 @@ use fastcrypto::{
 };
 use hyper::header::CONTENT_ENCODING;
 use once_cell::sync::Lazy;
-use prometheus::{proto::MetricFamily, CounterVec, Opts};
+use prometheus::{CounterVec, Opts, proto::MetricFamily};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use uuid::Uuid;
@@ -35,25 +35,29 @@ use crate::{
 /// These static initializers will panic if Prometheus metrics registration fails. 
 /// This indicates a coding or setup error in the metric configuration.
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "middleware_operations",
-            "Operations counters and status for axum middleware.",
-        ),
-        &["operation", "status"]
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "middleware_operations",
+                "Operations counters and status for axum middleware.",
+            ),
+            &["operation", "status"]
+        )
+        .expect("Failed to register middleware_operations counter"))
     )
-    .expect("Failed to register middleware_operations counter"))
 });
 
 static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "middleware_headers",
-            "Operations counters and status for axum middleware.",
-        ),
-        &["header", "value"]
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "middleware_headers",
+                "Operations counters and status for axum middleware.",
+            ),
+            &["header", "value"]
+        )
+        .expect("Failed to register middleware_headers counter"))
     )
-    .expect("Failed to register middleware_headers counter"))
 });
 
 /// We expect walrus-node to send us an http header content-length encoding.

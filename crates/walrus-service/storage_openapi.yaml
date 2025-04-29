@@ -749,6 +749,13 @@ components:
                           description: The number of events that have been persisted.
                           minimum: 0
                     description: The event progress of the storage node.
+                  latestCheckpointSequenceNumber:
+                    type:
+                    - integer
+                    - 'null'
+                    format: int64
+                    description: The latest checkpoint sequence number downloaded by the node.
+                    minimum: 0
                   nodeStatus:
                     type: string
                     description: The status of the storage node.
@@ -1063,6 +1070,13 @@ components:
                 description: The number of events that have been persisted.
                 minimum: 0
           description: The event progress of the storage node.
+        latestCheckpointSequenceNumber:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: The latest checkpoint sequence number downloaded by the node.
+          minimum: 0
         nodeStatus:
           type: string
           description: The status of the storage node.

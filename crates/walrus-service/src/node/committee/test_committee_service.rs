@@ -10,13 +10,21 @@ use std::{
 };
 
 use rand::{
+    SeedableRng,
     rngs::StdRng,
     seq::{IteratorRandom as _, SliceRandom},
-    SeedableRng,
 };
 use tokio::time;
-use tower::{util::BoxCloneService, ServiceExt as _};
+use tower::{ServiceExt as _, util::BoxCloneService};
 use walrus_core::{
+    DEFAULT_ENCODING,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
+    RecoverySymbol,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
     bft,
     encoding::{
         self,
@@ -31,29 +39,21 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::InvalidBlobIdMsg,
     metadata::VerifiedBlobMetadataWithId,
-    Epoch,
-    InconsistencyProof,
-    PublicKey,
-    RecoverySymbol,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
-    DEFAULT_ENCODING,
 };
-use walrus_sdk::error::ClientBuildError;
+use walrus_rest_client::error::ClientBuildError;
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
-use walrus_test_utils::{async_param_test, Result as TestResult};
+use walrus_test_utils::{Result as TestResult, async_param_test};
 
 use crate::{
-    common::active_committees::ActiveCommittees,
     node::{
         self,
         committee::{
-            committee_service::NodeCommitteeService,
-            node_service::{NodeServiceError, Request, Response},
             CommitteeLookupService,
             CommitteeService,
             NodeServiceFactory,
+            committee_service::NodeCommitteeService,
+            node_service::{NodeServiceError, Request, Response},
         },
         config::CommitteeServiceConfig,
     },
@@ -147,6 +147,7 @@ impl CommitteeLookupService for TestLookupService {
 #[derive(Debug)]
 struct TestLookupServiceHandle(Arc<Mutex<ActiveCommittees>>);
 
+#[cfg(test)]
 impl TestLookupServiceHandle {
     fn set_active_committees(&self, committees: ActiveCommittees) {
         let mut current = self.0.lock().unwrap();

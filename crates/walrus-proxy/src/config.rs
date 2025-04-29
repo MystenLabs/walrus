@@ -4,8 +4,8 @@ use core::time::Duration;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_with::{DurationSeconds, serde_as};
 use tracing::debug;
 
 /// ProxyConfig is the walrus-proxy config type used when reading the yaml
@@ -16,6 +16,8 @@ use tracing::debug;
 pub struct ProxyConfig {
     /// labels that will be applied to all metrics a given proxy relays
     pub labels: HashMap<String, String>,
+    /// labels that will be removed from all metrics a given proxy relays
+    pub remove_labels: Option<Vec<String>>,
     /// what address to bind to
     pub listen_address: SocketAddr,
     /// remote write configuration

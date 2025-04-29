@@ -9,9 +9,8 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
-use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient};
-
-use super::metrics::ClientMetrics;
+use walrus_sdk::client::metrics::ClientMetrics;
+use walrus_sui::client::{SuiContractClient, retry_client::RetriableSuiClient};
 
 /// Refills gas and WAL for the clients.
 #[derive(Debug, Clone)]

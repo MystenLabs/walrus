@@ -5,7 +5,7 @@ use std::{fmt::Display, net::Ipv4Addr};
 
 use reqwest::{Client as NetworkClient, Response, Url};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{Instance, ServerProviderClient};
 use crate::{

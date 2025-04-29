@@ -11,12 +11,11 @@ use std::{
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr, DurationSeconds};
+use serde_with::{DisplayFromStr, DurationSeconds, serde_as};
 
 use crate::{
     client::Instance,
     error::{SettingsError, SettingsResult},
-    faults::FaultsType,
 };
 
 /// The git repository holding the codebase.
@@ -107,9 +106,6 @@ pub struct Settings {
     pub specs: String,
     /// The details of the git reposit to deploy.
     pub repository: Repository,
-    /// The path to the node's configuration file. If not specified, the orchestrator uses the
-    /// default configurations.
-    pub node_parameters_path: Option<String>,
     /// The path to the client's configuration file. If not specified, the orchestrator uses the
     /// default configurations.
     pub client_parameters_path: Option<String>,
@@ -118,9 +114,6 @@ pub struct Settings {
     #[serde(default = "defaults::default_benchmark_duration")]
     #[serde_as(as = "DurationSeconds")]
     pub benchmark_duration: Duration,
-    /// The default faults type to apply to the testbed's nodes.
-    #[serde(default = "defaults::default_faults_type")]
-    pub faults: FaultsType,
     /// The working directory on the remote instance (containing all configuration files).
     #[serde(default = "defaults::default_working_dir")]
     pub working_dir: PathBuf,
@@ -159,14 +152,8 @@ pub struct Settings {
 mod defaults {
     use std::{path::PathBuf, time::Duration};
 
-    use crate::faults::FaultsType;
-
     pub fn default_benchmark_duration() -> Duration {
         Duration::from_secs(0)
-    }
-
-    pub fn default_faults_type() -> FaultsType {
-        FaultsType::default()
     }
 
     pub fn default_working_dir() -> PathBuf {

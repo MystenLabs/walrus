@@ -35,25 +35,25 @@ impl RpcFallbackConfig {
 #[derive(Debug, Clone, clap::Args)]
 pub struct RpcFallbackConfigArgs {
     /// The fallback checkpoint bucket URL.
-    #[clap(long)]
+    #[arg(long)]
     pub checkpoint_bucket: Option<reqwest::Url>,
 
     /// The minimum backoff interval in milliseconds
     /// to retry the fullnode RPC before falling back
     /// to the checkpoint bucket when available.
-    #[clap(long)]
+    #[arg(long)]
     pub min_backoff: Option<u64>,
 
     /// The maximum backoff interval in milliseconds
     /// to retry the fullnode RPC before falling back
     /// to the checkpoint bucket when available.
-    #[clap(long)]
+    #[arg(long)]
     pub max_backoff: Option<u64>,
 
     /// The maximum number of retries
     /// to retry the fullnode RPC before falling back
     /// to the checkpoint bucket when available.
-    #[clap(long)]
+    #[arg(long)]
     pub max_retries: Option<u32>,
 }
 

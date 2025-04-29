@@ -4,6 +4,7 @@
 //! Event blob writer.
 
 use std::{
+    ffi::OsStr,
     fs::{self, File, OpenOptions},
     io::{self, BufWriter, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -13,47 +14,49 @@ use std::{
 use anyhow::{Context, Result};
 use byteorder::{BigEndian, WriteBytesExt};
 use futures_util::future::try_join_all;
-use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
-use rand::{thread_rng, Rng};
+use prometheus::{IntGauge, register_int_gauge_with_registry};
+use rand::{Rng, thread_rng};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use typed_store::{
-    rocks,
-    rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, MetricConf, ReadWriteOptions},
     Map,
+    rocks,
+    rocks::{DBBatch, DBMap, MetricConf, ReadWriteOptions, errors::typed_store_err_from_rocks_err},
 };
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    Epoch,
+    Sliver,
     encoding::EncodingConfigTrait as _,
     ensure,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    Sliver,
-    DEFAULT_ENCODING,
 };
 use walrus_sui::{
     client::SuiClientError,
     types::{
-        move_errors::{MoveExecutionError, SystemStateInnerError},
-        move_structs::EventBlob as SuiEventBlob,
         BlobEvent,
         ContractEvent,
         EpochChangeEvent,
+        move_errors::{MoveExecutionError, SystemStateInnerError},
+        move_structs::EventBlob as SuiEventBlob,
     },
 };
+use walrus_utils::metrics::Registry;
 
 use crate::node::{
+    DatabaseConfig,
+    StorageNodeInner,
     errors::StoreSliverError,
     events::{
-        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
         EventStreamCursor,
         EventStreamElement,
         IndexedStreamEvent,
         InitState,
         PositionedStreamEvent,
+        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
     },
-    StorageNodeInner,
 };
 
 /// The column family name for certified event blobs.
@@ -64,8 +67,13 @@ const ATTESTED: &str = "attested_blob_store";
 const PENDING: &str = "pending_blob_store";
 /// The column family name for failed to attest event blobs.
 const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
+/// The file name for the current blob.
+const CURRENT_BLOB: &str = "current_blob";
+/// The maximum size of a blob file.
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
+/// The number of checkpoints per blob.
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
+/// The default number of unattested blobs threshold.
 const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: u32 = 3;
 
 pub(crate) fn certified_cf_name() -> &'static str {
@@ -270,9 +278,73 @@ impl EventBlobWriterFactory {
         root_dir_path.join("event_blob_writer").join("blobs")
     }
 
+    /// Cleans up orphaned blob files from the filesystem that don't exist in any database.
+    fn cleanup_orphaned_blobs(
+        blobs_path: &Path,
+        pending: &DBMap<u64, PendingEventBlobMetadata>,
+        attested: &DBMap<(), AttestedEventBlobMetadata>,
+        failed_to_attest: &DBMap<(), FailedToAttestEventBlobMetadata>,
+        certified: &DBMap<(), CertifiedEventBlobMetadata>,
+    ) -> Result<()> {
+        if !blobs_path.exists() {
+            return Ok(());
+        }
+        let blobs = fs::read_dir(blobs_path)?;
+        for blob in blobs {
+            let blob_path = blob?.path();
+            if !blob_path.is_file() {
+                continue;
+            }
+            if blob_path.file_name() == Some(OsStr::new(CURRENT_BLOB)) {
+                continue;
+            }
+            let event_index = blob_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.parse::<u64>().ok());
+            if let Some(event_index) = event_index {
+                // Check if blob exists in any database
+                let exists_in_db = pending.safe_iter().any(|result| {
+                    result
+                        .map(|(_, metadata)| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false)
+                }) || attested
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor.element_index == event_index)
+                    .unwrap_or(false)
+                    || failed_to_attest
+                        .get(&())
+                        .ok()
+                        .flatten()
+                        .map(|metadata| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false)
+                    || certified
+                        .get(&())
+                        .ok()
+                        .flatten()
+                        .map(|metadata| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false);
+
+                if !exists_in_db {
+                    if let Err(e) = fs::remove_file(&blob_path) {
+                        tracing::warn!(?blob_path, ?e, "Failed to remove orphaned blob from disk");
+                    } else {
+                        tracing::info!(?blob_path, "Removed orphaned event blob from disk");
+                    }
+                }
+            } else {
+                tracing::warn!(?blob_path, "Orphaned event blob with no event index found");
+            }
+        }
+        Ok(())
+    }
+
     /// Create a new event blob writer factory.
     pub fn new(
         root_dir_path: &Path,
+        db_config: &DatabaseConfig,
         node: Arc<StorageNodeInner>,
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
@@ -282,8 +354,8 @@ impl EventBlobWriterFactory {
         let db_path = Self::db_path(root_dir_path);
         fs::create_dir_all(db_path.as_path())?;
 
-        let mut db_opts = Options::default();
-        let metric_conf = MetricConf::default();
+        let mut db_opts = Options::from(&db_config.global());
+        let metric_conf = MetricConf::new("event_blob_writer");
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let database = rocks::open_cf_opts(
@@ -291,30 +363,30 @@ impl EventBlobWriterFactory {
             Some(db_opts),
             metric_conf,
             &[
-                (PENDING, Options::default()),
-                (ATTESTED, Options::default()),
-                (CERTIFIED, Options::default()),
-                (FAILED_TO_ATTEST, Options::default()),
+                (PENDING, db_config.pending().to_options()),
+                (ATTESTED, db_config.attested().to_options()),
+                (CERTIFIED, db_config.certified().to_options()),
+                (FAILED_TO_ATTEST, db_config.failed_to_attest().to_options()),
             ],
         )?;
         if database.cf_handle(CERTIFIED).is_none() {
             database
-                .create_cf(CERTIFIED, &Options::default())
+                .create_cf(CERTIFIED, &db_config.certified().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(ATTESTED).is_none() {
             database
-                .create_cf(ATTESTED, &Options::default())
+                .create_cf(ATTESTED, &db_config.attested().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(PENDING).is_none() {
             database
-                .create_cf(PENDING, &Options::default())
+                .create_cf(PENDING, &db_config.pending().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(FAILED_TO_ATTEST).is_none() {
             database
-                .create_cf(FAILED_TO_ATTEST, &Options::default())
+                .create_cf(FAILED_TO_ATTEST, &db_config.failed_to_attest().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let certified: DBMap<(), CertifiedEventBlobMetadata> = DBMap::reopen(
@@ -342,12 +414,22 @@ impl EventBlobWriterFactory {
             false,
         )?;
 
+        let blobs_path = Self::blobs_path(root_dir_path);
+        Self::cleanup_orphaned_blobs(
+            &blobs_path,
+            &pending,
+            &attested,
+            &failed_to_attest,
+            &certified,
+        )?;
+
         Self::reset_uncertified_blobs(
             &pending,
             &attested,
             &failed_to_attest,
             num_uncertified_blob_threshold,
             last_certified_event_blob,
+            &blobs_path,
         )?;
 
         let event_cursor = pending
@@ -493,6 +575,7 @@ impl EventBlobWriterFactory {
         failed_to_attest_db: &DBMap<(), FailedToAttestEventBlobMetadata>,
         num_uncertified_blob_threshold: Option<u32>,
         last_certified_event_blob: Option<SuiEventBlob>,
+        blobs_path: &Path,
     ) -> Result<()> {
         let Some(last_certified_event_blob) = last_certified_event_blob else {
             return Ok(());
@@ -563,23 +646,45 @@ impl EventBlobWriterFactory {
             consecutive_uncertified,
             num_uncertified_blob_threshold
         );
+
+        let mut blobs_to_delete = Vec::new();
         let mut wb = pending_db.batch();
-        for (k, _) in pending {
+
+        for (k, metadata) in pending {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(pending_db, std::iter::once(k))?;
         }
-        if !attested.is_empty() {
+
+        for (_, metadata) in attested {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(attested_db, std::iter::once(()))?;
         }
-        if !failed_to_attest.is_empty() {
+
+        for (_, metadata) in failed_to_attest {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
         }
+
         wb.write()?;
+
+        for blob_index in blobs_to_delete {
+            let blob_path = blobs_path.join(blob_index.to_string());
+            if blob_path.exists() {
+                if let Err(e) = fs::remove_file(&blob_path) {
+                    tracing::warn!(?blob_path, ?e, "Failed to remove blob file");
+                } else {
+                    tracing::info!(?blob_path, "Removed uncertified blob file");
+                }
+            }
+        }
+
         Ok(())
     }
 }
 
 /// EventBlobWriter manages the creation, storage, and certification of event blobs.
-/// ```
+///
+/// ```text
 ///  +-------------------+
 ///  |  EventBlobWriter  |
 ///  +-------------------+
@@ -603,10 +708,6 @@ impl EventBlobWriterFactory {
 ///                   certification)
 ///
 /// ```
-/// Flow: Current -> Pending -> Attested -> Certified
-///                     |
-///                     +-> Failed to Attest -> Attested -> Certified
-/// ```text
 ///
 /// Blob Lifecycle:
 ///
@@ -847,7 +948,7 @@ impl EventBlobWriter {
     /// This method creates a new file for the next blob, initializes it with the
     /// necessary header information, and prepares it for writing events.
     fn next_file(dir_path: &Path, epoch: Epoch) -> Result<File> {
-        let next_file_path = dir_path.join("current_blob");
+        let next_file_path = dir_path.join(CURRENT_BLOB);
         let mut file: File = Self::create_and_initialize_file(&next_file_path, epoch)?;
         drop(file);
         file = Self::reopen_file_with_permissions(&next_file_path)?;
@@ -980,12 +1081,14 @@ impl EventBlobWriter {
         // TODO: Once shard assignment per storage node will be read from walrus
         // system object at the beginning of the walrus epoch, we can only store the blob for
         // shards that are locally assigned to this node. (#682)
+        let blob_metadata_clone = blob_metadata.clone();
+
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    &blob_metadata,
+                    blob_metadata_clone.clone(),
                     sliver_pair.index(),
-                    &Sliver::Primary(sliver_pair.primary.clone()),
+                    Sliver::Primary(sliver_pair.primary.clone()),
                 )
                 .await
                 .map_or_else(
@@ -1001,12 +1104,15 @@ impl EventBlobWriter {
         }))
         .await
         .map(|_| ())?;
+
+        let blob_metadata_clone = blob_metadata.clone();
+
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    &blob_metadata,
+                    blob_metadata_clone.clone(),
                     sliver_pair.index(),
-                    &Sliver::Secondary(sliver_pair.secondary.clone()),
+                    Sliver::Secondary(sliver_pair.secondary.clone()),
                 )
                 .await
                 .map_or_else(
@@ -1514,7 +1620,6 @@ mod tests {
     };
 
     use anyhow::Result;
-    use prometheus::Registry;
     use sui_types::{digests::TransactionDigest, event::EventID};
     use typed_store::Map;
     use walrus_core::{BlobId, ShardIndex};
@@ -1522,13 +1627,17 @@ mod tests {
         test_utils::EventForTesting,
         types::{BlobCertified, ContractEvent, EpochChangeEvent, EpochChangeStart},
     };
+    use walrus_utils::metrics::Registry;
 
     use crate::{
-        node::events::{
-            event_blob::EventBlob,
-            event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
-            CheckpointEventPosition,
-            PositionedStreamEvent,
+        node::{
+            DatabaseConfig,
+            events::{
+                CheckpointEventPosition,
+                PositionedStreamEvent,
+                event_blob::EventBlob,
+                event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
+            },
         },
         test_utils::StorageNodeHandle,
     };
@@ -1539,10 +1648,11 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 2;
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
-        let registry = Registry::new();
+        let registry = Registry::default();
         let node = create_test_node().await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
+            &DatabaseConfig::default(),
             node.storage_node.inner().clone(),
             &registry,
             Some(10),
@@ -1591,10 +1701,11 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
-        let registry = Registry::new();
+        let registry = Registry::default();
 
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
+            &DatabaseConfig::default(),
             node.storage_node.inner().clone(),
             &registry,
             Some(10),
@@ -1674,9 +1785,10 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
-        let registry = Registry::new();
+        let registry = Registry::default();
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
+            &DatabaseConfig::default(),
             node.storage_node.inner().clone(),
             &registry,
             Some(10),

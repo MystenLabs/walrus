@@ -3,16 +3,15 @@
 
 use std::{
     cmp,
-    collections::{hash_map::IntoValues, HashMap, VecDeque},
-    future::Future,
+    collections::{HashMap, VecDeque},
+    num::NonZero,
     pin::Pin,
     sync::{Arc, Mutex as SyncMutex, Weak},
-    task::{ready, Context, Poll},
-    vec::IntoIter,
+    task::{Context, Poll, ready},
 };
 
-use ::futures::{stream, FutureExt as _, StreamExt as _};
-use futures::{future::BoxFuture, stream::FuturesUnordered, Stream as _, TryFutureExt as _};
+use ::futures::{FutureExt as _, StreamExt as _, stream};
+use futures::{Stream as _, TryFutureExt as _, future::BoxFuture, stream::FuturesUnordered};
 use rand::{rngs::StdRng, seq::SliceRandom as _};
 use tokio::{
     sync::watch,
@@ -21,6 +20,16 @@ use tokio::{
 use tower::ServiceExt as _;
 use tracing::Instrument as _;
 use walrus_core::{
+    BlobId,
+    Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
+    RecoverySymbol,
+    ShardIndex,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     bft,
     encoding::{
         self,
@@ -37,26 +46,17 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    RecoverySymbol,
-    ShardIndex,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
 };
-use walrus_sdk::client::RecoverySymbolsFilter;
+use walrus_rest_client::client::RecoverySymbolsFilter;
+use walrus_sdk::active_committees::CommitteeTracker;
 use walrus_sui::types::Committee;
-use walrus_utils::backoff::ExponentialBackoffState;
+use walrus_utils::{backoff::ExponentialBackoffState, metrics::OwnedGaugeGuard};
 
 use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
-use crate::common::active_committees::CommitteeTracker;
+use crate::node::metrics::CommitteeServiceMetricSet;
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,
@@ -177,307 +177,70 @@ where
     }
 }
 
-// TODO(jsmith): Remove (WAL-594).
-pub(super) struct LegacyRecoverSliver<'a, T> {
-    metadata: Arc<VerifiedBlobMetadataWithId>,
-    sliver_id: SliverPairIndex,
-    sliver_type: SliverType,
-    epoch_certified: Epoch,
-    backoff: ExponentialBackoffState,
-    shared: &'a NodeCommitteeServiceInner<T>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryStateLabel {
+    Init,
+    CollectingSymbols,
+    Backoff,
+    /// The tail number of remaining requests, min 1, max 5.
+    TailRequest(NonZero<u8>),
+    BuildingSliver,
 }
 
-impl<'a, T> LegacyRecoverSliver<'a, T>
-where
-    T: NodeService,
-{
-    pub fn new(
-        metadata: Arc<VerifiedBlobMetadataWithId>,
-        sliver_id: SliverPairIndex,
-        sliver_type: SliverType,
-        epoch_certified: Epoch,
-        shared: &'a NodeCommitteeServiceInner<T>,
-    ) -> Self {
+impl AsRef<str> for RecoveryStateLabel {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Init => "init",
+            Self::CollectingSymbols => "collecting-symbols",
+            Self::Backoff => "backoff",
+            Self::TailRequest(_) => "tail-request",
+            Self::BuildingSliver => "building-sliver",
+        }
+    }
+}
+
+/// Tracks aggregated statistics and the state of a RecoverSliver future.
+struct RecoverSliverStats {
+    /// The total number of backoffs performed during the recovery.
+    total_backoffs: usize,
+    /// The total number of failed requests observed during the recovery.
+    total_failed_requests: usize,
+    /// The current "recovery state" of the request, as identified by the `RecoveryStateLabel`.
+    current_state: (RecoveryStateLabel, OwnedGaugeGuard),
+
+    metrics: Arc<CommitteeServiceMetricSet>,
+}
+
+impl RecoverSliverStats {
+    fn new(metrics: Arc<CommitteeServiceMetricSet>) -> Self {
+        let current_state = (
+            RecoveryStateLabel::Init,
+            OwnedGaugeGuard::acquire(walrus_utils::with_label!(
+                metrics.recovery_future_state,
+                RecoveryStateLabel::Init,
+                ""
+            )),
+        );
+
         Self {
-            metadata,
-            sliver_id,
-            sliver_type,
-            epoch_certified,
-            backoff: ExponentialBackoffState::new_infinite(
-                shared.config.retry_interval_min,
-                shared.config.retry_interval_max,
-            ),
-            shared,
+            total_backoffs: 0,
+            total_failed_requests: 0,
+            current_state,
+            metrics,
         }
     }
 
-    pub async fn run(mut self) -> Result<Sliver, InconsistencyProofEnum> {
-        // Since recovery currently consumes the symbols, rather than copy the symbols in every
-        // case to handle the rare cases when we fail to *decode* the sliver despite collecting the
-        // required number of symbols, we instead retry the entire process with an increased amount.
-        let mut additional_symbols = 0;
-        loop {
-            if let Some(result) = self
-                .recover_with_additional_symbols(additional_symbols)
-                .await
-            {
-                return result;
-            }
-            additional_symbols += 1;
+    fn record_state(&mut self, state: RecoveryStateLabel) {
+        if self.current_state.0 == state {
+            return;
         }
-    }
 
-    async fn recover_with_additional_symbols(
-        &mut self,
-        additional_symbols: usize,
-    ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
-        let mut committee_listener = self.shared.subscribe_to_committee_changes();
-        let mut collected_symbols: HashMap<ShardIndex, RecoverySymbol<MerkleProof>> =
-            Default::default();
-
-        loop {
-            let weak_committee = {
-                let committee_tracker = committee_listener.borrow_and_update();
-                Arc::downgrade(
-                    committee_tracker
-                        .committees()
-                        .read_committee(self.epoch_certified)
-                        .expect("epoch must not be in the future"),
-                )
-            };
-
-            let epoch_certified = self.epoch_certified;
-            tokio::select! {
-                result = self.collect_recovery_symbols(
-                    &mut collected_symbols, additional_symbols, &weak_committee
-                ) => {
-                    match result {
-                        Ok(n_symbols) => {
-                            tracing::trace!(
-                                %n_symbols,
-                                "successfully collected the desired number of recovery symbols"
-                            );
-                            return self.decode_sliver(collected_symbols);
-                        },
-                        Err(n_symbols_remaining) => {
-                            tracing::trace!(
-                                %n_symbols_remaining,
-                                "failed to collect sufficient recovery symbols"
-                            );
-                            wait_before_next_attempts(&mut self.backoff, &self.shared.rng).await;
-                        }
-                    }
-                }
-                () = wait_for_read_committee_change(
-                    epoch_certified,
-                    &mut committee_listener,
-                    &weak_committee,
-                    are_shard_addresses_equivalent
-                ) => {
-                    tracing::debug!(
-                        "read committee has changed, recreating recovery symbol requests"
-                    );
-                }
-            };
-        }
-    }
-
-    fn total_symbols_required(&self, additional_symbols: usize) -> usize {
-        let min_symbols_for_recovery = if self.sliver_type == SliverType::Primary {
-            encoding::min_symbols_for_recovery::<Primary>
+        let metric = if let RecoveryStateLabel::TailRequest(i) = state {
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, &i.to_string())
         } else {
-            encoding::min_symbols_for_recovery::<Secondary>
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, "")
         };
-        usize::from(min_symbols_for_recovery(self.metadata.n_shards())) + additional_symbols
-    }
-
-    /// Request and store recovery symbols in `self.collected_symbols`.
-    ///
-    /// On success, returns the total number of collection symbols; on failure, the number of
-    /// symbols still required.
-    async fn collect_recovery_symbols(
-        &mut self,
-        collected_symbols: &mut HashMap<ShardIndex, RecoverySymbol<MerkleProof>>,
-        additional_symbols: usize,
-        weak_committee: &Weak<Committee>,
-    ) -> Result<usize, usize> {
-        let total_symbols_required = self.total_symbols_required(additional_symbols);
-        let n_symbols_still_required = total_symbols_required - collected_symbols.len();
-        debug_assert_ne!(n_symbols_still_required, 0);
-        tracing::debug!(
-            total_required = total_symbols_required,
-            count_missing = n_symbols_still_required,
-            "collecting recovery symbols"
-        );
-
-        let mut shard_order = {
-            let mut rng_guard = self.shared.rng.lock().expect("mutex not poisoned");
-            let mut shards =
-                ShardIndex::range(0..self.metadata.n_shards().get()).collect::<Vec<_>>();
-            shards.shuffle(&mut *rng_guard);
-            shards.into_iter()
-        };
-
-        // Create an iterator around the remaining shards to filter and create the requests.
-        // Drop the iterator between the times we need it, since filtering holds a reference to
-        // the collected_symbols.
-        let mut pending_requests = self
-            .requests_iter(weak_committee, &mut shard_order, collected_symbols)
-            .take(n_symbols_still_required)
-            .collect::<FuturesUnordered<_>>();
-
-        while let Some(response) = pending_requests.next().await {
-            if let Some((shard_index, symbol)) = response {
-                collected_symbols.insert(shard_index, symbol);
-            } else {
-                // Request failed and was logged, replenish the future.
-                if let Some(future) = self
-                    .requests_iter(weak_committee, &mut shard_order, collected_symbols)
-                    .next()
-                {
-                    pending_requests.push(future);
-                }
-            }
-        }
-
-        debug_assert!(pending_requests.is_empty());
-        let total_symbols_collected = collected_symbols.len();
-        if total_symbols_collected == total_symbols_required {
-            Ok(total_symbols_collected)
-        } else {
-            Err(total_symbols_required - total_symbols_collected)
-        }
-    }
-
-    fn requests_iter<'iter>(
-        &'a self,
-        weak_committee: &'iter Weak<Committee>,
-        shard_order: &'iter mut IntoIter<ShardIndex>,
-        collected_symbols: &'iter HashMap<ShardIndex, RecoverySymbol<MerkleProof>>,
-    ) -> impl Iterator<
-        Item = impl Future<Output = Option<(ShardIndex, RecoverySymbol<MerkleProof>)>> + 'a,
-    > + 'iter
-    where
-        'a: 'iter,
-    {
-        shard_order
-            .filter_map(|shard_index| {
-                if collected_symbols.contains_key(&shard_index) {
-                    tracing::trace!("shard already collected, skipping");
-                    return None;
-                }
-
-                let Some(committee) = weak_committee.upgrade() else {
-                    tracing::trace!("committee has been dropped, skipping shard");
-                    return None;
-                };
-
-                let index = committee
-                    .member_index_for_shard(shard_index)
-                    .expect("shard is present in the committee");
-                let node_public_key = &committee.members()[index].public_key;
-
-                let Some(client) = self.shared.get_node_service_by_id(node_public_key) else {
-                    tracing::trace!(
-                        "unable to get the client, either creation failed or epoch is changing"
-                    );
-                    return None;
-                };
-
-                let sliver_id = self.sliver_id;
-                let sliver_pair_at_remote =
-                    shard_index.to_pair_index(self.metadata.n_shards(), self.metadata.blob_id());
-
-                let request = client
-                    .oneshot(Request::GetVerifiedRecoverySymbol {
-                        sliver_type: self.sliver_type,
-                        metadata: self.metadata.clone(),
-                        sliver_pair_at_remote,
-                        intersecting_pair_index: sliver_id,
-                    })
-                    .map_ok(move |symbol| (shard_index, symbol.into_value()));
-                let request = time::timeout(self.shared.config.sliver_request_timeout, request)
-                    .map(log_and_discard_timeout_or_error)
-                    .instrument(tracing::info_span!("get_recovery_symbol",
-                        walrus.node.public_key = %node_public_key,
-                        walrus.shard_index = %shard_index
-                    ));
-                tracing::trace!(walrus.shard_index = %shard_index, "created a request for shard");
-                Some(request)
-            })
-            // Ensure that the resulting iterator will always return None when complete.
-            .fuse()
-    }
-
-    #[tracing::instrument(skip_all)]
-    fn decode_sliver(
-        &mut self,
-        collected_symbols: HashMap<ShardIndex, RecoverySymbol<MerkleProof>>,
-    ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
-        let recovery_symbols = collected_symbols.into_values();
-
-        if self.sliver_type == SliverType::Primary {
-            let symbols = iterate_symbols(recovery_symbols);
-            self.decode_sliver_by_axis::<Primary, _>(symbols)
-        } else {
-            let symbols = iterate_symbols(recovery_symbols);
-            self.decode_sliver_by_axis::<Secondary, _>(symbols)
-        }
-    }
-
-    fn decode_sliver_by_axis<A: EncodingAxis, I>(
-        &self,
-        recovery_symbols: I,
-    ) -> Option<Result<Sliver, InconsistencyProofEnum>>
-    where
-        I: IntoIterator<Item = RecoverySymbolData<A, MerkleProof>>,
-        SliverData<A>: Into<Sliver>,
-        InconsistencyProof<A, MerkleProof>: Into<InconsistencyProofEnum>,
-    {
-        tracing::debug!("beginning to decode recovered sliver");
-        let result = SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
-            recovery_symbols,
-            self.sliver_id
-                .to_sliver_index::<A>(self.metadata.n_shards()),
-            (*self.metadata).as_ref(),
-            &self.shared.encoding_config,
-            // Continue to verify the symbols in the called function, to ensure that
-            // this change does not introduce any bugs in the legacy implementation.
-            true,
-        );
-        tracing::debug!("completing decoding, parsing result");
-
-        match result {
-            Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
-                tracing::debug!("successfully recovered sliver");
-                Some(Ok(sliver.into()))
-            }
-            Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => {
-                tracing::debug!("resulted in an inconsistency proof");
-                Some(Err(proof.into()))
-            }
-            Err(SliverRecoveryOrVerificationError::RecoveryError(err)) => match err {
-                encoding::SliverRecoveryError::BlobSizeTooLarge(_) => {
-                    panic!("blob size from verified metadata should not be too large")
-                }
-                encoding::SliverRecoveryError::DecodingFailure => {
-                    tracing::debug!("unable to decode with collected symbols");
-                    None
-                }
-            },
-            Err(SliverRecoveryOrVerificationError::VerificationError(err)) => match err {
-                SliverVerificationError::IndexTooLarge => {
-                    panic!("checked above by pre-condition")
-                }
-                SliverVerificationError::SliverSizeMismatch
-                | SliverVerificationError::SymbolSizeMismatch => panic!(
-                    "should not occur since symbols were verified and sliver constructed here"
-                ),
-                SliverVerificationError::MerkleRootMismatch => {
-                    panic!("should have been converted to an inconsistency proof")
-                }
-            },
-        }
+        self.current_state = (state, OwnedGaugeGuard::acquire(metric));
     }
 }
 
@@ -488,6 +251,7 @@ pub(super) struct RecoverSliver<'a, T> {
     epoch_certified: Epoch,
     backoff: ExponentialBackoffState,
     shared: &'a NodeCommitteeServiceInner<T>,
+    stats: RecoverSliverStats,
 }
 
 impl<'a, T> RecoverSliver<'a, T>
@@ -516,6 +280,7 @@ where
             ),
             shared,
             metadata,
+            stats: RecoverSliverStats::new(shared.metrics.clone()),
         }
     }
 
@@ -547,8 +312,24 @@ where
         additional_symbols: usize,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
         let mut committee_listener = self.shared.subscribe_to_committee_changes();
+
+        // Total symbols required to decode the sliver.
+        let total_symbols_required = self.total_symbols_required(additional_symbols);
+
+        // Total symbols to request from other storage nodes initially.
+        let total_symbols_to_request = std::cmp::min(
+            total_symbols_required
+                + self
+                    .shared
+                    .config
+                    .experimental_sliver_recovery_additional_symbols,
+            self.metadata.n_shards().get().into(),
+        );
+
+        // Track the collection of recovery symbols.
         let mut symbol_tracker = SymbolTracker::new(
-            self.total_symbols_required(additional_symbols),
+            total_symbols_required,
+            total_symbols_to_request,
             self.target_index,
             self.target_sliver_type,
         );
@@ -570,6 +351,7 @@ where
                 &mut symbol_tracker,
                 weak_committee.clone(),
                 self.shared,
+                &mut self.stats,
             );
 
             tokio::select! {
@@ -580,6 +362,12 @@ where
                                 %n_symbols,
                                 "successfully collected the desired number of recovery symbols"
                             );
+                            self.stats.metrics.recovery_future_backoffs
+                                .observe(self.stats.total_backoffs as f64);
+                            self.stats.metrics.recovery_future_failed_requests
+                                .observe(self.stats.total_failed_requests as f64);
+                            self.stats.record_state(RecoveryStateLabel::BuildingSliver);
+
                             return self.decode_sliver(symbol_tracker).await;
                         },
                         Err(n_symbols_remaining) => {
@@ -587,6 +375,10 @@ where
                                 %n_symbols_remaining,
                                 "failed to collect sufficient recovery symbols"
                             );
+                            self.stats.record_state(RecoveryStateLabel::Backoff);
+                            self.stats.metrics.recovery_future_backoff_total.inc();
+                            self.stats.total_backoffs += 1;
+
                             wait_before_next_attempts(&mut self.backoff, &self.shared.rng).await;
                         }
                     }
@@ -696,6 +488,7 @@ struct CollectRecoverySymbols<'a, T> {
     shared: &'a NodeCommitteeServiceInner<T>,
     upcoming_nodes: RemainingShards,
     pending_requests: FuturesUnordered<BoxFuture<'a, (usize, Option<Vec<GeneralRecoverySymbol>>)>>,
+    stats: &'a mut RecoverSliverStats,
 }
 
 impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
@@ -704,6 +497,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
         tracker: &'a mut SymbolTracker,
         committee: Weak<Committee>,
         shared: &'a NodeCommitteeServiceInner<T>,
+        stats: &'a mut RecoverSliverStats,
     ) -> Self {
         // Clear counts of in-progress collections.
         tracker.clear_in_progress();
@@ -724,6 +518,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             shared,
             tracker,
             upcoming_nodes,
+            stats,
         }
     }
 
@@ -735,6 +530,14 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
             if let Some(symbols) = maybe_symbols {
                 self.tracker.extend_collected(symbols);
+            } else {
+                // No symbols, which indicates a request failure.
+                self.stats.total_failed_requests += 1;
+            }
+
+            // If we have collected enough symbols to decode the sliver, we can stop.
+            if self.tracker.is_done() {
+                break;
             }
 
             // The request submitted with some or all of the requested symbols, or it failed
@@ -742,8 +545,6 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             // is potentially not equal to the number returned.
             self.refill_pending_requests();
         }
-
-        debug_assert!(self.pending_requests.is_empty());
 
         if self.tracker.is_done() {
             Ok(self.tracker.collected_count())
@@ -832,6 +633,16 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             new_request_count,
             "completed refilling pending requests with additional futures"
         );
+
+        match self.pending_requests.len() {
+            0 => (),
+            i @ 1..=5 => self.stats.record_state(RecoveryStateLabel::TailRequest(
+                NonZero::new(i as u8).expect("zero is handled above"),
+            )),
+            _ => self
+                .stats
+                .record_state(RecoveryStateLabel::CollectingSymbols),
+        }
     }
 
     fn symbol_id_at_shard(&self, shard_id: ShardIndex) -> SymbolId {
@@ -870,7 +681,12 @@ struct SymbolTracker {
     // conversions to `SymbolId`.
     collected: HashMap<SliverIndex, GeneralRecoverySymbol>,
     symbols_in_progress_count: usize,
-    symbols_still_required_count: usize,
+    /// The number of symbols to request initially. This number is at least as large as
+    /// `symbols_required_to_decode_count`, with additional symbols to request to account for
+    /// potential errors in the symbols received.
+    symbols_desired_to_request_count: usize,
+    /// The number of symbols required to decode the target sliver.
+    symbols_required_to_decode_count: usize,
     target_index: SliverIndex,
     target_sliver_type: SliverType,
 }
@@ -880,11 +696,13 @@ impl SymbolTracker {
     /// the specified number of symbols.
     fn new(
         n_symbols_required: usize,
+        total_symbols_to_request: usize,
         target_index: SliverIndex,
         target_sliver_type: SliverType,
     ) -> Self {
         Self {
-            symbols_still_required_count: n_symbols_required,
+            symbols_required_to_decode_count: n_symbols_required,
+            symbols_desired_to_request_count: total_symbols_to_request,
             symbols_in_progress_count: 0,
             target_sliver_type,
             target_index,
@@ -896,7 +714,7 @@ impl SymbolTracker {
     ///
     /// This excludes the number of symbols that have been requested but are pending completion.
     fn number_of_symbols_to_request(&self) -> usize {
-        self.symbols_still_required_count
+        self.symbols_desired_to_request_count
             .saturating_sub(self.symbols_in_progress_count)
     }
 
@@ -924,14 +742,15 @@ impl SymbolTracker {
         self.collected.len()
     }
 
-    /// The total number of symbols collected.
+    /// The total number of symbols remaining to be collected until
+    /// `symbols_desired_to_request_count` is reached.
     fn remaining_count(&self) -> usize {
-        self.symbols_still_required_count
+        self.symbols_desired_to_request_count
     }
 
     /// Returns true if the sufficient symbols have been collected, false otherwise.
     fn is_done(&self) -> bool {
-        self.symbols_still_required_count == 0
+        self.collected.len() >= self.symbols_required_to_decode_count
     }
 
     /// Store the collected symbols and decrease the number of required symbols.
@@ -944,8 +763,8 @@ impl SymbolTracker {
                 // returned by storage nodes, which may be more symbols than initially requested.
                 // This can occur, for example, due to the remote node advancing an epoch and
                 // responding to the request using their new shard assignment.
-                self.symbols_still_required_count =
-                    self.symbols_still_required_count.saturating_sub(1);
+                self.symbols_desired_to_request_count =
+                    self.symbols_desired_to_request_count.saturating_sub(1);
             }
         }
     }
@@ -1364,17 +1183,6 @@ where
     }
 }
 
-fn iterate_symbols<A: EncodingAxis>(
-    iterator: IntoValues<ShardIndex, RecoverySymbol<MerkleProof>>,
-) -> impl Iterator<Item = RecoverySymbolData<A, MerkleProof>>
-where
-    RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<A, MerkleProof>>,
-    <RecoverySymbol<MerkleProof> as TryInto<RecoverySymbolData<A, MerkleProof>>>::Error:
-        std::fmt::Debug,
-{
-    iterator.map(|symbol| symbol.try_into().expect("symbols are checked in API"))
-}
-
 /// Returns true if we would expect the client used to communicate with each storage node to remain
 /// the same under each committee.
 ///
@@ -1392,24 +1200,6 @@ fn are_storage_node_addresses_equivalent(committee: &Committee, other: &Committe
         if member.network_address != other_member.network_address
             || member.network_public_key != other_member.network_public_key
         {
-            return false;
-        }
-    }
-    true
-}
-
-/// Returns true if we would expect the client used to communicate with each shard to remain
-/// the same under each committee.
-fn are_shard_addresses_equivalent(committee: &Committee, other: &Committee) -> bool {
-    if committee.n_members() != other.n_members() {
-        return false;
-    }
-
-    for member in committee.members() {
-        let Some(other_member) = other.find(&member.node_id) else {
-            return false;
-        };
-        if member != other_member {
             return false;
         }
     }

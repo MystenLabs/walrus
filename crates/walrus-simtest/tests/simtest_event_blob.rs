@@ -12,14 +12,19 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    use sui_macros::{clear_fail_point, register_fail_point_if};
+    use sui_rpc_api::Client as RpcClient;
     use tokio::sync::RwLock;
     use walrus_core::test_utils;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_service::{
-        client::{Client, ClientCommunicationConfig},
-        test_utils::{test_cluster, SimStorageNodeHandle, TestCluster, TestNodesConfig},
+    use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
+    use walrus_service::test_utils::{
+        SimStorageNodeHandle,
+        TestCluster,
+        TestNodesConfig,
+        test_cluster,
     };
-    use walrus_simtest::test_utils::simtest_utils::BlobInfoConsistencyCheck;
+    use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
     use walrus_sui::{
         client::{ReadClient, SuiContractClient},
         types::move_structs::EventBlob,
@@ -121,21 +126,22 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
-        let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(15),
-                TestNodesConfig {
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(15))
+                .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![2, 2, 3, 3, 3],
                     ..Default::default()
-                },
-                Some(20),
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-                false,
-            )
-            .await
-            .unwrap();
+                })
+                .with_num_checkpoints_per_blob(20)
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
@@ -161,5 +167,115 @@ mod tests {
         assert_ne!(stuck_blob.blob_id, recovered_blob.blob_id);
 
         blob_info_consistency_check.check_storage_node_consistency();
+    }
+
+    /// Waits for all nodes to download checkpoints up to the specified sequence number
+    async fn wait_for_nodes_at_checkpoint(
+        node_refs: &[&SimStorageNodeHandle],
+        target_sequence_number: u64,
+        timeout: Duration,
+    ) -> Result<(), anyhow::Error> {
+        let start_time = Instant::now();
+        let poll_interval = Duration::from_secs(1);
+        let mut nodes_to_check: Vec<&SimStorageNodeHandle> = node_refs.iter().copied().collect();
+
+        tracing::info!(
+            "Waiting for all nodes to download checkpoint up to sequence number: {}",
+            target_sequence_number
+        );
+
+        while !nodes_to_check.is_empty() {
+            if start_time.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout waiting for nodes to download checkpoint.",
+                ));
+            }
+
+            let node_health_infos = simtest_utils::get_nodes_health_info(&nodes_to_check).await;
+
+            let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
+                .iter()
+                .zip(nodes_to_check.iter())
+                .filter_map(
+                    |(info, node)| match info.latest_checkpoint_sequence_number {
+                        Some(seq) if seq < target_sequence_number => Some(*node),
+                        None => Some(*node),
+                        _ => None,
+                    },
+                )
+                .collect();
+
+            nodes_to_check = lagging_nodes;
+
+            tokio::time::sleep(poll_interval).await;
+        }
+
+        Ok(())
+    }
+
+    /// This test verifies that the node can correctly download checkpoints from
+    /// additional fullnodes.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_checkpoint_downloader_with_additional_fullnodes() {
+        let (sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(15))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![2, 2, 3, 3, 3],
+                ..Default::default()
+            })
+            .with_num_checkpoints_per_blob(20)
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_additional_fullnodes(4)
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        // Register a fail point that will fail the first attempt.
+        register_fail_point_if("fallback_client_inject_error", move || true);
+        tracing::info!(
+            "Additional fullnodes: {:?}",
+            sui_cluster.lock().await.additional_rpc_urls()
+        );
+        let client_arc = Arc::new(client);
+
+        // Wait for the cluster to process some events.
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        // Get the latest checkpoint from Sui.
+        let rpc_client = RpcClient::new(sui_cluster.lock().await.additional_rpc_urls()[0].clone())
+            .expect("Failed to create RPC client");
+        let latest_sui_checkpoint = rpc_client
+            .get_latest_checkpoint()
+            .await
+            .expect("Failed to get latest checkpoint from Sui");
+
+        let latest_sui_checkpoint_seq = latest_sui_checkpoint.sequence_number;
+        tracing::info!(
+            "Latest Sui checkpoint sequence number: {}",
+            latest_sui_checkpoint_seq
+        );
+        workload_handle.abort();
+
+        // Get the highest processed event and checkpoint for each storage node.
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_infos = simtest_utils::get_nodes_health_info(&node_refs).await;
+
+        tracing::info!("Node health infos: {:?}", node_health_infos);
+
+        wait_for_nodes_at_checkpoint(
+            &node_refs,
+            latest_sui_checkpoint_seq,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("All nodes should have downloaded the checkpoint");
+
+        clear_fail_point("fallback_client_inject_error");
     }
 }

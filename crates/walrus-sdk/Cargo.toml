@@ -1,55 +1,49 @@
 [package]
 name = "walrus-sdk"
-publish = false
 authors.workspace = true
-version.workspace = true
 edition.workspace = true
 license.workspace = true
+version.workspace = true
 
 [features]
-default = []
+test-utils = [
+  "dep:tempfile",
+]
 
 [dependencies]
-bcs.workspace = true
-bytes.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+enum_dispatch.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
-http = "1.3.1"
-mime.workspace = true
-opentelemetry.workspace = true
-p256 = { workspace = true, features = ["ecdsa"] }
+home.workspace = true
+indicatif.workspace = true
+indoc.workspace = true
+itertools.workspace = true
+jsonwebtoken.workspace = true
 pin-project.workspace = true
 prometheus.workspace = true
 rand.workspace = true
+rayon.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 serde_with.workspace = true
+serde_yaml.workspace = true
+sui-sdk.workspace = true
 sui-types.workspace = true
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
-tower = { workspace = true, features = ["util"] }
+tokio-util.workspace = true
 tracing.workspace = true
-tracing-opentelemetry.workspace = true
 utoipa.workspace = true
-walrus-core = { workspace = true, features = ["sui-types"] }
-walrus-utils = { workspace = true, features = ["http", "metrics"] }
-x509-cert.workspace = true
-
-[dev-dependencies]
-axum.workspace = true
-axum-server.workspace = true
-rcgen.workspace = true
-walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
+walrus-core.workspace = true
+walrus-rest-client.workspace = true
+walrus-sui.workspace = true
 walrus-test-utils.workspace = true
+walrus-utils.workspace = true
 
 [lints]
 workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-
-[target.'cfg(msim)'.dependencies]
-sui-simulator.workspace = true

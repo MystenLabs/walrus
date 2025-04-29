@@ -14,27 +14,27 @@ use core::{
 
 use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, Bytes};
+use serde_with::{Bytes, serde_as};
 
 use super::{
-    errors::SymbolVerificationError,
     EncodingAxis,
     EncodingConfig,
     Primary,
     Secondary,
     WrongSymbolSizeError,
+    errors::SymbolVerificationError,
 };
 use crate::{
-    by_axis::{self, ByAxis},
-    ensure,
-    merkle::{MerkleAuth, MerkleProof, Node},
-    metadata::{BlobMetadata, BlobMetadataApi as _},
-    utils,
     RecoverySymbol as EitherRecoverySymbol,
     SliverIndex,
     SliverType,
     SymbolId,
     WrongAxisError,
+    by_axis::{self, ByAxis},
+    ensure,
+    merkle::{MerkleAuth, MerkleProof, Node},
+    metadata::{BlobMetadata, BlobMetadataApi as _},
+    utils,
 };
 
 /// A set of encoded symbols.
@@ -708,15 +708,15 @@ pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
 mod tests {
     use alloc::format;
 
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
     use crate::{
-        encoding::EncodingConfigTrait as _,
-        test_utils,
         EncodingType,
         SliverPairIndex,
         SliverType,
+        encoding::EncodingConfigTrait as _,
+        test_utils,
     };
 
     param_test! {

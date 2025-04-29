@@ -3,7 +3,7 @@
 
 use core::fmt::{self, Display};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::Debug,
     ops::Bound::{Excluded, Included},
     path::Path,
@@ -11,29 +11,30 @@ use std::{
     time::Instant,
 };
 
-use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
+use blob_info::{BlobInfoIterator, PerObjectBlobInfo, PerObjectBlobInfoIterator};
 use event_cursor_table::EventIdWithProgress;
+use futures::FutureExt as _;
 use itertools::Itertools;
 use metrics::{CommonDatabaseMetrics, Labels, OperationType};
-use prometheus::Registry;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
-    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
-    messages::{SyncShardRequest, SyncShardResponse},
-    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     ShardIndex,
+    messages::{SyncShardRequest, SyncShardResponse},
+    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::types::BlobEvent;
+use walrus_utils::metrics::Registry;
 
 use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
@@ -49,6 +50,7 @@ use self::{
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
+use crate::utils;
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
@@ -64,15 +66,15 @@ mod metrics;
 mod shard;
 
 pub(crate) use shard::{
+    PrimarySliverData,
+    SecondarySliverData,
+    ShardStatus,
+    ShardStorage,
     pending_recover_slivers_column_family_options,
     primary_slivers_column_family_options,
     secondary_slivers_column_family_options,
     shard_status_column_family_options,
     shard_sync_progress_column_family_options,
-    PrimarySliverData,
-    SecondarySliverData,
-    ShardStatus,
-    ShardStorage,
 };
 
 pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
@@ -82,10 +84,6 @@ pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
 pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
     db_config.node_status().to_options()
 }
-
-/// Error returned if a requested operation would block.
-#[derive(Debug, Clone, Copy)]
-pub struct WouldBlockError;
 
 /// The status of the node.
 //
@@ -405,25 +403,13 @@ impl Storage {
     ///
     /// For each shard, the status is returned if it can be determined, otherwise, `None` is
     /// returned.
-    ///
-    /// Returns an error if the operation would block.
-    pub fn try_list_shard_status(
-        &self,
-    ) -> Result<HashMap<ShardIndex, Option<ShardStatus>>, WouldBlockError> {
-        let shards = match self.shards.try_read() {
-            Ok(shards) => shards,
-            Err(_) => {
-                tracing::debug!("try_list_shard_status would block");
-                return Err(WouldBlockError);
-            }
-        };
+    pub async fn list_shard_status(&self) -> HashMap<ShardIndex, Option<ShardStatus>> {
+        let shards = self.shards.read().await;
 
-        let status_list = shards
+        shards
             .iter()
             .map(|(shard, storage)| (*shard, storage.status().ok()))
-            .collect();
-
-        Ok(status_list)
+            .collect()
     }
 
     /// Store the verified metadata without updating blob info. This is only
@@ -450,14 +436,15 @@ impl Storage {
 
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
-    pub fn put_verified_metadata(
+    pub async fn put_verified_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), TypedStoreError> {
         self.put_metadata(metadata.blob_id(), metadata.metadata())
+            .await
     }
 
-    fn put_metadata(
+    async fn put_metadata(
         &self,
         blob_id: &BlobId,
         metadata: &BlobMetadata,
@@ -474,7 +461,10 @@ impl Storage {
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
         self.blob_info
             .set_metadata_stored(&mut batch, blob_id, true)?;
-        let response = batch.write();
+
+        let response = tokio::task::spawn_blocking(move || batch.write())
+            .map(utils::unwrap_or_resume_unwind)
+            .await;
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
@@ -719,6 +709,15 @@ impl Storage {
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
 
+    /// Returns an iterator over the certified per-object blob info before the specified epoch.
+    pub(crate) fn certified_per_object_blob_info_iter_before_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> PerObjectBlobInfoIterator {
+        self.blob_info
+            .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+    }
+
     /// Returns the current event cursor.
     pub(crate) fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor.get_event_cursor_progress()
@@ -771,20 +770,20 @@ pub(crate) mod tests {
         shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     };
-    use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
-        encoding::{EncodingAxis, SliverData},
         Sliver,
         SliverIndex,
         SliverType,
+        SuiObjectId,
+        encoding::{EncodingAxis, SliverData},
     };
     use walrus_sui::{
-        test_utils::{event_id_for_testing, EventForTesting},
+        test_utils::{EventForTesting, event_id_for_testing},
         types::{BlobCertified, BlobRegistered},
     };
-    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
     use crate::test_utils::empty_storage_with_shards;
@@ -803,7 +802,7 @@ pub(crate) mod tests {
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
     pub(crate) async fn empty_storage() -> WithTempDir<Storage> {
-        typed_store::metrics::DBMetrics::init(&Registry::new());
+        typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
         empty_storage_with_shards(&[SHARD_INDEX]).await
     }
 
@@ -842,11 +841,15 @@ pub(crate) mod tests {
 
             for (blob_id, which) in sliver_list.iter() {
                 if matches!(*which, WhichSlivers::Primary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Primary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Primary, seed))
+                        .await?;
                     seed += 1;
                 }
                 if matches!(*which, WhichSlivers::Secondary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Secondary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Secondary, seed))
+                        .await?;
                     seed += 1;
                 }
             }
@@ -868,7 +871,9 @@ pub(crate) mod tests {
 
         storage.update_blob_info(0, &BlobCertified::for_testing(*blob_id).into())?;
 
-        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+        storage
+            .put_metadata(metadata.blob_id(), metadata.metadata())
+            .await?;
         let retrieved = storage.get_metadata(blob_id)?;
 
         assert_eq!(retrieved, Some(expected));
@@ -886,7 +891,9 @@ pub(crate) mod tests {
         storage.update_blob_info(0, &BlobRegistered::for_testing(*blob_id).into())?;
         storage.update_blob_info(1, &BlobCertified::for_testing(*blob_id).into())?;
 
-        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+        storage
+            .put_metadata(metadata.blob_id(), metadata.metadata())
+            .await?;
 
         assert!(storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_some());
@@ -962,7 +969,7 @@ pub(crate) mod tests {
 
             // Set correct registered event.
             let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
-                permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
+                permanent_total: Some(PermanentBlobInfoV1 { event, .. }),
                 ..
             })) = &mut state1
             else {
@@ -1302,11 +1309,10 @@ pub(crate) mod tests {
             .inner
             .database
             .create_cf(&pending_recover_cfs_name, &pending_recover_cfs)?;
-        assert!(!ShardStorage::existing_cf_shards_ids(
-            storage.temp_dir.path(),
-            &Options::default()
-        )
-        .contains(&test_shard_index));
+        assert!(
+            !ShardStorage::existing_cf_shards_ids(storage.temp_dir.path(), &Options::default())
+                .contains(&test_shard_index)
+        );
 
         // Create the column family for the secondary sliver. When restarting the storage, the shard
         // should now be detected as existing.
@@ -1464,7 +1470,7 @@ pub(crate) mod tests {
                     // are not stored, handle_sync_shard_request should continue getting following
                     // slivers until the count is reached.
                     if !(5..=6).contains(&index) {
-                        shard_storage.put_sliver(blob_id, &sliver_data)?;
+                        shard_storage.put_sliver(*blob_id, sliver_data).await?;
                     }
                 }
             }
@@ -1582,6 +1588,35 @@ pub(crate) mod tests {
         )
     }
 
+    fn registered_per_object_blob_info(blob_id: BlobId, epoch: Epoch) -> PerObjectBlobInfo {
+        PerObjectBlobInfo::new_for_testing(
+            blob_id,
+            epoch,
+            None,
+            100,
+            true,
+            event_id_for_testing(),
+            false,
+        )
+    }
+
+    fn certified_per_object_blob_info(
+        blob_id: BlobId,
+        certified_epoch: Epoch,
+        end_epoch: Epoch,
+        deleted: bool,
+    ) -> PerObjectBlobInfo {
+        PerObjectBlobInfo::new_for_testing(
+            blob_id,
+            1,
+            Some(certified_epoch),
+            end_epoch,
+            true,
+            event_id_for_testing(),
+            deleted,
+        )
+    }
+
     fn all_certified_blob_ids(
         storage: &WithTempDir<Storage>,
         after_blob: Option<BlobId>,
@@ -1594,6 +1629,18 @@ pub(crate) mod tests {
                 new_epoch,
                 after_blob.map_or(Unbounded, Excluded),
             )
+            .map(|result| result.map(|(id, _info)| id))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    fn all_certified_blob_object_ids(
+        storage: &WithTempDir<Storage>,
+        new_epoch: Epoch,
+    ) -> Result<Vec<ObjectID>, TypedStoreError> {
+        storage
+            .inner
+            .blob_info
+            .certified_per_object_blob_info_iter_before_epoch(new_epoch, Unbounded)
             .map(|result| result.map(|(id, _info)| id))
             .collect::<Result<Vec<_>, _>>()
     }
@@ -1646,6 +1693,69 @@ pub(crate) mod tests {
         for blob_id in blob_ids.iter().take(6).skip(5) {
             assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_certified_per_object_blob_info_iter_before_epoch() -> TestResult {
+        let storage = empty_storage().await;
+        let blob_info = storage.inner.blob_info.clone();
+
+        let blob_ids = [BlobId([0; 32]), BlobId([1; 32])];
+
+        let object_ids = [
+            SuiObjectId([0; 32]), // blob 0, not certified
+            SuiObjectId([1; 32]), // blob 0, certified within epoch 2
+            SuiObjectId([2; 32]), // blob 0, certified after epoch 2
+            SuiObjectId([3; 32]), // blob 0, certified within epoch 2
+            SuiObjectId([4; 32]), // blob 0, deleted
+            SuiObjectId([5; 32]), // blob 1, certified within epoch 2
+        ]
+        .into_iter()
+        .map(ObjectID::from)
+        .collect::<Vec<_>>();
+
+        let blob_info_map = HashMap::from([
+            (
+                object_ids[0],
+                registered_per_object_blob_info(blob_ids[0], 1),
+            ),
+            (
+                object_ids[1],
+                certified_per_object_blob_info(blob_ids[0], 2, 100, false),
+            ),
+            (
+                object_ids[2],
+                certified_per_object_blob_info(blob_ids[0], 3, 100, false),
+            ),
+            (
+                object_ids[3],
+                certified_per_object_blob_info(blob_ids[0], 2, 4, false),
+            ),
+            (
+                object_ids[4],
+                certified_per_object_blob_info(blob_ids[0], 2, 100, true),
+            ),
+            (
+                object_ids[5],
+                certified_per_object_blob_info(blob_ids[1], 2, 4, false),
+            ),
+        ]);
+
+        let mut batch = blob_info.batch();
+        blob_info.insert_per_object_batch(&mut batch, blob_info_map.iter())?;
+        batch.write()?;
+
+        assert_eq!(
+            all_certified_blob_object_ids(&storage, 3)?,
+            vec![object_ids[1], object_ids[3], object_ids[5]]
+        );
+
+        assert_eq!(
+            all_certified_blob_object_ids(&storage, 4)?,
+            vec![object_ids[1], object_ids[2]]
+        );
 
         Ok(())
     }

@@ -1,14 +1,14 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use walrus_core::{messages::SignedMessage, EpochSchema, SliverPairIndex, SliverType, SymbolId};
-use walrus_sdk::api::{
-    errors::Status,
+use walrus_core::{EpochSchema, SliverPairIndex, SliverType, SymbolId, messages::SignedMessage};
+use walrus_rest_client::api::{
     ServiceHealthInfo,
     ShardHealthInfo,
     ShardStatus,
     ShardStatusDetail,
     ShardStatusSummary,
+    errors::Status,
 };
 use walrus_sui::{EventIdSchema, ObjectIdSchema};
 

@@ -9,15 +9,15 @@ use tracing::Level;
 
 use super::Decoder;
 use crate::{
+    EncodingType,
     encoding::{
-        utils,
         DecodingSymbol,
         EncodeError,
         EncodingAxis,
         InvalidDataSizeError,
         ReedSolomonEncodingConfig,
+        utils,
     },
-    EncodingType,
 };
 
 // TODO (WAL-621): Reduce code duplication with the RaptorQ encoding.
@@ -211,7 +211,7 @@ mod tests {
     use alloc::vec;
     use core::ops::Range;
 
-    use walrus_test_utils::{param_test, Result};
+    use walrus_test_utils::{Result, param_test};
 
     use super::*;
     use crate::encoding::{InvalidDataSizeError, Primary};

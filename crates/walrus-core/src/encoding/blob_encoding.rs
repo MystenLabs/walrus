@@ -8,8 +8,6 @@ use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
-    basic_encoding::{raptorq::RaptorQDecoder, reed_solomon::ReedSolomonDecoder, Decoder},
-    utils,
     DataTooLargeError,
     DecodingSymbol,
     DecodingVerificationError,
@@ -20,14 +18,16 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
+    basic_encoding::{Decoder, raptorq::RaptorQDecoder, reed_solomon::ReedSolomonDecoder},
+    utils,
 };
 use crate::{
-    encoding::config::EncodingConfigTrait as _,
-    merkle::{leaf_hash, MerkleTree},
-    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     SliverIndex,
     SliverPairIndex,
+    encoding::config::EncodingConfigTrait as _,
+    merkle::{MerkleTree, leaf_hash},
+    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
 
 /// Struct to perform the full blob encoding.
@@ -667,9 +667,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        EncodingType,
         encoding::{EncodingConfig, RaptorQEncodingConfig},
         metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
-        EncodingType,
     };
 
     param_test! {

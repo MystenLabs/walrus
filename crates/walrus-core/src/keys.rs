@@ -11,14 +11,14 @@ use fastcrypto::{
     secp256r1::Secp256r1KeyPair,
     traits::{AllowedRng, KeyPair, Signer, SigningKey, ToFromBytes},
 };
-use p256::pkcs8::{self, der::zeroize::Zeroizing, DecodePrivateKey, EncodePrivateKey};
+use p256::pkcs8::{self, DecodePrivateKey, EncodePrivateKey, der::zeroize::Zeroizing};
 use serde::{
-    de::{Error, SeqAccess, Unexpected, Visitor},
-    ser::SerializeTuple,
     Deserialize,
     Serialize,
+    de::{Error, SeqAccess, Unexpected, Visitor},
+    ser::SerializeTuple,
 };
-use serde_with::{base64::Base64 as SerdeWithBase64, ser::SerializeAsWrap, SerializeAs};
+use serde_with::{SerializeAs, base64::Base64 as SerdeWithBase64, ser::SerializeAsWrap};
 
 use crate::messages::{ProtocolMessage, SignedMessage};
 
@@ -276,7 +276,7 @@ impl ProtocolKeyPair {
 mod tests {
     use fastcrypto::{encoding::Hex, traits::ToFromBytes};
     use serde_test::Token;
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
     use crate::test_utils;

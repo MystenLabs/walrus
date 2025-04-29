@@ -10,45 +10,36 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::account_address::AccountAddress;
 use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
+    BuildConfig,
+    CompiledPackage,
+    PackageDependencies,
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
     gather_published_ids,
-    BuildConfig,
-    CompiledPackage,
-    PackageDependencies,
 };
 use sui_sdk::{
-    rpc_types::{
-        SuiExecutionStatus,
-        SuiObjectDataFilter,
-        SuiObjectDataOptions,
-        SuiObjectResponseQuery,
-        SuiTransactionBlockEffectsAPI,
-        SuiTransactionBlockResponse,
-    },
+    rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
+        Identifier,
         base_types::ObjectID,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::TransactionData,
-        Identifier,
-        TypeTag,
     },
     wallet_context::WalletContext,
 };
 use sui_types::{
-    transaction::{ObjectArg, TransactionKind},
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
-    SUI_FRAMEWORK_PACKAGE_ID,
+    transaction::{ObjectArg, TransactionKind},
 };
 use walkdir::WalkDir;
-use walrus_core::{ensure, EpochCount};
+use walrus_core::{EpochCount, ensure};
 
 use crate::{
     client::retry_client::RetriableSuiClient,
@@ -56,18 +47,11 @@ use crate::{
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
 
-const WAL_MINT_AMOUNT: u64 = 5_000_000_000 * 1_000_000_000; // 5 billion WAL
-
 const INIT_MODULE: &str = "init";
 
 const INIT_CAP_TAG: StructTag<'_> = StructTag {
     name: "InitCap",
     module: INIT_MODULE,
-};
-
-const TREASURY_CAP_TAG: StructTag<'_> = StructTag {
-    name: "TreasuryCap",
-    module: "coin",
 };
 
 const UPGRADE_CAP_TAG: StructTag<'_> = StructTag {
@@ -97,6 +81,19 @@ pub(crate) async fn publish_package_with_default_build_config(
 
 /// Compiles a package and returns the dependencies, compiled package, and build config.
 pub(crate) async fn compile_package(
+    package_path: PathBuf,
+    build_config: MoveBuildConfig,
+    chain_id: Option<String>,
+) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+    tokio::task::spawn_blocking(|| {
+        compile_package_inner_blocking(package_path, build_config, chain_id)
+    })
+    .await?
+}
+
+/// Synchronous method to compile the package. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
@@ -164,8 +161,11 @@ pub(crate) async fn publish_package(
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    let client = wallet.get_client().await?;
-    let chain_id = client.read_api().get_chain_identifier().await.ok();
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
+
+    let chain_id = retry_client.get_chain_identifier().await.ok();
 
     let (dependencies, compiled_package, build_config) =
         compile_package(package_path, build_config, chain_id).await?;
@@ -173,7 +173,11 @@ pub(crate) async fn publish_package(
     let compiled_modules = compiled_package.get_package_bytes(false);
 
     // Publish the package
-    let transaction_kind = client
+    // TODO: WAL-778 support `publish_tx_kind` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction_kind = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .publish_tx_kind(
             sender,
@@ -185,22 +189,24 @@ pub(crate) async fn publish_package(
     let gas_budget = if let Some(gas_budget) = gas_budget {
         gas_budget
     } else {
-        let retry_client = RetriableSuiClient::new(client.clone(), Default::default());
         let gas_price = retry_client.get_reference_gas_price().await?;
         retry_client
             .estimate_gas_budget(sender, transaction_kind.clone(), gas_price)
             .await?
     };
 
-    let gas_coins = client
-        .coin_read_api()
+    let gas_coins = retry_client
         .select_coins(sender, None, gas_budget as u128, vec![])
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
         .collect::<Vec<_>>();
 
-    let transaction = client
+    // TODO: WAL-778 support `tx_data` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .tx_data(
             sender,
@@ -241,7 +247,21 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+pub async fn copy_recursively(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
+    let source = source.as_ref().to_owned();
+    let destination = destination.as_ref().to_owned();
+    tokio::task::spawn_blocking(|| copy_recursively_inner_blocking(source, destination)).await?
+}
+
+/// Synchronous method to copy directories recursively. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn copy_recursively_inner_blocking(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
     std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;
@@ -276,7 +296,7 @@ pub async fn publish_coin_and_system_package(
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory)?;
+        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
         deploy_directory
     } else {
         walrus_contract_directory
@@ -284,19 +304,12 @@ pub async fn publish_coin_and_system_package(
 
     if !use_existing_wal_token {
         // Publish `wal` package.
-        let transaction_response = publish_package_with_default_build_config(
+        publish_package_with_default_build_config(
             wallet,
             walrus_contract_directory.join("wal"),
             gas_budget,
         )
         .await?;
-        let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
-
-        // Check if the admin wallet owns the treasury cap. for the `WAL` coin.
-        // If this is the case, we are using the testnet V2 contracts and mint WAL to the
-        // wallet address. In the new mainnet contracts, all WAL has already been minted.
-        // TODO(WAL-518): cleanup once the testnet WAL contracts are replaced.
-        mint_wal_if_treasury_cap_exists(wallet, wal_pkg_id).await?;
     }
 
     let wal_exchange_pkg_id = if with_wal_exchange {
@@ -444,7 +457,9 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    let retry_client = RetriableSuiClient::new(wallet.get_client().await?, Default::default());
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
     let gas_price = retry_client.get_reference_gas_price().await?;
 
     let gas_budget = if let Some(gas_budget) = gas_budget {
@@ -511,98 +526,4 @@ pub async fn create_system_and_staking_objects(
         staking_object_id,
         upgrade_manager_object_id,
     ))
-}
-
-/// Checks if a treasury cap exists and mints [`WAL_MINT_AMOUNT`] FROST to the `admin_wallet`
-/// address if that is the case.
-///
-/// If no `TreasuryCap` object is found, the function assumes that the mainnet contracts are used
-/// and thus the [`WAL_MINT_AMOUNT`] has already been minted. The function still returns `Ok` in
-/// this case.
-async fn mint_wal_if_treasury_cap_exists(
-    admin_wallet: &mut WalletContext,
-    wal_pkg_id: ObjectID,
-) -> Result<()> {
-    let sender = admin_wallet.active_address()?;
-
-    let retry_client =
-        RetriableSuiClient::new(admin_wallet.get_client().await?, Default::default());
-
-    // Get the treasury cap object ref. There should be exactly one if the testnet V2 contracts are
-    // used.
-    let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
-    let treasury_cap_struct_tag = TREASURY_CAP_TAG
-        .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
-    let treasury_cap_obj_responses = retry_client
-        .get_owned_objects(
-            sender,
-            Some(SuiObjectResponseQuery {
-                filter: Some(SuiObjectDataFilter::StructType(treasury_cap_struct_tag)),
-                options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
-            }),
-            None,
-            None,
-        )
-        .await?
-        .data;
-    let treasury_cap_ref = match treasury_cap_obj_responses.first() {
-        Some(obj_response) => obj_response.object()?.object_ref(),
-        None => {
-            tracing::trace!(
-                "no treasury cap found, assuming mainnet contracts are used and no mint is needed"
-            );
-            return Ok(());
-        }
-    };
-
-    tracing::trace!("minting WAL to admin wallet");
-
-    // Create the mint transaction.
-    let mut pt_builder = ProgrammableTransactionBuilder::new();
-    let treasury_cap_arg = pt_builder.input(treasury_cap_ref.into())?;
-
-    let amount_arg = pt_builder.pure(WAL_MINT_AMOUNT)?;
-
-    let result = pt_builder.programmable_move_call(
-        SUI_FRAMEWORK_PACKAGE_ID,
-        Identifier::new("coin").expect("should be able to convert to Identifier"),
-        Identifier::new("mint").expect("should be able to convert to Identifier"),
-        vec![TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?],
-        vec![treasury_cap_arg, amount_arg],
-    );
-    pt_builder.transfer_arg(sender, result);
-    let ptb = pt_builder.finish();
-
-    // Estimate the gas budget.
-    let transaction_kind = TransactionKind::ProgrammableTransaction(ptb.clone());
-    let gas_price = retry_client.get_reference_gas_price().await?;
-    let gas_budget = retry_client
-        .estimate_gas_budget(sender, transaction_kind, gas_price)
-        .await?;
-
-    let gas_coin = admin_wallet
-        .gas_for_owner_budget(sender, gas_budget, Default::default())
-        .await?
-        .1
-        .object_ref();
-
-    // Finalize and execute the transaction.
-    let transaction =
-        TransactionData::new_programmable(sender, vec![gas_coin], ptb, gas_budget, gas_price);
-    let transaction = admin_wallet.sign_transaction(&transaction);
-    let tx_response = admin_wallet
-        .execute_transaction_may_fail(transaction)
-        .await?;
-
-    match tx_response
-        .effects
-        .as_ref()
-        .ok_or_else(|| anyhow!("No transaction effects in response"))?
-        .status()
-    {
-        SuiExecutionStatus::Success => Ok(()),
-        SuiExecutionStatus::Failure { error } => {
-            Err(anyhow!("Error when executing mint transaction: {}", error))
-        }
-    }
 }

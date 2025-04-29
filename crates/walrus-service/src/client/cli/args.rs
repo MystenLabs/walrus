@@ -10,32 +10,32 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    encoding::{EncodingConfig, EncodingConfigTrait},
-    ensure,
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    encoding::{EncodingConfig, EncodingConfigTrait},
+    ensure,
 };
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
-    types::{move_structs::Authorized, StorageNode},
+    types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
 
-use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
 pub struct App {
     /// The path to the Walrus configuration file.
@@ -51,14 +51,14 @@ pub struct App {
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(long, verbatim_doc_comment, global = true)]
+    #[arg(long, verbatim_doc_comment, global = true)]
     #[serde(
         default,
         deserialize_with = "walrus_utils::config::resolve_home_dir_option"
     )]
     pub config: Option<PathBuf>,
     /// The configuration context to use for the client, if omitted the default_context is used.
-    #[clap(long, global = true)]
+    #[arg(long, global = true)]
     #[serde(default)]
     pub context: Option<String>,
     /// The path to the Sui wallet configuration file.
@@ -73,7 +73,7 @@ pub struct App {
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(long, verbatim_doc_comment, global = true)]
+    #[arg(long, verbatim_doc_comment, global = true)]
     #[serde(
         default,
         deserialize_with = "walrus_utils::config::resolve_home_dir_option"
@@ -82,12 +82,12 @@ pub struct App {
     /// The gas budget for transactions.
     ///
     /// If not specified, the gas budget is estimated automatically.
-    #[clap(long, global = true)]
+    #[arg(long, global = true)]
     pub gas_budget: Option<u64>,
     /// Write output as JSON.
     ///
     /// This is always done in JSON mode.
-    #[clap(long, action, global = true)]
+    #[arg(long, global = true)]
     #[serde(default)]
     pub json: bool,
     /// The command to run.
@@ -121,7 +121,7 @@ impl App {
 
 /// Top level enum to separate the daemon and CLI commands.
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Commands {
     /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
@@ -151,15 +151,21 @@ pub enum Commands {
         ///
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
-        #[clap(verbatim_doc_comment)]
+        #[arg(verbatim_doc_comment)]
         command_string: Option<String>,
     },
+    /// Generate autocompletion script
+    Completion {
+        /// Shell type to generate completion script for the specified shell.
+        #[arg(long)]
+        shell: Option<String>,
+    },
     /// Commands to run the binary in CLI mode.
-    #[clap(flatten)]
+    #[command(flatten)]
     #[serde(untagged)]
     Cli(CliCommands),
     /// Commands to run the binary in daemon mode.
-    #[clap(flatten)]
+    #[command(flatten)]
     #[serde(untagged)]
     Daemon(DaemonCommands),
 }
@@ -167,7 +173,7 @@ pub enum Commands {
 /// The CLI commands for the Walrus client.
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CliCommands {
     /// Store a new blob into Walrus.
@@ -192,50 +198,50 @@ pub enum CliCommands {
     /// wallet and always purchase new storage resources, bypassing the need to check the owned
     /// resources on chain. Using this flag could speed up the store operation in case there are
     /// thousands of resources or blobs owned by the wallet.
-    #[clap(alias("write"))]
+    #[command(alias("write"))]
     Store {
         /// The files containing the blob to be published to Walrus.
-        #[clap(required = true, value_name = "FILES")]
+        #[arg(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The epoch argument to specify either the number of epochs to store the blob, or the
         /// end epoch, or the earliest expiry time in rfc3339 format.
         ///
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         dry_run: bool,
         /// Do not check for the blob status before storing it.
         ///
         /// This will create a new blob even if the blob is already certified for a sufficient
         /// duration.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         force: bool,
         /// Ignore the storage resources owned by the wallet.
         ///
         /// The client will not check if it can reuse existing resources, and just check the blob
         /// status on chain.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         ignore_resources: bool,
         /// Mark the blob as deletable.
         ///
         /// Deletable blobs can be removed from Walrus before their expiration time.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         deletable: bool,
         /// Whether to put the blob into a shared blob object.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         share: bool,
         /// The encoding type to use for encoding the files.
-        #[clap(long, hide = true)]
+        #[arg(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
@@ -243,19 +249,19 @@ pub enum CliCommands {
     Read {
         /// The blob ID to be read.
         #[serde_as(as = "DisplayFromStr")]
-        #[clap(allow_hyphen_values = true, value_parser = parse_blob_id)]
+        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
         blob_id: BlobId,
         /// The file path where to write the blob.
         ///
         /// If unset, prints the blob to stdout.
-        #[clap(long)]
+        #[arg(long)]
         #[serde(
             default,
             deserialize_with = "walrus_utils::config::resolve_home_dir_option"
         )]
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
     },
@@ -271,19 +277,19 @@ pub enum CliCommands {
     /// "verified" status.
     BlobStatus {
         /// The filename or the blob ID of the blob to check the status of.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         file_or_blob_id: FileOrBlobId,
         /// Timeout for status requests to storage nodes.
-        #[clap(long, value_parser = humantime::parse_duration, default_value = "1s")]
+        #[arg(long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         /// The encoding type to use for encoding the file.
-        #[clap(long, hide = true)]
+        #[arg(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
         /// The URL of the Sui RPC node to use.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
     },
@@ -300,7 +306,7 @@ pub enum CliCommands {
     /// When no subcommand is provided, epoch, storage, size, and price information is printed.
     Info {
         /// The URL of the Sui RPC node to use.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
         /// The specific info command to run.
@@ -312,19 +318,19 @@ pub enum CliCommands {
     /// Only one of `--node_ids`, `--node_urls`, `--committee`, and `--active_set` can be specified.
     Health {
         /// The URL of the Sui RPC node to use.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
         /// The node selector for the storage node to print health information for.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         node_selection: NodeSelection,
         /// Print detailed health information.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         detail: bool,
         /// Sort configuration
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<HealthSortBy>,
     },
@@ -336,15 +342,15 @@ pub enum CliCommands {
         /// The number of shards for which to compute the blob ID.
         ///
         /// If not specified, the number of shards is read from chain.
-        #[clap(long)]
+        #[arg(long)]
         #[serde(default)]
         n_shards: Option<NonZeroU16>,
         /// The URL of the Sui RPC node to use.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
         /// The encoding type to use for computing the blob ID.
-        #[clap(long, hide = true)]
+        #[arg(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
@@ -356,7 +362,7 @@ pub enum CliCommands {
     },
     /// List all registered blobs for the current wallet.
     ListBlobs {
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
@@ -366,37 +372,37 @@ pub enum CliCommands {
     /// This command is only available for blobs that are deletable.
     Delete {
         /// The filename(s), or the blob ID(s), or the object ID(s) of the blob(s) to delete.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         target: BlobIdentifiers,
         /// Proceed to delete the blob without confirmation.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         yes: bool,
         /// Disable checking the status of the blob after deletion.
         ///
         /// Checking the status adds delay and requires additional requests.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         no_status_check: bool,
         /// The encoding type to use for computing the blob ID.
         ///
         /// This is only used when running the command with the `--file` target.
-        #[clap(long, hide = true)]
+        #[arg(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
     /// Stake with storage node.
     Stake {
         /// The object ID of the storage node to stake with.
-        #[clap(long, required=true, num_args=1.., alias("node-id"))]
+        #[arg(long, required=true, num_args=1.., alias("node-id"))]
         node_ids: Vec<ObjectID>,
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
         ///
         /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
         /// values must be equal to the number of node IDs, and each amount is staked at the node
         /// with the same index.
-        #[clap(long, alias("amount"), num_args=1.., default_value = "1000000000")]
+        #[arg(long, alias("amount"), num_args=1.., default_value = "1000000000")]
         #[serde(default = "default::staking_amounts_frost")]
         amounts: Vec<u64>,
     },
@@ -407,20 +413,20 @@ pub enum CliCommands {
         /// If not specified, the command will try to create the wallet configuration at the default
         /// location `$HOME/.sui/sui_config/`. If the directory already exists, an error will be
         /// returned specifying to use the Sui CLI to manage the existing wallets.
-        #[clap(long)]
+        #[arg(long)]
         path: Option<PathBuf>,
         /// Sui network for which the wallet is generated.
         ///
-        /// Available options are `devnet`, `testnet`, and `localnet`.
-        #[clap(long, default_value_t = default::sui_network())]
+        /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`.
+        #[arg(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
         /// Whether to attempt to get SUI tokens from the faucet.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         use_faucet: bool,
         /// Timeout for the faucet call.
-        #[clap(
+        #[arg(
             long,
             value_parser = humantime::parse_duration,
             default_value = "1min",
@@ -432,12 +438,12 @@ pub enum CliCommands {
     /// Exchange SUI for WAL through the configured exchange. This command is only available on
     /// Testnet.
     GetWal {
-        #[clap(long)]
+        #[arg(long)]
         /// The object ID of the exchange to use.
         ///
         /// This takes precedence over any values set in the configuration file.
         exchange_id: Option<ObjectID>,
-        #[clap(long, default_value_t = default::exchange_amount_mist())]
+        #[arg(long, default_value_t = default::exchange_amount_mist())]
         #[serde(default = "default::exchange_amount_mist")]
         /// The amount of MIST to exchange for WAL/FROST.
         amount: u64,
@@ -457,45 +463,45 @@ pub enum CliCommands {
     /// cannot be extended nor deleted.
     BurnBlobs {
         /// The object IDs of the Blob objects to burn.
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         burn_selection: BurnSelection,
         /// Proceed to burn the blobs without confirmation.
-        #[clap(long, action)]
+        #[arg(long)]
         #[serde(default)]
         yes: bool,
     },
     /// Fund a shared blob.
     FundSharedBlob {
         /// The object ID of the shared blob to fund.
-        #[clap(long)]
+        #[arg(long)]
         shared_blob_obj_id: ObjectID,
         /// The amount of FROST (smallest unit of WAL token) to fund the shared blob with.
-        #[clap(long)]
+        #[arg(long)]
         amount: u64,
     },
     /// Extend an owned or shared blob.
     Extend {
         /// The object ID of the blob to extend.
-        #[clap(long)]
+        #[arg(long)]
         blob_obj_id: ObjectID,
         /// If the blob_obj_id refers to a shared blob object, this flag must be present.
-        #[clap(long)]
+        #[arg(long)]
         shared: bool,
         /// The number of epochs to extend the blob for.
         // TODO (WAL-614): Offer multiple options similar to the `store` command:
         // `--extended-epochs`, `--epochs-ahead`, `--max`, `--end-epoch`,
         // `--earliest-expiration-time`.
-        #[clap(long)]
+        #[arg(long)]
         epochs_extended: EpochCount,
     },
     /// Share a blob.
     Share {
         /// The object ID of the (owned) blob to share.
-        #[clap(long)]
+        #[arg(long)]
         blob_obj_id: ObjectID,
         /// If specified, share and directly fund the blob.
-        #[clap(long)]
+        #[arg(long)]
         amount: Option<u64>,
     },
     /// Get the attribute of a blob.
@@ -503,19 +509,19 @@ pub enum CliCommands {
     /// This command will return all the attribute fields of a blob, but not the blob data.
     GetBlobAttribute {
         /// The object ID of the blob to get the attribute of.
-        #[clap(index = 1)]
+        #[arg(index = 1)]
         blob_obj_id: ObjectID,
     },
     /// Set the attribute of a blob.
     SetBlobAttribute {
         /// The object ID of the blob to set the attribute of.
-        #[clap(index = 1)]
+        #[arg(index = 1)]
         blob_obj_id: ObjectID,
         /// The key-value pairs to set as attributes.
         /// Multiple pairs can be specified by repeating the flag.
         /// Example:
         ///   --attr "key1" "value1" --attr "key2" "value2"
-        #[clap(
+        #[arg(
             long = "attr",
             value_names = &["KEY", "VALUE"],
             num_args = 2,
@@ -526,24 +532,24 @@ pub enum CliCommands {
     /// Remove a key-value pair from a blob's attribute.
     RemoveBlobAttributeFields {
         /// The object ID of the blob.
-        #[clap(index = 1)]
+        #[arg(index = 1)]
         blob_obj_id: ObjectID,
         /// The keys to remove from the blob's attribute.
         /// Multiple keys should be provided as separate arguments.
         /// Examples:
         ///   --keys "key1" "key2,with,commas" "key3 with spaces"
-        #[clap(long, num_args = 1.., value_parser)]
+        #[arg(long, num_args = 1..,)]
         keys: Vec<String>,
     },
     /// Remove the attribute dynamic field from a blob.
     RemoveBlobAttribute {
         /// The object ID of the blob.
-        #[clap(index = 1)]
+        #[arg(index = 1)]
         blob_obj_id: ObjectID,
     },
     /// Administration subcommands for storage node operators.
     NodeAdmin {
-        #[clap(long, global = true)]
+        #[arg(long, global = true, required = false)]
         /// The ID of the node for which the operation should be performed.
         node_id: ObjectID,
         /// The specific node admin command to run.
@@ -554,13 +560,13 @@ pub enum CliCommands {
 
 /// Subcommands for the `info` command.
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
     /// Print all information listed below.
     All {
         /// Sort configuration for committee information
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<NodeSortBy>,
     },
@@ -577,7 +583,7 @@ pub enum InfoCommands {
     /// Print committee information.
     Committee {
         /// Sort configuration
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<NodeSortBy>,
     },
@@ -585,7 +591,7 @@ pub enum InfoCommands {
 
 /// Subcommands for the `node-admin` command.
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum NodeAdminCommands {
     /// Collect the commission.
@@ -593,21 +599,21 @@ pub enum NodeAdminCommands {
     /// Vote for a contract upgrade.
     VoteForUpgrade {
         /// The upgrade manager object ID.
-        #[clap(long)]
+        #[arg(long)]
         upgrade_manager_object_id: ObjectID,
         /// The path to the walrus package directory.
-        #[clap(long)]
+        #[arg(long)]
         package_path: PathBuf,
     },
     /// Set the authorized entity for governance operations.
     SetGovernanceAuthorized {
-        #[clap(flatten)]
+        #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
     },
     /// Set the authorized entity for commission operations.
     SetCommissionAuthorized {
-        #[clap(flatten)]
+        #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
     },
@@ -616,10 +622,10 @@ pub enum NodeAdminCommands {
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[group(required = true, multiple = false)]
 pub struct ObjectOrAddress {
-    #[clap(long, global = true)]
+    #[arg(long, global = true)]
     /// Set an address as authorized entity.
     address: Option<SuiAddress>,
-    #[clap(long, global = true)]
+    #[arg(long, global = true)]
     /// Set an object as capability to authorize operations.
     object: Option<ObjectID>,
 }
@@ -645,7 +651,7 @@ impl TryFrom<ObjectOrAddress> for Authorized {
 /// The daemon commands for the Walrus client.
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DaemonCommands {
     /// Run a publisher service at the provided network address.
@@ -653,22 +659,22 @@ pub enum DaemonCommands {
     /// This does not perform any type of access control and is thus not suited for a public
     /// deployment when real money is involved.
     Publisher {
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         /// The publisher args.
         args: PublisherArgs,
     },
     /// Run an aggregator service at the provided network address.
     Aggregator {
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         /// The URL of the Sui RPC node to use.
         rpc_arg: RpcArg,
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         /// The daemon args.
         daemon_args: DaemonArgs,
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten, default)]
         /// The aggregator args.
         aggregator_args: AggregatorArgs,
@@ -676,11 +682,11 @@ pub enum DaemonCommands {
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
     Daemon {
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten)]
         /// The publisher args.
         args: PublisherArgs,
-        #[clap(flatten)]
+        #[command(flatten)]
         #[serde(flatten, default)]
         /// The aggregator args.
         aggregator_args: AggregatorArgs,
@@ -708,7 +714,7 @@ pub struct AggregatorArgs {
     /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
     /// allowed headers if the specified header names are present in the BlobAttribute associated
     /// with the requested blob.
-    #[clap(long, num_args = 1.., default_values_t = default::allowed_headers())]
+    #[arg(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
 }
@@ -718,16 +724,16 @@ pub struct AggregatorArgs {
 #[serde(rename_all = "camelCase")]
 pub struct PublisherArgs {
     /// The configuration for the daemon.
-    #[clap(flatten)]
+    #[command(flatten)]
     #[serde(flatten)]
     pub daemon_args: DaemonArgs,
     /// The maximum body size of PUT requests in KiB.
-    #[clap(long = "max-body-size", default_value_t = default::max_body_size_kib())]
+    #[arg(long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
     pub max_body_size_kib: usize,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones.
-    #[clap(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
+    #[arg(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
     #[serde(default = "default::max_request_buffer_size")]
     pub max_request_buffer_size: usize,
     /// The maximum number of requests the publisher can process concurrently.
@@ -735,35 +741,35 @@ pub struct PublisherArgs {
     /// If more requests than this maximum are received, the excess requests are buffered up to
     /// `--max-buffer-size`. Any outstanding request will result in a response with a 429 HTTP
     /// status code.
-    #[clap(long, default_value_t = default::max_concurrent_requests())]
+    #[arg(long, default_value_t = default::max_concurrent_requests())]
     #[serde(default = "default::max_concurrent_requests")]
     pub max_concurrent_requests: usize,
     /// The number of clients to use for the publisher.
     ///
     /// The publisher uses this number of clients to publish blobs concurrently.
-    #[clap(long, default_value_t = default::n_publisher_clients())]
+    #[arg(long, default_value_t = default::n_publisher_clients())]
     #[serde(default = "default::n_publisher_clients")]
     pub n_clients: usize,
     /// The interval of time between refilling the publisher's sub-clients' wallets.
-    #[clap(long, value_parser = humantime::parse_duration, default_value="1s")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value="1s")]
     #[serde(default = "default::refill_interval")]
     pub refill_interval: Duration,
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
-    #[clap(long)]
+    #[arg(long)]
     #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub sub_wallets_dir: PathBuf,
     /// The amount of MIST transferred at every refill.
-    #[clap(long, default_value_t = default::gas_refill_amount())]
+    #[arg(long, default_value_t = default::gas_refill_amount())]
     #[serde(default = "default::gas_refill_amount")]
     pub gas_refill_amount: u64,
     /// The amount of FROST transferred at every refill.
-    #[clap(long, default_value_t = default::wal_refill_amount())]
+    #[arg(long, default_value_t = default::wal_refill_amount())]
     #[serde(default = "default::wal_refill_amount")]
     pub wal_refill_amount: u64,
     /// The minimum balance the sub-wallets should have.
     ///
     /// Below this threshold, the sub-wallets are refilled.
-    #[clap(long, default_value_t = default::sub_wallets_min_balance())]
+    #[arg(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
     /// Deprecated flag for backwards compatibility.
@@ -774,7 +780,7 @@ pub struct PublisherArgs {
     ///
     /// To burn the created Blob objects immediately after storing, use the `--burn-after-store`
     /// flag.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub keep: bool,
     /// If set, the publisher will burn the created Blob objects immediately.
@@ -783,7 +789,7 @@ pub struct PublisherArgs {
     /// However, note that this flag _does not affect_ the use of the `send_object_to` query
     /// parameter: Regardless of this flag's status, the publisher will send created objects to the
     /// address in the `send_object_to` query parameter, if it is specified in the PUT request.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub burn_after_store: bool,
     /// If set, the publisher will verify the JWT token.
@@ -795,19 +801,19 @@ pub struct PublisherArgs {
     /// JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value.
     /// The JWT creator must ensure that this value is unique among all requests to the publisher.
     /// We recommend using large nonces to avoid collisions.
-    #[clap(long)]
+    #[arg(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
-    /// If unset, the JWT authentication algorithm will be HMAC.
+    /// If unset, the JWT authentication algorithm will be HMAC (HS256).
     ///
     /// The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384",
     /// "RS256", "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA".
-    #[clap(long)]
+    #[arg(long)]
     #[serde(default)]
     pub jwt_algorithm: Option<Algorithm>,
     /// If set and greater than 0, the publisher will check if the JWT token is expired based on
     /// the "issued at" (`iat`) value.
-    #[clap(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0)]
     #[serde(default)]
     pub jwt_expiring_sec: i64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
@@ -819,10 +825,10 @@ pub struct PublisherArgs {
     ///   in the JWT, if present;
     /// - Verify the size of uploaded file;
     /// - Verify the uniqueness of the `jti` claim.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
-    #[clap(flatten)]
+    #[command(flatten)]
     #[serde(flatten)]
     /// The configuration for the JWT duplicate suppression cache.
     pub replay_suppression_config: CacheConfig,
@@ -884,7 +890,7 @@ pub struct RpcArg {
     /// If unset, the wallet configuration is applied (if set), or the fullnode at
     /// `fullnode.testnet.sui.io:443` is used.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(long)]
+    #[arg(long)]
     #[serde(default)]
     pub(crate) rpc_url: Option<String>,
 }
@@ -893,15 +899,15 @@ pub struct RpcArg {
 #[serde(rename_all = "camelCase")]
 pub struct DaemonArgs {
     /// The address to which to bind the service.
-    #[clap(long, default_value_t = default::bind_address())]
+    #[arg(long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
     pub(crate) bind_address: SocketAddr,
     /// Socket address on which the Prometheus server should export its metrics.
-    #[clap(short = 'a', long, default_value_t = default::metrics_address())]
+    #[arg(short = 'a', long, default_value_t = default::metrics_address())]
     #[serde(default = "default::metrics_address")]
     pub(crate) metrics_address: SocketAddr,
     /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
-    #[clap(long)]
+    #[arg(long)]
     #[serde(
         default,
         deserialize_with = "walrus_utils::config::resolve_home_dir_option"
@@ -915,11 +921,11 @@ pub struct DaemonArgs {
 #[group(required = true, multiple = false)]
 pub struct FileOrBlobId {
     /// The file containing the blob to be checked.
-    #[clap(long)]
+    #[arg(long)]
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -995,13 +1001,13 @@ pub struct BlobIdentifiers {
     /// The file containing the blob to be deleted.
     ///
     /// This is equivalent to calling `blob-id` on the file, and then deleting with `--blob-id`.
-    #[clap(long, num_args = 0.., alias = "file")]
+    #[arg(long, num_args = 0.., alias = "file")]
     #[serde(default)]
     pub(crate) files: Vec<PathBuf>,
     /// The blob ID to be deleted.
     ///
     /// This command deletes _all_ owned blob objects matching the provided blob ID.
-    #[clap(
+    #[arg(
         long,
         allow_hyphen_values = true,
         value_parser = parse_blob_id,
@@ -1014,7 +1020,7 @@ pub struct BlobIdentifiers {
     /// The object ID of the blob object to be deleted.
     ///
     /// This command deletes only the blob object with the given object ID.
-    #[clap(long, num_args = 0.., alias = "object-id")]
+    #[arg(long, num_args = 0.., alias = "object-id")]
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) object_ids: Vec<ObjectID>,
@@ -1076,15 +1082,15 @@ impl BlobIdentifiers {
 #[group(required = true, multiple = false)]
 pub struct BurnSelection {
     /// The object IDs of the Blob objects to burn.
-    #[clap(long, num_args=1.., required=true)]
+    #[arg(long, num_args=1.., required=true)]
     #[serde_as(as = "Vec<DisplayFromStr>")]
     object_ids: Vec<ObjectID>,
     /// Burn all the blob objects owned by the wallet.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     all: bool,
     /// Burn all the expired blob objects owned by the wallet.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     all_expired: bool,
 }
@@ -1126,19 +1132,19 @@ impl BurnSelection {
 #[group(required = true, multiple = false)]
 pub struct NodeSelection {
     /// The IDs of the storage nodes to be selected.
-    #[clap(long, alias="node-id", num_args=1..)]
+    #[arg(long, alias="node-id", num_args=1..)]
     #[serde(default)]
     pub node_ids: Vec<ObjectID>,
     /// The URLs of the storage nodes to be selected.
-    #[clap(long, alias="node-url", num_args=1..)]
+    #[arg(long, alias="node-url", num_args=1..)]
     #[serde(default)]
     pub node_urls: Vec<String>,
     /// Select all storage nodes in the current committee.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub committee: bool,
     /// Select all storage nodes in the active set.
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub active_set: bool,
 }
@@ -1256,16 +1262,16 @@ pub struct EpochArg {
     /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
     /// system object on chain. Otherwise, the blob is stored for the specified number of
     /// epochs. The number of epochs must be greater than 0.
-    #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
+    #[arg(long, value_parser = EpochCountOrMax::parse_epoch_count)]
     pub(crate) epochs: Option<EpochCountOrMax>,
 
     /// The earliest time when the blob can expire, in RFC3339 format (e.g., "2024-03-20T15:00:00Z")
     /// or a more relaxed format (e.g., "2024-03-20 15:00:00").
-    #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
+    #[arg(long, value_parser = humantime::parse_rfc3339_weak)]
     pub(crate) earliest_expiry_time: Option<SystemTime>,
 
     /// The end epoch for the blob.
-    #[clap(long)]
+    #[arg(long)]
     pub(crate) end_epoch: Option<Epoch>,
 }
 
@@ -1378,7 +1384,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 
@@ -1553,12 +1559,12 @@ pub enum HealthSortBy {
 #[serde(rename_all = "camelCase")]
 pub struct SortBy<T: clap::ValueEnum + Send + Sync + Default + 'static> {
     /// Field to sort by
-    #[clap(long, value_enum)]
+    #[arg(long, value_enum)]
     #[serde(default)]
     pub sort_by: Option<T>,
 
     /// Sort in descending order
-    #[clap(long, action)]
+    #[arg(long)]
     #[serde(default)]
     pub desc: bool,
 }

@@ -12,7 +12,7 @@ use clap::Parser;
 use tracing::info;
 use walrus_proxy::{
     admin,
-    config::{load, ProxyConfig},
+    config::{ProxyConfig, load},
     consumer::Label,
     histogram_relay,
     metrics,
@@ -32,11 +32,13 @@ static APP_USER_AGENT: &str = const_str::concat!(
 );
 
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
+#[command(
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case"
+)]
 struct Args {
-    #[clap(
+    #[arg(
         long,
         short,
         default_value = "./walrus-proxy.yaml",
@@ -96,8 +98,16 @@ async fn main() -> Result<()> {
         .map(|(k, v)| Label { name: k, value: v })
         .collect();
 
+    // convert optional remove_labels to a hashset for faster lookup
+    let remove_labels = config
+        .remove_labels
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+
     let app = admin::app(
         labels,
+        remove_labels,
         remote_write_client,
         histogram_relay,
         Some(walrus_node_provider),

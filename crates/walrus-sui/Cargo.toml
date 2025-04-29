@@ -21,14 +21,18 @@ utoipa = [
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+atomic-time.workspace = true
 bcs.workspace = true
 chrono.workspace = true
 clap.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
+jsonrpsee.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
+mysten-metrics.workspace = true
+prometheus.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -56,9 +60,10 @@ utoipa = { workspace = true, optional = true }
 walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "config"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
 
 [dev-dependencies]
+clap.workspace = true
 tracing-subscriber.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
 
@@ -71,5 +76,9 @@ walkdir = "2.5.0"
 workspace = true
 
 [target.'cfg(msim)'.dependencies]
-jsonrpsee = { version = "0.24" }
 sui-simulator.workspace = true
+
+[[bench]]
+name = "gas_cost_bench"
+harness = false
+required-features = ["test-utils"]

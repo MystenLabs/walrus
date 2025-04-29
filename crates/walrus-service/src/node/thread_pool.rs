@@ -13,15 +13,15 @@ use std::{
 };
 
 use futures::FutureExt;
-use prometheus::{HistogramVec, IntGauge, Registry};
+use prometheus::{HistogramVec, IntGauge};
 use rayon::ThreadPoolBuilder as RayonThreadPoolBuilder;
 use tokio::{
     sync::oneshot::{self, Receiver as OneshotReceiver},
     time::Instant,
 };
-use tower::{limit::ConcurrencyLimit, Service};
+use tower::{Service, limit::ConcurrencyLimit};
 use tracing::span::Span;
-use walrus_utils::metrics::OwnedGaugeGuard;
+use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
 
 use self::metrics::{STATUS_IN_PROGRESS, STATUS_QUEUED};
 use super::metrics;
@@ -115,11 +115,7 @@ impl ThreadPoolBuilder {
             }
         });
 
-        let registry = self
-            .metrics_registry
-            .as_ref()
-            .unwrap_or_else(|| prometheus::default_registry());
-        let metrics = ThreadPoolMetrics::new(registry);
+        let metrics = ThreadPoolMetrics::new(&self.metrics_registry.clone().unwrap_or_default());
 
         BlockingThreadPool { inner, metrics }
     }

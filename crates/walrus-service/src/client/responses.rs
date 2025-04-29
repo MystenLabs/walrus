@@ -5,7 +5,6 @@
 
 use std::{
     collections::HashMap,
-    fmt::Display,
     num::NonZeroU16,
     path::{Path, PathBuf},
     time::Duration,
@@ -13,15 +12,19 @@ use std::{
 
 use anyhow;
 use chrono::{DateTime, Utc};
-use futures::{stream, StreamExt as _};
-use serde::{Deserialize, Serialize};
-use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use sui_types::{
-    base_types::{ObjectID, SuiAddress},
-    event::EventID,
-};
-use utoipa::ToSchema;
+use futures::{StreamExt as _, stream};
+use serde::Serialize;
+use serde_with::{DisplayFromStr, base64::Base64, serde_as};
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    Epoch,
+    EpochCount,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
     bft,
     encoding::{
         encoded_blob_length_for_n_shards,
@@ -32,144 +35,25 @@ use walrus_core::{
         source_symbols_for_n_shards,
     },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    DEFAULT_ENCODING,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
-use walrus_sui::{
-    client::ReadClient,
-    types::{
-        move_structs::{Blob, BlobAttribute, EpochState},
-        Committee,
-        NetworkAddress,
-        StakedWal,
-        StorageNode,
+use walrus_rest_client::api::{BlobStatus, ServiceHealthInfo};
+use walrus_sdk::{
+    client::NodeCommunicationFactory,
+    sui::{
+        client::ReadClient,
+        types::{
+            Committee,
+            NetworkAddress,
+            StakedWal,
+            StorageNode,
+            move_structs::{Blob, BlobAttribute, EpochState},
+        },
+        utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
-    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
-    EventIdSchema,
-    ObjectIdSchema,
 };
 
-use super::{
-    cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes},
-    communication::NodeCommunicationFactory,
-    resource::RegisterBlobOp,
-};
-use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
-
-/// Either an event ID or an object ID.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum EventOrObjectId {
-    /// The variant representing an event ID.
-    #[schema(value_type = EventIdSchema)]
-    Event(EventID),
-    /// The variant representing an object ID.
-    #[schema(value_type = ObjectIdSchema)]
-    Object(ObjectID),
-}
-
-impl Display for EventOrObjectId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EventOrObjectId::Event(event_id) => {
-                write!(f, "Certification event ID: {}", format_event_id(event_id))
-            }
-            EventOrObjectId::Object(object_id) => {
-                write!(f, "Owned Blob registration object ID: {}", object_id)
-            }
-        }
-    }
-}
-
-/// Blob store result with its file path.
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct BlobStoreResultWithPath {
-    /// The result of the store operation.
-    pub blob_store_result: BlobStoreResult,
-    /// The file path to the blob.
-    pub path: PathBuf,
-}
-
-/// Result when attempting to store a blob.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum BlobStoreResult {
-    /// The blob already exists within Walrus, was certified, and is stored for at least the
-    /// intended duration.
-    AlreadyCertified {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was certified, or the object ID of the registered blob.
-        ///
-        /// The object ID of the registered blob is used in place of the event ID when the blob is
-        /// deletable, already certified, and owned by the client.
-        #[serde(flatten)]
-        event_or_object: EventOrObjectId,
-        /// The epoch until which the blob is stored (exclusive).
-        #[schema(value_type = u64)]
-        end_epoch: Epoch,
-    },
-    /// The blob was newly created; this contains the newly created Sui object associated with the
-    /// blob.
-    NewlyCreated {
-        /// The Sui blob object that holds the newly created blob.
-        blob_object: Blob,
-        /// The operation that created the blob.
-        resource_operation: RegisterBlobOp,
-        /// The storage cost, excluding gas.
-        cost: u64,
-        /// The shared blob object ID if created.
-        #[serde_as(as = "Option<DisplayFromStr>")]
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[schema(value_type = Option<ObjectIdSchema>)]
-        shared_blob_object: Option<ObjectID>,
-    },
-    /// The blob is known to Walrus but was marked as invalid.
-    ///
-    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
-    /// storage nodes.
-    MarkedInvalid {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was marked as invalid.
-        #[schema(value_type = EventIdSchema)]
-        event: EventID,
-    },
-}
-
-impl BlobStoreResult {
-    /// Returns the blob ID.
-    pub fn blob_id(&self) -> &BlobId {
-        match self {
-            Self::AlreadyCertified { blob_id, .. } => blob_id,
-            Self::MarkedInvalid { blob_id, .. } => blob_id,
-            Self::NewlyCreated {
-                blob_object: Blob { blob_id, .. },
-                ..
-            } => blob_id,
-        }
-    }
-
-    /// Returns the end epoch of the blob.
-    pub fn end_epoch(&self) -> Option<Epoch> {
-        match self {
-            Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
-            Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
-            Self::MarkedInvalid { .. } => None,
-        }
-    }
-}
+use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
+use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 
 /// The output of the `read` command.
 #[serde_as]
@@ -804,6 +688,7 @@ impl NodeHealthOutput {
 /// The output of the `walrus health` command.
 pub(crate) struct ServiceHealthInfoOutput {
     pub health_info: Vec<NodeHealthOutput>,
+    pub latest_seq: Option<u64>,
 }
 
 impl ServiceHealthInfoOutput {
@@ -811,6 +696,7 @@ impl ServiceHealthInfoOutput {
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         communication_factory: &NodeCommunicationFactory,
+        latest_seq: Option<u64>,
         detail: bool,
         sort: SortBy<HealthSortBy>,
     ) -> anyhow::Result<Self> {
@@ -833,7 +719,10 @@ impl ServiceHealthInfoOutput {
             health_info.reverse();
         }
 
-        Ok(Self { health_info })
+        Ok(Self {
+            health_info,
+            latest_seq,
+        })
     }
 }
 

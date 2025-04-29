@@ -5,11 +5,14 @@
 
 use std::process::ExitCode;
 
-use anyhow::Result;
-use clap::Parser;
+use anyhow::{Result, anyhow};
+use chrono::{DateTime, Duration, Utc};
+use clap::{CommandFactory, Parser, ValueEnum as _};
+use clap_complete::Shell;
+use itertools::Itertools;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli::{error, App, ClientCommandRunner, Commands},
+    client::cli::{App, ClientCommandRunner, Commands, error},
     utils::{self, MetricsAndLoggingRuntime},
 };
 use walrus_sui::client::retry_client::RetriableRpcError;
@@ -17,20 +20,44 @@ use walrus_sui::client::retry_client::RetriableRpcError;
 /// The version of the Walrus client.
 pub const VERSION: &str = walrus_service::utils::version!();
 
+/// The build time of the Walrus client.
+pub const BUILD_TIME: DateTime<Utc> = {
+    let Ok(timestamp) = i64::from_str_radix(env!("BUILD_TIME"), 10) else {
+        panic!("BUILD_TIME should be set to a valid UNIX timestamp by the build script");
+    };
+    if let Some(build_time) = DateTime::from_timestamp(timestamp, 0) {
+        build_time
+    } else {
+        panic!("BUILD_TIME should be set to a valid UNIX timestamp by the build script");
+    }
+};
+
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
-#[command(author, version, about = "Walrus client", long_about = None)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
-#[clap(rename_all = "kebab-case")]
+#[command(
+    author,
+    about = "Walrus client",
+    long_about = None,
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case"
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientArgs {
-    #[clap(flatten)]
+    #[command(flatten)]
     inner: App,
 }
 
 fn client() -> Result<()> {
     let subscriber_guard = utils::init_scoped_tracing_subscriber()?;
+
+    if Utc::now() > BUILD_TIME + Duration::days(30) {
+        tracing::warn!(
+            "This build of the Walrus client is older than 30 days. \
+            Please update to the latest version."
+        );
+    }
+
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
@@ -60,6 +87,27 @@ fn client() -> Result<()> {
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
 
             runner.run_daemon_app(command, runtime)
+        }
+        Commands::Completion { shell } => {
+            let sh = if let Some(shell) = shell {
+                Shell::from_str(&shell, true).map_err(|e| {
+                    let possible_shells: String = Shell::value_variants()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .join(",");
+
+                    anyhow!("{e}. Possible values: {}", possible_shells)
+                })
+            } else {
+                Shell::from_env().ok_or(anyhow!("Could not auto-detect shell"))
+            }?;
+            clap_complete::generate(
+                sh,
+                &mut App::command(),
+                env!("CARGO_BIN_NAME"),
+                &mut std::io::stdout(),
+            );
+            Ok(())
         }
         Commands::Json { .. } => unreachable!("we have extracted the json command above"),
     }

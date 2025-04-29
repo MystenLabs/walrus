@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     ops::Not,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use futures::{
-    future::{self, try_join_all},
-    stream,
     FutureExt as _,
     StreamExt,
     TryFutureExt,
+    future::{self, try_join_all},
+    stream,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use rayon::prelude::*;
@@ -21,25 +21,27 @@ use tokio::{
     sync::{Notify, Semaphore},
     task::{JoinHandle, JoinSet},
 };
+use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
-use tracing::{field, Instrument as _, Span};
+use tracing::{Instrument as _, Span, field};
 use typed_store::TypedStoreError;
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof,
     ShardIndex,
+    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
+    metadata::VerifiedBlobMetadataWithId,
 };
+use walrus_utils::metrics::TaskMonitorFamily;
 
 use super::{
+    StorageNodeInner,
     committee::CommitteeService,
     contract_service::SystemContractService,
     metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
-    StorageNodeInner,
 };
 use crate::common::utils::FutureHelpers as _;
 
@@ -55,6 +57,7 @@ pub(crate) struct BlobSyncHandler {
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
     node: Arc<StorageNodeInner>,
     permits: Permits,
+    task_monitors: TaskMonitorFamily<&'static str>,
 }
 
 impl BlobSyncHandler {
@@ -65,11 +68,12 @@ impl BlobSyncHandler {
     ) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
-            node,
+            task_monitors: TaskMonitorFamily::new(node.registry.clone()),
             permits: Permits {
                 blob: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
                 sliver_pairs: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
             },
+            node,
         }
     }
 
@@ -277,14 +281,16 @@ impl BlobSyncHandler {
                 let blob_sync_handler_clone = self.clone();
                 let permits_clone = self.permits.clone();
 
-                let sync_handle = tokio::spawn(async move {
+                let monitor = self.task_monitors.get_or_insert(&"blob_recovery");
+                let sync_handle = tokio::spawn(TaskMonitor::instrument(&monitor, async move {
                     let result = blob_sync_handler_clone
                         .sync_blob_for_all_shards(synchronizer, permits_clone, event_handle)
                         .instrument(spawned_trace)
                         .await;
                     notify_clone.notify_one();
                     result
-                });
+                }));
+
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
@@ -451,15 +457,38 @@ impl BlobSynchronizer {
         let shared_metadata = this
             .clone()
             .recover_metadata()
-            .observe(histograms.clone(), labels_from_metadata_result)
+            .observe_future(histograms.clone(), labels_from_metadata_result)
             .map_ok(|(_, metadata)| Arc::new(metadata))
             .await
             .expect("database operations should not fail");
 
-        let futures_iter = this.node.owned_shards().into_iter().map(|shard| {
-            this.clone()
-                .recover_slivers_for_shard(shared_metadata.clone(), shard)
-        });
+        // Note that we only need to recover the slivers in the shards that are assigned to the
+        // node at the time of the start of blob sync. Due to slow event processing, the contract
+        // might have entered the new epoch with new shard assignment. Upon discovery of the new
+        // shard assignment, the node only needs to recover the slivers assigned in the epoch
+        // of the current event due to that:
+        //   - The node may not have created the new shards yet.
+        //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
+        //     hold, recover, and transfer the shard to the new owner.
+        //
+        // If the node is severally lagging behind and the certified_epoch is 2 epochs older,
+        // this function panics since no shard assignment info is found. Upon restarting the node,
+        // the node will enter recovery mode until catching up with all the events and start
+        // recovering all the missing blobs.
+        let futures_iter = this
+            .node
+            .owned_shards_at_epoch(this.node.current_event_epoch())
+            .unwrap_or_else(|_| {
+                panic!(
+                    "shard assignment must be found at the certified epoch {}",
+                    this.node.current_event_epoch()
+                )
+            })
+            .into_iter()
+            .map(|shard| {
+                this.clone()
+                    .recover_slivers_for_shard(shared_metadata.clone(), shard)
+            });
 
         let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
             let permits = sliver_permits.clone();
@@ -495,7 +524,8 @@ impl BlobSynchronizer {
                             tracing::warn!("received an inconsistency proof");
                             // No need to recover other slivers, sync the proof and return
                             this.sync_inconsistency_proof(&inconsistency_proof)
-                                .observe(histograms.clone(), labels_from_inconsistency_sync_result)
+                                .observe_future(histograms.clone(),
+                                                labels_from_inconsistency_sync_result)
                                 .await;
                             break;
                         }
@@ -555,10 +585,10 @@ impl BlobSynchronizer {
         future::try_join(
             self.clone()
                 .recover_sliver::<Primary>(shard, metadata.clone())
-                .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
+                .observe_future(histograms.clone(), labels_from_sliver_result::<Primary>),
             self.clone()
                 .recover_sliver::<Secondary>(shard, metadata.clone())
-                .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
+                .observe_future(histograms.clone(), labels_from_sliver_result::<Secondary>),
         )
         .await?;
 
@@ -583,7 +613,7 @@ impl BlobSynchronizer {
             .get_and_verify_metadata(self.blob_id, self.certified_epoch)
             .await;
 
-        self.storage().put_verified_metadata(&metadata)?;
+        self.storage().put_verified_metadata(&metadata).await?;
 
         tracing::debug!("metadata successfully synced");
         Ok((true, metadata))
@@ -625,7 +655,7 @@ impl BlobSynchronizer {
 
             match sliver_or_proof {
                 Ok(sliver) => {
-                    shard_storage.put_sliver(&self.blob_id, &sliver)?;
+                    shard_storage.put_sliver(self.blob_id, sliver).await?;
                     tracing::debug!("sliver successfully synced");
                     Ok(true)
                 }

@@ -1,56 +1,47 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
+    Json,
     body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest::header::{
-    ACCESS_CONTROL_ALLOW_HEADERS,
-    ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN,
-    ACCESS_CONTROL_MAX_AGE,
-    CACHE_CONTROL,
-    CONTENT_TYPE,
-    ETAG,
-    X_CONTENT_TYPE_OPTIONS,
-};
+use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
 use serde::Deserialize;
 use sui_types::base_types::{ObjectID, SuiAddress};
+use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
-use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
+use walrus_rest_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
+use walrus_sdk::{
+    client::responses::BlobStoreResult,
+    error::{ClientError, ClientErrorKind},
+    store_when::StoreWhen,
+};
 use walrus_sui::{
-    client::BlobPersistence,
-    types::move_structs::{BlobAttribute, BlobWithAttribute},
     ObjectIdSchema,
     SuiAddressSchema,
+    client::BlobPersistence,
+    types::move_structs::{BlobAttribute, BlobWithAttribute},
 };
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{
-        daemon::{
-            auth::{Claim, PublisherAuthError},
-            PostStoreAction,
-        },
-        BlobStoreResult,
-        ClientError,
-        ClientErrorKind,
-        StoreWhen,
+    client::daemon::{
+        PostStoreAction,
+        auth::{Claim, PublisherAuthError},
     },
     common::api::{Binary, BlobIdString, RestApiError},
 };
@@ -90,8 +81,6 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            // Allow requests from any origin, s.t. content can be loaded in browsers.
-            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
             // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
             headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
             // Insert headers that help caches distribute Walrus blobs.
@@ -151,10 +140,10 @@ fn populate_response_headers(
 
 /// Retrieve a Walrus blob with its associated attribute.
 ///
-/// First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
-/// blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
-/// includes the binary data along with any attribute headers from the metadata that are present in
-/// the configured allowed_headers set.
+/// First retrieves the blob metadata from Sui using the provided object ID (either of the blob
+/// object or a shared blob), then uses the blob_id from that metadata to fetch the actual blob
+/// data via the get_blob function. The response includes the binary data along with any attribute
+/// headers from the metadata that are present in the configured allowed_headers set.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
 #[utoipa::path(
     get,
@@ -220,9 +209,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
 #[rest_api_error(domain = ERROR_DOMAIN)]
 pub(crate) enum GetBlobError {
     /// The requested blob has not yet been stored on Walrus.
-    #[error(
-        "the requested blob ID does not exist on Walrus, ensure that it was entered correctly"
-    )]
+    #[error("the requested blob ID does not exist on Walrus, ensure that it was entered correctly")]
     #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
     BlobNotFound,
 
@@ -273,6 +260,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         epochs,
         deletable,
         send_object_to,
+        share,
     }): Query<PublisherQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
@@ -285,13 +273,19 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     }
 
     let post_store_action = if let Some(address) = send_object_to {
+        if share {
+            return StoreBlobError::BadRequest("cannot specify both `send_object_to` and `share`")
+                .into_response();
+        }
         PostStoreAction::TransferTo(address)
+    } else if share {
+        PostStoreAction::Share
     } else {
         client.default_post_store_action()
     };
     tracing::debug!(?post_store_action, "starting to store received blob");
 
-    let mut response = match client
+    match client
         .write_blob(
             &blob[..],
             encoding_type,
@@ -316,12 +310,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             tracing::error!(?error, "error storing blob");
             StoreBlobError::from(error).into_response()
         }
-    };
-
-    response
-        .headers_mut()
-        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-    response
+    }
 }
 
 /// Checks if the JWT claim has a maximum size and if the blob exceeds it.
@@ -377,6 +366,10 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
+    #[error("invalid request: {0}")]
+    #[rest_api_error(reason = "BAD_REQUEST", status = ApiStatusCode::FailedPrecondition)]
+    BadRequest(&'static str),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -392,14 +385,13 @@ impl From<ClientError> for StoreBlobError {
     }
 }
 
-#[tracing::instrument(level = Level::ERROR, skip_all)]
-pub(super) async fn store_blob_options() -> impl IntoResponse {
-    [
-        (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-        (ACCESS_CONTROL_ALLOW_METHODS, "PUT, OPTIONS"),
-        (ACCESS_CONTROL_MAX_AGE, "86400"),
-        (ACCESS_CONTROL_ALLOW_HEADERS, "*"),
-    ]
+/// Returns a `CorsLayer` for the blob store endpoint.
+pub(super) fn daemon_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .max_age(Duration::from_secs(86400))
+        .allow_headers(Any)
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]
@@ -433,6 +425,9 @@ pub struct PublisherQuery {
     /// this Sui address.
     #[param(value_type = Option<SuiAddressSchema>)]
     pub send_object_to: Option<SuiAddress>,
+    /// If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
+    #[serde(default)]
+    pub share: bool,
 }
 
 pub(super) fn default_epochs() -> EpochCount {

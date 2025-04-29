@@ -138,13 +138,13 @@ site-builder --config /path/to/sites-config.yaml publish <build-directory-of-a-s
 ```
 
 However, if are not a fan of repeating the same flags over and over, it's always easier to have the
-configuration file in one of the [default locations](./tutorial-install.html#admonition-note).
+configuration file in one of the [default locations](./tutorial-install.md#admonition-note).
 
 Download the `sites-config.yaml` file from the repository, and place it in one of the aforementioned
 default locations. To illustrate, we will use the `~/.config/walrus` directory, like so:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/testnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
+curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
 ```
 
 You are now ready to start working on your Walrus Sites! 🎉

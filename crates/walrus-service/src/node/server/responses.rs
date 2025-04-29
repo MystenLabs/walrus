@@ -8,10 +8,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use utoipa::{
-    openapi::{response::Response as OpenApiResponse, RefOr},
     IntoResponses,
+    openapi::{RefOr, response::Response as OpenApiResponse},
 };
-use walrus_sdk::api::errors::{Status, StatusCode as ApiStatusCode};
+use walrus_rest_client::api::errors::{Status, StatusCode as ApiStatusCode};
 
 use super::extract::BcsRejection;
 use crate::{

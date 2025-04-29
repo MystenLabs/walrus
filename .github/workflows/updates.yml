@@ -15,10 +15,10 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      SUI_TAG: testnet-v1.45.2
+      SUI_TAG: testnet-v1.47.0
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # pin@v5.4.0
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # pin@v5.5.0
         with:
           python-version: "3.12"
       - name: Install correct Rust toolchain
@@ -34,7 +34,7 @@ jobs:
 
       - name: Restore cached sui binary
         id: cache-sui-restore
-        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf # pin@v4
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
         with:
           path: "/home/runner/.cargo/bin/sui"
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}

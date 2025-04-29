@@ -12,25 +12,25 @@ use std::{
 };
 
 use axum::{
-    response::{IntoResponse, Response},
     Json,
+    response::{IntoResponse, Response},
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use utoipa::{
+    ToSchema,
     openapi::{
-        schema,
         ContentBuilder,
         RefOr,
         Response as OpenApiResponse,
         ResponseBuilder,
         ResponsesBuilder,
+        schema,
     },
-    ToSchema,
 };
 use walrus_core::BlobId;
-use walrus_sdk::api::errors::{ErrorInfo, Status, StatusCode as ApiStatusCode};
+use walrus_rest_client::api::errors::{ErrorInfo, Status, StatusCode as ApiStatusCode};
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]

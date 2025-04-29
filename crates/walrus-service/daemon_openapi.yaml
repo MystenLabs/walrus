@@ -53,6 +53,12 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SuiAddress'
+      - name: share
+        in: query
+        description: If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
+        required: false
+        schema:
+          type: boolean
       requestBody:
         description: Binary data of the unencoded blob to be stored.
         content:
@@ -68,7 +74,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/BlobStoreResult'
         '400':
-          description: The request is malformed
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '413':
           description: The blob is too large
         '451':
@@ -95,10 +105,10 @@ paths:
       - routes
       summary: Retrieve a Walrus blob with its associated attribute.
       description: |-
-        First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
-        blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
-        includes the binary data along with any attribute headers from the metadata that are present in
-        the configured allowed_headers set.
+        First retrieves the blob metadata from Sui using the provided object ID (either of the blob
+        object or a shared blob), then uses the blob_id from that metadata to fetch the actual blob
+        data via the get_blob function. The response includes the binary data along with any attribute
+        headers from the metadata that are present in the configured allowed_headers set.
       operationId: get_blob_by_object_id
       parameters:
       - name: blob_object_id
@@ -319,6 +329,25 @@ components:
               event:
                 $ref: '#/components/schemas/EventID'
                 description: The event where the blob was marked as invalid.
+      - type: object
+        description: Operation failed.
+        required:
+        - error
+        properties:
+          error:
+            type: object
+            description: Operation failed.
+            required:
+            - error_msg
+            properties:
+              blob_id:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
+              error_msg:
+                type: string
+                description: The error message.
       description: Result when attempting to store a blob.
     EncodingType:
       type: string
@@ -392,10 +421,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_ahead:
                 type: integer
                 format: int32
+                description: The number of epochs ahead for which the blob is registered.
                 minimum: 0
       - type: object
         description: The storage is reused, but the blob was not registered.
@@ -411,6 +442,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: A registration was already present.
@@ -426,6 +458,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: The blob was already certified, but its lifetime is too short.
@@ -442,10 +475,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       - type: object
         description: |-
@@ -466,10 +501,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:

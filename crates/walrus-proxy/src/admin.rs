@@ -1,15 +1,15 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
+use axum::{Extension, Router, extract::DefaultBodyLimit, middleware, routing::post};
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::{
+    LatencyUnit,
     timeout::TimeoutLayer,
     trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
-    LatencyUnit,
 };
 use tracing::Level;
 
@@ -50,6 +50,7 @@ pub fn make_reqwest_client(settings: RemoteWriteConfig, user_agent: &str) -> Req
 /// build our axum app
 pub fn app(
     labels: Vec<Label>,
+    remove_labels: HashSet<String>,
     client: ReqwestClient,
     relay: HistogramRelay,
     allower: Option<WalrusNodeProvider>,
@@ -77,6 +78,7 @@ pub fn app(
         ))))
         .layer(Extension(relay))
         .layer(Extension(labels))
+        .layer(Extension(remove_labels))
         .layer(Extension(client))
         .layer(
             ServiceBuilder::new().layer(

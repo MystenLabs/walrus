@@ -14,7 +14,6 @@ use crate::{
 pub struct Monitor {
     instance: Instance,
     clients: Vec<Instance>,
-    nodes: Vec<Instance>,
     ssh_manager: SshConnectionManager,
 }
 
@@ -23,13 +22,11 @@ impl Monitor {
     pub fn new(
         instance: Instance,
         clients: Vec<Instance>,
-        nodes: Vec<Instance>,
         ssh_manager: SshConnectionManager,
     ) -> Self {
         Self {
             instance,
             clients,
-            nodes,
             ssh_manager,
         }
     }
@@ -51,12 +48,8 @@ impl Monitor {
     ) -> MonitorResult<()> {
         // Configure and reload prometheus.
         let instance = [self.instance.clone()];
-        let commands = Prometheus::setup_commands(
-            self.nodes.clone(),
-            self.clients.clone(),
-            protocol_commands,
-            parameters,
-        );
+        let commands =
+            Prometheus::setup_commands(self.clients.clone(), protocol_commands, parameters);
         self.ssh_manager
             .execute(instance, commands, CommandContext::default())
             .await?;
@@ -101,7 +94,6 @@ impl Prometheus {
 
     /// Generate the commands to update the prometheus configuration and restart prometheus.
     pub fn setup_commands<I, P>(
-        nodes: I,
         clients: I,
         protocol: &P,
         parameters: &BenchmarkParameters,
@@ -112,13 +104,6 @@ impl Prometheus {
     {
         // Generate the prometheus configuration.
         let mut config = vec![Self::global_configuration()];
-
-        let nodes_metrics_path = protocol.nodes_metrics_path(nodes, parameters);
-        for (i, (_, nodes_metrics_path)) in nodes_metrics_path.into_iter().enumerate() {
-            let id = format!("node-{i}");
-            let scrape_config = Self::scrape_configuration(&id, &nodes_metrics_path);
-            config.push(scrape_config);
-        }
 
         let clients_metrics_path = protocol.clients_metrics_path(clients, parameters);
         for (i, (_, client_metrics_path)) in clients_metrics_path.into_iter().enumerate() {

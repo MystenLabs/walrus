@@ -1,30 +1,21 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Code for interacting with the Walrus system.
+//! The Walrus Rust SDK.
 
-use std::fmt::Write;
-
-use fastcrypto::traits::ToFromBytes as _;
-use walrus_core::NetworkPublicKey;
-
-pub mod api;
+pub mod active_committees;
+pub mod blocklist;
 pub mod client;
+pub mod config;
 pub mod error;
+pub mod store_when;
+/// Utilities for the Walrus SDK.
+pub mod utils;
 
-mod node_response;
-mod tls;
+pub use sui_types::event::EventID;
+pub use walrus_sui as sui;
 
-/// Returns a string `<first-4-bytes-as-hex>.network.walrus.alt` corresponding to the public key.
-pub fn server_name_from_public_key(public_key: &NetworkPublicKey) -> String {
-    const N_PUBLIC_KEY_BYTES_IN_SUBJECT: usize = 4;
-
-    let public_key_bytes = public_key.as_bytes();
-
-    let mut server_name = String::new();
-    for byte in public_key_bytes.iter().take(N_PUBLIC_KEY_BYTES_IN_SUBJECT) {
-        write!(&mut server_name, "{byte:x}").expect("write on a string always succeeds");
-    }
-    server_name.push_str(".network.walrus.alt");
-    server_name
+/// Format the event ID as the transaction digest and the sequence number.
+pub fn format_event_id(event_id: &EventID) -> String {
+    format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
 }

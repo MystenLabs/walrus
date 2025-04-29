@@ -5,10 +5,12 @@
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+use sui_keys::keystore::AccountKeystore;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
 use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir};
@@ -41,11 +43,19 @@ pub enum WalletConfig {
     },
 }
 
-/// Helper function to load the wallet context from the given optional wallet path.
+/// Helper function to load the wallet context from the given optional wallet path with a custom
+/// request timeout.
+///
+/// Request timeout is in effect when interacting with Sui via the WalletContext, or the SuiClient
+/// created from the wallet.
 pub fn load_wallet_context_from_path(
     wallet_path: Option<impl AsRef<Path>>,
+    request_timeout: Option<Duration>,
 ) -> Result<WalletContext> {
-    WalletConfig::load_wallet_context(wallet_path.map(WalletConfig::from_path).as_ref())
+    WalletConfig::load_wallet_context(
+        wallet_path.map(WalletConfig::from_path).as_ref(),
+        request_timeout,
+    )
 }
 
 impl WalletConfig {
@@ -79,13 +89,17 @@ impl WalletConfig {
     }
 
     /// Loads the wallet context from the given optional wallet config (optional path and optional
-    /// Sui env).
+    /// Sui env), with an optional request timeout. If the request timeout is not provided, the
+    /// default timeout (60 seconds) will be used.
     ///
     /// If no path is provided, tries to load the configuration first from the local folder, and
     /// then from the standard Sui configuration directory.
     // NB: When making changes to the logic, make sure to update the argument docs in
     // `crates/walrus-service/bin/client.rs`.
-    pub fn load_wallet_context(wallet_config: Option<&WalletConfig>) -> Result<WalletContext> {
+    pub fn load_wallet_context(
+        wallet_config: Option<&WalletConfig>,
+        request_timeout: Option<Duration>,
+    ) -> Result<WalletContext> {
         let mut default_paths = vec!["./sui_config.yaml".into()];
         if let Some(home_dir) = home::home_dir() {
             default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
@@ -94,7 +108,7 @@ impl WalletConfig {
         let path = path_or_defaults_if_exist(wallet_config.map(|c| c.path()), &default_paths)
             .ok_or(anyhow!("could not find a valid wallet config file"))?;
         tracing::info!("using Sui wallet configuration from '{}'", path.display());
-        let mut wallet_context: WalletContext = WalletContext::new(&path, None, None)?;
+        let mut wallet_context: WalletContext = WalletContext::new(&path, request_timeout, None)?;
         if let Some(active_env) = wallet_config.and_then(|wallet_config| wallet_config.active_env())
         {
             if !wallet_context
@@ -114,6 +128,20 @@ impl WalletConfig {
         if let Some(active_address) =
             wallet_config.and_then(|wallet_config| wallet_config.active_address())
         {
+            if !wallet_context
+                .config
+                .keystore
+                .addresses()
+                .iter()
+                .any(|address| *address == active_address)
+            {
+                return Err(anyhow!(
+                    "Address '{}' not found in wallet keystore for file '{}'.",
+                    active_address,
+                    path.display()
+                ));
+            }
+
             wallet_context.config.active_address = Some(active_address);
         }
         Ok(wallet_context)

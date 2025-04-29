@@ -16,14 +16,12 @@ for an overview over all Walrus networks.
 ## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
 
 ```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can skip this section and use the
-`walrus generate-sui-wallet` command after [installing Walrus](#installation). In that case, make
-sure to set the `wallet_config` parameter in the [Walrus
-configuration](#advanced-configuration-optional) to the newly generated wallet. Also, make sure to
-obtain some SUI and WAL tokens.
+If you just want to set up a new Sui wallet for Walrus, you can generate one using the
+`walrus generate-sui-wallet --network mainnet` command after [installing Walrus](#installation).
+You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
 ```
 
-Interacting with Walrus requires a valid Sui wallet with some amount of SUI tokens. The
+Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
 documentation.
@@ -186,6 +184,11 @@ curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_co
 ```
 ~~~
 <!-- markdownlint-enable code-fence-style -->
+
+```admonish warning title="Walrus Testnet redeployment"
+The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
+here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
+```
 
 ### Custom path (optional) {#config-custom-path}
 

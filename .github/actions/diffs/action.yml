@@ -20,8 +20,11 @@ outputs:
     description: True when changes happened in the `testnet-contracts` directory
     value: "${{ steps.diff.outputs.isTestnetContracts }}"
   isMainnetContracts:
-    description: True when changes happened in the `contracts` directory
+    description: True when changes happened in the `mainnet-contracts` directory
     value: "${{ steps.diff.outputs.isMainnetContracts }}"
+  isDevelopmentContracts:
+    description: True when changes happened in the `contracts` directory
+    value: "${{ steps.diff.outputs.isDevelopmentContracts }}"
   isExampleConfig:
     description: True when changes happened in the example config files
     value: "${{ steps.diff.outputs.isExampleConfig }}"
@@ -60,10 +63,12 @@ runs:
           isTestnetContracts:
             - 'testnet-contracts/**'
           isMainnetContracts:
+            - 'mainnet-contracts/**'
+          isDevelopmentContracts:
             - 'contracts/**'
           isExampleConfig:
             - 'crates/walrus-service/node_config_example.yaml'
-            - 'crates/walrus-service/client_config_example.yaml'
+            - 'crates/walrus-sdk/client_config_example.yaml'
           isOpenapi:
             - 'crates/walrus-service/*_openapi.html'
             - 'crates/walrus-service/*_openapi.yaml'

@@ -6,19 +6,20 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use prometheus::Registry;
 use tokio::{
     runtime::{self, Runtime},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::config::SuiReaderConfig,
+    common::config::{SuiReaderConfig, combine_rpc_urls},
     node::{
+        DatabaseConfig,
+        EventProcessorConfig,
         events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
         system_events::{EventManager, SuiSystemEventProvider},
-        EventProcessorConfig,
     },
 };
 
@@ -36,12 +37,17 @@ impl EventProcessorRuntime {
         event_processor_config: &EventProcessorConfig,
         db_path: &Path,
         metrics_registry: &Registry,
+        db_config: &DatabaseConfig,
     ) -> anyhow::Result<Arc<EventProcessor>> {
         let runtime_config = EventProcessorRuntimeConfig {
-            rpc_address: sui_reader_config.rpc.clone(),
+            rpc_addresses: combine_rpc_urls(
+                &sui_reader_config.rpc,
+                &sui_reader_config.additional_rpc_endpoints,
+            ),
             event_polling_interval: sui_reader_config.event_polling_interval,
             db_path: db_path.join("events"),
             rpc_fallback_config: sui_reader_config.rpc_fallback_config.clone(),
+            db_config: db_config.clone(),
         };
         let system_config = SystemConfig {
             system_pkg_id: sui_reader_config
@@ -70,6 +76,7 @@ impl EventProcessorRuntime {
         db_path: &Path,
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
+        db_config: &DatabaseConfig,
     ) -> anyhow::Result<(Box<dyn EventManager>, Self)> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("event-manager-runtime")
@@ -96,6 +103,7 @@ impl EventProcessorRuntime {
                         &event_processor_config,
                         db_path,
                         metrics_registry,
+                        db_config,
                     )
                     .await
                 })?;
@@ -126,6 +134,7 @@ impl EventProcessorRuntime {
         db_path: &Path,
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
+        db_config: &DatabaseConfig,
     ) -> anyhow::Result<Arc<EventProcessor>> {
         tracing::info!(?db_path, "[start_async] running");
         let event_processor = Self::build_event_processor(
@@ -133,6 +142,7 @@ impl EventProcessorRuntime {
             &event_processor_config,
             db_path,
             metrics_registry,
+            db_config,
         )
         .await?;
         let event_processor_clone = event_processor.clone();

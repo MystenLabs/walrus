@@ -1,6 +1,6 @@
 exclude = [
   # automatically generated file
-  "crates/walrus-service/client_config_example.yaml",
+  "crates/walrus-sdk/client_config_example.yaml",
 ]
 include = ["**/*.toml"]
 

@@ -7,22 +7,22 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{bail, Result};
-use axum::{extract::Extension, http::StatusCode, routing::get, Router};
+use anyhow::{Result, bail};
+use axum::{Router, extract::Extension, http::StatusCode, routing::get};
 use once_cell::sync::Lazy;
 use prometheus::{
-    proto::{Metric, MetricFamily},
     CounterVec,
     HistogramOpts,
     HistogramVec,
     Opts,
+    proto::{Metric, MetricFamily},
 };
 use tower::ServiceBuilder;
 use tower_http::{
-    trace::{DefaultOnResponse, TraceLayer},
     LatencyUnit,
+    trace::{DefaultOnResponse, TraceLayer},
 };
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 use crate::{register_metric, var};
 
@@ -32,25 +32,34 @@ const METRICS_ROUTE: &str = "/metrics";
 ///
 /// This static initializer will panic if Prometheus metric registration fails.
 static RELAY_PRESSURE: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "relay_pressure",
-            "HistogramRelay's number of metric families submitted, exported, \\
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "relay_pressure",
+                "HistogramRelay's number of metric families submitted, exported, \
 overflowed to/from the queue.",
-        ),
-        &["histogram_relay"]
+            ),
+            &["histogram_relay"]
+        )
+        .expect("Failed to register relay_pressure metric"))
     )
-    .expect("Failed to register relay_pressure metric"))
 });
 
 /// # Panics
 ///
 /// This static initializer will panic if Prometheus metric registration fails.
 static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    register_metric!(HistogramVec::new(
-        HistogramOpts::new(
-            "relay_duration_seconds",
-            "HistogramRelay's submit/export fn latencies in seconds.",
+    register_metric!(
+        HistogramVec::new(
+            HistogramOpts::new(
+                "relay_duration_seconds",
+                "HistogramRelay's submit/export fn latencies in seconds.",
+            )
+            .buckets(vec![
+                0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096,
+                0.8192, 1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0, 10.0, 12.5, 15.0
+            ]),
+            &["histogram_relay"]
         )
         .buckets(vec![
             0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096,
@@ -59,6 +68,7 @@ static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         &["histogram_relay"]
     )
     .expect("Failed to register relay_duration_seconds metric"))
+    )
 });
 
 /// Creates a new http server that has as a sole purpose to expose
@@ -218,7 +228,7 @@ fn extract_histograms(data: Vec<MetricFamily>) -> impl Iterator<Item = MetricFam
         });
 
         let only_histograms = protobuf::RepeatedField::from_iter(metrics);
-        if only_histograms.len() == 0 {
+        if only_histograms.is_empty() {
             return None;
         }
 
