@@ -172,6 +172,19 @@ impl ParallelCheckpointDownloaderInner {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
             return Err(anyhow!("Failed to get current checkpoint"));
         };
+
+        #[cfg(msim)]
+        {
+            let mut checkpoint_lag_error = false;
+            sui_macros::fail_point_if!("fail_point_current_checkpoint_lag_error", || {
+                checkpoint_lag_error = true;
+            });
+
+            if checkpoint_lag_error {
+                return Err(anyhow!("fail point triggered checkpoint lag error"));
+            }
+        }
+
         let latest_checkpoint = client.get_latest_checkpoint_summary().await?;
         let current_lag =
             latest_checkpoint.sequence_number - current_checkpoint.inner().sequence_number;
@@ -294,9 +307,11 @@ impl ParallelCheckpointDownloaderInner {
                                 "checkpoint lag monitoring has failed repeatedly \
                                 - adjusting to average workers"
                             );
+                            let current_workers = *worker_count.read().await;
+                            tracing::info!("adjusting to average workers {:?}", current_workers);
                             Self::adjust_workers(
                                 &mut next_worker_id,
-                                *worker_count.read().await,
+                                current_workers,
                                 average_workers,
                                 &channels,
                                 &config,

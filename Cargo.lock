@@ -1856,6 +1856,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_with",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.47.0)",
  "sui-rpc-api",
  "sui-types",
  "tempfile",
