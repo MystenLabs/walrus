@@ -2163,7 +2163,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     let (sui_cluster_handle, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Create a new wallet on the cluster.
-    let cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
         Some(
             sui_cluster_handle
                 .lock()
@@ -2181,13 +2181,17 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 
     // Add 4 coins with 1 SUI each to the wallet.
     let address = wallet.as_mut().active_address()?;
-    for _ in 0..4 {
-        sui_cluster_handle
-            .lock()
-            .await
-            .fund_addresses_with_sui(vec![address], Some(sui(1)))
-            .await?;
-    }
+    walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
+        .await?;
+
+    let balance = wallet
+        .as_mut()
+        .get_client()
+        .await?
+        .coin_read_api()
+        .get_balance(address, None)
+        .await?;
+    assert_eq!(balance.total_balance, u128::from(sui(4)));
 
     // Create a new client with the funded wallet.
     let retry_client =
