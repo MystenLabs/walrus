@@ -407,16 +407,10 @@ pub enum SyncNodeConfigError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CheckpointError {
-    #[error("Failed to create backup: {0}")]
-    BackupCreationFailed(String),
-    #[error("Failed to restore from backup: {0}")]
-    BackupRestoreFailed(String),
-    #[error("Failed to delete old backups: {0}")]
-    BackupDeletionFailed(String),
-    #[error("Failed to get existing backups: {0}")]
-    BackupListingFailed(String),
+    #[error("Failed to create checkpoint: {0}")]
+    CheckpointCreationError(String),
     #[error("Backup already in progress")]
-    BackupInProgress,
+    CheckpointInProgress,
     #[error("Other checkpoint error: {0}")]
     Other(#[from] anyhow::Error),
 }

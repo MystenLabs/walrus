@@ -917,7 +917,11 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
             Duration::from_secs(1),
         )
         .await?;
-    assert!(matches!(status_result, BlobStatus::Nonexistent));
+    assert!(
+        matches!(status_result, BlobStatus::Nonexistent),
+        "status_result: {:?}",
+        status_result
+    );
 
     let read_result = client
         .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
