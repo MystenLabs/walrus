@@ -923,17 +923,21 @@ impl StorageNode {
                 ensure!(should_write || should_process, "event stream out of sync");
 
                 if should_process {
+                    sui_macros::fail_point!("process-event-before");
                     self.process_event(
                         stream_element.clone(),
                         element_index,
                         &mut maybe_epoch_at_start,
                     )
                     .await?;
+                    sui_macros::fail_point!("process-event-after");
                 }
 
                 if should_write {
                     if let Some(writer) = &mut event_blob_writer {
+                        sui_macros::fail_point!("write-event-before");
                         writer.write(stream_element.clone(), element_index).await?;
+                        sui_macros::fail_point!("write-event-after");
                     }
                 }
 

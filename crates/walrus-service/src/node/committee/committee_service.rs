@@ -140,8 +140,7 @@ impl NodeCommitteeServiceBuilder {
             self.config,
             encoding_config,
             self.local_identity,
-            self.registry
-                .map(|registry| CommitteeServiceMetricSet::new(&registry)),
+            CommitteeServiceMetricSet::new(&self.registry.unwrap_or_default()),
             self.rng,
         )
         .await?;
@@ -386,7 +385,7 @@ pub(super) struct NodeCommitteeServiceInner<T> {
     /// Function used to construct new services.
     service_factory: TokioMutex<Box<dyn NodeServiceFactory<Service = T>>>,
     /// Exported metrics.
-    metrics: Option<CommitteeServiceMetricSet>,
+    pub metrics: Arc<CommitteeServiceMetricSet>,
 }
 
 impl<T> NodeCommitteeServiceInner<T>
@@ -399,7 +398,7 @@ where
         config: CommitteeServiceConfig,
         encoding_config: Arc<EncodingConfig>,
         local_identity: Option<PublicKey>,
-        metrics: Option<CommitteeServiceMetricSet>,
+        metrics: CommitteeServiceMetricSet,
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
         let committees = committee_tracker.committees();
@@ -418,7 +417,7 @@ where
             config,
             rng: SyncMutex::new(rng),
             encoding_config,
-            metrics,
+            metrics: metrics.into(),
         };
 
         Ok(this)
@@ -444,15 +443,13 @@ where
     }
 
     fn record_epoch_change_metrics(&self, committees: &ActiveCommittees) {
-        let Some(metrics) = self.metrics.as_ref() else {
-            return;
-        };
-
-        metrics.current_epoch.set(committees.epoch());
-        metrics.current_epoch_state.set_from_committees(committees);
+        self.metrics.current_epoch.set(committees.epoch());
+        self.metrics
+            .current_epoch_state
+            .set_from_committees(committees);
 
         if let Some(local_identity) = self.local_identity.as_ref() {
-            metrics.shards_owned.set(
+            self.metrics.shards_owned.set(
                 committees
                     .current_committee()
                     .n_shards_for_node_public_key(local_identity),

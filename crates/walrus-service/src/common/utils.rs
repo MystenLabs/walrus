@@ -245,6 +245,9 @@ impl MetricsAndLoggingRuntime {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
 
+        // Initialize mysten metrics used to track all metrics under `mysten_metrics` namespace.
+        mysten_metrics::init_metrics(&walrus_registry);
+
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
             .with_env()

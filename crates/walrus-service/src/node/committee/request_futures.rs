@@ -4,6 +4,7 @@
 use std::{
     cmp,
     collections::{HashMap, VecDeque},
+    num::NonZero,
     pin::Pin,
     sync::{Arc, Mutex as SyncMutex, Weak},
     task::{Context, Poll, ready},
@@ -49,12 +50,13 @@ use walrus_core::{
 use walrus_rest_client::client::RecoverySymbolsFilter;
 use walrus_sdk::active_committees::CommitteeTracker;
 use walrus_sui::types::Committee;
-use walrus_utils::backoff::ExponentialBackoffState;
+use walrus_utils::{backoff::ExponentialBackoffState, metrics::OwnedGaugeGuard};
 
 use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
+use crate::node::metrics::CommitteeServiceMetricSet;
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,
@@ -175,6 +177,73 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryStateLabel {
+    Init,
+    CollectingSymbols,
+    Backoff,
+    /// The tail number of remaining requests, min 1, max 5.
+    TailRequest(NonZero<u8>),
+    BuildingSliver,
+}
+
+impl AsRef<str> for RecoveryStateLabel {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Init => "init",
+            Self::CollectingSymbols => "collecting-symbols",
+            Self::Backoff => "backoff",
+            Self::TailRequest(_) => "tail-request",
+            Self::BuildingSliver => "building-sliver",
+        }
+    }
+}
+
+/// Tracks aggregated statistics and the state of a RecoverSliver future.
+struct RecoverSliverStats {
+    /// The total number of backoffs performed during the recovery.
+    total_backoffs: usize,
+    /// The total number of failed requests observed during the recovery.
+    total_failed_requests: usize,
+    /// The current "recovery state" of the request, as identified by the `RecoveryStateLabel`.
+    current_state: (RecoveryStateLabel, OwnedGaugeGuard),
+
+    metrics: Arc<CommitteeServiceMetricSet>,
+}
+
+impl RecoverSliverStats {
+    fn new(metrics: Arc<CommitteeServiceMetricSet>) -> Self {
+        let current_state = (
+            RecoveryStateLabel::Init,
+            OwnedGaugeGuard::acquire(walrus_utils::with_label!(
+                metrics.recovery_future_state,
+                RecoveryStateLabel::Init,
+                ""
+            )),
+        );
+
+        Self {
+            total_backoffs: 0,
+            total_failed_requests: 0,
+            current_state,
+            metrics,
+        }
+    }
+
+    fn record_state(&mut self, state: RecoveryStateLabel) {
+        if self.current_state.0 == state {
+            return;
+        }
+
+        let metric = if let RecoveryStateLabel::TailRequest(i) = state {
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, &i.to_string())
+        } else {
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, "")
+        };
+        self.current_state = (state, OwnedGaugeGuard::acquire(metric));
+    }
+}
+
 pub(super) struct RecoverSliver<'a, T> {
     metadata: Arc<VerifiedBlobMetadataWithId>,
     target_index: SliverIndex,
@@ -182,6 +251,7 @@ pub(super) struct RecoverSliver<'a, T> {
     epoch_certified: Epoch,
     backoff: ExponentialBackoffState,
     shared: &'a NodeCommitteeServiceInner<T>,
+    stats: RecoverSliverStats,
 }
 
 impl<'a, T> RecoverSliver<'a, T>
@@ -210,6 +280,7 @@ where
             ),
             shared,
             metadata,
+            stats: RecoverSliverStats::new(shared.metrics.clone()),
         }
     }
 
@@ -280,6 +351,7 @@ where
                 &mut symbol_tracker,
                 weak_committee.clone(),
                 self.shared,
+                &mut self.stats,
             );
 
             tokio::select! {
@@ -290,6 +362,12 @@ where
                                 %n_symbols,
                                 "successfully collected the desired number of recovery symbols"
                             );
+                            self.stats.metrics.recovery_future_backoffs
+                                .observe(self.stats.total_backoffs as f64);
+                            self.stats.metrics.recovery_future_failed_requests
+                                .observe(self.stats.total_failed_requests as f64);
+                            self.stats.record_state(RecoveryStateLabel::BuildingSliver);
+
                             return self.decode_sliver(symbol_tracker).await;
                         },
                         Err(n_symbols_remaining) => {
@@ -297,6 +375,10 @@ where
                                 %n_symbols_remaining,
                                 "failed to collect sufficient recovery symbols"
                             );
+                            self.stats.record_state(RecoveryStateLabel::Backoff);
+                            self.stats.metrics.recovery_future_backoff_total.inc();
+                            self.stats.total_backoffs += 1;
+
                             wait_before_next_attempts(&mut self.backoff, &self.shared.rng).await;
                         }
                     }
@@ -406,6 +488,7 @@ struct CollectRecoverySymbols<'a, T> {
     shared: &'a NodeCommitteeServiceInner<T>,
     upcoming_nodes: RemainingShards,
     pending_requests: FuturesUnordered<BoxFuture<'a, (usize, Option<Vec<GeneralRecoverySymbol>>)>>,
+    stats: &'a mut RecoverSliverStats,
 }
 
 impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
@@ -414,6 +497,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
         tracker: &'a mut SymbolTracker,
         committee: Weak<Committee>,
         shared: &'a NodeCommitteeServiceInner<T>,
+        stats: &'a mut RecoverSliverStats,
     ) -> Self {
         // Clear counts of in-progress collections.
         tracker.clear_in_progress();
@@ -434,6 +518,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             shared,
             tracker,
             upcoming_nodes,
+            stats,
         }
     }
 
@@ -445,6 +530,9 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
             if let Some(symbols) = maybe_symbols {
                 self.tracker.extend_collected(symbols);
+            } else {
+                // No symbols, which indicates a request failure.
+                self.stats.total_failed_requests += 1;
             }
 
             // If we have collected enough symbols to decode the sliver, we can stop.
@@ -545,6 +633,16 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             new_request_count,
             "completed refilling pending requests with additional futures"
         );
+
+        match self.pending_requests.len() {
+            0 => (),
+            i @ 1..=5 => self.stats.record_state(RecoveryStateLabel::TailRequest(
+                NonZero::new(i as u8).expect("zero is handled above"),
+            )),
+            _ => self
+                .stats
+                .record_state(RecoveryStateLabel::CollectingSymbols),
+        }
     }
 
     fn symbol_id_at_shard(&self, shard_id: ShardIndex) -> SymbolId {
