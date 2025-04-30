@@ -1851,6 +1851,7 @@ version = "1.24.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
  "rocksdb",
