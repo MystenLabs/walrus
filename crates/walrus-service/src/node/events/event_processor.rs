@@ -72,7 +72,7 @@ use walrus_sui::{
     },
     types::ContractEvent,
 };
-use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry, tracing_sampled};
 
 use crate::{
     node::{
@@ -472,6 +472,7 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
+            tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);

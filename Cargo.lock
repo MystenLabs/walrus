@@ -12457,6 +12457,8 @@ dependencies = [
  "home",
  "http-body 1.0.1",
  "http-body-util",
+ "humantime",
+ "once_cell",
  "pin-project",
  "prometheus",
  "rand 0.8.5",
@@ -12470,6 +12472,7 @@ dependencies = [
  "tokio-metrics",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
+ "tracing-subscriber",
  "walrus-test-utils",
 ]
 

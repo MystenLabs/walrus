@@ -21,7 +21,7 @@ use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
 #[cfg(not(test))]
 use walrus_utils::backoff::ExponentialBackoff;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, tracing_sampled};
 
 use crate::{
     ParallelDownloaderConfig,
@@ -204,6 +204,7 @@ impl ParallelCheckpointDownloaderInner {
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
+            tracing_sampled::info!("30s", "Downloaded checkpoint {}", sequence_number);
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!(worker_id, "checkpoint download worker shutting down");
@@ -392,6 +393,11 @@ impl ParallelCheckpointDownloaderInner {
                         tracing::error!("failed to send job to workers; channel closed");
                         return;
                     }
+                    tracing_sampled::info!(
+                        "30s",
+                        "Adding checkpoint to worker queue {}",
+                        sequence_number
+                    );
                     in_flight.insert(sequence_number);
                     sequence_number += 1;
                 }
