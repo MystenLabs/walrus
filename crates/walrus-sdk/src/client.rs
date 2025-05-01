@@ -257,21 +257,19 @@ impl<T: ReadClient> Client<T> {
         self.check_blob_id(blob_id)?;
         let committees = self.get_committees().await?;
 
-        let certified_epoch = if committees.is_change_in_progress() {
-            tracing::info!("epoch change in progress, reading from initial certified epoch");
-            let blob_status = match blob_status {
-                Some(status) => status,
-                None => {
-                    self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                        .await?
-                }
-            };
-            blob_status
-                .initial_certified_epoch()
-                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
-        } else {
-            // We are not during epoch change, we can read from the current epoch directly.
-            committees.epoch()
+        let status = match blob_status {
+            Some(status) => status,
+            None => {
+                // The status check will return `ClientErrorKind::BlobIdDoesNotExist` if the blob
+                // is not registered or expired.
+                self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                    .await?
+            }
+        };
+
+        let Some(certified_epoch) = status.initial_certified_epoch() else {
+            // The blob ID has not been certified yet. No need to read it.
+            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
         };
 
         // Return early if the committee is behind.
@@ -337,7 +335,7 @@ impl<T: ReadClient> Client<T> {
                 Ok(result) => return Ok(result),
                 Err(error) => {
                     if error.may_be_caused_by_epoch_change() {
-                        tracing::warn!(
+                        tracing::info!(
                             %error,
                             "operation aborted; maybe because of epoch change; retrying"
                         );
@@ -347,17 +345,17 @@ impl<T: ReadClient> Client<T> {
                             self.force_refresh_committees().await?;
                         }
                     } else {
-                        tracing::warn!(%error, "operation failed; not retrying");
+                        tracing::debug!(%error, "operation failed; not retrying");
                         return Err(error);
                     }
                 }
             };
 
             attempts += 1;
-            tracing::info!(
+            tracing::debug!(
                 ?attempts,
                 ?delay,
-                "committee change detected; retrying after a delay",
+                "a potential committee change detected; retrying after a delay",
             );
             tokio::time::sleep(delay).await;
         }
