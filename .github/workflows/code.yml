@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/run_tarpaulin
       - name: Add coverage PR comment
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
         with:
           path: code-coverage-results.md
@@ -231,7 +231,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches the testnet-contracts directory
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
@@ -250,7 +250,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches the mainnet-contracts directory
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: >
             **Warning:** This PR touches the `mainnet-contracts` directory. This should only be
@@ -269,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an example config file
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: |
             **Warning:** This PR modifies one of the example config files. Please consider the
@@ -295,7 +295,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an OpenAPI file
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: |
             **Warning:** This PR modifies one of the OpenAPI files. Please consider the
