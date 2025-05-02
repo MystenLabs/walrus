@@ -1,7 +1,10 @@
 # Editors/OS
 **/.history/
-**/.vscode/
 **/.idea/
+
+.vscode/*
+!.vscode/settings.json
+
 .nvimrc
 .DS_Store
 
