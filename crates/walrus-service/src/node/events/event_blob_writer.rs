@@ -45,17 +45,20 @@ use walrus_sui::{
 };
 use walrus_utils::metrics::Registry;
 
-use crate::node::{
-    DatabaseConfig,
-    StorageNodeInner,
-    errors::StoreSliverError,
-    events::{
-        EventStreamCursor,
-        EventStreamElement,
-        IndexedStreamEvent,
-        InitState,
-        PositionedStreamEvent,
-        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+use crate::{
+    common::event_blob_downloader::LastCertifiedEventBlob,
+    node::{
+        DatabaseConfig,
+        StorageNodeInner,
+        errors::StoreSliverError,
+        events::{
+            EventStreamCursor,
+            EventStreamElement,
+            IndexedStreamEvent,
+            InitState,
+            PositionedStreamEvent,
+            event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+        },
     },
 };
 
@@ -108,17 +111,16 @@ pub struct EventBlobMetadata<T, U> {
 }
 
 /// Metadata for a blob that is waiting for attestation.
-pub(crate) type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
+pub type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
 
 /// Metadata for a blob that failed to attest.
-pub(crate) type FailedToAttestEventBlobMetadata =
-    EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub type FailedToAttestEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last attested.
-pub(crate) type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last certified.
-pub(crate) type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
+pub type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
 
 impl PendingEventBlobMetadata {
     fn new(
@@ -342,13 +344,13 @@ impl EventBlobWriterFactory {
     }
 
     /// Create a new event blob writer factory.
-    pub fn new(
+    pub async fn new(
         root_dir_path: &Path,
         db_config: &DatabaseConfig,
         node: Arc<StorageNodeInner>,
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
-        last_certified_event_blob: Option<SuiEventBlob>,
+        last_certified_event_blob: Option<LastCertifiedEventBlob>,
         num_uncertified_blob_threshold: Option<usize>,
     ) -> Result<EventBlobWriterFactory> {
         let db_path = Self::db_path(root_dir_path);
@@ -422,15 +424,63 @@ impl EventBlobWriterFactory {
             &failed_to_attest,
             &certified,
         )?;
+        let mut wb = pending.batch();
+        if let Some(LastCertifiedEventBlob::EventBlobWithMetadata(latest)) =
+            last_certified_event_blob
+        {
+            if certified
+                .get(&())?
+                .filter(|current_certified| {
+                    latest.event_stream_cursor.element_index
+                        > current_certified.event_cursor.element_index
+                })
+                .is_some()
+            {
+                let certified_metadata = CertifiedEventBlobMetadata::new(
+                    latest.blob_id,
+                    latest.event_stream_cursor,
+                    latest.epoch,
+                );
+                wb.insert_batch(&certified, std::iter::once(((), certified_metadata)))?;
+                wb.delete_batch(&attested, std::iter::once(()))?;
+                wb.delete_batch(&failed_to_attest, std::iter::once(()))?;
+                for entry in pending.safe_iter() {
+                    wb.delete_batch(&pending, std::iter::once(entry?.0))?;
+                }
+            } else {
+                tracing::info!("No certified metadata to update");
+            }
+            Self::reset_uncertified_blobs(
+                &pending,
+                &attested,
+                &failed_to_attest,
+                num_uncertified_blob_threshold,
+                Some(latest.blob()),
+                &blobs_path,
+                &mut wb,
+            )?;
+        } else if let Some(LastCertifiedEventBlob::EventBlob(event_blob)) =
+            last_certified_event_blob
+        {
+            Self::reset_uncertified_blobs(
+                &pending,
+                &attested,
+                &failed_to_attest,
+                num_uncertified_blob_threshold,
+                Some(event_blob),
+                &blobs_path,
+                &mut wb,
+            )?;
+        }
 
-        Self::reset_uncertified_blobs(
-            &pending,
-            &attested,
-            &failed_to_attest,
-            num_uncertified_blob_threshold,
-            last_certified_event_blob,
-            &blobs_path,
-        )?;
+        wb.write()?;
+
+        // flush db in msim
+        #[cfg(msim)]
+        {
+            tracing::info!("flushing db");
+            certified.flush()?;
+        }
 
         let event_cursor = pending
             .safe_iter()
@@ -576,6 +626,7 @@ impl EventBlobWriterFactory {
         num_uncertified_blob_threshold: Option<usize>,
         last_certified_event_blob: Option<SuiEventBlob>,
         blobs_path: &Path,
+        write_batch: &mut DBBatch,
     ) -> Result<()> {
         let Some(last_certified_event_blob) = last_certified_event_blob else {
             return Ok(());
@@ -645,24 +696,21 @@ impl EventBlobWriterFactory {
         );
 
         let mut blobs_to_delete = Vec::new();
-        let mut wb = pending_db.batch();
 
         for (k, metadata) in pending {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(pending_db, std::iter::once(k))?;
+            write_batch.delete_batch(pending_db, std::iter::once(k))?;
         }
 
         for (_, metadata) in attested {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(attested_db, std::iter::once(()))?;
+            write_batch.delete_batch(attested_db, std::iter::once(()))?;
         }
 
         for (_, metadata) in failed_to_attest {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
+            write_batch.delete_batch(failed_to_attest_db, std::iter::once(()))?;
         }
-
-        wb.write()?;
 
         for blob_index in blobs_to_delete {
             let blob_path = blobs_path.join(blob_index.to_string());
@@ -676,6 +724,15 @@ impl EventBlobWriterFactory {
         }
 
         Ok(())
+    }
+
+    /// Returns the event cursor of the last certified event blob.
+    pub fn last_certified_event_blob_cursor(&self) -> Option<EventStreamCursor> {
+        self.certified
+            .get(&())
+            .ok()
+            .flatten()
+            .map(|metadata| metadata.event_cursor)
     }
 }
 
@@ -1376,6 +1433,11 @@ impl EventBlobWriter {
 
         batch.write()?;
 
+        #[cfg(msim)]
+        {
+            self.certified.flush()?;
+        }
+
         self.metrics
             .latest_processed_event_index
             .set(element_index.try_into()?);
@@ -1658,7 +1720,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1711,7 +1774,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1794,7 +1858,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
