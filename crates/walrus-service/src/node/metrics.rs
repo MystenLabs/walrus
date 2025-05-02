@@ -23,7 +23,7 @@ use walrus_sui::types::{
 
 use crate::{
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
-    node::events::EventStreamElement,
+    event::events::EventStreamElement,
 };
 
 pub(crate) const STATUS_FAILURE: &str = "failure";

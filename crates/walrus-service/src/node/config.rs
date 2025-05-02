@@ -43,7 +43,8 @@ use walrus_sui::types::{
 use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
-    node::{db_checkpoint::DbCheckpointConfig, events::EventProcessorConfig},
+    event::event_processor::config::EventProcessorConfig,
+    node::db_checkpoint::DbCheckpointConfig,
 };
 
 /// Configuration for the config synchronizer.
