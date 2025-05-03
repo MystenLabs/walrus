@@ -29,13 +29,13 @@ const QUILT_TYPE_SIZE: usize = 1;
 /// The maximum number of columns a quilt index can have.
 const MAX_NUM_COLUMNS_FOR_QUILT_INDEX: usize = 1;
 
-pub trait QuiltVersion {
-    type QuiltConfig;
-    type QuiltEncoder<'a>;
-    type QuiltDecoder<'a>;
-    type Quilt;
+pub trait QuiltVersion: Sized {
+    type QuiltConfig: for<'a> QuiltConfigApi<'a, Self>;
+    type QuiltEncoder<'a>: QuiltEncoderApi<Self>;
+    type QuiltDecoder<'a>: QuiltDecoderApi<'a, Self>;
+    type Quilt: QuiltApi<Self>;
     type QuiltIndex;
-    type QuiltMetadataV1;
+    type QuiltMetadata;
 
     /// The serialized bytes of the quilt type.
     fn quilt_type_bytes() -> &'static [u8];
@@ -78,7 +78,7 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     /// to re-encode the blobs.
     fn parse_from_quilt_blob(
         quilt_blob: Vec<u8>,
-        metadata: &V::QuiltMetadataV1,
+        metadata: &V::QuiltMetadata,
         n_shards: NonZeroU16,
     ) -> Result<V::Quilt, QuiltError>;
 }
@@ -93,7 +93,7 @@ pub trait QuiltEncoderApi<V: QuiltVersion> {
     fn encode(&self) -> Result<Vec<SliverPair>, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
-    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, V::QuiltMetadataV1), QuiltError>;
+    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, V::QuiltMetadata), QuiltError>;
 }
 
 /// The decoder of the quilt.
@@ -166,7 +166,7 @@ impl QuiltVersion for QuiltVersionV1 {
     type QuiltDecoder<'a> = QuiltDecoderV1<'a>;
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
-    type QuiltMetadataV1 = QuiltMetadataV1;
+    type QuiltMetadata = QuiltMetadataV1;
 
     fn quilt_type_bytes() -> &'static [u8] {
         QuiltVersionV1::QUILT_TYPE_BYTES
@@ -440,19 +440,23 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             n_rows
         );
 
-        let mut ordered_blobs = Vec::new();
-        for blob_with_identifier in self.blobs.iter() {
-            ordered_blobs.push(blob_with_identifier);
+        // Calculate blob_ids for each blob and sort by blob_id.
+        let mut blob_id_pairs = Vec::new();
+        for blob in self.blobs.iter() {
+            let metadata = self
+                .config
+                .compute_metadata(blob.blob)
+                .expect("Failed to compute metadata for blob");
+            blob_id_pairs.push((blob, *metadata.blob_id()));
         }
 
+        blob_id_pairs.sort_by(|(_, a_id), (_, b_id)| a_id.cmp(b_id));
+
         // Create initial QuiltBlocks.
-        let quilt_blocks: Vec<QuiltBlockV1> = ordered_blobs
+        let quilt_blocks: Vec<QuiltBlockV1> = blob_id_pairs
             .iter()
-            .map(|blob_with_identifier| {
-                QuiltBlockV1::new(
-                    blob_with_identifier.blob.len() as u64,
-                    blob_with_identifier.identifier.clone(),
-                )
+            .map(|(blob, blob_id)| {
+                QuiltBlockV1::new(blob.blob.len() as u64, blob.identifier.clone(), *blob_id)
             })
             .collect();
 
@@ -471,7 +475,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         // Collect blob sizes for symbol size computation.
         let all_sizes: Vec<usize> = core::iter::once(index_total_size)
-            .chain(ordered_blobs.iter().map(|bwd| bwd.blob.len()))
+            .chain(blob_id_pairs.iter().map(|(bwd, _)| bwd.blob.len()))
             .collect();
 
         let required_alignment = self.config.encoding_type().required_alignment() as usize;
@@ -511,18 +515,18 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         };
 
         // First pass: Fill data with actual blobs and populate quilt blocks.
-        for (i, blob_with_identifier) in ordered_blobs.iter().enumerate() {
-            let cols_needed = blob_with_identifier.blob.len().div_ceil(column_size);
+        for (i, (blob, _)) in blob_id_pairs.iter().enumerate() {
+            let cols_needed = blob.blob.len().div_ceil(column_size);
             tracing::event!(
                 Level::DEBUG,
                 "Blob: {:?} needs {} columns, current_col: {}",
-                blob_with_identifier.identifier,
+                blob.identifier,
                 cols_needed,
                 current_col
             );
             assert!(current_col + cols_needed <= n_columns);
 
-            add_blob_to_data(blob_with_identifier.blob, current_col);
+            add_blob_to_data(blob.blob, current_col);
 
             quilt_index.quilt_blocks[i].start_index =
                 u16::try_from(current_col).expect("current_col should fit in u16");

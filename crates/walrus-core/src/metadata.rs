@@ -62,16 +62,19 @@ pub struct QuiltBlockV1 {
     pub end_index: u16,
     /// The identifier of the block, it can be used to locate the blob in the quilt.
     identifier: String,
+    /// BlobId of the quilted blob.
+    blob_id: BlobId,
 }
 
 impl QuiltBlockV1 {
     /// Returns a new [`QuiltBlockV1`].
-    pub fn new(unencoded_length: u64, identifier: String) -> Self {
+    pub fn new(unencoded_length: u64, identifier: String, blob_id: BlobId) -> Self {
         Self {
             unencoded_length,
             start_index: 0,
             end_index: 0,
             identifier,
+            blob_id,
         }
     }
 
