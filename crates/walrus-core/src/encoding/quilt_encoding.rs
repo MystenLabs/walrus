@@ -17,6 +17,7 @@ use super::{EncodingConfig, EncodingConfigEnum, Primary, Secondary, SliverData, 
 use crate::{
     encoding::{blob_encoding::BlobEncoder, config::EncodingConfigTrait as _, QuiltError},
     metadata::{QuiltBlockV1, QuiltIndexV1, QuiltMetadataV1},
+    BlobId,
     SliverIndex,
 };
 
@@ -120,6 +121,10 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Gets a blob by its identifier from the quilt.
     #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
+
+    /// Gets a blob by its ID from the quilt.
+    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+    fn get_blob_by_id(&self, blob_id: BlobId) -> Result<Vec<u8>, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> &V::QuiltIndex;
@@ -251,6 +256,13 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
             .get_quilt_block_by_identifier(identifier)
+            .and_then(|quilt_block| self.get_blob(quilt_block))
+    }
+
+    /// Gets the blob by its ID.
+    fn get_blob_by_id(&self, blob_id: BlobId) -> Result<Vec<u8>, QuiltError> {
+        self.quilt_index
+            .get_quilt_block_by_id(blob_id)
             .and_then(|quilt_block| self.get_blob(quilt_block))
     }
 
@@ -1176,6 +1188,7 @@ mod tests {
                 extracted_blob, blob_with_identifier.blob,
                 "Mismatch in encoded blob"
             );
+
             let quilt_block = quilt
                 .quilt_index()
                 .get_quilt_block_by_identifier(blob_with_identifier.identifier.as_str())
@@ -1185,11 +1198,17 @@ mod tests {
                 &blob_with_identifier.identifier,
                 "Mismatch in blob description"
             );
+
             let blob_id = *config
                 .compute_metadata(blob_with_identifier.blob)
                 .expect("Failed to compute metadata for blob")
                 .blob_id();
             assert_eq!(quilt_block.blob_id, blob_id);
+
+            let quilt_block_by_id = quilt
+                .get_blob_by_id(blob_id)
+                .expect("Block should exist for this blob ID");
+            assert_eq!(quilt_block_by_id, blob_with_identifier.blob);
         }
 
         assert_eq!(quilt.quilt_index().len(), blobs_with_identifiers.len());

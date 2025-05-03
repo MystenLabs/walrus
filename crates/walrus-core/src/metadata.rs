@@ -108,6 +108,14 @@ impl QuiltIndexV1 {
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
     }
 
+    /// Returns the quilt block with the given blob ID.
+    pub fn get_quilt_block_by_id(&self, blob_id: BlobId) -> Result<&QuiltBlockV1, QuiltError> {
+        self.quilt_blocks
+            .iter()
+            .find(|block| block.blob_id == blob_id)
+            .ok_or(QuiltError::BlobNotFoundInQuilt(blob_id.to_string()))
+    }
+
     /// Returns an iterator over the identifiers of the blobs in the quilt.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         self.quilt_blocks.iter().map(|block| block.identifier())
