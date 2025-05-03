@@ -63,7 +63,7 @@ pub struct QuiltBlockV1 {
     /// The identifier of the block, it can be used to locate the blob in the quilt.
     identifier: String,
     /// BlobId of the quilted blob.
-    blob_id: BlobId,
+    pub blob_id: BlobId,
 }
 
 impl QuiltBlockV1 {

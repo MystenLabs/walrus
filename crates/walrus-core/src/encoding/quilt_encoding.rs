@@ -1161,7 +1161,7 @@ mod tests {
     ) {
         let _guard = tracing_subscriber::fmt().try_init();
 
-        let encoder = QuiltConfigV1::get_encoder(config, blobs_with_identifiers);
+        let encoder = QuiltConfigV1::get_encoder(config.clone(), blobs_with_identifiers);
 
         let quilt = encoder.construct_quilt().expect("Should construct quilt");
         tracing::debug!("QuiltV1: {:?}", quilt);
@@ -1176,16 +1176,20 @@ mod tests {
                 extracted_blob, blob_with_identifier.blob,
                 "Mismatch in encoded blob"
             );
-
+            let quilt_block = quilt
+                .quilt_index()
+                .get_quilt_block_by_identifier(blob_with_identifier.identifier.as_str())
+                .expect("Block should exist for this blob ID");
             assert_eq!(
-                quilt
-                    .quilt_index()
-                    .get_quilt_block_by_identifier(blob_with_identifier.identifier.as_str())
-                    .expect("Block should exist for this blob ID")
-                    .identifier(),
+                quilt_block.identifier(),
                 &blob_with_identifier.identifier,
                 "Mismatch in blob description"
             );
+            let blob_id = *config
+                .compute_metadata(blob_with_identifier.blob)
+                .expect("Failed to compute metadata for blob")
+                .blob_id();
+            assert_eq!(quilt_block.blob_id, blob_id);
         }
 
         assert_eq!(quilt.quilt_index().len(), blobs_with_identifiers.len());
