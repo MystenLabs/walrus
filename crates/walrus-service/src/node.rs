@@ -158,9 +158,9 @@ use self::{
 use crate::{
     common::{
         config::{SuiConfig, combine_rpc_urls},
-        utils::should_reposition_cursor,
+        event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
     },
-    utils::ShardDiffCalculator,
+    utils::{ShardDiffCalculator, should_reposition_cursor},
 };
 
 pub mod committee;
@@ -658,17 +658,54 @@ impl StorageNode {
             node_params.num_checkpoints_per_blob
         );
 
+        let contract_config = config
+            .sui
+            .as_ref()
+            .expect("Sui config must be provided")
+            .contract_config
+            .clone();
+        let client_config = crate::client::ClientConfig {
+            contract_config,
+            exchange_objects: vec![],
+            wallet_config: None,
+            communication_config: Default::default(),
+            refresh_config: Default::default(),
+        };
+        let sui_read_client = config
+            .sui
+            .as_ref()
+            .expect("Sui config must be provided")
+            .new_read_client()
+            .await?;
+        let walrus_client = walrus_sdk::client::Client::new_read_client_with_refresher(
+            client_config,
+            sui_read_client.clone(),
+        )
+        .await?;
+
+        let event_blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
         let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
+        let last_certified_event_blob_metadata = event_blob_downloader
+            .get_latest_certified_event_blob()
+            .await
+            .ok()
+            .flatten();
+        let latest_certified_event_blob = last_certified_event_blob_metadata
+            .map(LastCertifiedEventBlob::EventBlobWithMetadata)
+            .or(last_certified_event_blob.map(LastCertifiedEventBlob::EventBlob));
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
-            Some(EventBlobWriterFactory::new(
-                &config.storage_path,
-                &config.db_config,
-                inner.clone(),
-                registry,
-                node_params.num_checkpoints_per_blob,
-                last_certified_event_blob,
-                config.num_uncertified_blob_threshold,
-            )?)
+            Some(
+                EventBlobWriterFactory::new(
+                    &config.storage_path,
+                    &config.db_config,
+                    inner.clone(),
+                    registry,
+                    node_params.num_checkpoints_per_blob,
+                    latest_certified_event_blob,
+                    config.num_uncertified_blob_threshold,
+                )
+                .await?,
+            )
         } else {
             None
         };

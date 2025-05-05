@@ -12349,10 +12349,12 @@ name = "walrus-simtest"
 version = "1.25.0"
 dependencies = [
  "anyhow",
+ "bcs",
  "futures",
  "prometheus",
  "rand 0.8.5",
  "reqwest",
+ "rocksdb",
  "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.47.0)",
  "sui-protocol-config",
  "sui-rpc-api",
@@ -12360,6 +12362,7 @@ dependencies = [
  "sui-types",
  "tokio",
  "tracing",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.46.0)",
  "walrus-core",
  "walrus-proc-macros",
  "walrus-rest-client",
