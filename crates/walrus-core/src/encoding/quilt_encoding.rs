@@ -8,6 +8,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{cmp, fmt, num::NonZeroU16};
+use std::collections::HashMap;
 
 use hex;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use tracing::{Level, Span};
 use super::{EncodingConfig, EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
     encoding::{blob_encoding::BlobEncoder, config::EncodingConfigTrait as _, QuiltError},
-    metadata::{QuiltBlockV1, QuiltIndexV1, QuiltMetadataV1},
+    metadata::{QuiltIndexV1, QuiltMetadataV1, QuiltPatchV1},
     BlobId,
     SliverIndex,
 };
@@ -284,7 +285,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 
 impl QuiltV1 {
     /// Gets the blob represented by the given quilt block.
-    fn get_blob(&self, quilt_block: &QuiltBlockV1) -> Result<Vec<u8>, QuiltError> {
+    fn get_blob(&self, quilt_block: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
         let start_idx = usize::from(quilt_block.start_index);
         let end_idx = usize::from(quilt_block.end_index);
         let mut blob = vec![0u8; quilt_block.unencoded_length as usize];
@@ -400,7 +401,7 @@ impl fmt::Debug for DebugQuiltIndex<'_> {
         let mut list = f.debug_list();
         for block in self.0.quilt_blocks.iter() {
             list.entry(&format_args!(
-                "\nQuiltBlock {{\n    unencoded_length: {},\
+                "\nQuiltPatch {{\n    unencoded_length: {},\
                 \n    end_index: {}\n    identifier: {:?}\n}}",
                 block.unencoded_length,
                 block.end_index,
@@ -464,11 +465,11 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         blob_id_pairs.sort_by(|(_, a_id), (_, b_id)| a_id.cmp(b_id));
 
-        // Create initial QuiltBlocks.
-        let quilt_blocks: Vec<QuiltBlockV1> = blob_id_pairs
+        // Create initial QuiltPatches.
+        let quilt_blocks: Vec<QuiltPatchV1> = blob_id_pairs
             .iter()
             .map(|(blob, blob_id)| {
-                QuiltBlockV1::new(blob.blob.len() as u64, blob.identifier.clone(), *blob_id)
+                QuiltPatchV1::new(blob.blob.len() as u64, blob.identifier.clone(), *blob_id)
             })
             .collect();
 
@@ -584,6 +585,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         tracing::debug!("starting to encode quilt with metadata");
 
         let quilt = self.construct_quilt()?;
+        tracing::info!("construct quilt success {}", quilt.data().len());
         let encoder = BlobEncoder::new(self.config.clone(), quilt.data()).map_err(|_| {
             QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data.len()))
         })?;
@@ -606,7 +608,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 /// A quilt decoder of version V1.
 #[derive(Debug)]
 pub struct QuiltDecoderV1<'a> {
-    slivers: Vec<&'a SliverData<Secondary>>,
+    slivers: HashMap<SliverIndex, &'a SliverData<Secondary>>,
     quilt_index: Option<QuiltIndexV1>,
 }
 
@@ -616,9 +618,8 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 
         let first_sliver = self
             .slivers
-            .iter()
-            .find(|s| s.index == index)
-            .ok_or(QuiltError::MissingSliver(index))?;
+            .get(&index)
+            .ok_or(QuiltError::MissingSlivers(vec![index]))?;
 
         assert_eq!(
             QuiltVersionV1::quilt_type_bytes(),
@@ -636,19 +637,18 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         let end = data_size.min(first_sliver.symbols.data().len());
         combined_data.extend_from_slice(&first_sliver.symbols.data()[prefix_size..end]);
 
+        self.check_missing_slivers(1, num_slivers_needed)?;
+
         // Collect data from subsequent slivers if needed.
         for i in 1..num_slivers_needed {
             let next_index = SliverIndex(i as u16);
             let next_sliver = self
                 .slivers
-                .iter()
-                .find(|s| s.index == next_index)
-                .ok_or_else(|| {
-                    utils::missing_sliver_error(
-                        SliverIndex(i as u16),
-                        SliverIndex(num_slivers_needed as u16),
-                    )
-                })?;
+                .get(&next_index)
+                .ok_or(QuiltError::Other(format!(
+                    "Unexpected state, sliver {} not found",
+                    next_index
+                )))?;
 
             let remaining_needed = index_size - combined_data.len();
             let sliver_data = next_sliver.symbols.data();
@@ -694,7 +694,9 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]) {
-        self.slivers.extend(slivers);
+        for sliver in slivers {
+            self.slivers.insert(sliver.index, sliver);
+        }
     }
 }
 
@@ -702,7 +704,10 @@ impl<'a> QuiltDecoderV1<'a> {
     /// Creates a new QuiltDecoderV1 with the given slivers.
     pub fn new(slivers: &'a [&'a SliverData<Secondary>]) -> Self {
         Self {
-            slivers: slivers.to_vec(),
+            slivers: slivers
+                .iter()
+                .map(|s| (s.index, *s))
+                .collect::<HashMap<_, _>>(),
             quilt_index: None,
         }
     }
@@ -713,15 +718,17 @@ impl<'a> QuiltDecoderV1<'a> {
         quilt_index: QuiltIndexV1,
     ) -> Self {
         Self {
-            slivers: slivers.to_vec(),
+            slivers: slivers.iter().map(|s| (s.index, *s)).collect(),
             quilt_index: Some(quilt_index),
         }
     }
 
     /// Get the blob represented by the quilt block.
-    fn get_blob_by_quilt_block(&self, quilt_block: &QuiltBlockV1) -> Result<Vec<u8>, QuiltError> {
+    fn get_blob_by_quilt_block(&self, quilt_block: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
         let start_idx = usize::from(quilt_block.start_index);
         let end_idx = usize::from(quilt_block.end_index);
+
+        self.check_missing_slivers(start_idx, end_idx)?;
 
         let unencoded_length = usize::try_from(quilt_block.unencoded_length)
             .expect("unencoded_length should fit in usize");
@@ -732,20 +739,34 @@ impl<'a> QuiltDecoderV1<'a> {
         // Collect data from the appropriate slivers.
         for i in start_idx..end_idx {
             let sliver_idx = SliverIndex(i as u16);
-            if let Some(sliver) = self.slivers.iter().find(|s| s.index == sliver_idx) {
+            if let Some(sliver) = self.slivers.get(&sliver_idx) {
                 let remaining_needed = unencoded_length - blob.len();
                 blob.extend_from_slice(
                     &sliver.symbols.data()[..remaining_needed.min(sliver.symbols.data().len())],
                 );
             } else {
-                return Err(utils::missing_sliver_error(
-                    sliver_idx,
-                    SliverIndex(end_idx as u16),
-                ));
+                return Err(QuiltError::Other(format!(
+                    "Unexpected state, sliver {} not found",
+                    sliver_idx
+                )));
             }
         }
 
         Ok(blob)
+    }
+
+    fn check_missing_slivers(&self, start_idx: usize, end_idx: usize) -> Result<(), QuiltError> {
+        let mut missing_slivers = Vec::new();
+        for i in start_idx..end_idx {
+            let sliver_idx = SliverIndex(i as u16);
+            if !self.slivers.contains_key(&sliver_idx) {
+                missing_slivers.push(sliver_idx);
+            }
+        }
+        if !missing_slivers.is_empty() {
+            return Err(QuiltError::MissingSlivers(missing_slivers));
+        }
+        Ok(())
     }
 }
 
@@ -848,15 +869,6 @@ mod utils {
         }
 
         true
-    }
-
-    /// Returns the missing sliver error.
-    pub fn missing_sliver_error(begin: SliverIndex, end: SliverIndex) -> QuiltError {
-        if begin == end {
-            QuiltError::MissingSliver(begin)
-        } else {
-            QuiltError::MissingSliverRange(begin, end)
-        }
     }
 
     /// Get the data size of the quilt index.
@@ -978,7 +990,9 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-    use walrus_test_utils::param_test;
+    use alloc::boxed::Box;
+
+    use walrus_test_utils::{param_test, random_data};
 
     use super::*;
     use crate::{
@@ -1059,7 +1073,7 @@ mod tests {
                         identifier: "test blob 2".to_string(),
                     },
                 ],
-                3, 5, 7
+                7
             ),
             case_0_random_order: (
                 &[
@@ -1076,7 +1090,7 @@ mod tests {
                         identifier: "test blob 2".to_string(),
                     },
                 ],
-                3, 5, 7
+                7
             ),
             case_1: (
                 &[
@@ -1085,7 +1099,7 @@ mod tests {
                         identifier: "test blob 0".to_string(),
                     },
                     BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5][..],
+                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test blob 1".to_string(),
                     },
                     BlobWithIdentifier {
@@ -1093,7 +1107,7 @@ mod tests {
                         identifier: "test blob 2".to_string(),
                     },
                 ],
-                3, 5, 7
+                7
             ),
             case_1_random_order: (
                 &[
@@ -1110,7 +1124,7 @@ mod tests {
                         identifier: "test blob 2".to_string(),
                     },
                 ],
-                3, 5, 7
+                7
             ),
             case_2: (
                 &[
@@ -1127,7 +1141,7 @@ mod tests {
                         identifier: "test blob 2".to_string(),
                     },
                 ],
-                4, 8, 12
+                12
             ),
             case_3: (
                 &[
@@ -1136,26 +1150,17 @@ mod tests {
                         identifier: "test blob 0".to_string(),
                     },
                 ],
-                3, 5, 7
+                7
             ),
         ]
     }
     fn test_quilt_construct_quilt(
         blobs_with_identifiers: &[BlobWithIdentifier<'_>],
-        source_symbols_primary: u16,
-        source_symbols_secondary: u16,
         n_shards: u16,
     ) {
-        let raptorq_config = RaptorQEncodingConfig::new_for_test(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-        );
-        let reed_solomon_config = ReedSolomonEncodingConfig::new_for_test(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-        );
+        let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
+        let reed_solomon_config =
+            ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
 
         construct_quilt(
             blobs_with_identifiers,
@@ -1216,142 +1221,31 @@ mod tests {
 
     param_test! {
         test_quilt_encoder_and_decoder: [
-            case_0: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
-                    },
-                ],
-                3, 5, 7
-            ),
-            case_0_random_order: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 2".to_string(),
-                    },
-                ],
-                3, 5, 7
-            ),
-            case_1: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
-                    },
-                ],
-                3, 5, 7
-            ),
-            case_1_random_order: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
-                    },
-                ],
-                3, 5, 7
-            ),
-            case_2: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[1, 3][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[255u8; 1024][..],
-                        identifier: "test blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[1, 2, 3][..],
-                        identifier: "test blob 2".to_string(),
-                    },
-                ],
-                5, 9, 13
-            ),
-            case_3: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
-                        identifier: "test blob 0".to_string(),
-                    },
-                ],
-                3, 5, 7
-            ),
-            case_4: (
-                &[
-                    BlobWithIdentifier {
-                        blob: &[][..],
-                        identifier: "empty blob 0".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[][..],
-                        identifier: "empty blob 1".to_string(),
-                    },
-                    BlobWithIdentifier {
-                        blob: &[][..],
-                        identifier: "empty blob 2".to_string(),
-                    }
-                ],
-                5, 9, 13
-            ),
+            case_0: (3, 5, 16, 7),
+            case_1: (3, 3, 800, 7),
+            case_2: (3, 1024, 10240, 7),
+            case_3: (1, 10, 1000, 7),
+            case_4: (60, 1, 1000, 100),
         ]
     }
     fn test_quilt_encoder_and_decoder(
-        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
-        source_symbols_primary: u16,
-        source_symbols_secondary: u16,
+        num_blobs: usize,
+        min_blob_size: usize,
+        max_blob_size: usize,
         n_shards: u16,
     ) {
-        let raptorq_config = RaptorQEncodingConfig::new_for_test(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-        );
-        let reed_solomon_config = ReedSolomonEncodingConfig::new_for_test(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-        );
+        let blobs_with_identifiers = generate_random_blobs(num_blobs, max_blob_size, min_blob_size);
+
+        let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
+        let reed_solomon_config =
+            ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
 
         encode_decode_quilt(
-            blobs_with_identifiers,
+            &blobs_with_identifiers,
             EncodingConfigEnum::RaptorQ(&raptorq_config),
         );
         encode_decode_quilt(
-            blobs_with_identifiers,
+            &blobs_with_identifiers,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
         );
     }
@@ -1367,7 +1261,7 @@ mod tests {
         let (sliver_pairs, quilt_metadata) = encoder
             .encode_with_metadata()
             .expect("Should encode with quilt index and metadata");
-        tracing::debug!(
+        tracing::trace!(
             "Sliver pairs: {:?}\nQuilt metadata: {:?}",
             sliver_pairs,
             quilt_metadata
@@ -1388,20 +1282,46 @@ mod tests {
         let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
         assert!(matches!(
             quilt_decoder.decode_quilt_index(),
-            Err(QuiltError::MissingSliver(_))
+            Err(QuiltError::MissingSlivers(_))
         ));
 
-        quilt_decoder.add_slivers(&slivers);
+        let sliver_vec = vec![*first_sliver];
+        quilt_decoder.add_slivers(&sliver_vec);
         assert_eq!(
             quilt_decoder.decode_quilt_index(),
             Ok(&quilt_metadata.index)
         );
 
+        let identifier = blobs_with_identifiers
+            .first()
+            .expect("Test requires at least one blob")
+            .identifier
+            .as_str();
+        let patch = quilt_decoder
+            .get_quilt_index()
+            .expect("quilt index should exist")
+            .get_quilt_block_by_identifier(identifier)
+            .expect("quilt block should exist");
+        assert_eq!(patch.identifier(), identifier);
+
+        let missing_indices: Vec<SliverIndex> = (patch.start_index..patch.end_index)
+            .map(SliverIndex)
+            .collect();
+        assert_eq!(
+            quilt_decoder.get_blob_by_identifier(identifier),
+            Err(QuiltError::MissingSlivers(missing_indices))
+        );
+
+        // Now, add all slivers to the decoder, all the blobs should be reconstructed.
+        quilt_decoder.add_slivers(&slivers);
+
         for blob_with_identifier in blobs_with_identifiers {
+            tracing::info!("decoding blob {}", blob_with_identifier.identifier);
             let blob =
                 quilt_decoder.get_blob_by_identifier(blob_with_identifier.identifier.as_str());
             assert_eq!(blob, Ok(blob_with_identifier.blob.to_vec()));
         }
+        tracing::info!("decode quilt blob success");
 
         let mut decoder = config
             .get_blob_decoder::<Secondary>(quilt_metadata.metadata.unencoded_length())
@@ -1420,6 +1340,8 @@ mod tests {
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata.metadata);
 
+        tracing::info!("decode quilt success");
+
         let quilt =
             QuiltConfigV1::parse_from_quilt_blob(quilt_blob, &quilt_metadata, config.n_shards())
                 .expect("Should create quilt");
@@ -1430,5 +1352,53 @@ mod tests {
                 .expect("Should construct quilt")
                 .data()
         );
+    }
+
+    /// Generate random blobs with sizes in the specified range.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_blobs` - Number of blobs to generate
+    /// * `max_blob_size` - Maximum size of each blob
+    /// * `min_blob_size` - Minimum size of each blob
+    ///
+    /// # Returns
+    ///
+    /// A vector of BlobWithIdentifier objects with random content.
+    fn generate_random_blobs(
+        num_blobs: usize,
+        max_blob_size: usize,
+        min_blob_size: usize,
+    ) -> Vec<BlobWithIdentifier<'static>> {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+
+        // Create a deterministic RNG with a fixed seed for reproducibility.
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Store both blobs and their BlobWithIdentifier wrappers.
+        let mut result = Vec::with_capacity(num_blobs);
+
+        // Generate random blobs with sizes in the specified range.
+        for i in 0..num_blobs {
+            // Generate a random size in the range [min_blob_size, max_blob_size).
+            let blob_size = if min_blob_size == max_blob_size {
+                min_blob_size
+            } else {
+                rng.gen_range(min_blob_size..max_blob_size)
+            };
+
+            let blob_data = random_data(blob_size);
+
+            // Convert to static lifetime using Box::leak.
+            let static_data = Box::leak(blob_data.into_boxed_slice());
+
+            // Create and store the BlobWithIdentifier.
+            result.push(BlobWithIdentifier::new(
+                static_data,
+                format!("test blob {}", i),
+            ));
+        }
+
+        result
     }
 }

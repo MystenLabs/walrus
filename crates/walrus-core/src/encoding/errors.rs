@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::num::NonZeroU16;
 
 use thiserror::Error;
@@ -167,12 +167,9 @@ pub enum QuiltError {
     /// Failed to decode the quilt index.
     #[error("failed to decode the quilt index: {0}")]
     QuiltIndexDerSerError(String),
-    /// Missing sliver.
-    #[error("missing sliver: {0}")]
-    MissingSliver(SliverIndex),
-    /// Missing sliver range.
-    #[error("missing sliver range: {0}..{1}")]
-    MissingSliverRange(SliverIndex, SliverIndex),
+    /// Missing slivers.
+    #[error("missing slivers: {0:?}")]
+    MissingSlivers(Vec<SliverIndex>),
     /// [`QuiltIndexV1`][crate::metadata::QuiltIndexV1] is missing.
     #[error("quilt index is missing")]
     MissingQuiltIndex,

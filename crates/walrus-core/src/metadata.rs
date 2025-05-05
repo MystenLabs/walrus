@@ -52,7 +52,7 @@ pub enum VerificationError {
 
 /// Represents a blob quilted into a single quilt blob.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuiltBlockV1 {
+pub struct QuiltPatchV1 {
     /// The unencoded length of the blob.
     pub unencoded_length: u64,
     /// The start sliver index of the block.
@@ -66,8 +66,8 @@ pub struct QuiltBlockV1 {
     pub blob_id: BlobId,
 }
 
-impl QuiltBlockV1 {
-    /// Returns a new [`QuiltBlockV1`].
+impl QuiltPatchV1 {
+    /// Returns a new [`QuiltPatchV1`].
     pub fn new(unencoded_length: u64, identifier: String, blob_id: BlobId) -> Self {
         Self {
             unencoded_length,
@@ -93,7 +93,7 @@ impl QuiltBlockV1 {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
-    pub quilt_blocks: Vec<QuiltBlockV1>,
+    pub quilt_blocks: Vec<QuiltPatchV1>,
 }
 
 impl QuiltIndexV1 {
@@ -101,7 +101,7 @@ impl QuiltIndexV1 {
     pub fn get_quilt_block_by_identifier(
         &self,
         identifier: &str,
-    ) -> Result<&QuiltBlockV1, QuiltError> {
+    ) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_blocks
             .iter()
             .find(|block| block.identifier() == identifier)
@@ -109,7 +109,7 @@ impl QuiltIndexV1 {
     }
 
     /// Returns the quilt block with the given blob ID.
-    pub fn get_quilt_block_by_id(&self, blob_id: BlobId) -> Result<&QuiltBlockV1, QuiltError> {
+    pub fn get_quilt_block_by_id(&self, blob_id: BlobId) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_blocks
             .iter()
             .find(|block| block.blob_id == blob_id)
