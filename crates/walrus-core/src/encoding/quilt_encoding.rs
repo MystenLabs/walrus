@@ -1321,7 +1321,6 @@ mod tests {
                 quilt_decoder.get_blob_by_identifier(blob_with_identifier.identifier.as_str());
             assert_eq!(blob, Ok(blob_with_identifier.blob.to_vec()));
         }
-        tracing::info!("decode quilt blob success");
 
         let mut decoder = config
             .get_blob_decoder::<Secondary>(quilt_metadata.metadata.unencoded_length())
@@ -1339,8 +1338,6 @@ mod tests {
             .expect("Should decode quilt");
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata.metadata);
-
-        tracing::info!("decode quilt success");
 
         let quilt =
             QuiltConfigV1::parse_from_quilt_blob(quilt_blob, &quilt_metadata, config.n_shards())
