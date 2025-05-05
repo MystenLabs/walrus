@@ -344,7 +344,6 @@ impl<T: ReadClient> Client<T> {
                         if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
                             // If the error is CommitteeChangeNotified, we do not need to refresh
                             // the committees.
-                            tracing::warn!("forcing committee refresh before retrying");
                             self.force_refresh_committees().await?;
                         }
                     } else {
@@ -1857,10 +1856,17 @@ impl<T> Client<T> {
     pub async fn force_refresh_committees(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        self.committees_handle
+        tracing::warn!("[force_refresh_committees] forcing committee refresh");
+        let result = self
+            .committees_handle
             .send_committees_and_price_request(RequestKind::Refresh)
             .await
-            .map_err(ClientError::other)
+            .map_err(|error| {
+                tracing::warn!(?error, "[force_refresh_committees] refresh failed");
+                ClientError::other(error)
+            })?;
+        tracing::info!("[force_refresh_committees] refresh succeeded");
+        Ok(result)
     }
 
     /// Gets the current active committees from the cache.
