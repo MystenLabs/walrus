@@ -549,6 +549,8 @@ impl<'a> ResourceManager<'a> {
                     })
                     .map(|(idx, _)| idx);
 
+                if let Some(idx) = best_resource_idx {
+                    let storage_resource = available_resources.swap_remove(idx);
                     tracing::debug!(
                         blob_id=%metadata.blob_id(),
                         storage_object=%storage_resource.id,
