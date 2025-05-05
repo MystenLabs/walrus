@@ -537,10 +537,6 @@ impl<'a> ResourceManager<'a> {
             for (metadata, encoded_length) in blob_processing_items {
                 let best_resource_idx = available_resources
                     .iter()
-                    .position(|storage| storage.storage_size >= encoded_length);
-
-                let best_resource_idx = available_resources
-                    .iter()
                     .enumerate()
                     .filter(|(_, storage)| storage.storage_size >= encoded_length)
                     .min_by(|(_, storage_a), (_, storage_b)| {
