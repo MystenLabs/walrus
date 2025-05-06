@@ -84,9 +84,15 @@ impl SuiConfig {
         &self,
         metrics: Option<Arc<SuiClientMetricSet>>,
     ) -> Result<SuiContractClient, SuiClientError> {
+        let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
+
+        #[allow(deprecated)]
+        let rpc_urls = &[wallet.get_rpc_url()?];
+
         if let Some(metrics) = metrics {
-            SuiContractClient::new_from_wallet_with_metrics(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
+            SuiContractClient::new_with_metrics(
+                wallet,
+                rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -95,7 +101,8 @@ impl SuiConfig {
             .await
         } else {
             SuiContractClient::new(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
+                wallet,
+                rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,

@@ -18,7 +18,6 @@ use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     BlobId,
@@ -55,6 +54,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
+use walrus_sui::wallet::Wallet;
 use walrus_utils::metrics::Registry;
 
 use super::args::{
@@ -124,7 +124,7 @@ use crate::{
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
     /// The Sui wallet for the client.
-    wallet: Result<WalletContext>,
+    wallet: Result<Wallet>,
     /// The config for the client.
     config: Result<ClientConfig>,
     /// Whether to output JSON.
@@ -152,7 +152,7 @@ impl ClientCommandRunner {
                 .as_ref()
                 .ok()
                 .and_then(|config: &ClientConfig| config.wallet_config.clone()));
-        let wallet = WalletConfig::load_wallet_context(
+        let wallet = WalletConfig::load_wallet(
             wallet_config.as_ref(),
             config
                 .as_ref()
@@ -1344,16 +1344,17 @@ pub fn ask_for_confirmation() -> Result<bool> {
 /// Get the latest checkpoint sequence number from the Sui RPC node.
 async fn get_latest_checkpoint_sequence_number(
     rpc_url: Option<&String>,
-    wallet: &Result<WalletContext, anyhow::Error>,
+    wallet: &Result<Wallet, anyhow::Error>,
 ) -> Option<u64> {
     // Early return if no URL is available
     let url = if let Some(url) = rpc_url {
         url.clone()
     } else if let Ok(wallet) = wallet {
-        match wallet.config.get_active_env() {
-            Ok(env) => env.rpc.clone(),
-            Err(_) => {
-                println!("Failed to get full node RPC URL.");
+        #[allow(deprecated)]
+        match wallet.get_rpc_url() {
+            Ok(rpc) => rpc,
+            Err(error) => {
+                eprintln!("Failed to get full node RPC URL. (error: {error})");
                 return None;
             }
         }
@@ -1368,7 +1369,7 @@ async fn get_latest_checkpoint_sequence_number(
         match rpc_client.get_latest_checkpoint().await {
             Ok(checkpoint) => Some(checkpoint.sequence_number),
             Err(e) => {
-                println!("Failed to get latest checkpoint: {e}");
+                eprintln!("Failed to get latest checkpoint: {e}");
                 None
             }
         }

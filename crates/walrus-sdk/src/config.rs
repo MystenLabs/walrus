@@ -10,7 +10,6 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
@@ -21,6 +20,7 @@ use walrus_sui::{
         retry_client::RetriableSuiClient,
     },
     config::WalletConfig,
+    wallet::Wallet,
 };
 use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_if_exist};
 
@@ -147,11 +147,14 @@ impl ClientConfig {
     /// Creates a [`SuiContractClient`] based on the configuration.
     pub async fn new_contract_client(
         &self,
-        wallet_context: WalletContext,
+        wallet: Wallet,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
+        #[allow(deprecated)]
+        let rpc_urls = &[wallet.get_rpc_url()?];
         SuiContractClient::new(
-            wallet_context,
+            wallet,
+            rpc_urls,
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
@@ -167,7 +170,7 @@ impl ClientConfig {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let wallet = WalletConfig::load_wallet_context(
+        let wallet = WalletConfig::load_wallet(
             self.wallet_config.as_ref(),
             self.communication_config.sui_client_request_timeout,
         )
