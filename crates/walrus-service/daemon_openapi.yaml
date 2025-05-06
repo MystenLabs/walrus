@@ -25,9 +25,8 @@ paths:
         description: The encoding type to use for the blob.
         required: false
         schema:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/EncodingType'
+          $ref: '#/components/schemas/EncodingType'
+        style: form
       - name: epochs
         in: query
         description: |-
@@ -37,28 +36,48 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/u32'
+        style: form
       - name: deletable
         in: query
         description: If true, the publisher creates a deletable blob instead of a permanent one.
         required: false
         schema:
           type: boolean
-      - name: send_object_to
+        style: form
+      - name: force
         in: query
         description: |-
-          If specified, the publisher will send the Blob object resulting from the store operation to
-          this Sui address.
-        required: false
-        schema:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/SuiAddress'
-      - name: share
-        in: query
-        description: If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
+          If true, the publisher will always store the blob, creating a new Blob object.
+
+          The blob will be stored even if the blob is already certified on Walrus for the specified
+          number of epochs.
         required: false
         schema:
           type: boolean
+        style: form
+      - name: send_or_share
+        in: query
+        required: false
+        schema:
+          oneOf:
+          - type: object
+            description: Send the blob to the specified Sui address.
+            required:
+            - send_object_to
+            properties:
+              send_object_to:
+                $ref: '#/components/schemas/SuiAddress'
+                description: Send the blob to the specified Sui address.
+          - type: object
+            description: Turn the created blob into a shared blob.
+            required:
+            - share
+            properties:
+              share:
+                type: boolean
+                description: Turn the created blob into a shared blob.
+          description: The exclusive option to share the blob or to send it to an address.
+        style: form
       requestBody:
         description: Binary data of the unencoded blob to be stored.
         content:
@@ -74,11 +93,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BlobStoreResult'
         '400':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
+          description: The request is malformed
         '413':
           description: The blob is too large
         '451':

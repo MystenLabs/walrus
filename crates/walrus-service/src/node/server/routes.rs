@@ -32,9 +32,9 @@ use walrus_core::{
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
 };
-use walrus_rest_client::{
+use walrus_storage_node_client::{
+    RecoverySymbolsFilter,
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
-    client::RecoverySymbolsFilter,
 };
 use walrus_sui::ObjectIdSchema;
 

@@ -8,6 +8,11 @@ use std::fmt::Write;
 use fastcrypto::traits::ToFromBytes as _;
 use walrus_core::NetworkPublicKey;
 
+pub use self::{
+    client::{RecoverySymbolsFilter, StorageNodeClient, StorageNodeClientBuilder, SymbolIdFilter},
+    error::{ClientBuildError, NodeError},
+};
+
 pub mod api;
 pub mod client;
 pub mod error;

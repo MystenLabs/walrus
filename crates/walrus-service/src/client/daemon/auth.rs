@@ -15,7 +15,10 @@ use sui_types::base_types::SuiAddress;
 use walrus_core::EpochCount;
 use walrus_proc_macros::RestApiError;
 
-use super::{cache::CacheHandle, routes::PublisherQuery};
+use super::{
+    cache::CacheHandle,
+    routes::{PublisherQuery, SendOrShare},
+};
 use crate::{client::config::AuthConfig, common::api::RestApiError};
 
 pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
@@ -181,7 +184,13 @@ impl Claim {
             return Err(error);
         }
 
-        self.check_send_object_to(query.send_object_to)?;
+        self.check_send_object_to(query.send_or_share().and_then(|send_or_share| {
+            if let SendOrShare::SendObjectTo(address) = send_or_share {
+                Some(address)
+            } else {
+                None
+            }
+        }))?;
 
         Ok(())
     }
@@ -234,7 +243,6 @@ impl Claim {
     /// Checks if the `send_object_to` field is valid.
     fn check_send_object_to(
         &self,
-
         query_send_object_to: Option<SuiAddress>,
     ) -> Result<(), PublisherAuthError> {
         match (self.send_object_to, query_send_object_to) {

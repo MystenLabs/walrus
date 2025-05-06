@@ -19,10 +19,10 @@ use walrus_core::{
     messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::{
+use walrus_storage_node_client::{
+    NodeError,
+    StorageNodeClient,
     api::{BlobStatus, StoredOnNodeStatus},
-    client::Client as StorageNodeClient,
-    error::NodeError,
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};

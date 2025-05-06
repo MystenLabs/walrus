@@ -152,7 +152,7 @@ pub(crate) enum Kind {
 }
 
 /// An error returned when building the client with a
-/// [`ClientBuilder`][crate::client::ClientBuilder] has failed.
+/// [`StorageNodeClientBuilder`][crate::StorageNodeClientBuilder] has failed.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub struct ClientBuildError {

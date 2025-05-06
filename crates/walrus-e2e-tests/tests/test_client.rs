@@ -35,7 +35,6 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_proc_macros::walrus_simtest;
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
     client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
     error::{
@@ -56,6 +55,7 @@ use walrus_service::test_utils::{
     TestNodesConfig,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -65,9 +65,13 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         UpgradeType,
+        retry_client::RetriableSuiClient,
     },
     system_setup::copy_recursively,
-    test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
+    test_utils::{
+        self,
+        system_setup::{development_contract_dir, testnet_contract_dir},
+    },
     types::{
         Blob,
         BlobEvent,
@@ -77,6 +81,7 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -2150,5 +2155,84 @@ async fn test_ptb_retriable_error() -> TestResult {
 
     // Clean up the fail point
     clear_fail_point("ptb_executor_stake_pool_retriable_error");
+    Ok(())
+}
+
+/// Tests the select_coins function on the retriable sui client works as expected when dealing
+/// with a large number of coins.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+pub async fn test_select_coins_max_objects() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (sui_cluster_handle, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    // Create a new wallet on the cluster.
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(
+            sui_cluster_handle
+                .lock()
+                .await
+                .wallet_path()
+                .await
+                .as_path(),
+        ),
+        None,
+    )?;
+    let env = cluster_wallet.config.get_active_env()?.to_owned();
+    let mut wallet = test_utils::temp_dir_wallet(None, env)?;
+
+    let sui = |sui: u64| (sui * 1_000_000_000);
+
+    // Add 4 coins with 1 SUI each to the wallet.
+    let address = wallet.as_mut().active_address()?;
+    walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
+        .await?;
+
+    let balance = wallet
+        .as_mut()
+        .get_client()
+        .await?
+        .coin_read_api()
+        .get_balance(address, None)
+        .await?;
+    assert_eq!(balance.total_balance, u128::from(sui(4)));
+
+    // Create a new client with the funded wallet.
+    let retry_client =
+        RetriableSuiClient::new_from_wallet(&wallet.inner, ExponentialBackoffConfig::default())
+            .await?;
+
+    // The maximum number of coins that can be selected to reach the amount.
+    let max_num_coins = 2;
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(1).into(), vec![], max_num_coins)
+        .await;
+    assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(3).into(), vec![], max_num_coins)
+        .await;
+    if let Err(error) = result {
+        assert!(
+            matches!(error, SuiClientError::InsufficientFundsWithMaxCoins(_)),
+            "expected InsufficientFundsWithMaxCoins error"
+        );
+    } else {
+        panic!("3 SUI cannot be achieved with 2 coins, but the wallet has 4 SUI");
+    }
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(5).into(), vec![], max_num_coins)
+        .await;
+    if let Err(error) = result {
+        assert!(
+            matches!(error, SuiClientError::SuiSdkError(_)),
+            "expected SuiSdkError error"
+        );
+    } else {
+        panic!("the wallet does not have 5 SUI");
+    }
+
     Ok(())
 }

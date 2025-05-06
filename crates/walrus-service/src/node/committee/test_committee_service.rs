@@ -40,8 +40,8 @@ use walrus_core::{
     messages::InvalidBlobIdMsg,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::error::ClientBuildError;
 use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_storage_node_client::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{Result as TestResult, async_param_test};
 

@@ -128,6 +128,7 @@ rustls-native-certs.workspace = true
 scoped-futures = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
+serde_test.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true
@@ -144,7 +145,7 @@ telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
-tokio-metrics = "0.4.0"
+tokio-metrics = "0.4.2"
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, features = ["buffer", "limit", "load-shed", "util"] }
@@ -159,8 +160,8 @@ utoipa-redoc.workspace = true
 uuid.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
-walrus-rest-client.workspace = true
 walrus-sdk = { workspace = true, features = ["test-utils"] }
+walrus-storage-node-client.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "metrics", "tokio-metrics"] }

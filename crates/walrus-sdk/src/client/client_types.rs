@@ -14,7 +14,7 @@ use walrus_core::{
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_rest_client::api::BlobStatus;
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult};
 
 use super::{

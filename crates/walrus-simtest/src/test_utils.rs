@@ -20,18 +20,18 @@ pub mod simtest_utils {
         Epoch,
         encoding::{Primary, Secondary},
     };
-    use walrus_rest_client::api::ServiceHealthInfo;
     use walrus_sdk::{
         client::{Client, responses::BlobStoreResult},
         store_when::StoreWhen,
     };
     use walrus_service::test_utils::SimStorageNodeHandle;
+    use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
-    /// The fail points related to DB access that can be used to trigger failures in the storage
+    /// The fail points related to node crash that can be used to trigger failures in the storage
     /// node.
-    pub const DB_FAIL_POINTS: &[&str] = &[
+    pub const CRASH_NODE_FAIL_POINTS: &[&str] = &[
         "batch-write-before",
         "batch-write-after",
         "put-cf-before",
@@ -39,6 +39,10 @@ pub mod simtest_utils {
         "delete-cf-before",
         "delete-cf-after",
         "create-cf-before",
+        "process-event-before",
+        "process-event-after",
+        "write-event-before",
+        "write-event-after",
     ];
 
     /// Helper function to write a random blob, read it back and check that it is the same.
@@ -306,7 +310,7 @@ pub mod simtest_utils {
         node: &SimStorageNodeHandle,
         timeout: Duration,
     ) -> anyhow::Result<ServiceHealthInfo> {
-        let client = walrus_rest_client::client::Client::builder()
+        let client = walrus_storage_node_client::StorageNodeClient::builder()
             .authenticate_with_public_key(node.network_public_key.clone())
             // Disable proxy and root certs from the OS for tests.
             .no_proxy()
@@ -346,7 +350,7 @@ pub mod simtest_utils {
             nodes
                 .iter()
                 .map(|node_handle| async {
-                    let client = walrus_rest_client::client::Client::builder()
+                    let client = walrus_storage_node_client::StorageNodeClient::builder()
                         .authenticate_with_public_key(node_handle.network_public_key.clone())
                         // Disable proxy and root certs from the OS for tests.
                         .no_proxy()

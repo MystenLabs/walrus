@@ -35,7 +35,6 @@ use walrus_core::{
     ensure,
     metadata::BlobMetadataApi as _,
 };
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
     config::load_configuration,
@@ -55,6 +54,7 @@ use walrus_sdk::{
     },
     utils::styled_spinner,
 };
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_utils::metrics::Registry;
 
 use super::args::{

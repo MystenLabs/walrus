@@ -14,10 +14,9 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng, thread_rng};
-    use sui_macros::{clear_fail_point, register_fail_point_async};
+    use sui_macros::{clear_fail_point, register_fail_point_async, register_fail_point_if};
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
@@ -25,8 +24,9 @@ mod tests {
     use walrus_simtest::test_utils::simtest_utils::{
         self,
         BlobInfoConsistencyCheck,
-        DB_FAIL_POINTS,
+        CRASH_NODE_FAIL_POINTS,
     };
+    use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -68,7 +68,7 @@ mod tests {
         do_not_fail_nodes.insert(sui_cluster.lock().await.sim_node_handle().id());
 
         let fail_triggered_clone = fail_triggered.clone();
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             handle_failpoint_and_crash_node_once(
                 do_not_fail_nodes.clone(),
                 fail_triggered_clone.clone(),
@@ -196,7 +196,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -229,8 +229,7 @@ mod tests {
             .expect("node id should be set");
         let fail_triggered_clone = fail_triggered.clone();
 
-        // Trigger node crash during some DB access.
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),
@@ -352,7 +351,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![2, 2, 3, 3, 3],
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -422,8 +421,7 @@ mod tests {
         let next_fail_triggered_clone = next_fail_triggered.clone();
         let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
 
-        // Trigger node crash during some DB access.
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             repeatedly_crash_target_node(
                 target_fail_node_id,
                 next_fail_triggered_clone.clone(),
@@ -496,6 +494,67 @@ mod tests {
 
         if cause_target_shard_slow_processing_event {
             clear_fail_point("epoch_change_start_entry");
+        }
+    }
+
+    // This integration test simulates a scenario where a node is repeatedly crashing and
+    // recovering.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_checkpoint_lag_error() {
+        // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
+        // changes in the test.
+        let (_sui_cluster, walrus_cluster, _, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(10))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![2, 2, 3, 3, 3],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(1),
+                ),
+            )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
+        register_fail_point_if("fail_point_current_checkpoint_lag_error", move || true);
+
+        // Make sure that checkpoint downloader is continuing making progress.
+        let mut last_checkpoint_seq_number = 0;
+        let mut last_checkpoint_update_time = Instant::now();
+        let start_time = Instant::now();
+        loop {
+            if start_time.elapsed() > Duration::from_secs(60) {
+                break;
+            }
+            let node_health_info =
+                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
+            tracing::info!(
+                "last checkpoint seq number in node 0: {:?}",
+                node_health_info[0].latest_checkpoint_sequence_number,
+            );
+            if last_checkpoint_seq_number
+                == node_health_info[0]
+                    .latest_checkpoint_sequence_number
+                    .unwrap()
+            {
+                // We expect that there shouldn't be any stuck event progress.
+                assert!(last_checkpoint_update_time.elapsed() < Duration::from_secs(15));
+            } else {
+                last_checkpoint_seq_number = node_health_info[0]
+                    .latest_checkpoint_sequence_number
+                    .unwrap();
+                last_checkpoint_update_time = Instant::now();
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
 }

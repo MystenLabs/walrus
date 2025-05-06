@@ -17,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
-use retry_client::RetriableSuiClient;
+use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
@@ -187,6 +187,13 @@ pub enum SuiClientError {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
+    /// The required coin balance cannot be achieved with the maximum number of coins allowed.
+    #[error(
+        "there is enough balance to cover the requested amount of type {0}, but cannot be achieved \
+        with less than the maximum number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider \
+        merging the coins in the wallet and retrying"
+    )]
+    InsufficientFundsWithMaxCoins(String),
 }
 
 impl SuiClientError {
@@ -920,35 +927,6 @@ impl SuiContractClient {
             .await?
             .filter(|storage| selection_policy.matches(storage.end_epoch, current_epoch))
             .collect())
-    }
-
-    /// Returns the closest-matching owned storage resources for given size and number of epochs.
-    ///
-    /// Among all the owned [`StorageResource`] objects, returns the one that:
-    /// - has the closest size to `storage_size`; and
-    /// - breaks ties by taking the one with the smallest end epoch that is greater or equal to the
-    ///   requested `end_epoch`.
-    /// - If object id is in the excluded list, do not select.
-    ///
-    /// Returns `None` if no matching storage resource is found.
-    pub async fn owned_storage_for_size_and_epoch(
-        &self,
-        storage_size: u64,
-        end_epoch: Epoch,
-        excluded: &[ObjectID],
-    ) -> SuiClientResult<Option<StorageResource>> {
-        Ok(self
-            .owned_storage(ExpirySelectionPolicy::Valid)
-            .await?
-            .into_iter()
-            .filter(|storage| {
-                storage.storage_size >= storage_size && storage.end_epoch >= end_epoch
-            })
-            .filter(|storage| !excluded.contains(&storage.id))
-            // Pick the smallest storage size. Break ties by comparing the end epoch, and take the
-            // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
-            // are above the minimum.
-            .min_by_key(|a| (a.storage_size, a.end_epoch)))
     }
 
     /// Deletes the specified blob from the wallet's storage.

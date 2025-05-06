@@ -74,7 +74,7 @@ jobs:
 
       - name: Configure GCP service user auth
         id: auth
-        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935 # pin@v2
+        uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193 # pin@v2
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
@@ -208,7 +208,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # pin@v2.2.1
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # pin@v2.2.2
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |

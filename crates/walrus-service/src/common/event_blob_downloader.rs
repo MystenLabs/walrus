@@ -7,8 +7,8 @@ use std::path::Path;
 
 use anyhow::Result;
 use walrus_core::BlobId;
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{client::Client as WalrusClient, error::ClientErrorKind};
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use crate::node::events::{

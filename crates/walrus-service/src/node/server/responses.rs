@@ -11,7 +11,7 @@ use utoipa::{
     IntoResponses,
     openapi::{RefOr, response::Response as OpenApiResponse},
 };
-use walrus_rest_client::api::errors::{Status, StatusCode as ApiStatusCode};
+use walrus_storage_node_client::api::errors::{Status, StatusCode as ApiStatusCode};
 
 use super::extract::BcsRejection;
 use crate::{

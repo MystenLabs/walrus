@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client for the Walrus service.
+//! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
     collections::HashMap,
@@ -42,7 +42,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_rest_client::{api::BlobStatus, error::NodeError};
+use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -150,7 +150,7 @@ impl Client<()> {
         })
     }
 
-    /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
+    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
     pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
         let Self {
             config,
@@ -243,6 +243,35 @@ impl<T: ReadClient> Client<T> {
         self.read_blob_internal(blob_id, Some(blob_status)).await
     }
 
+    /// Wait for a blob to be certified, returning the blob status if found within timeout.
+    async fn test_get_blob_status_waiting_for_certification(
+        &self,
+        blob_id: &BlobId,
+    ) -> ClientResult<BlobStatus> {
+        let start_time = Instant::now();
+        let timeout_duration = Duration::from_secs(30);
+        let poll_interval = Duration::from_millis(500);
+
+        let mut status = self
+            .get_blob_status_with_retries(blob_id, &self.sui_client)
+            .await?;
+
+        while status.is_registered()
+            && status.initial_certified_epoch().is_none()
+            && start_time.elapsed() < timeout_duration
+        {
+            tokio::time::sleep(poll_interval).await;
+            status = self
+                .get_verified_blob_status(blob_id, &self.sui_client, Duration::from_secs(10))
+                .await?;
+        }
+
+        match status.initial_certified_epoch() {
+            Some(_) => Ok(status),
+            None => Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist)),
+        }
+    }
+
     /// Internal method to handle the common logic for reading blobs.
     async fn read_blob_internal<U>(
         &self,
@@ -259,39 +288,22 @@ impl<T: ReadClient> Client<T> {
 
         let certified_epoch = if committees.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
-
-            let start_time = Instant::now();
-            let timeout_duration = Duration::from_secs(
-                self.config
-                    .communication_config
-                    .read_blob_certification_wait_time,
-            );
-            let poll_interval = Duration::from_millis(500);
-
-            let mut status = match blob_status {
+            let status = match blob_status {
                 Some(status) => status,
+                #[cfg(any(test, feature = "test-utils"))]
+                None => {
+                    self.test_get_blob_status_waiting_for_certification(blob_id)
+                        .await?
+                }
+                #[cfg(not(any(test, feature = "test-utils")))]
                 None => {
                     self.get_blob_status_with_retries(blob_id, &self.sui_client)
                         .await?
                 }
             };
-
-            while status.is_registered()
-                && status.initial_certified_epoch().is_none()
-                && start_time.elapsed() < timeout_duration
-            {
-                tokio::time::sleep(poll_interval).await;
-                status = self
-                    .get_verified_blob_status(blob_id, &self.sui_client, Duration::from_secs(10))
-                    .await?;
-            }
-
-            match status.initial_certified_epoch() {
-                Some(epoch) => epoch,
-                None => {
-                    return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
-                }
-            }
+            status
+                .initial_certified_epoch()
+                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
         } else {
             // We are not during epoch change, we can read from the current epoch directly.
             committees.epoch()
@@ -367,7 +379,6 @@ impl<T: ReadClient> Client<T> {
                         if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
                             // If the error is CommitteeChangeNotified, we do not need to refresh
                             // the committees.
-                            tracing::warn!("forcing committee refresh before retrying");
                             self.force_refresh_committees().await?;
                         }
                     } else {
@@ -1880,10 +1891,17 @@ impl<T> Client<T> {
     pub async fn force_refresh_committees(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        self.committees_handle
+        tracing::warn!("[force_refresh_committees] forcing committee refresh");
+        let result = self
+            .committees_handle
             .send_committees_and_price_request(RequestKind::Refresh)
             .await
-            .map_err(ClientError::other)
+            .map_err(|error| {
+                tracing::warn!(?error, "[force_refresh_committees] refresh failed");
+                ClientError::other(error)
+            })?;
+        tracing::info!("[force_refresh_committees] refresh succeeded");
+        Ok(result)
     }
 
     /// Gets the current active committees from the cache.

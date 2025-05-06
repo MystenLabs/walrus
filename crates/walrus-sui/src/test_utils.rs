@@ -70,7 +70,8 @@ use crate::{
 
 /// Default gas budget for some transactions in tests and benchmarks.
 const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
-const DEFAULT_FUNDING_PER_COIN: u64 = 1_000_000_000_000;
+/// Default amount of coin sent when funding a wallet.
+pub const DEFAULT_FUNDING_PER_COIN: u64 = 1_000_000_000_000;
 
 /// Returns a random `EventID` for testing.
 pub fn event_id_for_testing() -> EventID {
@@ -533,7 +534,7 @@ pub async fn wallet_for_testing(
 
 /// Funds the `recipients` with gas objects with `amount` or with [`DEFAULT_FUNDING_PER_COIN`]
 /// SUI each if no amount is provided.
-async fn fund_addresses(
+pub async fn fund_addresses(
     funding_wallet: &mut WalletContext,
     recipients: Vec<SuiAddress>,
     amount: Option<u64>,

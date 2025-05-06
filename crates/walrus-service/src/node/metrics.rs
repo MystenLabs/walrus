@@ -175,6 +175,23 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number shards currently owned by this node"]
         shards_owned: U64Gauge[],
+
+        #[help = "The total number of times recovery futures entered exponential backoff."]
+        recovery_future_backoff_total: IntCounter[],
+
+        #[help = "The number of times a recovery futures entered exponential backoff before
+        completing."]
+        recovery_future_backoffs: Histogram {
+            buckets: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        },
+
+        #[help = "The number of failed recovery symbol requests before completion"]
+        recovery_future_failed_requests: Histogram {
+            buckets: prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+        },
+
+        #[help = "The number of recovery futures in a given recovery state."]
+        recovery_future_state: IntGaugeVec["recovery_state", "tail_count"],
     }
 }
 

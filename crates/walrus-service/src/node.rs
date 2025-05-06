@@ -85,18 +85,6 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
 };
-use walrus_rest_client::{
-    api::{
-        BlobStatus,
-        ServiceHealthInfo,
-        ShardHealthInfo,
-        ShardStatus as ApiShardStatus,
-        ShardStatusDetail,
-        ShardStatusSummary,
-        StoredOnNodeStatus,
-    },
-    client::{RecoverySymbolsFilter, SymbolIdFilter},
-};
 use walrus_sdk::{
     active_committees::ActiveCommittees,
     blocklist::Blocklist,
@@ -114,6 +102,19 @@ use walrus_sdk::{
             InvalidBlobId,
             PackageEvent,
         },
+    },
+};
+use walrus_storage_node_client::{
+    RecoverySymbolsFilter,
+    SymbolIdFilter,
+    api::{
+        BlobStatus,
+        ServiceHealthInfo,
+        ShardHealthInfo,
+        ShardStatus as ApiShardStatus,
+        ShardStatusDetail,
+        ShardStatusSummary,
+        StoredOnNodeStatus,
     },
 };
 use walrus_utils::metrics::{Registry, TaskMonitorFamily};
@@ -549,10 +550,15 @@ impl StorageNode {
             .await?;
 
         tracing::info!(
-            walrus.node.id = %node_capability.id.to_hex_uncompressed(),
+            walrus.node.node_id = %node_capability.node_id.to_hex_uncompressed(),
+            walrus.node.capability_id = %node_capability.id.to_hex_uncompressed(),
             "selected storage node capability object"
         );
-        walrus_utils::with_label!(metrics.node_id, node_capability.id.to_hex_uncompressed()).set(1);
+        walrus_utils::with_label!(
+            metrics.node_id,
+            node_capability.node_id.to_hex_uncompressed()
+        )
+        .set(1);
 
         let config_synchronizer =
             config
@@ -897,17 +903,21 @@ impl StorageNode {
                 ensure!(should_write || should_process, "event stream out of sync");
 
                 if should_process {
+                    sui_macros::fail_point!("process-event-before");
                     self.process_event(
                         stream_element.clone(),
                         element_index,
                         &mut maybe_epoch_at_start,
                     )
                     .await?;
+                    sui_macros::fail_point!("process-event-after");
                 }
 
                 if should_write {
                     if let Some(writer) = &mut event_blob_writer {
+                        sui_macros::fail_point!("write-event-before");
                         writer.write(stream_element.clone(), element_index).await?;
+                        sui_macros::fail_point!("write-event-after");
                     }
                 }
 
@@ -2781,7 +2791,7 @@ mod tests {
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
+    use walrus_storage_node_client::{StorageNodeClient, api::errors::STORAGE_NODE_ERROR_DOMAIN};
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{EventForTesting, event_id_for_testing},
@@ -4010,7 +4020,7 @@ mod tests {
 
     async fn expect_sliver_pair_stored_before_timeout(
         blob: &EncodedBlob,
-        node_client: &Client,
+        node_client: &StorageNodeClient,
         shard: ShardIndex,
         timeout: Duration,
     ) -> SliverPair {
@@ -4024,7 +4034,7 @@ mod tests {
 
     async fn expect_sliver_stored_before_timeout<A: EncodingAxis>(
         blob: &EncodedBlob,
-        node_client: &Client,
+        node_client: &StorageNodeClient,
         shard: ShardIndex,
         timeout: Duration,
     ) -> SliverData<A> {
@@ -4175,7 +4185,7 @@ mod tests {
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
-        let error: walrus_rest_client::error::NodeError = cluster.nodes[0]
+        let error: walrus_storage_node_client::error::NodeError = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 0, &ProtocolKeyPair::generate())
             .await
@@ -5585,7 +5595,7 @@ mod tests {
                     assert!(matches!(
                         blob_info.unwrap().unwrap().to_blob_status(1),
                         BlobStatus::Deletable {
-                            deletable_counts: walrus_rest_client::api::DeletableCounts {
+                            deletable_counts: walrus_storage_node_client::api::DeletableCounts {
                                 count_deletable_total: 1,
                                 count_deletable_certified: 0,
                             },

@@ -47,8 +47,8 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::client::Client;
 use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
@@ -167,7 +167,7 @@ pub trait StorageNodeHandleTrait {
     fn cancel(&self);
 
     /// Returns the client that can be used to communicate with the node.
-    fn client(&self) -> &Client;
+    fn client(&self) -> &StorageNodeClient;
 
     /// Builds a new storage node handle, and starts the node.
     fn build_and_run(
@@ -226,7 +226,7 @@ pub struct StorageNodeHandle {
     /// Cancellation token for the REST API.
     pub cancel: CancellationToken,
     /// Client that can be used to communicate with the node.
-    pub client: Client,
+    pub client: StorageNodeClient,
     /// The storage capability object of the node.
     pub storage_node_capability: Option<StorageNodeCap>,
     /// The handle to the node runtime.
@@ -238,7 +238,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         self.cancel.cancel();
     }
 
-    fn client(&self) -> &Client {
+    fn client(&self) -> &StorageNodeClient {
         &self.client
     }
 
@@ -572,7 +572,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         unimplemented!("cannot directly cancel a storage proactively.")
     }
 
-    fn client(&self) -> &Client {
+    fn client(&self) -> &StorageNodeClient {
         unimplemented!("simulation test does not use the pre-built storage node client.")
     }
 
@@ -967,7 +967,7 @@ impl StorageNodeHandleBuilder {
             None
         };
 
-        let client = Client::builder()
+        let client = StorageNodeClient::builder()
             .authenticate_with_public_key(network_public_key.clone())
             // Disable proxy and root certs from the OS for tests.
             .no_proxy()
@@ -1137,7 +1137,7 @@ fn randomize_sliver_recovery_additional_symbols(config: &mut StorageNodeConfig) 
 
 /// Waits until the node is ready by querying the node's health info endpoint using the node
 /// client.
-async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
+async fn wait_for_rest_api_ready(client: &StorageNodeClient) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Err(err) = client.get_server_health_info(false).await {
             tracing::trace!(%err, "node is not ready yet, retrying...");
@@ -1625,7 +1625,7 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
     }
 
     /// Returns the client for the node at the specified index.
-    pub fn client(&self, index: usize) -> &Client {
+    pub fn client(&self, index: usize) -> &StorageNodeClient {
         self.nodes[index].client()
     }
 

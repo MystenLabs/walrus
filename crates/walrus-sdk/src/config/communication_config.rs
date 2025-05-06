@@ -62,9 +62,6 @@ pub struct ClientCommunicationConfig {
     #[serde(rename = "sui_client_request_timeout_millis")]
     #[serde_as(as = "Option<DurationMilliSeconds>")]
     pub sui_client_request_timeout: Option<Duration>,
-    /// The maximum time to wait for a blob to be certified.
-    #[serde(rename = "read_blob_certification_wait_time_secs")]
-    pub read_blob_certification_wait_time: u64,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -89,8 +86,6 @@ impl Default for ClientCommunicationConfig {
                 Some(5),
             ),
             sui_client_request_timeout: None,
-            read_blob_certification_wait_time:
-                default::default_read_blob_certification_wait_time_secs(),
         }
     }
 }
@@ -274,18 +269,5 @@ pub(crate) mod default {
     /// This corresponds to 100Mb, i.e., 1 second on a 100 Mbps connection.
     pub fn max_data_in_flight() -> usize {
         12_500_000
-    }
-
-    pub fn default_read_blob_certification_wait_time_secs() -> u64 {
-        {
-            #[cfg(test)]
-            {
-                30
-            }
-            #[cfg(not(test))]
-            {
-                0
-            }
-        }
     }
 }

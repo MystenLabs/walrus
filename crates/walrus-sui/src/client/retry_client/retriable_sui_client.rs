@@ -4,7 +4,15 @@
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
-use std::{collections::BTreeMap, fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap},
+    fmt,
+    pin::pin,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use futures::{Stream, StreamExt, future, stream};
@@ -16,6 +24,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use sui_sdk::{
     SuiClient,
     SuiClientBuilder,
+    error::Error as SuiSdkError,
     rpc_types::{
         Balance,
         Coin,
@@ -24,6 +33,7 @@ use sui_sdk::{
         SuiCommittee,
         SuiEvent,
         SuiMoveNormalizedModule,
+        SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
         SuiObjectDataOptions,
         SuiObjectResponse,
@@ -69,6 +79,10 @@ use crate::{
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+/// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
+/// configuration
+/// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
+pub(crate) const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
 
 /// [`LazySuiClientBuilder`] has enough information to create a [`SuiClient`], when its
 /// [`LazyClientBuilder`] trait implementation is used.
@@ -249,8 +263,14 @@ impl RetriableSuiClient {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
-                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
-                    .await
+                self.select_coins_with_limit(
+                    address,
+                    coin_type.clone(),
+                    amount,
+                    exclude.clone(),
+                    MAX_GAS_PAYMENT_OBJECTS,
+                )
+                .await
             },
             self.metrics.clone(),
             "select_coins",
@@ -261,30 +281,97 @@ impl RetriableSuiClient {
     /// Returns a list of coins for the given address, or an error upon failure.
     ///
     /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi::select_coins`] method, but
-    /// using [`get_coins_stream_retry`] to handle retriable failures.
-    async fn select_coins_inner(
+    /// using `get_coins_stream_retry` to handle retriable failures.
+    ///
+    /// If the `max_num_coins` is reached, but the total balance of the selected coins is less than
+    /// the requested amount, the function will return an error.
+    pub async fn select_coins_with_limit(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
         amount: u128,
         exclude: Vec<ObjectID>,
+        max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut total = 0u128;
-        let coins = self
-            .get_coins_stream_retry(address, coin_type)
-            .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
-            .take_while(|coin: &Coin| {
-                let ready = future::ready(total < amount);
-                total += coin.balance as u128;
-                ready
-            })
-            .collect::<Vec<_>>()
-            .await;
+        let mut coins_stream = pin!(
+            self.get_coins_stream_retry(address, coin_type.clone())
+                .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
+        );
 
-        if total < amount {
-            return Err(sui_sdk::error::Error::InsufficientFund { address, amount }.into());
+        let mut selected_coins = Vec::with_capacity(max_num_coins);
+        let mut total_selected = 0u128;
+
+        while let Some(coin) = coins_stream.as_mut().next().await {
+            total_selected += u128::from(coin.balance);
+            selected_coins.push(coin);
+
+            if total_selected >= amount {
+                return Ok(selected_coins);
+            }
+            if selected_coins.len() >= max_num_coins {
+                break;
+            }
         }
-        Ok(coins)
+
+        // Check if the loop above ended because we don't have any more coins. Also, check if we
+        // can add more coins by peeking from the stream. If not, we have exactly
+        // MAX_GAS_PAYMENT_OBJECTS coins in the wallet, but not enough value.
+        let mut peekable = pin!(coins_stream.as_mut().peekable());
+        if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none() {
+            return Err(SuiSdkError::InsufficientFund { address, amount }.into());
+        }
+
+        // The wallet has more coins.
+        // Use a binary heap to keep track of the coins with the largest balances.
+        let mut selected_coins_heap = selected_coins
+            .into_iter()
+            .map(|coin| Reverse(OrderedCoin::from(coin)))
+            .collect::<BinaryHeap<_>>();
+
+        let mut total_available = total_selected;
+
+        while let Some(coin) = peekable.as_mut().next().await {
+            let coin_balance = u128::from(coin.balance);
+            total_available += coin_balance;
+            let min_balance: u128 = selected_coins_heap
+                .peek()
+                .expect("since we have >= max_num_coins, the root must exist")
+                .0
+                .balance()
+                .into();
+
+            if coin_balance > min_balance {
+                // Replace the minimum.
+                total_selected += coin_balance - min_balance;
+                selected_coins_heap.pop();
+                selected_coins_heap.push(Reverse(coin.into()));
+            }
+
+            if total_selected >= amount {
+                return Ok(selected_coins_heap
+                    .into_iter()
+                    .map(|rev_coin| rev_coin.0.into())
+                    .collect());
+            }
+        }
+
+        debug_assert!(
+            selected_coins_heap.len() == max_num_coins,
+            "selected coins should be or equal to the max gas payment objects",
+        );
+        debug_assert!(
+            total_selected < amount,
+            "total selected should be less than the requested amount, otherwise it would have \
+            exited above",
+        );
+
+        if total_available >= amount {
+            Err(SuiClientError::InsufficientFundsWithMaxCoins(
+                coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+            ))
+        } else {
+            Err(SuiSdkError::InsufficientFund { address, amount }.into())
+        }
     }
 
     /// Returns a stream of coins for the given address.
@@ -908,22 +995,28 @@ impl RetriableSuiClient {
                 None
             }
         });
-        let Some(SuiMoveNormalizedType::Struct { type_arguments, .. }) = principal_field_type
+        let Some(SuiMoveNormalizedType::Struct {
+            inner: principal_field_type_inner,
+        }) = principal_field_type
         else {
             return Err(SuiClientError::WalTypeNotFound(package_id));
         };
-        let wal_type = type_arguments
+        let wal_type = principal_field_type_inner
+            .type_arguments
             .first()
             .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
         let SuiMoveNormalizedType::Struct {
-            address,
-            module,
-            name,
-            ..
+            inner: wal_type_inner,
         } = wal_type
         else {
             return Err(SuiClientError::WalTypeNotFound(package_id));
         };
+        let SuiMoveNormalizedStructType {
+            address,
+            module,
+            name,
+            ..
+        } = wal_type_inner.as_ref();
         ensure!(
             module == "wal" && name == "WAL",
             SuiClientError::WalTypeNotFound(package_id)
@@ -1084,4 +1177,38 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
+}
+
+/// A representation of Coin with an `Ord` implementation, allowing for sorting by balance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OrderedCoin(pub Coin);
+
+impl From<Coin> for OrderedCoin {
+    fn from(coin: Coin) -> Self {
+        OrderedCoin(coin)
+    }
+}
+
+impl From<OrderedCoin> for Coin {
+    fn from(val: OrderedCoin) -> Self {
+        val.0
+    }
+}
+
+impl PartialOrd for OrderedCoin {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedCoin {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.balance.cmp(&other.0.balance)
+    }
+}
+
+impl OrderedCoin {
+    fn balance(&self) -> u64 {
+        self.0.balance
+    }
 }
