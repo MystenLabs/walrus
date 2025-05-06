@@ -10,36 +10,36 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::account_address::AccountAddress;
 use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
+    BuildConfig,
+    CompiledPackage,
+    PackageDependencies,
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
     gather_published_ids,
-    BuildConfig,
-    CompiledPackage,
-    PackageDependencies,
 };
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
+        Identifier,
         base_types::ObjectID,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::TransactionData,
-        Identifier,
     },
     wallet_context::WalletContext,
 };
 use sui_types::{
-    transaction::{ObjectArg, TransactionKind},
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
+    transaction::{ObjectArg, TransactionKind},
 };
 use walkdir::WalkDir;
-use walrus_core::{ensure, EpochCount};
+use walrus_core::{EpochCount, ensure};
 
 use crate::{
     client::retry_client::RetriableSuiClient,
@@ -81,6 +81,19 @@ pub(crate) async fn publish_package_with_default_build_config(
 
 /// Compiles a package and returns the dependencies, compiled package, and build config.
 pub(crate) async fn compile_package(
+    package_path: PathBuf,
+    build_config: MoveBuildConfig,
+    chain_id: Option<String>,
+) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+    tokio::task::spawn_blocking(|| {
+        compile_package_inner_blocking(package_path, build_config, chain_id)
+    })
+    .await?
+}
+
+/// Synchronous method to compile the package. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
@@ -148,8 +161,11 @@ pub(crate) async fn publish_package(
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    let client = wallet.get_client().await?;
-    let chain_id = client.read_api().get_chain_identifier().await.ok();
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
+
+    let chain_id = retry_client.get_chain_identifier().await.ok();
 
     let (dependencies, compiled_package, build_config) =
         compile_package(package_path, build_config, chain_id).await?;
@@ -157,7 +173,11 @@ pub(crate) async fn publish_package(
     let compiled_modules = compiled_package.get_package_bytes(false);
 
     // Publish the package
-    let transaction_kind = client
+    // TODO: WAL-778 support `publish_tx_kind` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction_kind = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .publish_tx_kind(
             sender,
@@ -169,22 +189,24 @@ pub(crate) async fn publish_package(
     let gas_budget = if let Some(gas_budget) = gas_budget {
         gas_budget
     } else {
-        let retry_client = RetriableSuiClient::new(client.clone(), Default::default());
         let gas_price = retry_client.get_reference_gas_price().await?;
         retry_client
             .estimate_gas_budget(sender, transaction_kind.clone(), gas_price)
             .await?
     };
 
-    let gas_coins = client
-        .coin_read_api()
+    let gas_coins = retry_client
         .select_coins(sender, None, gas_budget as u128, vec![])
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
         .collect::<Vec<_>>();
 
-    let transaction = client
+    // TODO: WAL-778 support `tx_data` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .tx_data(
             sender,
@@ -225,7 +247,21 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+pub async fn copy_recursively(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
+    let source = source.as_ref().to_owned();
+    let destination = destination.as_ref().to_owned();
+    tokio::task::spawn_blocking(|| copy_recursively_inner_blocking(source, destination)).await?
+}
+
+/// Synchronous method to copy directories recursively. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn copy_recursively_inner_blocking(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
     std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;
@@ -260,7 +296,7 @@ pub async fn publish_coin_and_system_package(
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory)?;
+        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
         deploy_directory
     } else {
         walrus_contract_directory
@@ -421,7 +457,9 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    let retry_client = RetriableSuiClient::new(wallet.get_client().await?, Default::default());
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
     let gas_price = retry_client.get_reference_gas_price().await?;
 
     let gas_budget = if let Some(gas_budget) = gas_budget {

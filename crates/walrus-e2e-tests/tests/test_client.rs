@@ -5,13 +5,13 @@
 
 #[cfg(msim)]
 use std::sync::{
-    atomic::{AtomicU32, Ordering},
     Arc,
+    atomic::{AtomicU32, Ordering},
 };
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -19,26 +19,24 @@ use indicatif::MultiProgress;
 use rand::random;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
+use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::{EncodingConfigTrait as _, Primary},
-    merkle::Node,
-    messages::BlobPersistenceType,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
     ShardIndex,
     SliverPairIndex,
-    DEFAULT_ENCODING,
+    encoding::{EncodingConfigTrait as _, Primary},
+    merkle::Node,
+    messages::BlobPersistenceType,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_proc_macros::walrus_simtest;
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
-    client::{responses::BlobStoreResult, Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi},
-    config::ClientCommunicationConfig,
+    client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
     error::{
         ClientError,
         ClientErrorKind::{
@@ -52,12 +50,12 @@ use walrus_sdk::{
     store_when::StoreWhen,
 };
 use walrus_service::test_utils::{
-    test_cluster::{self, FROST_PER_NODE_WEIGHT},
-    StorageNodeHandle,
+    DEFAULT_SUBSIDY_FUNDS,
     StorageNodeHandleTrait,
     TestNodesConfig,
-    DEFAULT_SUBSIDY_FUNDS,
+    test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -67,16 +65,23 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         UpgradeType,
+        retry_client::RetriableSuiClient,
+    },
+    system_setup::copy_recursively,
+    test_utils::{
+        self,
+        system_setup::{development_contract_dir, testnet_contract_dir},
     },
     types::{
-        move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, SharedBlob, Subsidies},
         Blob,
         BlobEvent,
         ContractEvent,
+        move_errors::{MoveExecutionError, RawMoveError},
+        move_structs::{BlobAttribute, SharedBlob, Subsidies},
     },
 };
-use walrus_test_utils::{assert_unordered_eq, async_param_test, Result as TestResult, WithTempDir};
+use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -224,8 +229,8 @@ async fn run_store_and_read_with_crash_failures(
 ) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, client) = test_cluster::default_setup().await?;
-
+    let (_sui_cluster_handle, mut cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     // Stop the nodes in the write failure set.
     failed_shards_write
         .iter()
@@ -260,7 +265,8 @@ async_param_test! {
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -407,7 +413,8 @@ async fn test_store_with_existing_blob_resource(
 ) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
@@ -553,7 +560,8 @@ async fn store_blob(
 pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
 
     // Generate random blobs.
@@ -615,7 +623,8 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 async fn test_store_with_existing_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 5);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
@@ -735,7 +744,8 @@ async fn test_store_with_existing_storage_resource(
 ) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let unencoded_blobs = blob_data
@@ -808,7 +818,8 @@ async_param_test! {
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
@@ -872,7 +883,8 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[walrus_simtest]
 async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
@@ -928,22 +940,17 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 async fn test_blocklist() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            Duration::from_secs(60 * 60),
-            TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
-                enable_node_config_synchronizer: false,
-            },
-            None,
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![1, 2, 3, 3, 4],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
+            enable_node_config_synchronizer: false,
+        })
+        .build()
         .await?;
+
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
 
@@ -1031,8 +1038,10 @@ async fn test_blocklist() -> TestResult {
 #[walrus_simtest]
 async fn test_blob_operations_with_subsidies() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup_with_subsidies().await?;
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_subsidies()
+        .build()
+        .await?;
     let client = client.as_ref();
 
     // Store a blob with subsidies
@@ -1096,7 +1105,8 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
@@ -1179,21 +1189,16 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, walrus_cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            Duration::from_secs(20),
-            TestNodesConfig {
-                node_weights: vec![1, 1],
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            },
-            None,
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![1, 1],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+        })
+        .build()
         .await?;
 
     client
@@ -1266,7 +1271,8 @@ async fn test_burn_blobs() -> TestResult {
     const N_TO_DELETE: usize = 2;
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let mut blob_object_ids = vec![];
     for idx in 0..N_BLOBS {
@@ -1321,7 +1327,8 @@ async fn test_burn_blobs() -> TestResult {
 #[walrus_simtest]
 async fn test_extend_owned_blobs() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let current_epoch = client.as_ref().sui_client().current_epoch().await?;
     let blob = walrus_test_utils::random_data(314);
@@ -1393,7 +1400,8 @@ async fn test_extend_owned_blobs() -> TestResult {
 async fn test_share_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blob = walrus_test_utils::random_data(314);
     let result = client
@@ -1460,6 +1468,12 @@ async fn test_share_blobs() -> TestResult {
         .await?;
     assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
     assert_eq!(shared_blob.funds, 999999500);
+
+    // Read the blob object with attributes from the shared blob object id
+    let _blob_with_attribute = client
+        .as_ref()
+        .get_blob_by_object_id(&shared_blob_object_id)
+        .await?;
     Ok(())
 }
 
@@ -1486,7 +1500,8 @@ async fn test_post_store_action(
     n_target_blobs: usize,
 ) -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 
     let blob_data = walrus_test_utils::random_data_list(314, 4);
@@ -1557,36 +1572,39 @@ async fn test_post_store_action(
 
 // Tests upgrading the walrus contracts.
 #[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
+#[tokio::test]
 async fn test_quorum_contract_upgrade() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let contract_dir = TempDir::new()?;
+    let deploy_dir = TempDir::new()?;
     let (_sui_cluster_handle, walrus_cluster, client, system_ctx) =
-        test_cluster::default_setup_with_deploy_directory_generic::<StorageNodeHandle>(
-            Duration::from_secs(60 * 60), // The voting & upgrade has to complete within one epoch
-            TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            },
-            None,
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            Some(contract_dir.path().to_path_buf()),
-            true,
-            None,
-        )
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_deploy_directory(deploy_dir.path().to_path_buf())
+            .with_delegate_governance_to_admin_wallet()
+            .with_contract_directory(testnet_contract_dir()?)
+            .build()
+            .await?;
+
+    let previous_version = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .system_object_version()
         .await?;
 
-    // TODO(WAL-654): once mainnet upgrades follow testnet, upgrade from testnet-contracts instead
+    // Copy new contracts to fresh directory
+    let upgrade_dir = TempDir::new()?;
+    copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
+
+    // Copy Move.lock files of walrus contract and dependencies to new directory
+    for contract in ["wal", "walrus"] {
+        std::fs::copy(
+            deploy_dir.path().join(contract).join("Move.lock"),
+            upgrade_dir.path().join(contract).join("Move.lock"),
+        )?;
+    }
+
     // Change the version in the contracts
-    let walrus_package_path = contract_dir.path().join("walrus");
-    let staking_path = walrus_package_path.join("sources/staking.move");
-    let system_path = walrus_package_path.join("sources/system.move");
-    replace_version(&staking_path)?;
-    replace_version(&system_path)?;
+    let walrus_package_path = upgrade_dir.path().join("walrus");
 
     // Vote for the upgrade
     // We can vote on behalf of all nodes from the client wallet since the client
@@ -1636,7 +1654,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             .read_client()
             .system_object_version()
             .await?,
-        2
+        previous_version + 1
     );
 
     // Store a blob after the upgrade to check if everything works after the upgrade.
@@ -1655,13 +1673,6 @@ async fn test_quorum_contract_upgrade() -> TestResult {
         )
         .await?;
 
-    Ok(())
-}
-
-fn replace_version(contract_file: &Path) -> anyhow::Result<()> {
-    let contents = std::fs::read_to_string(contract_file)?;
-    let contents = contents.replace("const VERSION: u64 = 1;", "const VERSION: u64 = 2;");
-    std::fs::write(contract_file, contents)?;
     Ok(())
 }
 
@@ -1848,7 +1859,8 @@ impl<'a> BlobAttributeTestContext<'a> {
 async fn test_blob_attribute_add_and_remove() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
     let mut attribute = BlobAttribute::default();
@@ -1903,7 +1915,8 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
 async fn test_blob_attribute_fields_operations() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, mut client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
     let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
     // Test adding a pair without attribute should fail.
@@ -2000,21 +2013,16 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
 #[walrus_simtest]
 async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
     telemetry_subscribers::init_for_testing();
-    let (_sui_cluster_handle, walrus_cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            Duration::from_secs(20),
-            TestNodesConfig {
-                node_weights: vec![1, 1],
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            },
-            None,
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![1, 1],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+        })
+        .build()
         .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(2).await;
@@ -2111,7 +2119,8 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
 #[walrus_simtest]
 async fn test_ptb_retriable_error() -> TestResult {
     // Set up test environment with cluster and client
-    let (_sui_cluster_handle, cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Create an atomic counter to track number of failure attempts
     let failure_counter = Arc::new(AtomicU32::new(0));
@@ -2142,5 +2151,84 @@ async fn test_ptb_retriable_error() -> TestResult {
 
     // Clean up the fail point
     clear_fail_point("ptb_executor_stake_pool_retriable_error");
+    Ok(())
+}
+
+/// Tests the select_coins function on the retriable sui client works as expected when dealing
+/// with a large number of coins.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+pub async fn test_select_coins_max_objects() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (sui_cluster_handle, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    // Create a new wallet on the cluster.
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(
+            sui_cluster_handle
+                .lock()
+                .await
+                .wallet_path()
+                .await
+                .as_path(),
+        ),
+        None,
+    )?;
+    let env = cluster_wallet.config.get_active_env()?.to_owned();
+    let mut wallet = test_utils::temp_dir_wallet(None, env)?;
+
+    let sui = |sui: u64| (sui * 1_000_000_000);
+
+    // Add 4 coins with 1 SUI each to the wallet.
+    let address = wallet.as_mut().active_address()?;
+    walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
+        .await?;
+
+    let balance = wallet
+        .as_mut()
+        .get_client()
+        .await?
+        .coin_read_api()
+        .get_balance(address, None)
+        .await?;
+    assert_eq!(balance.total_balance, u128::from(sui(4)));
+
+    // Create a new client with the funded wallet.
+    let retry_client =
+        RetriableSuiClient::new_from_wallet(&wallet.inner, ExponentialBackoffConfig::default())
+            .await?;
+
+    // The maximum number of coins that can be selected to reach the amount.
+    let max_num_coins = 2;
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(1).into(), vec![], max_num_coins)
+        .await;
+    assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(3).into(), vec![], max_num_coins)
+        .await;
+    if let Err(error) = result {
+        assert!(
+            matches!(error, SuiClientError::InsufficientFundsWithMaxCoins(_)),
+            "expected InsufficientFundsWithMaxCoins error"
+        );
+    } else {
+        panic!("3 SUI cannot be achieved with 2 coins, but the wallet has 4 SUI");
+    }
+
+    let result = retry_client
+        .select_coins_with_limit(address, None, sui(5).into(), vec![], max_num_coins)
+        .await;
+    if let Err(error) = result {
+        assert!(
+            matches!(error, SuiClientError::SuiSdkError(_)),
+            "expected SuiSdkError error"
+        );
+    } else {
+        panic!("the wallet does not have 5 SUI");
+    }
+
     Ok(())
 }

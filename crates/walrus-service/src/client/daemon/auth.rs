@@ -2,20 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{body::Body, extract::Query, http::Response};
-use axum_extra::headers::{authorization::Bearer, Authorization};
+use axum_extra::headers::{Authorization, authorization::Bearer};
 use chrono::DateTime;
 use jsonwebtoken::{
-    decode,
-    errors::{Error as JwtError, ErrorKind as JwtErrorKind},
     DecodingKey,
     Validation,
+    decode,
+    errors::{Error as JwtError, ErrorKind as JwtErrorKind},
 };
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use walrus_core::EpochCount;
 use walrus_proc_macros::RestApiError;
 
-use super::{cache::CacheHandle, routes::PublisherQuery};
+use super::{
+    cache::CacheHandle,
+    routes::{PublisherQuery, SendOrShare},
+};
 use crate::{client::config::AuthConfig, common::api::RestApiError};
 
 pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
@@ -181,7 +184,13 @@ impl Claim {
             return Err(error);
         }
 
-        self.check_send_object_to(query.send_object_to)?;
+        self.check_send_object_to(query.send_or_share().and_then(|send_or_share| {
+            if let SendOrShare::SendObjectTo(address) = send_or_share {
+                Some(address)
+            } else {
+                None
+            }
+        }))?;
 
         Ok(())
     }
@@ -234,7 +243,6 @@ impl Claim {
     /// Checks if the `send_object_to` field is valid.
     fn check_send_object_to(
         &self,
-
         query_send_object_to: Option<SuiAddress>,
     ) -> Result<(), PublisherAuthError> {
         match (self.send_object_to, query_send_object_to) {
@@ -389,11 +397,11 @@ mod tests {
     use std::sync::Arc;
 
     use axum::{
+        Router,
         http::{Request, StatusCode},
         routing::get,
-        Router,
     };
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use rand::distributions::{Alphanumeric, DistString};
     use ring::signature::{self, Ed25519KeyPair, KeyPair};
     use sui_types::base_types::SUI_ADDRESS_LENGTH;

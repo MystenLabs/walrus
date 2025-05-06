@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use reqwest::{
-    header::{self, HeaderMap},
     Response,
+    header::{self, HeaderMap},
 };
 use serde::de::DeserializeOwned;
 use walrus_core::ensure;

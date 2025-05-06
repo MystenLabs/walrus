@@ -14,7 +14,7 @@ use fastcrypto::{
     error::FastCryptoError,
     traits::VerifyingKey,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 mod proof_of_possession;
 pub use proof_of_possession::{ProofOfPossession, ProofOfPossessionBody, ProofOfPossessionMsg};
@@ -34,9 +34,14 @@ mod sync_shard;
 pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest, SyncShardResponse};
 
 mod certificate;
-pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};
+pub use certificate::{
+    CertificateError,
+    ConfirmationCertificate,
+    InvalidBlobCertificate,
+    ProtocolMessageCertificate,
+};
 
-use crate::{ensure, wrapped_uint, Epoch, PublicKey};
+use crate::{Epoch, PublicKey, ensure, wrapped_uint};
 
 /// Message format for messages sent to the System Contracts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -228,13 +233,13 @@ impl Intent {
 #[cfg(test)]
 mod tests {
     use storage_confirmation::{BlobPersistenceType, StorageConfirmationBody};
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
     use crate::{
-        messages::{IntentAppId, IntentVersion},
         BlobId,
         Epoch,
+        messages::{IntentAppId, IntentVersion},
     };
 
     const EPOCH: Epoch = 21;

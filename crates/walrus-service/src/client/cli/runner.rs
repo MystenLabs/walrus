@@ -17,27 +17,26 @@ use chrono::{DateTime, Utc};
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
-use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
+use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    EpochCount,
+    SUPPORTED_ENCODING_TYPES,
     encoding::{
-        encoded_blob_length_for_n_shards,
         EncodingConfig,
         EncodingConfigTrait as _,
         Primary,
+        encoded_blob_length_for_n_shards,
     },
     ensure,
     metadata::BlobMetadataApi as _,
-    BlobId,
-    EncodingType,
-    EpochCount,
-    DEFAULT_ENCODING,
-    SUPPORTED_ENCODING_TYPES,
 };
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
-    client::{resource::RegisterBlobOp, Client, NodeCommunicationFactory},
+    client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
     config::load_configuration,
     error::ClientErrorKind,
     store_when::StoreWhen,
@@ -55,6 +54,7 @@ use walrus_sdk::{
     },
     utils::styled_spinner,
 };
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_utils::metrics::Registry;
 
 use super::args::{
@@ -78,17 +78,19 @@ use super::args::{
 };
 use crate::{
     client::{
+        ClientConfig,
+        ClientDaemon,
         cli::{
+            BlobIdDecimal,
+            CliOutput,
+            HumanReadableFrost,
+            HumanReadableMist,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
             read_blob_from_file,
             success,
             warning,
-            BlobIdDecimal,
-            CliOutput,
-            HumanReadableFrost,
-            HumanReadableMist,
         },
         multiplexer::ClientMultiplexer,
         responses::{
@@ -114,10 +116,8 @@ use crate::{
             StakeOutput,
             WalletOutput,
         },
-        ClientConfig,
-        ClientDaemon,
     },
-    utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
+    utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
 /// A helper struct to run commands for the Walrus client.
@@ -152,7 +152,13 @@ impl ClientCommandRunner {
                 .as_ref()
                 .ok()
                 .and_then(|config: &ClientConfig| config.wallet_config.clone()));
-        let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
+        let wallet = WalletConfig::load_wallet_context(
+            wallet_config.as_ref(),
+            config
+                .as_ref()
+                .ok()
+                .and_then(|config| config.communication_config.sui_client_request_timeout),
+        );
 
         Self {
             wallet,
@@ -253,21 +259,17 @@ impl ClientCommandRunner {
                 let wallet_path = if let Some(path) = path {
                     path
                 } else {
-                    // Check if the Sui configuration directory exists.
+                    // This automatically creates the Sui configuration directory if it doesn't
+                    // exist.
                     let config_dir = sui_config_dir()?;
-                    if config_dir.exists() {
-                        anyhow::bail!(
-                            "Sui configuration directory already exists; please specify a \
-                            different path using `--path` or manage the wallet using the Sui CLI."
-                        );
-                    } else {
-                        tracing::debug!(
-                            config_dir = ?config_dir.display(),
-                            "creating the Sui configuration directory"
-                        );
-                        std::fs::create_dir_all(&config_dir)?;
-                        config_dir.join(SUI_CLIENT_CONFIG)
-                    }
+                    anyhow::ensure!(
+                        config_dir.read_dir()?.next().is_none(),
+                        "The Sui configuration directory {} is not empty; please specify a \
+                        different wallet path using `--path` or manage the wallet using the Sui \
+                        CLI.",
+                        config_dir.display()
+                    );
+                    config_dir.join(SUI_CLIENT_CONFIG)
                 };
 
                 self.generate_sui_wallet(&wallet_path, sui_network, use_faucet, faucet_timeout)
@@ -757,6 +759,10 @@ impl ClientCommandRunner {
         sort: SortBy<HealthSortBy>,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
+
+        let latest_seq =
+            get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await;
+
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -772,20 +778,6 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-
-        let latest_seq = if let Some(url) = rpc_url {
-            let rpc_client_result = sui_rpc_api::Client::new(url);
-            if let Ok(rpc_client) = rpc_client_result {
-                match rpc_client.get_latest_checkpoint().await {
-                    Ok(checkpoint) => Some(checkpoint.sequence_number),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
 
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
@@ -1347,4 +1339,41 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+/// Get the latest checkpoint sequence number from the Sui RPC node.
+async fn get_latest_checkpoint_sequence_number(
+    rpc_url: Option<&String>,
+    wallet: &Result<WalletContext, anyhow::Error>,
+) -> Option<u64> {
+    // Early return if no URL is available
+    let url = if let Some(url) = rpc_url {
+        url.clone()
+    } else if let Ok(wallet) = wallet {
+        match wallet.config.get_active_env() {
+            Ok(env) => env.rpc.clone(),
+            Err(_) => {
+                println!("Failed to get full node RPC URL.");
+                return None;
+            }
+        }
+    } else {
+        println!("Failed to get full node RPC URL.");
+        return None;
+    };
+
+    // Now url is a String, not an Option<String>
+    let rpc_client_result = sui_rpc_api::Client::new(url);
+    if let Ok(rpc_client) = rpc_client_result {
+        match rpc_client.get_latest_checkpoint().await {
+            Ok(checkpoint) => Some(checkpoint.sequence_number),
+            Err(e) => {
+                println!("Failed to get latest checkpoint: {e}");
+                None
+            }
+        }
+    } else {
+        println!("Failed to create RPC client.");
+        None
+    }
 }

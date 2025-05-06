@@ -46,8 +46,8 @@ use std::{
 };
 
 use reqwest::StatusCode as HttpStatusCode;
-use serde::{de::Error, Deserialize, Serialize};
-use serde_with::{serde_as, TryFromInto};
+use serde::{Deserialize, Serialize, de::Error};
+use serde_with::{TryFromInto, serde_as};
 use utoipa::ToSchema;
 
 /// Error domain for service-agnostic errors.

@@ -4,25 +4,25 @@
 use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::Result;
-use futures::{future::Either, stream::FuturesUnordered, Future, StreamExt};
+use futures::{Future, StreamExt, future::Either, stream::FuturesUnordered};
 use rand::rngs::StdRng;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
-    messages::{BlobPersistenceType, SignedStorageConfirmation},
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     PublicKey,
     ShardIndex,
     Sliver,
     SliverPairIndex,
+    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    messages::{BlobPersistenceType, SignedStorageConfirmation},
+    metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::{
+use walrus_storage_node_client::{
+    NodeError,
+    StorageNodeClient,
     api::{BlobStatus, StoredOnNodeStatus},
-    client::Client as StorageNodeClient,
-    error::NodeError,
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -30,7 +30,7 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 use crate::{
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
-    utils::{string_prefix, WeightedResult},
+    utils::{WeightedResult, string_prefix},
 };
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
@@ -51,25 +51,43 @@ pub type NodeIndex = usize;
 ///
 /// Contains the epoch, the "weight" of the interaction (e.g., the number of shards for which an
 /// operation was performed), the storage node that issued it, and the result of the operation.
+
 #[derive(Debug, Clone)]
-pub struct NodeResult<T, E>(
-    #[allow(dead_code)] pub Epoch,
-    pub usize,
-    pub NodeIndex,
-    pub Result<T, E>,
-);
+pub struct NodeResult<T, E> {
+    #[allow(dead_code)]
+    pub committee_epoch: Epoch,
+    pub weight: usize,
+    pub node: NodeIndex,
+    pub result: Result<T, E>,
+}
+
+impl<T, E> NodeResult<T, E> {
+    pub fn new(
+        committee_epoch: Epoch,
+        weight: usize,
+        node: NodeIndex,
+        result: Result<T, E>,
+    ) -> Self {
+        Self {
+            committee_epoch,
+            weight,
+            node,
+            result,
+        }
+    }
+}
 
 impl<T, E> WeightedResult for NodeResult<T, E> {
     type Inner = T;
     type Error = E;
     fn weight(&self) -> usize {
-        self.1
+        self.weight
     }
     fn inner_result(&self) -> &Result<Self::Inner, Self::Error> {
-        &self.3
+        &self.result
     }
     fn take_inner_result(self) -> Result<Self::Inner, Self::Error> {
-        self.3
+        self.result
     }
 }
 
@@ -177,7 +195,7 @@ impl<W> NodeCommunication<'_, W> {
     }
 
     fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
-        NodeResult(self.committee_epoch, weight, self.node_index, result)
+        NodeResult::new(self.committee_epoch, weight, self.node_index, result)
     }
 
     fn to_node_result_with_n_shards<T, E>(&self, result: Result<T, E>) -> NodeResult<T, E> {
@@ -449,7 +467,8 @@ impl NodeWriteCommunication<'_> {
             );
         } else if sliver.len() < SLIVER_CHECK_THRESHOLD {
             print_debug(
-                "the sliver is sufficiently small not to require a status check; storing the sliver"
+                "the sliver is sufficiently small not to require a status check; \
+                storing the sliver",
             );
         } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
             == StoredOnNodeStatus::Nonexistent

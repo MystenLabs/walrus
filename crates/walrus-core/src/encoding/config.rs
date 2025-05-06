@@ -8,11 +8,6 @@ use enum_dispatch::enum_dispatch;
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
-    basic_encoding::{
-        raptorq::{RaptorQDecoder, RaptorQEncoder},
-        Decoder as _,
-    },
-    utils,
     BlobDecoder,
     BlobDecoderEnum,
     BlobEncoder,
@@ -20,13 +15,18 @@ use super::{
     DecodingSymbol,
     EncodeError,
     EncodingAxis,
+    MAX_SOURCE_SYMBOLS_PER_BLOCK,
+    MAX_SYMBOL_SIZE,
     ReedSolomonDecoder,
     ReedSolomonEncoder,
     SliverPair,
-    MAX_SOURCE_SYMBOLS_PER_BLOCK,
-    MAX_SYMBOL_SIZE,
+    basic_encoding::{
+        Decoder as _,
+        raptorq::{RaptorQDecoder, RaptorQEncoder},
+    },
+    utils,
 };
-use crate::{bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId, BlobId, EncodingType};
+use crate::{BlobId, EncodingType, bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId};
 
 // TODO (WAL-621): Maybe rename this module and the structs/enums/traits; these now take on similar
 // roles as "factories".
@@ -47,7 +47,7 @@ pub trait EncodingConfigTrait {
 
     /// Returns a vector of all `n_shards` source and repair symbols for a single 1D encoding.
     fn encode_all_symbols<E: EncodingAxis>(&self, data: &[u8])
-        -> Result<Vec<Vec<u8>>, EncodeError>;
+    -> Result<Vec<Vec<u8>>, EncodeError>;
 
     /// Returns a vector of all repair symbols for a single 1D encoding.
     fn encode_all_repair_symbols<E: EncodingAxis>(

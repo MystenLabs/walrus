@@ -3,7 +3,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::Parser, parse_macro_input, punctuated::Punctuated, ItemFn, Token};
+use syn::{ItemFn, Token, parse::Parser, parse_macro_input, punctuated::Punctuated};
 
 pub fn attribute_macro(args: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree

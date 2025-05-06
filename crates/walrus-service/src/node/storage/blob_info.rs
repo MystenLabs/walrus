@@ -12,21 +12,21 @@ use std::{
 
 use enum_dispatch::enum_dispatch;
 use rocksdb::{MergeOperands, Options};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
 use typed_store::{
-    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
-use walrus_rest_client::api::{BlobStatus, DeletableCounts};
+use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
-use super::{constants::*, database_config::DatabaseTableOptions, DatabaseConfig};
+use super::{DatabaseConfig, constants::*, database_config::DatabaseTableOptions};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -1090,7 +1090,7 @@ impl Mergeable for BlobInfoV1 {
                 return Self::Invalid {
                     epoch,
                     event: status_event,
-                }
+                };
             }
             (
                 Self::Valid(ValidBlobInfoV1 {
@@ -1188,8 +1188,8 @@ impl Ord for BlobCertificationStatus {
 }
 
 /// Internal representation of the aggregate blob information for use in the database etc. Use
-/// [`walrus_rest_client::api::BlobStatus`] for anything public facing (e.g., communication to the
-/// client).
+/// [`walrus_storage_node_client::api::BlobStatus`] for anything public facing (e.g., communication
+/// to the client).
 #[enum_dispatch(CertifiedBlobInfoApi)]
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]

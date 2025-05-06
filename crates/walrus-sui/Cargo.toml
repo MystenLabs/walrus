@@ -21,6 +21,7 @@ utoipa = [
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+atomic-time.workspace = true
 bcs.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -59,9 +60,10 @@ utoipa = { workspace = true, optional = true }
 walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "config"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
 
 [dev-dependencies]
+clap.workspace = true
 tracing-subscriber.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
 
@@ -75,3 +77,8 @@ workspace = true
 
 [target.'cfg(msim)'.dependencies]
 sui-simulator.workspace = true
+
+[[bench]]
+name = "gas_cost_bench"
+harness = false
+required-features = ["test-utils"]

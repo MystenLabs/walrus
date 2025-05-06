@@ -13,31 +13,31 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
+    DeserializeAs,
+    DurationSeconds,
+    SerializeAs,
     base64::Base64,
     de::DeserializeAsWrap,
     ser::SerializeAsWrap,
     serde_as,
-    DeserializeAs,
-    DurationSeconds,
-    SerializeAs,
 };
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
-    messages::ProofOfPossession,
     Epoch,
     NetworkPublicKey,
     PublicKey,
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
+    messages::ProofOfPossession,
 };
 use walrus_sui::types::{
-    move_structs::{NodeMetadata, VotingParams},
     NetworkAddress,
     NodeRegistrationParams,
     NodeUpdateParams,
+    move_structs::{NodeMetadata, VotingParams},
 };
 
 use super::storage::DatabaseConfig;
@@ -580,9 +580,9 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
-    /// Use the experimental batch recovery service endpoint.
-    // TODO: Remove (WAL-594).
-    pub experimental_batch_symbol_recovery: bool,
+    /// The number of additional symbols to request from the remote storage node for sliver
+    /// recovery.
+    pub experimental_sliver_recovery_additional_symbols: usize,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -595,7 +595,7 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
-            experimental_batch_symbol_recovery: true,
+            experimental_sliver_recovery_additional_symbols: 0,
         }
     }
 }
@@ -1035,7 +1035,7 @@ mod tests {
 
     use indoc::indoc;
     use p256::{pkcs8, pkcs8::EncodePrivateKey};
-    use rand::{rngs::StdRng, SeedableRng as _};
+    use rand::{SeedableRng as _, rngs::StdRng};
     use sui_types::base_types::ObjectID;
     use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
@@ -1070,6 +1070,7 @@ mod tests {
                 gas_budget: None,
                 rpc_fallback_config: None,
                 additional_rpc_endpoints: Default::default(),
+                request_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),

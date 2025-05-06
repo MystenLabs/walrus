@@ -6,30 +6,21 @@ use std::time::Duration;
 
 use anyhow::Context;
 use walrus_core::{
-    encoding::{Primary, Secondary},
     BlobId,
+    encoding::{Primary, Secondary},
 };
-use walrus_service::{
-    client::ClientCommunicationConfig,
-    test_utils::{test_cluster, StorageNodeHandle, TestNodesConfig},
-};
+use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_sui::client::ReadClient;
 
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_event_blobs() -> anyhow::Result<()> {
-    let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            Duration::from_secs(60 * 60),
-            TestNodesConfig {
-                node_weights: vec![2, 2],
-                ..Default::default()
-            },
-            Some(10),
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![2, 2],
+            ..Default::default()
+        })
+        .build()
         .await?;
 
     let event_blob_id = loop {
@@ -84,21 +75,15 @@ async fn test_event_blobs() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
-    let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            Duration::from_secs(60 * 60),
-            TestNodesConfig {
-                node_weights: vec![1, 1],
-                use_legacy_event_processor: false,
-                disable_event_blob_writer: true,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            },
-            Some(10),
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![1, 1],
+            use_legacy_event_processor: false,
+            disable_event_blob_writer: true,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+        })
+        .build()
         .await?;
 
     // Wait 30s to download enough number of checkpoints

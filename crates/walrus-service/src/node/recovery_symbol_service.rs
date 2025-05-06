@@ -7,20 +7,20 @@ use std::{
 };
 
 use fastcrypto::hash::Blake2b256;
-use futures::{future::BoxFuture, FutureExt as _, TryFutureExt};
+use futures::{FutureExt as _, TryFutureExt, future::BoxFuture};
 use moka::future::Cache;
 use prometheus::IntCounter;
 use tower::Service;
 use walrus_core::{
-    by_axis::{self, ByAxis},
-    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, RecoverySymbolError, Secondary},
-    merkle::MerkleTree,
     BlobId,
     EncodingType,
     Sliver,
     SliverId,
     SliverPairIndex,
     SliverType,
+    by_axis::{self, ByAxis},
+    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, RecoverySymbolError, Secondary},
+    merkle::MerkleTree,
 };
 use walrus_utils::metrics::Registry;
 
@@ -213,12 +213,12 @@ mod tests {
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt as _;
     use walrus_core::{
-        encoding::{EncodingConfigTrait, PrimarySliver, SliverPair},
-        metadata::VerifiedBlobMetadataWithId,
         SliverId,
         SliverIndex,
+        encoding::{EncodingConfigTrait, PrimarySliver, SliverPair},
+        metadata::VerifiedBlobMetadataWithId,
     };
-    use walrus_test_utils::{async_param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, async_param_test};
 
     use super::*;
 

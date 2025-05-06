@@ -7,30 +7,30 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::{rngs::StdRng, thread_rng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng, thread_rng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EpochCount,
+    SliverPairIndex,
     encoding::EncodingConfigTrait as _,
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    EpochCount,
-    SliverPairIndex,
-    DEFAULT_ENCODING,
 };
 use walrus_sdk::{
-    client::{metrics::ClientMetrics, refresh::CommitteesRefresherHandle, Client},
+    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
     error::ClientError,
     store_when::StoreWhen,
 };
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{
-        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         ReadClient,
         SuiContractClient,
+        retry_client::RetriableSuiClient,
     },
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
@@ -244,7 +244,7 @@ async fn new_client(
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
-    let wallet = wallet_for_testing_from_refill(network, refiller).await?;
+    let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
     let sui_client =
         RetriableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
     let sui_read_client = config.new_read_client(sui_client).await?;
@@ -262,10 +262,14 @@ async fn new_client(
 
 /// Creates a new wallet for testing and fills it with gas and WAL tokens
 pub async fn wallet_for_testing_from_refill(
+    config: &ClientConfig,
     network: &SuiNetwork,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
-    let mut wallet = temp_dir_wallet(network.env())?;
+    let mut wallet = temp_dir_wallet(
+        config.communication_config.sui_client_request_timeout,
+        network.env(),
+    )?;
     let address = wallet.as_mut().active_address()?;
     refiller.send_gas_request(address).await?;
     refiller.send_wal_request(address).await?;

@@ -12,18 +12,18 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use move_core_types::language_storage::StructTag as MoveStructTag;
-use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
+use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
-use sui_config::{sui_config_dir, Config, SUI_KEYSTORE_FILENAME};
+use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
+    SuiClient,
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
     wallet_context::WalletContext,
-    SuiClient,
 };
 use sui_types::{
     base_types::SuiAddress,
@@ -32,12 +32,12 @@ use sui_types::{
     transaction::TransactionData,
 };
 use walrus_core::{
-    encoding::encoded_blob_length_for_n_shards,
-    keys::ProtocolKeyPair,
-    messages::{ProofOfPossessionMsg, SignedMessage},
     EncodingType,
     Epoch,
     EpochCount,
+    encoding::encoded_blob_length_for_n_shards,
+    keys::ProtocolKeyPair,
+    messages::{ProofOfPossessionMsg, SignedMessage},
 };
 
 use crate::{
@@ -156,25 +156,27 @@ where
     })
 }
 
-pub(crate) async fn handle_pagination<F, T, C, Fut>(
+pub(crate) async fn handle_pagination<F, T, C, Fut, ErrorT>(
     closure: F,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+) -> Result<impl Iterator<Item = T>, ErrorT>
 where
     F: FnMut(Option<C>) -> Fut,
     T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
+    ErrorT: std::error::Error,
 {
     handle_pagination_with_cursor(closure, None).await
 }
 
-pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut>(
+pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut, ErrorT>(
     mut closure: F,
     mut cursor: Option<C>,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+) -> Result<impl Iterator<Item = T>, ErrorT>
 where
     F: FnMut(Option<C>) -> Fut,
     T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
+    ErrorT: std::error::Error,
 {
     let mut cont = true;
     let mut iterators = vec![];
@@ -303,10 +305,14 @@ impl std::fmt::Display for SuiNetwork {
 ///
 /// The keystore will be stored in the same directory as the wallet config and named
 /// `keystore_filename` (if provided) and `sui.keystore` otherwise.  Returns the created Wallet.
+///
+/// `request_time` is a configuration that is set in the wallet, and automatically populated to
+/// the SuiClient created from the wallet.
 pub fn create_wallet(
     config_path: &Path,
     sui_env: SuiEnv,
     keystore_filename: Option<&str>,
+    request_timeout: Option<Duration>,
 ) -> Result<WalletContext> {
     let keystore_path = config_path
         .parent()
@@ -328,7 +334,7 @@ pub fn create_wallet(
     }
     .persisted(config_path)
     .save()?;
-    load_wallet_context_from_path(Some(config_path))
+    load_wallet_context_from_path(Some(config_path), request_timeout)
 }
 
 /// Sends a request to the faucet to request coins for `address`.
@@ -416,13 +422,6 @@ pub async fn get_sui_from_wallet_or_faucet(
         .coin_read_api()
         .get_balance(sender, None)
         .await?;
-    tracing::debug!(
-        address = %address,
-        sui_amount = %sui_amount,
-        balance = %balance.total_balance,
-        min_balance = %min_balance,
-        "funding address with SUI"
-    );
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(sui_amount));

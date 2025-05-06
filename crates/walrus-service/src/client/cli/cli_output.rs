@@ -7,10 +7,9 @@ use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
 use itertools::Itertools as _;
-use prettytable::{format, row, Table};
+use prettytable::{Table, format, row};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
-use walrus_rest_client::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sdk::{
     client::{
         resource::RegisterBlobOp,
@@ -18,18 +17,19 @@ use walrus_sdk::{
     },
     format_event_id,
 };
+use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        error,
-        success,
-        thousands_separator,
-        warning,
         HumanReadableBytes,
         HumanReadableFrost,
         HumanReadableMist,
         WalrusColors,
+        error,
+        success,
+        thousands_separator,
+        warning,
     },
     responses::{
         BlobIdConversionOutput,
@@ -891,8 +891,9 @@ impl NodeHealthOutput {
                     {event_heading}
                     Events persisted: {persisted}
                     Events pending: {pending}{highest_finished_event_index_output}
-                    Latest checkpoint sequence number: {latest_checkpoint_sequence_number_output}
-                    Estimated checkpoint lag: {checkpoint_lag}
+
+                    {checkpoint_heading}
+                    {checkpoint_info}
 
                     {shard_heading}
                     Owned shards: {owned}
@@ -916,18 +917,35 @@ impl NodeHealthOutput {
                         .map_or("".to_string(), |index| format!(
                             "\nHighest finished event index: {index}"
                         )),
-                    latest_checkpoint_sequence_number_output = health_info
-                        .latest_checkpoint_sequence_number
-                        .map_or("n/a".to_string(), |seq_num|
-                            format!("{seq_num}")
-                        ),
-                    checkpoint_lag =
-                        match (latest_seq, health_info.latest_checkpoint_sequence_number) {
-                            (Some(latest_seq), Some(checkpoint_seq)) => {
-                                format!("{}", std::cmp::max(latest_seq - checkpoint_seq, 0))
+                    checkpoint_heading = "Checkpoint Downloading Progress".bold().walrus_teal(),
+                    checkpoint_info = match (
+                        latest_seq,
+                        health_info.latest_checkpoint_sequence_number,
+                    ) {
+                        (Some(latest_seq), Some(checkpoint_seq)) => {
+                            if latest_seq > checkpoint_seq {
+                                format!(
+                                    "Latest checkpoint sequence number: {}\
+                                    \nEstimated checkpoint lag: {}",
+                                    checkpoint_seq, latest_seq - checkpoint_seq
+                                )
+                            } else {
+                                format!("Latest checkpoint sequence number: {}\
+                                \nCheckpoint: up-to-date",
+                                    checkpoint_seq
+                                )
                             }
-                            _ => "n/a".to_string(),
                         },
+                        _ => {
+                            format!("Latest checkpoint sequence number: {}\
+                            \nLatest sui checkpoint: {}",
+                                health_info
+                                    .latest_checkpoint_sequence_number
+                                    .map_or("N/A".to_string(), |seq| format!("{}", seq)),
+                                latest_seq.map_or("N/A".to_string(), |seq| format!("{}", seq))
+                            )
+                        },
+                    },
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
                     read_only = health_info.shard_summary.read_only,

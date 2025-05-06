@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use walrus_core::EpochCount;
 
 const TAG: &[u8] = b"TESTBLOB";
@@ -47,13 +47,13 @@ pub(crate) struct BlobData {
 impl BlobData {
     /// Create a random blob of a given size.
     pub async fn random(mut rng: StdRng, config: WriteBlobConfig) -> Self {
-        let mut new_rng = StdRng::from_seed(rng.gen());
+        let mut new_rng = StdRng::from_seed(rng.r#gen());
         let size = 2_usize.pow(config.max_size_log2 as u32);
         let n_additional_bytes = size - TAG.len();
         let bytes = tokio::spawn(async move {
             TAG.iter()
                 .cloned()
-                .chain((0..n_additional_bytes).map(|_| new_rng.gen::<u8>()))
+                .chain((0..n_additional_bytes).map(|_| new_rng.r#gen::<u8>()))
                 .collect()
         })
         .await

@@ -112,7 +112,8 @@ good job of inferring content types for media. However, the aggregator on purpos
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 ```
 
-Blobs may also be read by using the object ID of a Sui blob object. For example the following
+Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
+For example the following
 cURL command downloads the blob corresponding to a Sui blob with a specific object ID:
 
 ```sh

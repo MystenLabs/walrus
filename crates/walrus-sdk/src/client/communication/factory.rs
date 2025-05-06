@@ -4,7 +4,7 @@
 //! Create the vectors of node communications objects.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::{Arc, Mutex},
 };
 
@@ -14,11 +14,8 @@ use reqwest::Client as ReqwestClient;
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use tokio::sync::Semaphore;
-use walrus_core::{encoding::EncodingConfig, Epoch, NetworkPublicKey};
-use walrus_rest_client::{
-    client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
-    error::ClientBuildError,
-};
+use walrus_core::{Epoch, NetworkPublicKey, encoding::EncodingConfig};
+use walrus_storage_node_client::{ClientBuildError, StorageNodeClient, StorageNodeClientBuilder};
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
 use walrus_utils::metrics::Registry;
 
@@ -300,6 +297,10 @@ fn node_communications<'a, W>(
     committee: &Committee,
     constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
 ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
+    if committee.n_members() == 0 {
+        return Err(ClientError::from(ClientErrorKind::EmptyCommittee));
+    }
+
     let mut comms: Vec<_> = (0..committee.n_members())
         .map(|i| (i, constructor(i)))
         .collect();

@@ -14,25 +14,24 @@ use std::{
 use fastcrypto::traits::ToFromBytes;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
-    base_types::{ObjectID, ObjectType, SuiAddress},
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
+    base_types::{ObjectID, ObjectType, SuiAddress},
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
 };
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
-    ensure,
-    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     Epoch,
     EpochCount,
     NetworkPublicKey,
+    ensure,
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
 };
 
 use super::{
-    read_client::Mutability,
     BlobObjectMetadata,
     BlobPersistence,
     CoinType,
@@ -41,16 +40,17 @@ use super::{
     SuiClientError,
     SuiClientResult,
     SuiReadClient,
+    read_client::Mutability,
 };
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
         NetworkAddress,
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,
         UpdatePublicKeyParams,
+        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
@@ -299,6 +299,26 @@ impl WalrusPtbBuilder {
             reserve_arguments,
         )?;
         self.reduce_wal_balance(price)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `storage_resource::split_by_size` to the `pt_builder` and returns
+    /// the result [`Argument`].
+    ///
+    /// The call modifies the input argument to cover `split_size` and a new object covering
+    /// the initial size minus `split_size` is created.
+    pub async fn split_storage_by_size(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+        split_size: u64,
+    ) -> SuiClientResult<Argument> {
+        let split_arguments = vec![
+            self.argument_from_arg_or_obj(storage_resource).await?,
+            self.pt_builder.pure(split_size)?,
+        ];
+        let result_arg =
+            self.walrus_move_call(contracts::storage_resource::split_by_size, split_arguments)?;
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
     }

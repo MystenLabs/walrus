@@ -13,6 +13,10 @@ use aws_sdk_ec2::{
     meta::PKG_VERSION,
     primitives::Blob,
     types::{
+        EphemeralNvmeSupport,
+        Instance as AwsInstance,
+        ResourceType,
+        VolumeType,
         builders::{
             BlockDeviceMappingBuilder,
             EbsBlockDeviceBuilder,
@@ -20,10 +24,6 @@ use aws_sdk_ec2::{
             TagBuilder,
             TagSpecificationBuilder,
         },
-        EphemeralNvmeSupport,
-        Instance as AwsInstance,
-        ResourceType,
-        VolumeType,
     },
 };
 use serde::Serialize;

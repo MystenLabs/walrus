@@ -24,7 +24,7 @@ mod derive_api_errors;
 ///
 /// By implementing these three traits, the definitions of error enums and structs can be used to
 /// populate `utoipa` OpenAPI schema for the errors and convert the errors to `axum::Response`s
-/// with the format provided by `walrus_rest_client::api::errors::Status`.
+/// with the format provided by `walrus_storage_node_client::api::errors::Status`.
 ///
 /// Most notably, the docstrings of the enum are used for the descriptions of the errors in the
 /// OpenAPI schema.
@@ -42,9 +42,9 @@ mod derive_api_errors;
 /// The `domain` field is added outside a struct or enum. It accepts a string that defines the
 /// error domain (`Status::domain()`) for struct or enum variants.
 ///
-/// The `status` and `reason` fields accept a `walrus_rest_client::api::errors::StatusCode` and a
-/// UPPER_SNAKE_CASE `String` respectively, that define the generic status corresponding
-/// to the error and an error specific label for the reason of the error.
+/// The `status` and `reason` fields accept a `walrus_storage_node_client::api::errors::StatusCode`
+/// and a UPPER_SNAKE_CASE `String` respectively, that define the generic status corresponding to
+/// the error and an error specific label for the reason of the error.
 ///
 /// The `domain` field is always required. The `status` and `reason` fields are required when the
 /// `delegate` field is not present (described below).

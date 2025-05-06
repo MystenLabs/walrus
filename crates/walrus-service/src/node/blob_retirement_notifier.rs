@@ -7,7 +7,7 @@ use std::{
 };
 
 use mysten_metrics::monitored_scope;
-use tokio::sync::{futures::Notified, Notify};
+use tokio::sync::{Notify, futures::Notified};
 use walrus_core::BlobId;
 
 use super::StorageNodeInner;
@@ -191,7 +191,7 @@ impl Drop for BlobRetirementNotify {
 
 #[cfg(test)]
 mod tests {
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
     use walrus_core::test_utils::random_blob_id;
 
     use super::*;
@@ -223,10 +223,12 @@ mod tests {
         notifier.notify_blob_retirement(&blob_id);
 
         // Verify that the waiting task completes
-        assert!(timeout(Duration::from_secs(1), wait_handle)
-            .await
-            .unwrap()
-            .is_ok());
+        assert!(
+            timeout(Duration::from_secs(1), wait_handle)
+                .await
+                .unwrap()
+                .is_ok()
+        );
 
         // The second task should still be waiting
         assert!(!wait_handle2.is_finished());
@@ -269,17 +271,23 @@ mod tests {
         notifier.notify_blob_retirement(&blob_id);
 
         // Verify that both waiting tasks complete
-        assert!(timeout(Duration::from_secs(1), wait_handle1)
-            .await
-            .unwrap()
-            .is_ok());
-        assert!(timeout(Duration::from_secs(1), wait_handle2)
-            .await
-            .unwrap()
-            .is_ok());
-        assert!(timeout(Duration::from_secs(1), wait_notified_3)
-            .await
-            .is_ok());
+        assert!(
+            timeout(Duration::from_secs(1), wait_handle1)
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            timeout(Duration::from_secs(1), wait_handle2)
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            timeout(Duration::from_secs(1), wait_notified_3)
+                .await
+                .is_ok()
+        );
     }
 
     /// Test dropping BlobRetirementNotify will decrease the ref count, and remove from

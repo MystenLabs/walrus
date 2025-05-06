@@ -12,7 +12,7 @@ use clap::Parser;
 use tracing::info;
 use walrus_proxy::{
     admin,
-    config::{load, ProxyConfig},
+    config::{ProxyConfig, load},
     consumer::Label,
     histogram_relay,
     metrics,

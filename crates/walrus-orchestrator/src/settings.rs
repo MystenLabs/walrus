@@ -11,7 +11,7 @@ use std::{
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr, DurationSeconds};
+use serde_with::{DisplayFromStr, DurationSeconds, serde_as};
 
 use crate::{
     client::Instance,

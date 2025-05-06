@@ -16,10 +16,10 @@ use tracing::{Level, Span};
 
 use super::{EncodingConfig, EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
-    encoding::{blob_encoding::BlobEncoder, config::EncodingConfigTrait as _, QuiltError},
-    metadata::{QuiltIndexV1, QuiltMetadataV1, QuiltPatchV1},
     BlobId,
     SliverIndex,
+    encoding::{QuiltError, blob_encoding::BlobEncoder, config::EncodingConfigTrait as _},
+    metadata::{QuiltIndexV1, QuiltMetadataV1, QuiltPatchV1},
 };
 
 /// The number of bytes to store the size of the quilt index.
@@ -256,15 +256,15 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     /// Gets the blob by description.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
-            .get_quilt_block_by_identifier(identifier)
-            .and_then(|quilt_block| self.get_blob(quilt_block))
+            .get_quilt_patch_by_identifier(identifier)
+            .and_then(|quilt_patch| self.get_blob(quilt_patch))
     }
 
     /// Gets the blob by its ID.
     fn get_blob_by_id(&self, blob_id: BlobId) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
-            .get_quilt_block_by_id(blob_id)
-            .and_then(|quilt_block| self.get_blob(quilt_block))
+            .get_quilt_patch_by_id(blob_id)
+            .and_then(|quilt_patch| self.get_blob(quilt_patch))
     }
 
     /// Returns the quilt index.
@@ -284,11 +284,11 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 }
 
 impl QuiltV1 {
-    /// Gets the blob represented by the given quilt block.
-    fn get_blob(&self, quilt_block: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
-        let start_idx = usize::from(quilt_block.start_index);
-        let end_idx = usize::from(quilt_block.end_index);
-        let mut blob = vec![0u8; quilt_block.unencoded_length as usize];
+    /// Gets the blob represented by the given quilt patch.
+    fn get_blob(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
+        let start_idx = usize::from(quilt_patch.start_index);
+        let end_idx = usize::from(quilt_patch.end_index);
+        let mut blob = vec![0u8; quilt_patch.unencoded_length as usize];
 
         let mut written = 0;
         for col in start_idx..end_idx {
@@ -399,13 +399,13 @@ struct DebugQuiltIndex<'a>(&'a QuiltIndexV1);
 impl fmt::Debug for DebugQuiltIndex<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut list = f.debug_list();
-        for block in self.0.quilt_blocks.iter() {
+        for patch in self.0.quilt_patches.iter() {
             list.entry(&format_args!(
                 "\nQuiltPatch {{\n    unencoded_length: {},\
                 \n    end_index: {}\n    identifier: {:?}\n}}",
-                block.unencoded_length,
-                block.end_index,
-                block.identifier()
+                patch.unencoded_length,
+                patch.end_index,
+                patch.identifier()
             ));
         }
         list.finish()?;
@@ -466,14 +466,14 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         blob_id_pairs.sort_by(|(_, a_id), (_, b_id)| a_id.cmp(b_id));
 
         // Create initial QuiltPatches.
-        let quilt_blocks: Vec<QuiltPatchV1> = blob_id_pairs
+        let quilt_patches: Vec<QuiltPatchV1> = blob_id_pairs
             .iter()
             .map(|(blob, blob_id)| {
                 QuiltPatchV1::new(blob.blob.len() as u64, blob.identifier.clone(), *blob_id)
             })
             .collect();
 
-        let mut quilt_index = QuiltIndexV1 { quilt_blocks };
+        let mut quilt_index = QuiltIndexV1 { quilt_patches };
 
         // Get the serialized quilt index size.
         let serialized_index_size = bcs::serialized_size(&quilt_index).map_err(|e| {
@@ -527,7 +527,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             }
         };
 
-        // First pass: Fill data with actual blobs and populate quilt blocks.
+        // First pass: Fill data with actual blobs and populate quilt patches.
         for (i, (blob, _)) in blob_id_pairs.iter().enumerate() {
             let cols_needed = blob.blob.len().div_ceil(column_size);
             tracing::event!(
@@ -541,10 +541,10 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
             add_blob_to_data(blob.blob, current_col);
 
-            quilt_index.quilt_blocks[i].start_index =
+            quilt_index.quilt_patches[i].start_index =
                 u16::try_from(current_col).expect("current_col should fit in u16");
             current_col += cols_needed;
-            quilt_index.quilt_blocks[i].end_index =
+            quilt_index.quilt_patches[i].end_index =
                 u16::try_from(current_col).expect("current_col should fit in u16");
         }
 
@@ -597,7 +597,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             quilt_blob_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
-                quilt_blocks: quilt.quilt_index().quilt_blocks.clone(),
+                quilt_patches: quilt.quilt_index().quilt_patches.clone(),
             },
         };
 
@@ -662,10 +662,10 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         let mut index: QuiltIndexV1 = bcs::from_bytes(&combined_data)
             .map_err(|e| QuiltError::QuiltIndexDerSerError(e.to_string()))?;
 
-        // After successful deserialization, sort the blocks by end_index.
+        // After successful deserialization, sort the patches by end_index.
         #[cfg(debug_assertions)]
-        for i in 1..index.quilt_blocks.len() {
-            assert!(index.quilt_blocks[i].end_index >= index.quilt_blocks[i - 1].end_index);
+        for i in 1..index.quilt_patches.len() {
+            assert!(index.quilt_patches[i].end_index >= index.quilt_patches[i - 1].end_index);
         }
         index.populate_start_indices(
             u16::try_from(num_slivers_needed).expect("num_slivers_needed should fit in u16"),
@@ -688,8 +688,8 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
-            .and_then(|quilt_index| quilt_index.get_quilt_block_by_identifier(identifier))
-            .and_then(|quilt_block| self.get_blob_by_quilt_block(quilt_block))
+            .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
+            .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
     }
 
     /// Adds slivers to the decoder.
@@ -723,14 +723,14 @@ impl<'a> QuiltDecoderV1<'a> {
         }
     }
 
-    /// Get the blob represented by the quilt block.
-    fn get_blob_by_quilt_block(&self, quilt_block: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
-        let start_idx = usize::from(quilt_block.start_index);
-        let end_idx = usize::from(quilt_block.end_index);
+    /// Get the blob represented by the quilt patch.
+    fn get_blob_by_quilt_patch(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
+        let start_idx = usize::from(quilt_patch.start_index);
+        let end_idx = usize::from(quilt_patch.end_index);
 
         self.check_missing_slivers(start_idx, end_idx)?;
 
-        let unencoded_length = usize::try_from(quilt_block.unencoded_length)
+        let unencoded_length = usize::try_from(quilt_patch.unencoded_length)
             .expect("unencoded_length should fit in usize");
 
         // Extract and reconstruct the blob.
@@ -1188,18 +1188,18 @@ mod tests {
             // Verify blob data matches.
             let extracted_blob = quilt
                 .get_blob_by_identifier(blob_with_identifier.identifier.as_str())
-                .expect("Block should exist for this blob identifier");
+                .expect("Patch should exist for this blob identifier");
             assert_eq!(
                 extracted_blob, blob_with_identifier.blob,
                 "Mismatch in encoded blob"
             );
 
-            let quilt_block = quilt
+            let quilt_patch = quilt
                 .quilt_index()
-                .get_quilt_block_by_identifier(blob_with_identifier.identifier.as_str())
-                .expect("Block should exist for this blob ID");
+                .get_quilt_patch_by_identifier(blob_with_identifier.identifier.as_str())
+                .expect("Patch should exist for this blob ID");
             assert_eq!(
-                quilt_block.identifier(),
+                quilt_patch.identifier(),
                 &blob_with_identifier.identifier,
                 "Mismatch in blob description"
             );
@@ -1208,12 +1208,12 @@ mod tests {
                 .compute_metadata(blob_with_identifier.blob)
                 .expect("Failed to compute metadata for blob")
                 .blob_id();
-            assert_eq!(quilt_block.blob_id, blob_id);
+            assert_eq!(quilt_patch.blob_id, blob_id);
 
-            let quilt_block_by_id = quilt
+            let quilt_patch_by_id = quilt
                 .get_blob_by_id(blob_id)
-                .expect("Block should exist for this blob ID");
-            assert_eq!(quilt_block_by_id, blob_with_identifier.blob);
+                .expect("Patch should exist for this blob ID");
+            assert_eq!(quilt_patch_by_id, blob_with_identifier.blob);
         }
 
         assert_eq!(quilt.quilt_index().len(), blobs_with_identifiers.len());
@@ -1300,8 +1300,8 @@ mod tests {
         let patch = quilt_decoder
             .get_quilt_index()
             .expect("quilt index should exist")
-            .get_quilt_block_by_identifier(identifier)
-            .expect("quilt block should exist");
+            .get_quilt_patch_by_identifier(identifier)
+            .expect("quilt patch should exist");
         assert_eq!(patch.identifier(), identifier);
 
         let missing_indices: Vec<SliverIndex> = (patch.start_index..patch.end_index)
@@ -1367,7 +1367,7 @@ mod tests {
         max_blob_size: usize,
         min_blob_size: usize,
     ) -> Vec<BlobWithIdentifier<'static>> {
-        use rand::{rngs::StdRng, Rng, SeedableRng};
+        use rand::{Rng, SeedableRng, rngs::StdRng};
 
         // Create a deterministic RNG with a fixed seed for reproducibility.
         let mut rng = StdRng::seed_from_u64(42);

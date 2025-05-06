@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, ValueEnum as _};
 use commands::generate_or_convert_key;
 use config::PathOrInPlace;
@@ -26,39 +26,39 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
     Epoch,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_service::{
+    SyncNodeConfigError,
     common::config::SuiConfig,
     node::{
-        config::{self, defaults::REST_API_PORT, StorageNodeConfig},
+        ConfigLoader,
+        StorageNode,
+        StorageNodeConfigLoader,
+        config::{self, StorageNodeConfig, defaults::REST_API_PORT},
         dbtool::DbToolCommands,
         events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
-        ConfigLoader,
-        StorageNode,
-        StorageNodeConfigLoader,
     },
     utils::{
         self,
-        load_from_yaml,
-        version,
-        wait_until_terminated,
         ByteCount,
         EnableMetricsPush,
+        MAX_NODE_NAME_LENGTH,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
-        MAX_NODE_NAME_LENGTH,
+        version,
+        wait_until_terminated,
     },
-    SyncNodeConfigError,
 };
 use walrus_sui::{
-    client::{rpc_config::RpcFallbackConfigArgs, SuiContractClient},
+    client::{SuiContractClient, rpc_config::RpcFallbackConfigArgs},
     types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
+use walrus_utils::load_from_yaml;
 
 const VERSION: &str = version!();
 
@@ -459,7 +459,6 @@ mod commands {
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
     };
-    use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::{
@@ -468,23 +467,23 @@ mod commands {
     };
     use walrus_service::{
         node::{
+            DatabaseConfig,
             config::TlsConfig,
             events::{
-                event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
                 EventProcessorConfig,
+                event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
             },
-            DatabaseConfig,
         },
         utils,
     };
     use walrus_sui::{
         client::{
-            contract_config::ContractConfig,
-            retry_client::RetriableSuiClient,
             ReadClient as _,
             SuiReadClient,
+            contract_config::ContractConfig,
+            retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
         },
-        config::{load_wallet_context_from_path, WalletConfig},
+        config::{WalletConfig, load_wallet_context_from_path},
         types::move_structs::NodeMetadata,
     };
     use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
@@ -504,7 +503,7 @@ mod commands {
                     return Err(e).context(format!(
                         "Failed to remove directory '{}'",
                         storage_path.display()
-                    ))
+                    ));
                 }
                 _ => (),
             }
@@ -547,9 +546,12 @@ mod commands {
                 &metrics_runtime.registry,
                 &config.contract_config.system_object,
                 &config.contract_config.staking_object,
-                WalletConfig::load_wallet_context(Some(&config.wallet_config))
-                    .and_then(|mut wallet| wallet.active_address())
-                    .ok(),
+                WalletConfig::load_wallet_context(
+                    Some(&config.wallet_config),
+                    config.request_timeout,
+                )
+                .and_then(|mut wallet| wallet.active_address())
+                .ok(),
             );
         }
 
@@ -843,7 +845,7 @@ mod commands {
                 "getting Sui RPC URL from wallet at '{}'",
                 wallet_config.display()
             );
-            let wallet_context = load_wallet_context_from_path(Some(&wallet_config))
+            let wallet_context = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
             wallet_context
                 .config
@@ -904,6 +906,7 @@ mod commands {
                     .clone()
                     .and_then(|args| args.to_config()),
                 additional_rpc_endpoints,
+                request_timeout: None,
             }),
             tls: TlsConfig {
                 certificate_path,
@@ -955,15 +958,11 @@ mod commands {
             db_config: DatabaseConfig::default(),
         };
 
-        // Create SuiClientSet
-        let sui_client = SuiClientBuilder::default()
-            .build(&sui_rpc_url)
-            .await
-            .context("Failed to create Sui client")?;
-
-        let retriable_sui_client =
-            RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
-
+        let retriable_sui_client = RetriableSuiClient::new(
+            vec![LazySuiClientBuilder::new(sui_rpc_url, None)],
+            ExponentialBackoffConfig::default(),
+        )
+        .await?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
         let sui_read_client =
             SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;
@@ -1231,7 +1230,7 @@ impl StorageNodeRuntime {
 mod tests {
     use config::LoadsFromPath;
     use tempfile::TempDir;
-    use walrus_test_utils::{param_test, Result};
+    use walrus_test_utils::{Result, param_test};
 
     use super::*;
 

@@ -26,7 +26,7 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ``` sh
-site-builder publish ./walrus-snake --epochs 1 
+site-builder publish ./walrus-snake --epochs 1
 ```
 
 ``` admonish tip
@@ -62,7 +62,7 @@ have a look in the explorer and use it to set the SuiNS name) and, finally, the 
 browse the site.
 
 Note here that we are implicitly using the default `sites-config.yaml` as the config for the site
-builder that we set up previously on the [installation section](./tutorial-install.html). The
+builder that we set up previously on the [installation section](./tutorial-install.md). The
 configuration file is necessary to ensure that the `site-builder` knows the correct Sui package for
 the Walrus Sites logic.
 

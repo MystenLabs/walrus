@@ -10,27 +10,27 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    encoding::{EncodingConfig, EncodingConfigTrait},
-    ensure,
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    encoding::{EncodingConfig, EncodingConfigTrait},
+    ensure,
 };
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
-    types::{move_structs::Authorized, StorageNode},
+    types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
 
-use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -153,6 +153,12 @@ pub enum Commands {
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
         #[arg(verbatim_doc_comment)]
         command_string: Option<String>,
+    },
+    /// Generate autocompletion script
+    Completion {
+        /// Shell type to generate completion script for the specified shell.
+        #[arg(long)]
+        shell: Option<String>,
     },
     /// Commands to run the binary in CLI mode.
     #[command(flatten)]
@@ -411,7 +417,7 @@ pub enum CliCommands {
         path: Option<PathBuf>,
         /// Sui network for which the wallet is generated.
         ///
-        /// Available options are `devnet`, `testnet`, and `localnet`.
+        /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`.
         #[arg(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
@@ -543,7 +549,7 @@ pub enum CliCommands {
     },
     /// Administration subcommands for storage node operators.
     NodeAdmin {
-        #[arg(long, global = true)]
+        #[arg(long, global = true, required = false)]
         /// The ID of the node for which the operation should be performed.
         node_id: ObjectID,
         /// The specific node admin command to run.
@@ -798,7 +804,7 @@ pub struct PublisherArgs {
     #[arg(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
-    /// If unset, the JWT authentication algorithm will be HMAC.
+    /// If unset, the JWT authentication algorithm will be HMAC (HS256).
     ///
     /// The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384",
     /// "RS256", "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA".
@@ -1378,7 +1384,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 

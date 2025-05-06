@@ -9,19 +9,19 @@ use enum_dispatch::enum_dispatch;
 use sui_types::base_types::ObjectID;
 use tracing::{Level, Span};
 use walrus_core::{
+    BlobId,
     encoding::SliverPair,
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
 };
-use walrus_rest_client::api::BlobStatus;
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult};
 
 use super::{
-    resource::{PriceComputation, RegisterBlobOp, StoreOp},
-    responses::{BlobStoreResult, EventOrObjectId},
     ClientError,
     ClientResult,
+    resource::{PriceComputation, RegisterBlobOp, StoreOp},
+    responses::{BlobStoreResult, EventOrObjectId},
 };
 
 /// The log level for all WalrusStoreBlob spans.

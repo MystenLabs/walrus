@@ -6,7 +6,7 @@
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
+use serde_with::{DurationMilliSeconds, DurationSeconds, serde_as};
 
 use crate::{common::config::SuiReaderConfig, node::events::EventProcessorConfig};
 

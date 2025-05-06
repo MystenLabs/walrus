@@ -7,7 +7,8 @@
 #[cfg(msim)]
 mod tests {
     use std::{
-        sync::{atomic::AtomicBool, Arc},
+        collections::HashSet,
+        sync::{Arc, atomic::AtomicBool},
         time::Duration,
     };
 
@@ -22,16 +23,16 @@ mod tests {
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::sync::RwLock;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
         self,
         BlobInfoConsistencyCheck,
-        DB_FAIL_POINTS,
+        CRASH_NODE_FAIL_POINTS,
     };
+    use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
 
     /// Returns a simulator configuration that adds random network latency between nodes.
@@ -64,22 +65,17 @@ mod tests {
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let (_sui_cluster, _cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(60 * 60),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
-                    ..Default::default()
-                },
-                Some(10),
-                ClientCommunicationConfig::default_for_test(),
-                false,
-                None,
-            )
+        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                ..Default::default()
+            })
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
-        simtest_utils::write_read_and_check_random_blob(&client, 31415, false)
+        let mut blobs_written = HashSet::new();
+        simtest_utils::write_read_and_check_random_blob(&client, 31415, false, &mut blobs_written)
             .await
             .expect("workload should not fail");
 
@@ -121,23 +117,22 @@ mod tests {
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let mut node_weights = vec![2, 2, 3, 3, 3];
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
-                    node_weights: node_weights.clone(),
-                    use_legacy_event_processor: true,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: false,
-                },
-                Some(100),
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: node_weights.clone(),
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_num_checkpoints_per_blob(100)
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                None,
             )
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
@@ -228,22 +223,21 @@ mod tests {
             panic!("shard sync should not enter recovery mode in this test");
         });
 
-        let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(30))
+                .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
                     ..Default::default()
-                },
-                Some(10),
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-                false,
-                None,
-            )
-            .await
-            .unwrap();
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
@@ -293,7 +287,8 @@ mod tests {
                 .node_id
                 .expect("node id should be set");
             let fail_triggered_clone = fail_triggered.clone();
-            register_fail_points(DB_FAIL_POINTS, move || {
+
+            register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
                 crash_target_node(
                     target_fail_node_id,
                     fail_triggered_clone.clone(),
@@ -396,23 +391,22 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_long_node_recovery() {
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
-                    use_legacy_event_processor: true,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: false,
-                },
-                None,
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                None,
             )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
@@ -440,8 +434,7 @@ mod tests {
             .expect("node id should be set");
         let fail_triggered_clone = fail_triggered.clone();
 
-        // Trigger node crash during some DB access.
-        register_fail_points(DB_FAIL_POINTS, move || {
+        register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),

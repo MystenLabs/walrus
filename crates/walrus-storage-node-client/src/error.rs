@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use walrus_core::Epoch;
 
 use crate::{
-    api::errors::{Status, STORAGE_NODE_ERROR_DOMAIN},
+    api::errors::{STORAGE_NODE_ERROR_DOMAIN, Status},
     tls::VerifierBuildError,
 };
 
@@ -152,7 +152,7 @@ pub(crate) enum Kind {
 }
 
 /// An error returned when building the client with a
-/// [`ClientBuilder`][crate::client::ClientBuilder] has failed.
+/// [`StorageNodeClientBuilder`][crate::StorageNodeClientBuilder] has failed.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub struct ClientBuildError {

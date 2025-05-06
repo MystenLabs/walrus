@@ -15,7 +15,6 @@ use http_body::Body as _;
 use opentelemetry::propagation::Injector;
 use prometheus::{HistogramVec, IntGauge, IntGaugeVec};
 use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
     Error,
     Method,
     Request,
@@ -23,13 +22,14 @@ use reqwest::{
     StatusCode,
     Url,
     Version,
+    header::{HeaderMap, HeaderName, HeaderValue},
 };
 use tokio::time::Instant;
 use tower::Service;
-use tracing::{field, instrument::Instrumented, Instrument as _, Span};
+use tracing::{Instrument as _, Span, field, instrument::Instrumented};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use walrus_utils::{
-    http::{http_body, BodyVisitor, VisitBody},
+    http::{BodyVisitor, VisitBody, http_body},
     metrics::{self as metric_utils, OwnedGaugeGuard},
 };
 
@@ -53,7 +53,8 @@ metric_utils::define_metric_set! {
                 &HttpLabels::LABEL_NAMES, &["http_response_part"]
             ),
             buckets: vec![
-                0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0
+                0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+                60.0, 120.0, 180.0, 240.0
             ],
         },
 

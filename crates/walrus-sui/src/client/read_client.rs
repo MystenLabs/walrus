@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use sui_sdk::{
     apis::EventApi,
@@ -29,28 +29,35 @@ use sui_sdk::{
     types::base_types::ObjectID,
 };
 use sui_types::{
+    Identifier,
+    TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     object::Owner,
     transaction::ObjectArg,
-    Identifier,
-    TypeTag,
 };
-use tokio::sync::{mpsc, OnceCell};
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio::sync::{OnceCell, mpsc};
+use tokio_stream::{Stream, wrappers::ReceiverStream};
 use tracing::Instrument as _;
-use walrus_core::{ensure, Epoch};
+use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
-    contract_config::ContractConfig,
-    retry_client::{RetriableSuiClient, MULTI_GET_OBJ_LIMIT},
     SuiClientError,
     SuiClientResult,
+    contract_config::ContractConfig,
+    retry_client::{MULTI_GET_OBJ_LIMIT, RetriableSuiClient},
 };
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{
+        BlobEvent,
+        Committee,
+        ContractEvent,
+        StakingObject,
+        StorageNode,
+        StorageNodeCap,
+        SystemObject,
         move_structs::{
             Blob,
             BlobAttribute,
@@ -58,6 +65,7 @@ use crate::{
             EpochState,
             EventBlob,
             NodeMetadata,
+            SharedBlob,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -66,13 +74,6 @@ use crate::{
             SystemStateInnerV1Enum,
             SystemStateInnerV1Testnet,
         },
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        StakingObject,
-        StorageNode,
-        StorageNodeCap,
-        SystemObject,
     },
     utils::{get_sui_object_from_object_response, handle_pagination},
 };
@@ -185,7 +186,8 @@ pub trait ReadClient: Send + Sync {
         blob_object_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
-    /// Returns the blob object and its associated metadata.
+    /// Returns the blob object and its associated attributes given the object ID of either
+    /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_id: &ObjectID,
@@ -340,12 +342,13 @@ impl SuiReadClient {
 
     /// Constructs a new `SuiReadClient` around a [`RetriableSuiClient`] constructed for the
     /// provided fullnode's RPC address.
-    pub async fn new_for_rpc<S: AsRef<str>>(
-        rpc_address: S,
+    pub async fn new_for_rpc_urls<S: AsRef<str>>(
+        rpc_addresses: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
+        let client =
+            RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None).await?;
         Self::new(client, contract_config).await
     }
 
@@ -571,12 +574,20 @@ impl SuiReadClient {
             .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
             .await
             .map_err(|err| match err {
-                sui_sdk::error::Error::InsufficientFund { address: _, amount } => match coin_type {
+                SuiClientError::SuiSdkError(sui_sdk::error::Error::InsufficientFund {
+                    address: _,
+                    amount,
+                }) => match coin_type {
                     CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
                     CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
                 },
-                err => SuiClientError::from(err),
+                err => err,
             })
+    }
+
+    /// Get the reference gas price for the current epoch.
+    pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
+        self.sui_client.get_reference_gas_price().await
     }
 
     /// Get the [`StorageNodeCap`] object associated with the address.
@@ -905,7 +916,14 @@ impl ReadClient for SuiReadClient {
     ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
         let (tx_event, rx_event) = mpsc::channel::<ContractEvent>(EVENT_CHANNEL_CAPACITY);
 
-        let event_api = self.sui_client.event_api().clone();
+        // Note: this code does not handle failing over in the event of an RPC connection error.
+        #[allow(deprecated)]
+        let event_api = self
+            .sui_client
+            .get_current_client()
+            .await
+            .event_api()
+            .clone();
 
         let event_filter = EventFilter::MoveEventModule {
             package: *self
@@ -930,7 +948,6 @@ impl ReadClient for SuiReadClient {
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
         self.sui_client
-            .event_api()
             .get_events(event_id.tx_digest)
             .await?
             .into_iter()
@@ -1002,13 +1019,28 @@ impl ReadClient for SuiReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        Ok(BlobWithAttribute {
-            blob: self
-                .sui_client
-                .get_sui_object::<Blob>(*blob_object_id)
-                .await?,
-            attribute: self.get_blob_attribute(blob_object_id).await?,
-        })
+        let blob_object_response = self
+            .sui_client
+            .get_object_with_options(
+                *blob_object_id,
+                SuiObjectDataOptions::new().with_bcs().with_type(),
+            )
+            .await?;
+        let blob = if let Ok(blob) =
+            get_sui_object_from_object_response::<Blob>(&blob_object_response)
+        {
+            blob
+        } else {
+            let shared_blob = get_sui_object_from_object_response::<SharedBlob>(
+                &blob_object_response,
+            )
+            .map_err(|_| {
+                anyhow!("could not retrieve blob or shared blob from object id {blob_object_id}")
+            })?;
+            shared_blob.blob
+        };
+        let attribute = self.get_blob_attribute(&blob.id).await?;
+        Ok(BlobWithAttribute { blob, attribute })
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

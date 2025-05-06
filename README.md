@@ -55,7 +55,8 @@ is contained in the following crates:
 <!-- markdownlint-disable proper-names -->
 - [walrus-core](crates/walrus-core/) contains core types and functionality, including encoding and
   authentication mechanisms.
-- [walrus-rest-client](crates/walrus-rest-client/) contains (client) interactions with storage nodes.
+- [walrus-storage-node-client](crates/walrus-storage-node-client/) contains (client) interactions
+  with storage nodes.
 - [walrus-service](crates/walrus-service/) contains client and server functionality including the
   storage backend. This crate also contains all main binaries, in particular `walrus` and
   `walrus-node`.

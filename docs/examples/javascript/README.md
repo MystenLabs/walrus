@@ -9,5 +9,7 @@
 
 ## Index of examples
 
-- `blob_upload_download_webapi.html` shows how to store a blob using JavaScript and to embed the
-   blob accessible from a Walrus aggregator in an HTML document.
+- [`blob_upload_download_webapi.html`](./blob_upload_download_webapi.html) shows how to store a blob
+   using JavaScript and to embed the blob accessible from a Walrus aggregator in an HTML document.
+- [`system_stats.html`](./system_stats.html) shows how to read the system parameters from Sui and
+  display some of them in a table.

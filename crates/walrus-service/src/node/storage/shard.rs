@@ -13,46 +13,46 @@ use std::{
 };
 
 use fastcrypto::traits::KeyPair;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 use regex::Regex;
-use rocksdb::{Options, DB};
+use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
 use typed_store::{
+    Map,
+    TypedStoreError,
     rocks::{
-        be_fix_int_ser as to_rocks_db_key,
-        errors::typed_store_err_from_rocks_err,
         DBBatch,
         DBMap,
         ReadWriteOptions,
         RocksDB,
+        be_fix_int_ser as to_rocks_db_key,
+        errors::typed_store_err_from_rocks_err,
     },
-    Map,
-    TypedStoreError,
 };
 use walrus_core::{
-    by_axis::ByAxis,
-    encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
     BlobId,
     Epoch,
     InconsistencyProof,
     ShardIndex,
     Sliver,
     SliverType,
+    by_axis::ByAxis,
+    encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
 };
 use walrus_utils::metrics::Registry;
 
 use super::{
+    DatabaseConfig,
     blob_info::{BlobInfo, BlobInfoIterator},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
-    DatabaseConfig,
 };
 use crate::{
     node::{
+        StorageNodeInner,
         blob_retirement_notifier::ExecutionResultWithRetirementCheck,
         config::ShardSyncConfig,
         errors::SyncShardClientError,
-        StorageNodeInner,
     },
     utils,
 };
@@ -515,16 +515,19 @@ impl ShardStorage {
     pub(crate) fn existing_cf_shards_ids(path: &Path, options: &Options) -> HashSet<ShardIndex> {
         // RocksDb internal uses real clock to start and initialize the database. Wrap this call
         // in a nondeterministic block to make the test deterministic.
-        sui_macros::nondeterministic!(DB::list_cf(options, path)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|cf_name| match id_from_column_family_name(&cf_name) {
-                // To check existing shards, we only need to look at whether the secondary sliver
-                // column was created or not, as it was created after the primary sliver column.
-                Some((shard_index, SliverType::Secondary)) => Some(shard_index),
-                Some((_, SliverType::Primary)) | None => None,
-            })
-            .collect())
+        sui_macros::nondeterministic!(
+            DB::list_cf(options, path)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|cf_name| match id_from_column_family_name(&cf_name) {
+                    // To check existing shards, we only need to look at whether the secondary
+                    // sliver column was created or not, as it was created after the primary sliver
+                    // column.
+                    Some((shard_index, SliverType::Secondary)) => Some(shard_index),
+                    Some((_, SliverType::Primary)) | None => None,
+                })
+                .collect()
+        )
     }
 
     pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
@@ -679,7 +682,8 @@ impl ShardStorage {
 
         let shard_status = self.status()?;
         assert!(
-            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover
+            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover,
+            "unexpected shard status at the beginning of a shard sync: {shard_status}"
         );
 
         match self.get_last_sync_status(&shard_status)? {
@@ -1429,16 +1433,16 @@ mod tests {
 
     use walrus_core::test_utils::random_blob_id;
     use walrus_sui::test_utils::event_id_for_testing;
-    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test, param_test};
 
     use super::*;
     use crate::{
         node::{
+            Storage,
             storage::{
                 blob_info::BlobCertificationStatus,
-                tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+                tests::{BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX, empty_storage, get_sliver},
             },
-            Storage,
         },
         test_utils::empty_storage_with_shards,
     };

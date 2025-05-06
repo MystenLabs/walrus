@@ -14,20 +14,20 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    BlobId,
+    EncodingType,
+    SliverPairIndex,
+    SliverType,
     encoding::{
-        encoded_blob_length_for_n_shards,
-        source_symbols_for_n_shards,
         DataTooLargeError,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
+        encoded_blob_length_for_n_shards,
+        source_symbols_for_n_shards,
     },
-    merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
-    BlobId,
-    EncodingType,
-    SliverPairIndex,
-    SliverType,
+    merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode},
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
@@ -50,17 +50,17 @@ pub enum VerificationError {
     UnencodedLengthTooLarge,
 }
 
-/// Represents a blob quilted into a single quilt blob.
+/// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
     /// The unencoded length of the blob.
     pub unencoded_length: u64,
-    /// The start sliver index of the block.
+    /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
-    /// The end sliver index of the block.
+    /// The end sliver index of the blob.
     pub end_index: u16,
-    /// The identifier of the block, it can be used to locate the blob in the quilt.
+    /// The identifier of the blob, it can be used to locate the blob in the quilt.
     identifier: String,
     /// BlobId of the quilted blob.
     pub blob_id: BlobId,
@@ -78,68 +78,68 @@ impl QuiltPatchV1 {
         }
     }
 
-    /// Returns the identifier of the block.
+    /// Returns the identifier of the patch.
     pub fn identifier(&self) -> &str {
         &self.identifier
     }
 }
 
-/// An index over the blobs in a quilt.
+/// An index over the patches(blobs) in a quilt.
 ///
-/// Each quilt block represents a blob stored in the quilt. And each blob is
+/// Each quilt patch represents a blob stored in the quilt. And each patch is
 /// mapped to a contiguous index range.
 ///
-/// INV: The blocks are sorted by their end index, as well as their identifier.
+/// INV: The patches are sorted by their end indices, as well as their blob_ids.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
-    pub quilt_blocks: Vec<QuiltPatchV1>,
+    pub quilt_patches: Vec<QuiltPatchV1>,
 }
 
 impl QuiltIndexV1 {
-    /// Returns the quilt block with the given blob identifier.
-    pub fn get_quilt_block_by_identifier(
+    /// Returns the quilt patch with the given blob identifier.
+    pub fn get_quilt_patch_by_identifier(
         &self,
         identifier: &str,
     ) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_blocks
+        self.quilt_patches
             .iter()
-            .find(|block| block.identifier() == identifier)
+            .find(|patch| patch.identifier() == identifier)
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
     }
 
-    /// Returns the quilt block with the given blob ID.
-    pub fn get_quilt_block_by_id(&self, blob_id: BlobId) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_blocks
+    /// Returns the quilt patch with the given blob ID.
+    pub fn get_quilt_patch_by_id(&self, blob_id: BlobId) -> Result<&QuiltPatchV1, QuiltError> {
+        self.quilt_patches
             .iter()
-            .find(|block| block.blob_id == blob_id)
+            .find(|patch| patch.blob_id == blob_id)
             .ok_or(QuiltError::BlobNotFoundInQuilt(blob_id.to_string()))
     }
 
     /// Returns an iterator over the identifiers of the blobs in the quilt.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.quilt_blocks.iter().map(|block| block.identifier())
+        self.quilt_patches.iter().map(|patch| patch.identifier())
     }
 
-    /// Returns the number of blocks in the quilt.
+    /// Returns the number of patches in the quilt.
     pub fn len(&self) -> usize {
-        self.quilt_blocks.len()
+        self.quilt_patches.len()
     }
 
     /// Returns true if the quilt index is empty.
     pub fn is_empty(&self) -> bool {
-        self.quilt_blocks.is_empty()
+        self.quilt_patches.is_empty()
     }
 
-    /// Populate start_indices of the blocks, since the start index is not stored in wire format.
+    /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
-        if let Some(first_block) = self.quilt_blocks.first_mut() {
-            first_block.start_index = first_start;
+        if let Some(first_patch) = self.quilt_patches.first_mut() {
+            first_patch.start_index = first_start;
         }
 
-        for i in 1..self.quilt_blocks.len() {
-            let prev_end_index = self.quilt_blocks[i - 1].end_index;
-            self.quilt_blocks[i].start_index = prev_end_index;
+        for i in 1..self.quilt_patches.len() {
+            let prev_end_index = self.quilt_patches[i - 1].end_index;
+            self.quilt_patches[i].start_index = prev_end_index;
         }
     }
 }

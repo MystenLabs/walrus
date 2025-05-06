@@ -7,18 +7,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
-        contract_config::ContractConfig,
-        retry_client::RetriableSuiClient,
         SuiClientError,
         SuiContractClient,
         SuiReadClient,
+        contract_config::ContractConfig,
+        retry_client::RetriableSuiClient,
     },
     config::WalletConfig,
 };
@@ -103,7 +103,7 @@ impl ClientConfig {
         context: Option<&str>,
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
-        match crate::utils::load_from_yaml(path)? {
+        match walrus_utils::load_from_yaml(path)? {
             MultiClientConfig::SingletonConfig(config) => {
                 if let Some(context) = context {
                     bail!(
@@ -167,8 +167,11 @@ impl ClientConfig {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let wallet = WalletConfig::load_wallet_context(self.wallet_config.as_ref())
-            .context("new_contract_client_with_wallet_in_config")?;
+        let wallet = WalletConfig::load_wallet_context(
+            self.wallet_config.as_ref(),
+            self.communication_config.sui_client_request_timeout,
+        )
+        .context("new_contract_client_with_wallet_in_config")?;
         Ok(self.new_contract_client(wallet, gas_budget).await?)
     }
 
@@ -198,7 +201,7 @@ pub enum MultiClientConfig {
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
-    use rand::{rngs::StdRng, SeedableRng as _};
+    use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
     use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;

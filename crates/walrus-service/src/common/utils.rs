@@ -14,11 +14,11 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use fastcrypto::{
     encoding::Base64,
     secp256r1::Secp256r1KeyPair,
@@ -27,7 +27,7 @@ use fastcrypto::{
 use futures::future::FusedFuture;
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 use serde_json;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
@@ -40,19 +40,18 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::{
+    EnvFilter,
+    Layer,
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
-    EnvFilter,
-    Layer,
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{BlobId, PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
-pub use walrus_sdk::utils::load_from_yaml;
 use walrus_sui::{
-    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::Registry;
@@ -245,6 +244,9 @@ impl MetricsAndLoggingRuntime {
         metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
+
+        // Initialize mysten metrics used to track all metrics under `mysten_metrics` namespace.
+        mysten_metrics::init_metrics(&walrus_registry);
 
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
@@ -525,7 +527,7 @@ pub async fn generate_sui_wallet(
         "generating Sui wallet for {sui_network} at '{}'",
         path.display()
     );
-    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None)?;
+    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 

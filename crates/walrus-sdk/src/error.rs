@@ -4,8 +4,8 @@
 //! The errors for the storage client and the communication with storage nodes.
 
 use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
-use walrus_rest_client::error::{ClientBuildError, NodeError};
-use walrus_sui::client::{SuiClientError, MIN_STAKING_THRESHOLD};
+use walrus_storage_node_client::error::{ClientBuildError, NodeError};
+use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -185,6 +185,9 @@ pub enum ClientErrorKind {
     /// The client was notified that the committee has changed.
     #[error("the client was notified that the committee has changed")]
     CommitteeChangeNotified,
+    /// The committee has no members.
+    #[error("the committee has no members; most likely, the system is in the genesis epoch")]
+    EmptyCommittee,
     /// The amount of stake is below the threshold for staking.
     #[error(
         "the stake amount {0} FROST is below the minimum threshold of {MIN_STAKING_THRESHOLD} \

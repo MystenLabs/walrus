@@ -5,41 +5,41 @@ use std::{
     net::IpAddr,
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use p256::elliptic_curve::ALGORITHM_OID;
 use rustls::{
-    client::{
-        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-        WebPkiServerVerifier,
-    },
-    pki_types::{CertificateDer, ServerName, UnixTime},
     DigitallySignedStruct,
     RootCertStore,
+    client::{
+        WebPkiServerVerifier,
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    },
+    pki_types::{CertificateDer, ServerName, UnixTime},
 };
 use walrus_core::{self, NetworkPublicKey};
 use x509_cert::{
+    Version,
     certificate::{Certificate as X509Certificate, TbsCertificateInner},
     der::{
-        asn1::{BitString, GeneralizedTime, Ia5String},
-        pem::LineEnding,
         Decode,
         Encode,
         EncodePem as _,
+        asn1::{BitString, GeneralizedTime, Ia5String},
+        pem::LineEnding,
     },
     ext::{
-        pkix::{name::GeneralName, SubjectAltName},
         AsExtension,
+        pkix::{SubjectAltName, name::GeneralName},
     },
     name::DistinguishedName,
     serial_number::SerialNumber,
     spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfo},
     time::{Time, Validity},
-    Version,
 };
 
 /// Create a unsigned, self-signed TLS certificate for a public key.

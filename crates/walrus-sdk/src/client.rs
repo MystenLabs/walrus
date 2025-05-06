@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client for the Walrus service.
+//! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
     collections::HashMap,
@@ -17,12 +17,18 @@ pub use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
-use rand::{rngs::ThreadRng, RngCore as _};
+use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
+    BlobId,
+    EncodingType,
+    Epoch,
+    EpochCount,
+    ShardIndex,
+    Sliver,
     bft,
     encoding::{
         BlobDecoderEnum,
@@ -35,14 +41,8 @@ use walrus_core::{
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    ShardIndex,
-    Sliver,
 };
-use walrus_rest_client::{api::BlobStatus, error::NodeError};
+use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -53,13 +53,13 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
+    types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 use self::{
     communication::NodeResult,
-    refresh::{are_current_previous_different, CommitteesRefresherHandle, RequestKind},
+    refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
     responses::{BlobStoreResult, BlobStoreResultWithPath},
 };
@@ -69,11 +69,11 @@ use crate::{
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
-    utils::{styled_progress_bar, styled_spinner, WeightedResult},
+    utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
     blocklist::Blocklist,
-    config::{default_configuration_paths, ClientCommunicationConfig, ClientConfig},
+    config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
 pub mod client_types;
@@ -150,7 +150,7 @@ impl Client<()> {
         })
     }
 
-    /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
+    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
     pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
         let Self {
             config,
@@ -344,7 +344,6 @@ impl<T: ReadClient> Client<T> {
                         if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
                             // If the error is CommitteeChangeNotified, we do not need to refresh
                             // the committees.
-                            tracing::warn!("forcing committee refresh before retrying");
                             self.force_refresh_committees().await?;
                         }
                     } else {
@@ -1213,7 +1212,7 @@ impl<T> Client<T> {
                 let value = progress_bar.clone();
                 move |result| {
                     if result.is_ok() && !value.is_finished() {
-                        value.inc(result.1.try_into().expect("the weight fits a usize"))
+                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
                     }
                 }
             })
@@ -1339,7 +1338,13 @@ impl<T> Client<T> {
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut signed_messages = Vec::with_capacity(confirmations.len());
 
-        for NodeResult(_, weight, node, result) in confirmations {
+        for NodeResult {
+            weight,
+            node,
+            result,
+            ..
+        } in confirmations
+        {
             match result {
                 Ok(confirmation) => {
                     aggregate_weight += weight;
@@ -1456,7 +1461,7 @@ impl<T> Client<T> {
         let slivers = requests
             .take_results()
             .into_iter()
-            .filter_map(|NodeResult(_, _, node, result)| {
+            .filter_map(|NodeResult { node, result, .. }| {
                 result
                     .map_err(|error| {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
@@ -1517,7 +1522,7 @@ impl<T> Client<T> {
         I: Iterator<Item = Fut>,
         Fut: Future<Output = NodeResult<SliverData<U>, NodeError>>,
     {
-        while let Some(NodeResult(_, _, node, result)) = requests
+        while let Some(NodeResult { node, result, .. }) = requests
             .next(
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
@@ -1616,7 +1621,13 @@ impl<T> Client<T> {
 
         let mut n_not_found = 0;
         let mut n_forbidden = 0;
-        for NodeResult(_, weight, node, result) in requests.into_results() {
+        for NodeResult {
+            weight,
+            node,
+            result,
+            ..
+        } in requests.into_results()
+        {
             match result {
                 Ok(metadata) => {
                     tracing::debug!(?node, "metadata received");
@@ -1680,7 +1691,7 @@ impl<T> Client<T> {
                 Err(client_error)
                     if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) =>
                 {
-                    return Err(client_error)
+                    return Err(client_error);
                 }
                 Err(_) => (),
             };
@@ -1845,10 +1856,17 @@ impl<T> Client<T> {
     pub async fn force_refresh_committees(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        self.committees_handle
+        tracing::warn!("[force_refresh_committees] forcing committee refresh");
+        let result = self
+            .committees_handle
             .send_committees_and_price_request(RequestKind::Refresh)
             .await
-            .map_err(ClientError::other)
+            .map_err(|error| {
+                tracing::warn!(?error, "[force_refresh_committees] refresh failed");
+                ClientError::other(error)
+            })?;
+        tracing::info!("[force_refresh_committees] refresh succeeded");
+        Ok(result)
     }
 
     /// Gets the current active committees from the cache.

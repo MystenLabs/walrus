@@ -3,16 +3,16 @@
 
 use utoipa::OpenApi;
 use walrus_core::{BlobId, EncodingType, EpochSchema};
-use walrus_rest_client::api::errors::Status;
 use walrus_sdk::client::{
     resource::RegisterBlobOp,
     responses::{BlobStoreResult, EventOrObjectId},
 };
+use walrus_storage_node_client::api::errors::Status;
 use walrus_sui::{
-    types::{Blob, StorageResource},
     EventIdSchema,
     ObjectIdSchema,
     SuiAddressSchema,
+    types::{Blob, StorageResource},
 };
 
 use super::routes;
@@ -73,7 +73,7 @@ pub(super) struct DaemonApiDoc;
 mod tests {
     use utoipa::OpenApi as _;
     use utoipa_redoc::Redoc;
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 

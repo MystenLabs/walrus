@@ -12,11 +12,19 @@ use std::{
 
 use anyhow;
 use chrono::{DateTime, Utc};
-use futures::{stream, StreamExt as _};
+use futures::{StreamExt as _, stream};
 use serde::Serialize;
-use serde_with::{base64::Base64, serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, base64::Base64, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    Epoch,
+    EpochCount,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
     bft,
     encoding::{
         encoded_blob_length_for_n_shards,
@@ -27,30 +35,22 @@ use walrus_core::{
         source_symbols_for_n_shards,
     },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    DEFAULT_ENCODING,
 };
-use walrus_rest_client::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sdk::{
     client::NodeCommunicationFactory,
     sui::{
         client::ReadClient,
         types::{
-            move_structs::{Blob, BlobAttribute, EpochState},
             Committee,
             NetworkAddress,
             StakedWal,
             StorageNode,
+            move_structs::{Blob, BlobAttribute, EpochState},
         },
-        utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+        utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
 };
+use walrus_storage_node_client::api::{BlobStatus, ServiceHealthInfo};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};

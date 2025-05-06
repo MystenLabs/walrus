@@ -11,12 +11,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::bail;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checkpoint_downloader::AdaptiveDownloaderConfig;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
-use sui_rpc_api::Client;
+use serde_with::{DurationSeconds, serde_as};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{BlobEvent, ContractEvent};
@@ -298,46 +296,4 @@ impl Ord for EventStreamCursor {
     fn cmp(&self, other: &Self) -> Ordering {
         self.element_index.cmp(&other.element_index)
     }
-}
-
-/// Checks if the full node provides the required REST endpoint for event processing.
-async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<bool> {
-    // TODO: https://github.com/MystenLabs/walrus/issues/1049
-    // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
-    // cyclic dependency errors
-    let latest_checkpoint = client.get_latest_checkpoint().await?;
-    let mut total_remaining_attempts = 5;
-    while let Err(e) = client
-        .get_full_checkpoint(latest_checkpoint.sequence_number)
-        .await
-    {
-        total_remaining_attempts -= 1;
-        if total_remaining_attempts == 0 {
-            tracing::error!(
-                error = ?e,
-                "failed to get full checkpoint after {} attempts. \
-                REST endpoint may not be available.",
-                5
-            );
-            return Ok(false);
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
-    Ok(true)
-}
-
-/// Ensures that the full node provides the required REST endpoint for event processing.
-async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
-    if !check_experimental_rest_endpoint_exists(client.clone()).await? {
-        bail!(
-            "the configured full node *does not* provide the required REST endpoint for event \
-            processing; make sure to configure a full node in the node's configuration file, which \
-            provides the necessary endpoint"
-        );
-    } else {
-        tracing::info!(
-            "the configured full node provides the required REST endpoint for event processing"
-        );
-    }
-    Ok(())
 }

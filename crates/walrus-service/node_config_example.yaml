@@ -80,6 +80,7 @@ sui:
     max_retries: 5
   gas_budget: null
   rpc_fallback_config: null
+  request_timeout: null
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000
@@ -91,7 +92,7 @@ blob_recovery:
   sliver_request_timeout_secs: 300
   invalidity_sync_timeout_secs: 300
   node_connect_timeout_secs: 1
-  experimental_batch_symbol_recovery: true
+  experimental_sliver_recovery_additional_symbols: 0
 tls:
   disable_tls: false
   certificate_path: null

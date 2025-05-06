@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, BlobId, Epoch, ShardIndex, Sliver, SliverType};
+use crate::{BlobId, Epoch, ShardIndex, Sliver, SliverType, messages::IntentType};
 
 /// Represents a version 1 of the sync shard request for transferring an entire shard from
 /// one storage node to another.

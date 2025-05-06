@@ -9,13 +9,13 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
@@ -27,18 +27,16 @@ use move_core_types::{
 use prometheus::{IntCounter, IntCounterVec, IntGauge};
 use rocksdb::Options;
 use sui_package_resolver::{
-    error::Error as PackageResolverError,
     Package,
     PackageStore,
     PackageStoreWithLruCache,
     Resolver,
+    error::Error as PackageResolverError,
 };
-use sui_sdk::{
-    rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
-    SuiClientBuilder,
-};
+use sui_sdk::rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions};
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
+    SYSTEM_PACKAGE_ADDRESSES,
     base_types::ObjectID,
     committee::Committee,
     effects::TransactionEffectsAPI,
@@ -47,7 +45,6 @@ use sui_types::{
     messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
     object::{Data, Object},
     sui_serde::BigInt,
-    SYSTEM_PACKAGE_ADDRESSES,
 };
 use tokio::{
     select,
@@ -56,15 +53,21 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use typed_store::{
-    rocks,
-    rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks,
+    rocks::{DBMap, MetricConf, ReadWriteOptions, RocksDB, errors::typed_store_err_from_rocks_err},
 };
-use walrus_core::{ensure, BlobId};
+use walrus_core::{BlobId, ensure};
 use walrus_sui::{
     client::{
-        retry_client::{RetriableRpcClient, RetriableSuiClient},
+        SuiClientMetricSet,
+        retry_client::{
+            RetriableRpcClient,
+            RetriableSuiClient,
+            retriable_rpc_client::LazyFallibleRpcClientBuilder,
+            retriable_sui_client::LazySuiClientBuilder,
+        },
         rpc_config::RpcFallbackConfig,
     },
     types::ContractEvent,
@@ -73,17 +76,16 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 use crate::{
     node::{
+        DatabaseConfig,
         events::{
-            ensure_experimental_rest_endpoint_exists,
-            event_blob::EventBlob,
             CheckpointEventPosition,
             EventProcessorConfig,
             IndexedStreamEvent,
             InitState,
             PositionedStreamEvent,
             StreamEventWithInitState,
+            event_blob::EventBlob,
         },
-        DatabaseConfig,
     },
     utils::collect_event_blobs_for_catchup,
 };
@@ -605,6 +607,7 @@ impl EventProcessor {
             &runtime_config.rpc_addresses,
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
+            Arc::new(SuiClientMetricSet::new(registry)),
         )
         .await?;
         let database = Self::initialize_database(&runtime_config)?;
@@ -661,13 +664,17 @@ impl EventProcessor {
         }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = runtime_config.rpc_addresses[0].clone();
-        let sui_client = SuiClientBuilder::default()
-            .build(&url)
-            .await
-            .context(format!("cannot connect to Sui RPC node at {url}"))?;
-        let retriable_sui_client =
-            RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
+        let retriable_sui_client = RetriableSuiClient::new(
+            runtime_config
+                .rpc_addresses
+                .iter()
+                .map(|rpc_url| {
+                    LazySuiClientBuilder::new(rpc_url, Some(config.checkpoint_request_timeout))
+                })
+                .collect(),
+            ExponentialBackoffConfig::default(),
+        )
+        .await?;
         if current_lag > config.event_stream_catchup_min_checkpoint_lag {
             let clients = SuiClientSet {
                 sui_client: retriable_sui_client.clone(),
@@ -717,38 +724,24 @@ impl EventProcessor {
         rest_urls: &[String],
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
+        metrics: Arc<SuiClientMetricSet>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
-        let clients = rest_urls
+        let lazy_client_builders = rest_urls
             .iter()
-            .map(
-                |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
-                    let client = sui_rpc_api::Client::new(rest_url)?;
-                    Ok((client, rest_url.clone()))
-                },
-            )
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Validate each client and filter out invalid ones.
-        let mut valid_clients = Vec::new();
-        for (client, rest_url) in clients {
-            match ensure_experimental_rest_endpoint_exists(client.clone()).await {
-                Ok(()) => valid_clients.push((client, rest_url)),
-                Err(e) => {
-                    tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
-                }
-            }
-        }
-
-        if valid_clients.is_empty() {
-            anyhow::bail!("No valid clients found after validation");
-        }
+            .map(|url| LazyFallibleRpcClientBuilder::Url {
+                rpc_url: url.clone(),
+                ensure_experimental_rest_endpoint: true,
+            })
+            .collect::<Vec<_>>();
 
         RetriableRpcClient::new(
-            valid_clients,
+            lazy_client_builders,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
+            Some(metrics),
         )
+        .await
     }
 
     /// Initializes the database for the event processor.
@@ -841,10 +834,16 @@ impl EventProcessor {
 
     /// Opens the stores for the event processor.
     pub fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores, anyhow::Error> {
+        let default_rw_opts = ReadWriteOptions::default();
+        tracing::info!(
+            "open checkpoint_store, walrus_package_store, \
+            committee_store with default_rw_opts: {:?}",
+            default_rw_opts
+        );
         let checkpoint_store = DBMap::reopen(
             database,
             Some(constants::CHECKPOINT_STORE),
-            &ReadWriteOptions::default(),
+            &default_rw_opts,
             false,
         )?;
         let walrus_package_store = DBMap::reopen(
@@ -856,19 +855,24 @@ impl EventProcessor {
         let committee_store = DBMap::reopen(
             database,
             Some(constants::COMMITTEE_STORE),
-            &ReadWriteOptions::default(),
+            &default_rw_opts,
             false,
         )?;
+        let event_store_opts = ReadWriteOptions::default().set_ignore_range_deletions(true);
+        tracing::info!(
+            "open event_store and init_state with event_store_opts: {:?}",
+            event_store_opts
+        );
         let event_store = DBMap::reopen(
             database,
             Some(constants::EVENT_STORE),
-            &ReadWriteOptions::default().set_ignore_range_deletions(true),
+            &event_store_opts,
             false,
         )?;
         let init_state = DBMap::reopen(
             database,
             Some(constants::INIT_STATE),
-            &ReadWriteOptions::default().set_ignore_range_deletions(true),
+            &event_store_opts,
             false,
         )?;
 
@@ -1085,7 +1089,6 @@ impl EventProcessor {
                 } else {
                     let committee_info = clients
                         .sui_client
-                        .governance_api()
                         .get_committee_info(Some(BigInt::from(checkpoint_summary.epoch)))
                         .await?;
                     Committee::new(
@@ -1330,13 +1333,17 @@ mod tests {
             false,
         )?;
         let rest_url = "http://localhost:8080";
-        let client = sui_rpc_api::Client::new(rest_url)?;
         let retry_client = RetriableRpcClient::new(
-            vec![(client, rest_url.to_string())],
+            vec![LazyFallibleRpcClientBuilder::Url {
+                rpc_url: rest_url.to_string(),
+                ensure_experimental_rest_endpoint: false,
+            }],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        )?;
+            None,
+        )
+        .await?;
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(

@@ -9,9 +9,9 @@ use tracing::Level;
 
 use super::Decoder;
 use crate::{
-    encoding::{utils, DecodingSymbol, EncodeError, InvalidDataSizeError, RaptorQEncodingConfig},
     EncodingAxis,
     EncodingType,
+    encoding::{DecodingSymbol, EncodeError, InvalidDataSizeError, RaptorQEncodingConfig, utils},
 };
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
@@ -196,7 +196,7 @@ mod tests {
     use alloc::vec;
     use core::ops::Range;
 
-    use walrus_test_utils::{param_test, random_data, Result};
+    use walrus_test_utils::{Result, param_test, random_data};
 
     use super::*;
     use crate::encoding::{InvalidDataSizeError, Primary};

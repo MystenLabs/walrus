@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
-use tokio::sync::{mpsc, Notify};
+use serde_with::{DurationSeconds, serde_as};
+use tokio::sync::{Notify, mpsc};
 use walrus_sui::client::ReadClient;
 
 use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
@@ -41,30 +41,13 @@ pub struct CommitteesRefreshConfig {
 }
 
 impl CommitteesRefreshConfig {
-    /// Builds a new [`CommitteesRefresher`] and [`CommitteesRefresherHandle`].
-    pub async fn build_refresher_and_handle(
-        &self,
-        sui_client: impl ReadClient,
-    ) -> Result<(
-        CommitteesRefresher<impl ReadClient>,
-        CommitteesRefresherHandle,
-    )> {
-        let notify = Arc::new(Notify::new());
-        let (req_tx, req_rx) = mpsc::channel(self.refresher_channel_size);
-
-        let refresher =
-            CommitteesRefresher::new(self.clone(), sui_client, req_rx, notify.clone()).await?;
-
-        Ok((refresher, CommitteesRefresherHandle::new(notify, req_tx)))
-    }
-
     /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and
     /// returns the [`CommitteesRefresherHandle`].
     pub async fn build_refresher_and_run(
         &self,
         sui_client: impl ReadClient + 'static,
     ) -> Result<CommitteesRefresherHandle> {
-        let (mut refresher, handle) = self.build_refresher_and_handle(sui_client).await?;
+        let (mut refresher, handle) = build_refresher_and_handle(sui_client, self.clone()).await?;
 
         tokio::spawn(async move {
             refresher.run().await;
@@ -72,6 +55,27 @@ impl CommitteesRefreshConfig {
 
         Ok(handle)
     }
+}
+
+async fn build_refresher_and_handle(
+    sui_client: impl ReadClient,
+    committees_refresh_config: CommitteesRefreshConfig,
+) -> Result<(
+    CommitteesRefresher<impl ReadClient>,
+    CommitteesRefresherHandle,
+)> {
+    let notify = Arc::new(Notify::new());
+    let (req_tx, req_rx) = mpsc::channel(committees_refresh_config.refresher_channel_size);
+
+    let refresher = CommitteesRefresher::new(
+        committees_refresh_config,
+        sui_client,
+        req_rx,
+        notify.clone(),
+    )
+    .await?;
+
+    Ok((refresher, CommitteesRefresherHandle::new(notify, req_tx)))
 }
 
 impl Default for CommitteesRefreshConfig {

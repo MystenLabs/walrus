@@ -7,9 +7,9 @@
 
 mod basic_encoding;
 pub use basic_encoding::{
+    Decoder,
     raptorq::{RaptorQDecoder, RaptorQEncoder},
     reed_solomon::{ReedSolomonDecoder, ReedSolomonEncoder},
-    Decoder,
 };
 
 mod blob_encoding;
@@ -19,10 +19,15 @@ mod quilt_encoding;
 pub use quilt_encoding::{QuiltDecoderV1, QuiltEncoderV1, QuiltV1};
 
 mod common;
-pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};
+pub use common::{EncodingAxis, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE, Primary, Secondary};
 
 mod config;
 pub use config::{
+    EncodingConfig,
+    EncodingConfigEnum,
+    EncodingConfigTrait,
+    RaptorQEncodingConfig,
+    ReedSolomonEncodingConfig,
     decoding_safety_limit,
     encoded_blob_length_for_n_shards,
     encoded_slivers_length_for_n_shards,
@@ -31,11 +36,6 @@ pub use config::{
     max_sliver_size_for_n_shards,
     metadata_length_for_n_shards,
     source_symbols_for_n_shards,
-    EncodingConfig,
-    EncodingConfigEnum,
-    EncodingConfigTrait,
-    RaptorQEncodingConfig,
-    ReedSolomonEncodingConfig,
 };
 
 mod errors;
@@ -55,14 +55,13 @@ pub use errors::{
 };
 
 mod mapping;
-pub use mapping::{rotate_pairs, rotate_pairs_unchecked, SliverAssignmentError};
+pub use mapping::{SliverAssignmentError, rotate_pairs, rotate_pairs_unchecked};
 
 mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, SliverData, SliverPair};
 
 mod symbols;
 pub use symbols::{
-    min_symbols_for_recovery,
     DecodingSymbol,
     EitherDecodingSymbol,
     GeneralRecoverySymbol,
@@ -71,6 +70,7 @@ pub use symbols::{
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
     Symbols,
+    min_symbols_for_recovery,
 };
 
 mod utils;
