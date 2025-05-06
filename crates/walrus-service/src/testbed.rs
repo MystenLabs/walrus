@@ -18,7 +18,6 @@ use futures::future::join_all;
 use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     EpochCount,
@@ -27,7 +26,11 @@ use walrus_core::{
 };
 use walrus_sdk::config::ClientCommunicationConfig;
 use walrus_sui::{
-    client::{SuiContractClient, rpc_config::RpcFallbackConfig},
+    client::{
+        SuiContractClient,
+        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+        rpc_config::RpcFallbackConfig,
+    },
     config::{WalletConfig, load_wallet_context_from_path},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
@@ -42,6 +45,7 @@ use walrus_sui::{
         move_structs::{NodeMetadata, VotingParams},
     },
     utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
+    wallet::Wallet,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -384,8 +388,15 @@ pub async fn deploy_walrus_contract(
         // Try to flush output
         let _ = std::io::stdout().flush();
 
+        #[allow(deprecated)]
+        let rpc_url = admin_wallet.get_rpc_url()?;
+
         // Get coins from faucet for the wallet.
-        let sui_client = admin_wallet.get_client().await?;
+        let sui_client = RetriableSuiClient::new(
+            vec![LazySuiClientBuilder::new(rpc_url, None)],
+            Default::default(),
+        )
+        .await?;
         request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
         admin_wallet
     };
@@ -422,8 +433,12 @@ pub async fn deploy_walrus_contract(
 
     tracing::debug!("Retrieved contract configuration from system context");
 
+    #[allow(deprecated)]
+    let rpc_urls = &[admin_wallet.get_rpc_url()?];
+
     let contract_client = SuiContractClient::new(
         admin_wallet,
+        rpc_urls,
         &contract_config,
         ExponentialBackoffConfig::default(),
         gas_budget,
@@ -697,7 +712,7 @@ pub async fn create_storage_node_configs(
         })
         .unzip();
 
-    let rpc = wallets[0].config.get_active_env()?.rpc.clone();
+    let rpc = wallets[0].get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (node, rest_api_address)) in nodes.into_iter().zip(rest_api_addrs).enumerate() {
         let node_index = i as u16;
@@ -710,12 +725,12 @@ pub async fn create_storage_node_configs(
         };
 
         let wallet_path = if let Some(final_directory) = set_config_dir {
-            let wallet_path = wallets[i].config.path();
+            let wallet_path = wallets[i].get_config_path();
             replace_keystore_path(wallet_path, final_directory)
                 .context("replacing the keystore path failed")?;
             final_directory.join(wallet_path.file_name().expect("file name should exist"))
         } else {
-            wallets[i].config.path().to_path_buf()
+            wallets[i].get_config_path().to_path_buf()
         };
 
         let contract_config = testbed_config.system_ctx.contract_config();
@@ -796,9 +811,14 @@ pub async fn create_storage_node_configs(
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
+        #[allow(deprecated)]
+        let rpc_urls = &[wallet
+            .get_rpc_url()
+            .expect("wallet environment should contain an rpc url")];
+
         testbed_config
             .system_ctx
-            .new_contract_client(wallet, ExponentialBackoffConfig::default(), None)
+            .new_contract_client(wallet, rpc_urls, ExponentialBackoffConfig::default(), None)
             .await
             .expect("should not fail")
     }))
@@ -866,9 +886,9 @@ async fn create_storage_node_wallets(
     n_nodes: NonZeroU16,
     sui_network: SuiNetwork,
     faucet_cooldown: Option<Duration>,
-    admin_wallet: &mut WalletContext,
+    admin_wallet: &mut Wallet,
     sui_amount: u64,
-) -> anyhow::Result<Vec<WalletContext>> {
+) -> anyhow::Result<Vec<Wallet>> {
     // Create wallets for the storage nodes
     let mut storage_node_wallets = (0..n_nodes.get())
         .map(|index| {
@@ -905,7 +925,7 @@ async fn create_storage_node_wallets(
     Ok(storage_node_wallets)
 }
 
-fn print_wallet_addresses(wallets: &mut [WalletContext]) -> anyhow::Result<()> {
+fn print_wallet_addresses(wallets: &mut [Wallet]) -> anyhow::Result<()> {
     println!("Wallet addresses:");
     for wallet in wallets.iter_mut() {
         println!("{}", wallet.active_address()?);

@@ -45,7 +45,6 @@ use sui_sdk::{
         SuiTransactionBlockResponseQuery,
         TransactionBlocksPage,
     },
-    wallet_context::WalletContext,
 };
 #[cfg(msim)]
 use sui_types::transaction::TransactionDataAPI;
@@ -176,11 +175,6 @@ pub struct RetriableSuiClient {
 
 impl RetriableSuiClient {
     /// Creates a new retriable client.
-    ///
-    /// NB: If you are creating the sui client from a wallet context, you should use
-    /// [`RetriableSuiClient::new_from_wallet`] instead. This is because the wallet context will
-    /// make a call to the RPC server in [`WalletContext::get_client`], which may fail without any
-    /// retries. `new_from_wallet` will handle this case correctly.
     pub async fn new(
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
@@ -218,34 +212,6 @@ impl RetriableSuiClient {
         Ok(Self::new(failover_clients, backoff_config).await?)
     }
 
-    /// Creates a new retriable client from a wallet context.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn new_from_wallet(
-        wallet: &WalletContext,
-        backoff_config: ExponentialBackoffConfig,
-    ) -> SuiClientResult<Self> {
-        let strategy = backoff_config.get_strategy(ThreadRng::default().r#gen());
-        let client = retry_rpc_errors(
-            strategy,
-            || async { wallet.get_client().await },
-            None,
-            "get_client",
-        )
-        .await?;
-        // TODO: WAL-793 Wrap the WalletContext and allow RetriableSuiClient to manage the network
-        // communications, including managing RPC urls.
-        Ok(Self::new(vec![client.into()], backoff_config).await?)
-    }
-
-    /// Creates a new retriable client from a wallet context with metrics.
-    pub async fn new_from_wallet_with_metrics(
-        wallet: &WalletContext,
-        backoff_config: ExponentialBackoffConfig,
-        metrics: Arc<SuiClientMetricSet>,
-    ) -> SuiClientResult<Self> {
-        let client = Self::new_from_wallet(wallet, backoff_config).await?;
-        Ok(client.with_metrics(Some(metrics)))
-    }
     // Reimplementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
@@ -266,9 +232,9 @@ impl RetriableSuiClient {
                 self.select_coins_with_limit(
                     address,
                     coin_type.clone(),
-                    amount,
+                    Some(amount),
                     exclude.clone(),
-                    MAX_GAS_PAYMENT_OBJECTS,
+                    Some(MAX_GAS_PAYMENT_OBJECTS),
                 )
                 .await
             },
@@ -289,26 +255,26 @@ impl RetriableSuiClient {
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
-        amount: u128,
+        amount: Option<u128>,
         exclude: Vec<ObjectID>,
-        max_num_coins: usize,
+        max_num_coins: Option<usize>,
     ) -> SuiClientResult<Vec<Coin>> {
         let mut coins_stream = pin!(
             self.get_coins_stream_retry(address, coin_type.clone())
                 .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
         );
 
-        let mut selected_coins = Vec::with_capacity(max_num_coins);
+        let mut selected_coins = Vec::with_capacity(max_num_coins.unwrap_or(10));
         let mut total_selected = 0u128;
 
         while let Some(coin) = coins_stream.as_mut().next().await {
             total_selected += u128::from(coin.balance);
             selected_coins.push(coin);
 
-            if total_selected >= amount {
+            if amount.is_some_and(|amount| total_selected >= amount) {
                 return Ok(selected_coins);
             }
-            if selected_coins.len() >= max_num_coins {
+            if max_num_coins.is_some_and(|max_num_coins| selected_coins.len() >= max_num_coins) {
                 break;
             }
         }
@@ -317,8 +283,13 @@ impl RetriableSuiClient {
         // can add more coins by peeking from the stream. If not, we have exactly
         // MAX_GAS_PAYMENT_OBJECTS coins in the wallet, but not enough value.
         let mut peekable = pin!(coins_stream.as_mut().peekable());
-        if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none() {
-            return Err(SuiSdkError::InsufficientFund { address, amount }.into());
+        if let Some(max_num_coins) = max_num_coins {
+            if let Some(amount) = amount {
+                if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none()
+                {
+                    return Err(SuiSdkError::InsufficientFund { address, amount }.into());
+                }
+            }
         }
 
         // The wallet has more coins.
@@ -347,16 +318,24 @@ impl RetriableSuiClient {
                 selected_coins_heap.push(Reverse(coin.into()));
             }
 
-            if total_selected >= amount {
+            // If we're filtering on amount, and we've reached it, we can stop.
+            if amount.is_some_and(|amount| total_selected >= amount) {
                 return Ok(selected_coins_heap
                     .into_iter()
                     .map(|rev_coin| rev_coin.0.into())
                     .collect());
             }
         }
+        let Some(amount) = amount else {
+            // We just want all the coins. We're done.
+            return Ok(selected_coins_heap
+                .into_iter()
+                .map(|rev_coin| rev_coin.0.into())
+                .collect());
+        };
 
         debug_assert!(
-            selected_coins_heap.len() == max_num_coins,
+            max_num_coins.is_none_or(|max_num_coins| selected_coins_heap.len() == max_num_coins),
             "selected coins should be or equal to the max gas payment objects",
         );
         debug_assert!(

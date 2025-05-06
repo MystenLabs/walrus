@@ -15,7 +15,7 @@ use std::{
 use anyhow::Result;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use serde::{Deserialize, Serialize};
-use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
+use sui_sdk::types::base_types::ObjectID;
 use walrus_core::{
     EpochCount,
     keys::{NetworkKeyPair, ProtocolKeyPair},
@@ -34,6 +34,7 @@ use crate::{
     },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
+    wallet::Wallet,
 };
 
 const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
@@ -81,14 +82,22 @@ pub struct SystemContext {
 
 impl SystemContext {
     /// Creates a [`SuiContractClient`] based on the configuration.
-    pub async fn new_contract_client(
+    pub async fn new_contract_client<S: AsRef<str>>(
         &self,
-        wallet: WalletContext,
+        wallet: Wallet,
+        rpc_urls: &[S],
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
         let contract_config = self.contract_config();
-        SuiContractClient::new(wallet, &contract_config, backoff_config, gas_budget).await
+        SuiContractClient::new(
+            wallet,
+            rpc_urls,
+            &contract_config,
+            backoff_config,
+            gas_budget,
+        )
+        .await
     }
 
     /// Returns the contract config for the system.
@@ -107,7 +116,7 @@ impl SystemContext {
 /// Returns the package id and the object IDs of the system object and the staking object.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_and_init_system_for_test(
-    admin_wallet: &mut WalletContext,
+    admin_wallet: &mut Wallet,
     n_shards: NonZeroU16,
     epoch_zero_duration: Duration,
     epoch_duration: Duration,
@@ -154,7 +163,7 @@ pub async fn create_and_init_system_for_test(
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
 pub async fn create_and_init_system(
-    admin_wallet: &mut WalletContext,
+    admin_wallet: &mut Wallet,
     init_system_params: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<SystemContext> {
@@ -340,14 +349,21 @@ pub async fn initialize_contract_and_wallet_for_testing(
     let bls_keys: Vec<_> = (0..n_nodes).map(|_| ProtocolKeyPair::generate()).collect();
 
     let result = admin_wallet
-        .and_then_async(|admin_wallet| {
-            publish_with_default_system_with_epoch_duration(
-                admin_wallet,
-                &bls_keys,
-                epoch_duration,
-                with_subsidies,
-            )
-        })
+        .and_then_async(
+            async |admin_wallet| -> anyhow::Result<(SystemContext, SuiContractClient)> {
+                #[allow(deprecated)]
+                let rpc_urls = &[admin_wallet.get_rpc_url()?];
+
+                publish_with_default_system_with_epoch_duration(
+                    admin_wallet,
+                    rpc_urls,
+                    &bls_keys,
+                    epoch_duration,
+                    with_subsidies,
+                )
+                .await
+            },
+        )
         .await?;
     let system_context = result.inner.0.clone();
     let admin_contract_client = result.map(|(_, client)| client);
@@ -371,7 +387,8 @@ pub async fn initialize_contract_and_wallet_for_testing(
 /// Returns the system context and the contract client with the admin wallet that
 /// also holds the node caps for all nodes.
 async fn publish_with_default_system_with_epoch_duration(
-    mut admin_wallet: WalletContext,
+    mut admin_wallet: Wallet,
+    rpc_urls: &[String],
     bls_keys: &[ProtocolKeyPair],
     epoch_duration: Duration,
     with_subsidies: bool,
@@ -405,7 +422,7 @@ async fn publish_with_default_system_with_epoch_duration(
 
     // Create admin contract client
     let contract_client = system_context
-        .new_contract_client(admin_wallet, Default::default(), None)
+        .new_contract_client(admin_wallet, rpc_urls, Default::default(), None)
         .await?;
 
     // We only care about gas cost, so the actual subsidy rate can be zero to make it cheap to fund.

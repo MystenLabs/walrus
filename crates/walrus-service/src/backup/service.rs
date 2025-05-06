@@ -25,7 +25,10 @@ use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{BlobId, encoding::Primary};
-use walrus_sdk::{client::Client, config::ClientConfig};
+use walrus_sdk::{
+    client::Client,
+    config::{ClientConfig, combine_rpc_urls},
+};
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
     types::{BlobEvent, ContractEvent, EpochChangeEvent, EpochChangeStart},
@@ -40,10 +43,7 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::{
-        config::combine_rpc_urls,
-        utils::{self, MetricsAndLoggingRuntime, version},
-    },
+    common::utils::{self, MetricsAndLoggingRuntime, version},
     node::{
         DatabaseConfig,
         events::{
