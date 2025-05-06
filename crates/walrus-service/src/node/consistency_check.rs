@@ -21,12 +21,7 @@ use super::{
     NodeStatus,
     StorageNodeInner,
     blob_sync::BlobSyncHandler,
-    storage::blob_info::{
-        BlobInfoIter,
-        BlobInfoIterator,
-        CertifiedBlobInfoApi,
-        PerObjectBlobInfoIterator,
-    },
+    storage::blob_info::{BlobInfoIterator, PerObjectBlobInfoIterator},
 };
 
 /// Configuration for the consistency check.
