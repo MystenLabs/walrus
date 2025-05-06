@@ -121,12 +121,12 @@ fn get_epoch_bucket(epoch: Epoch) -> String {
 }
 
 fn handle_existence_check_result(
-    result: Result<bool, anyhow::Error>, // True means blobs are fully stored.
+    is_fully_stored_result: Result<bool, anyhow::Error>, // True means blobs are fully stored.
     total_fully_stored: &mut u64,
     existence_check_error: &mut u64,
     blob_id: &BlobId,
 ) {
-    match result {
+    match is_fully_stored_result {
         Ok(true) => *total_fully_stored += 1,
         Ok(false) => {}
         Err(error) => {
@@ -274,12 +274,13 @@ fn certified_blob_consistency_check(
                 let total_stored_percentage =
                     total_fully_stored as f64 / total_synced_scanned as f64;
                 walrus_utils::with_label!(
-                    node.metrics.blob_data_consistency_fully_stored_ratio,
+                    node.metrics.node_blob_data_fully_stored_ratio,
                     epoch_bucket
                 )
                 .set(total_stored_percentage);
                 walrus_utils::with_label!(
-                    node.metrics.blob_data_consistency_check_existence_error,
+                    node.metrics
+                        .node_blob_data_consistency_check_existence_error,
                     epoch_bucket
                 )
                 .inc_by(existence_check_error);
