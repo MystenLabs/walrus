@@ -524,6 +524,10 @@ pub async fn generate_sui_wallet(
         path.display()
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
+    #[allow(deprecated)]
+    let rpc_urls = &[wallet.get_rpc_url()?];
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
@@ -531,11 +535,7 @@ pub async fn generate_sui_wallet(
         tracing::info!("attempting to get SUI from faucet...");
         match tokio::time::timeout(
             faucet_timeout,
-            walrus_sui::utils::request_sui_from_faucet(
-                wallet_address,
-                &sui_network,
-                &wallet.get_client().await?,
-            ),
+            walrus_sui::utils::request_sui_from_faucet(wallet_address, &sui_network, &client),
         )
         .await
         {

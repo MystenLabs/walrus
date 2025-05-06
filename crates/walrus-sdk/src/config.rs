@@ -4,13 +4,14 @@
 //! Walrus Client Configuration.
 use std::{
     collections::HashMap,
+    iter::once,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use indexmap::IndexSet;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
@@ -21,6 +22,7 @@ use walrus_sui::{
         retry_client::RetriableSuiClient,
     },
     config::WalletConfig,
+    wallet::Wallet,
 };
 use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_if_exist};
 
@@ -163,11 +165,15 @@ impl ClientConfig {
     /// Creates a [`SuiContractClient`] based on the configuration.
     pub async fn new_contract_client(
         &self,
-        wallet_context: WalletContext,
+        wallet: Wallet,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
+        #[allow(deprecated)]
+        let wallet_rpc_url = wallet.get_rpc_url()?;
+
         SuiContractClient::new(
-            wallet_context,
+            wallet,
+            &combine_rpc_urls(&wallet_rpc_url, &self.rpc_urls),
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
@@ -183,7 +189,7 @@ impl ClientConfig {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let wallet = WalletConfig::load_wallet_context(
+        let wallet = WalletConfig::load_wallet(
             self.wallet_config.as_ref(),
             self.communication_config.sui_client_request_timeout,
         )
@@ -195,6 +201,15 @@ impl ClientConfig {
     pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
         &self.communication_config.request_rate_config.backoff_config
     }
+}
+
+/// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
+pub fn combine_rpc_urls(rpc: impl AsRef<str>, additional_rpc_endpoints: &[String]) -> Vec<String> {
+    once(rpc.as_ref().to_string())
+        .chain(additional_rpc_endpoints.iter().cloned())
+        .collect::<IndexSet<String>>()
+        .into_iter()
+        .collect::<Vec<_>>()
 }
 
 /// Multi config for the client.
@@ -525,5 +540,24 @@ mod tests {
         assert!(result.is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_combine_rpc_urls() {
+        let rpc = "http://localhost:1".to_string();
+        let rpc_urls = vec![
+            "http://localhost:2".to_string(),
+            "http://localhost:2".to_string(),
+            "http://localhost:3".to_string(),
+            "http://localhost:1".to_string(),
+            "http://localhost:3".to_string(),
+        ];
+
+        // Check that the duplicates are removed and the order is preserved.
+        let combined = super::combine_rpc_urls(&rpc, &rpc_urls);
+        assert_eq!(combined.len(), 3);
+        assert_eq!(combined[0], "http://localhost:1");
+        assert_eq!(combined[1], "http://localhost:2");
+        assert_eq!(combined[2], "http://localhost:3");
     }
 }

@@ -476,9 +476,18 @@ mod commands {
         let admin_wallet =
             load_wallet_context_from_path(admin_wallet_path, sui_client_request_timeout)
                 .context("unable to load admin wallet")?;
+
+        #[allow(deprecated)]
+        let rpc_urls = &[admin_wallet.get_rpc_url()?];
+
         let mut admin_contract_client = testbed_config
             .system_ctx
-            .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+            .new_contract_client(
+                admin_wallet,
+                rpc_urls,
+                ExponentialBackoffConfig::default(),
+                None,
+            )
             .await?;
 
         create_client_wallets(
@@ -563,8 +572,12 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
+        #[allow(deprecated)]
+        let rpc_urls = &[wallet.get_rpc_url()?];
+
         let contract_client =
-            SuiContractClient::new(wallet, &contract_config, Default::default(), None).await?;
+            SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
+                .await?;
 
         let new_package_id = contract_client
             .upgrade(upgrade_manager_object_id, contract_dir, upgrade_type)

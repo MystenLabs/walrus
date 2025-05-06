@@ -19,11 +19,9 @@ use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
-    SuiClient,
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
-    wallet_context::WalletContext,
 };
 use sui_types::{
     base_types::SuiAddress,
@@ -41,9 +39,10 @@ use walrus_core::{
 };
 
 use crate::{
-    client::{SuiClientResult, SuiContractClient},
+    client::{SuiClientResult, SuiContractClient, retry_client::RetriableSuiClient},
     config::load_wallet_context_from_path,
     contracts::AssociatedContractStruct,
+    wallet::Wallet,
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
@@ -313,7 +312,7 @@ pub fn create_wallet(
     sui_env: SuiEnv,
     keystore_filename: Option<&str>,
     request_timeout: Option<Duration>,
-) -> Result<WalletContext> {
+) -> Result<Wallet> {
     let keystore_path = config_path
         .parent()
         .map_or_else(sui_config_dir, |path| Ok(path.to_path_buf()))?
@@ -357,15 +356,16 @@ pub async fn send_faucet_request(address: SuiAddress, network: &SuiNetwork) -> R
     Ok(())
 }
 
-async fn sui_coin_set(sui_client: &SuiClient, address: SuiAddress) -> Result<HashSet<ObjectID>> {
-    Ok(handle_pagination(|cursor| {
-        sui_client
-            .coin_read_api()
-            .get_coins(address.to_owned(), None, cursor, None)
-    })
-    .await?
-    .map(|coin| coin.coin_object_id)
-    .collect())
+async fn sui_coin_set(
+    retriable_sui_client: &RetriableSuiClient,
+    address: SuiAddress,
+) -> Result<HashSet<ObjectID>> {
+    Ok(retriable_sui_client
+        .select_coins_with_limit(address, None, None, vec![], None)
+        .await?
+        .into_iter()
+        .map(|coin| coin.coin_object_id)
+        .collect())
 }
 
 /// Requests SUI coins for `address` on `network` from a faucet.
@@ -373,7 +373,7 @@ async fn sui_coin_set(sui_client: &SuiClient, address: SuiAddress) -> Result<Has
 pub async fn request_sui_from_faucet(
     address: SuiAddress,
     network: &SuiNetwork,
-    sui_client: &SuiClient,
+    sui_client: &RetriableSuiClient,
 ) -> Result<()> {
     let mut backoff = Duration::from_millis(100);
     let max_backoff = Duration::from_secs(300);
@@ -409,28 +409,23 @@ pub async fn request_sui_from_faucet(
 /// more than that amount, otherwise request SUI from the faucet (generally provides 1 SUI).
 pub async fn get_sui_from_wallet_or_faucet(
     address: SuiAddress,
-    wallet: &mut WalletContext,
+    wallet: &mut Wallet,
     network: &SuiNetwork,
     sui_amount: u64,
 ) -> Result<()> {
     let one_sui = 1_000_000_000;
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
-    let balance = wallet
-        .get_client()
-        .await?
-        .coin_read_api()
-        .get_balance(sender, None)
-        .await?;
+    #[allow(deprecated)]
+    let rpc_urls = &[wallet.get_rpc_url()?];
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+    let balance = client.get_balance(sender, None).await?;
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(sui_amount));
         let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
-        let gas_coins = wallet
-            .get_client()
-            .await?
-            .coin_read_api()
+        let gas_coins = client
             .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
             .await?
             .iter()
@@ -442,14 +437,17 @@ pub async fn get_sui_from_wallet_or_faucet(
             gas_coins,
             ptb,
             gas_budget,
-            wallet.get_reference_gas_price().await?,
+            client.get_reference_gas_price().await?,
         );
+
+        #[allow(deprecated)]
         wallet
             .execute_transaction_may_fail(wallet.sign_transaction(&transaction))
             .await?;
+
         Ok(())
     } else {
-        request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;
+        request_sui_from_faucet(address, network, &client).await?;
         Ok(())
     }
 }
