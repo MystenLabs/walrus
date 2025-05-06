@@ -54,7 +54,7 @@ pub enum VerificationError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
     /// The unencoded length of the blob.
-    pub unencoded_length: u64,
+    unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
@@ -62,25 +62,27 @@ pub struct QuiltPatchV1 {
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     identifier: String,
-    /// BlobId of the quilted blob.
-    pub blob_id: BlobId,
 }
 
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(unencoded_length: u64, identifier: String, blob_id: BlobId) -> Self {
+    pub fn new(unencoded_length: u64, identifier: String) -> Self {
         Self {
             unencoded_length,
             start_index: 0,
             end_index: 0,
             identifier,
-            blob_id,
         }
     }
 
     /// Returns the identifier of the patch.
     pub fn identifier(&self) -> &str {
         &self.identifier
+    }
+
+    /// Returns the unencoded length of the patch.
+    pub fn unencoded_length(&self) -> u64 {
+        self.unencoded_length
     }
 }
 
@@ -106,14 +108,6 @@ impl QuiltIndexV1 {
             .iter()
             .find(|patch| patch.identifier() == identifier)
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
-    }
-
-    /// Returns the quilt patch with the given blob ID.
-    pub fn get_quilt_patch_by_id(&self, blob_id: BlobId) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_patches
-            .iter()
-            .find(|patch| patch.blob_id == blob_id)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(blob_id.to_string()))
     }
 
     /// Returns an iterator over the identifiers of the blobs in the quilt.

@@ -166,7 +166,7 @@ pub enum QuiltError {
     FailedToExtractQuiltIndexSize,
     /// Failed to decode the quilt index.
     #[error("failed to decode the quilt index: {0}")]
-    QuiltIndexDerSerError(String),
+    QuiltIndexSerDerError(String),
     /// Missing slivers.
     #[error("missing slivers: {0:?}")]
     MissingSlivers(Vec<SliverIndex>),
