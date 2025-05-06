@@ -78,7 +78,7 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     /// `quilt_blob` is a quilt constructed from a set of blobs.
     /// This function loads the quilt blob to access its internal structures without having
     /// to re-encode the blobs.
-    fn parse_from_quilt_blob(
+    fn parse_from_quilt(
         quilt_blob: Vec<u8>,
         metadata: &V::QuiltMetadata,
         n_shards: NonZeroU16,
@@ -195,7 +195,7 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
         QuiltDecoderV1::new(slivers)
     }
 
-    fn parse_from_quilt_blob(
+    fn parse_from_quilt(
         quilt_blob: Vec<u8>,
         metadata: &QuiltMetadataV1,
         n_shards: NonZeroU16,
@@ -1339,9 +1339,8 @@ mod tests {
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata.metadata);
 
-        let quilt =
-            QuiltConfigV1::parse_from_quilt_blob(quilt_blob, &quilt_metadata, config.n_shards())
-                .expect("Should create quilt");
+        let quilt = QuiltConfigV1::parse_from_quilt(quilt_blob, &quilt_metadata, config.n_shards())
+            .expect("Should create quilt");
         assert_eq!(
             quilt.data(),
             encoder
