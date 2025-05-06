@@ -550,10 +550,15 @@ impl StorageNode {
             .await?;
 
         tracing::info!(
-            walrus.node.id = %node_capability.id.to_hex_uncompressed(),
+            walrus.node.node_id = %node_capability.node_id.to_hex_uncompressed(),
+            walrus.node.capability_id = %node_capability.id.to_hex_uncompressed(),
             "selected storage node capability object"
         );
-        walrus_utils::with_label!(metrics.node_id, node_capability.id.to_hex_uncompressed()).set(1);
+        walrus_utils::with_label!(
+            metrics.node_id,
+            node_capability.node_id.to_hex_uncompressed()
+        )
+        .set(1);
 
         let config_synchronizer =
             config
