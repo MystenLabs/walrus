@@ -18,11 +18,11 @@ use tokio::{task::JoinHandle, time};
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::RocksDB;
 
-use crate::node::errors::DBCheckpointError;
+use crate::node::errors::DbCheckpointError;
 
 /// Configuration for RocksDB db_checkpoint management.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct DBCheckpointConfig {
+pub struct DbCheckpointConfig {
     /// Directory where db_checkpoints will be stored.
     pub db_checkpoint_dir: Option<PathBuf>,
     /// Maximum number of db_checkpoints to keep.
@@ -37,7 +37,7 @@ pub struct DBCheckpointConfig {
     pub periodic_db_checkpoints: bool,
 }
 
-impl Default for DBCheckpointConfig {
+impl Default for DbCheckpointConfig {
     fn default() -> Self {
         Self {
             db_checkpoint_dir: None,
@@ -186,11 +186,11 @@ impl DelayedTask {
 
 /// This enum defines the requests that can be sent to the db_checkpoint manager.
 #[derive(Debug)]
-pub enum DBCheckpointRequest {
+pub enum DbCheckpointRequest {
     /// Create a db_checkpoint.
-    CreateDBCheckpoint {
+    CreateDbCheckpoint {
         /// The response channel.
-        response: tokio::sync::oneshot::Sender<TaskResult<DBCheckpointError>>,
+        response: tokio::sync::oneshot::Sender<TaskResult<DbCheckpointError>>,
         /// The directory to create the db_checkpoint in.
         db_checkpoint_dir: PathBuf,
         /// Delay before creating the db_checkpoint.
@@ -211,20 +211,20 @@ pub enum DBCheckpointRequest {
 
 /// Manages the creation/cleanup of db_checkpoints.
 #[derive(Debug)]
-pub struct DBCheckpointManager {
+pub struct DbCheckpointManager {
     /// Driver for handling db_checkpoint requests.
-    execution_loop: JoinHandle<Result<(), DBCheckpointError>>,
+    execution_loop: JoinHandle<Result<(), DbCheckpointError>>,
     /// A simple loop that schedules db_checkpoint creation at a fixed interval.
-    schedule_loop_handle: Option<JoinHandle<Result<(), DBCheckpointError>>>,
+    schedule_loop_handle: Option<JoinHandle<Result<(), DbCheckpointError>>>,
     /// Cancellation token.
     cancel_token: CancellationToken,
     /// Channel to send commands to the db_checkpoint manager.
-    command_tx: tokio::sync::mpsc::Sender<DBCheckpointRequest>,
+    command_tx: tokio::sync::mpsc::Sender<DbCheckpointRequest>,
     /// The configuration.
-    config: DBCheckpointConfig,
+    config: DbCheckpointConfig,
 }
 
-impl DBCheckpointManager {
+impl DbCheckpointManager {
     /// Initial delay before first db_checkpoint creation, to avoid resource contention.
     const CHECKPOINT_CREATION_INITIAL_DELAY: time::Duration = time::Duration::from_secs(15 * 60);
     /// Delay between db_checkpoint creation retries.
@@ -235,10 +235,10 @@ impl DBCheckpointManager {
     /// Create a new db_checkpoint manager for RocksDB.
     pub async fn new(
         db: Arc<RocksDB>,
-        config: DBCheckpointConfig,
-    ) -> Result<Self, DBCheckpointError> {
+        config: DbCheckpointConfig,
+    ) -> Result<Self, DbCheckpointError> {
         if let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() {
-            create_dir_all(db_checkpoint_dir).map_err(|e| DBCheckpointError::Other(e.into()))?;
+            create_dir_all(db_checkpoint_dir).map_err(|e| DbCheckpointError::Other(e.into()))?;
         }
 
         let cancel_token = CancellationToken::new();
@@ -248,7 +248,7 @@ impl DBCheckpointManager {
 
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(10);
 
-        let execution_loop: JoinHandle<Result<(), DBCheckpointError>> = tokio::spawn(async move {
+        let execution_loop: JoinHandle<Result<(), DbCheckpointError>> = tokio::spawn(async move {
             Self::execution_loop(db_clone, config_clone, cancel_token_clone, command_rx).await?;
             Ok(())
         });
@@ -277,7 +277,7 @@ impl DBCheckpointManager {
     ///
     /// Args:
     ///     db_checkpoint_dir: The directory to create the db_checkpoint in, if not provided the
-    ///     directory configured in DBCheckpointConfig will be used. If none of these are provided
+    ///     directory configured in DbCheckpointConfig will be used. If none of these are provided
     ///     an error will be returned.
     ///     delay: The delay before creating the db_checkpoint.
     ///
@@ -287,37 +287,37 @@ impl DBCheckpointManager {
         &self,
         db_checkpoint_dir: Option<&Path>,
         delay: Option<time::Duration>,
-    ) -> Result<(), DBCheckpointError> {
+    ) -> Result<(), DbCheckpointError> {
         let db_checkpoint_path = if let Some(dir) = db_checkpoint_dir {
             dir.to_path_buf()
         } else if let Some(config_dir) = self.config.db_checkpoint_dir.as_ref() {
             config_dir.clone()
         } else {
-            return Err(DBCheckpointError::CheckpointCreationError(
+            return Err(DbCheckpointError::CheckpointCreationError(
                 "No db_checkpoint directory specified, either provide one explicitly or configure \
-                it in DBCheckpointConfig"
+                it in DbCheckpointConfig"
                     .to_string(),
             ));
         };
 
-        create_dir_all(&db_checkpoint_path).map_err(|e| DBCheckpointError::Other(e.into()))?;
+        create_dir_all(&db_checkpoint_path).map_err(|e| DbCheckpointError::Other(e.into()))?;
 
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.command_tx
-            .send(DBCheckpointRequest::CreateDBCheckpoint {
+            .send(DbCheckpointRequest::CreateDbCheckpoint {
                 response: response_tx,
                 db_checkpoint_dir: db_checkpoint_path,
                 delay,
             })
             .await
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
 
         let result = response_rx.await;
         match result {
             Ok(TaskResult::Success) => Ok(()),
             Ok(TaskResult::Failed(e)) => Err(e),
-            Ok(TaskResult::TaskError(e)) => Err(DBCheckpointError::Other(anyhow::anyhow!(e))),
-            Err(e) => Err(DBCheckpointError::Other(e.into())),
+            Ok(TaskResult::TaskError(e)) => Err(DbCheckpointError::Other(anyhow::anyhow!(e))),
+            Err(e) => Err(DbCheckpointError::Other(e.into())),
         }
     }
 
@@ -325,37 +325,37 @@ impl DBCheckpointManager {
     pub async fn get_status(&self) -> anyhow::Result<TaskStatus> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.command_tx
-            .send(DBCheckpointRequest::GetStatus {
+            .send(DbCheckpointRequest::GetStatus {
                 response: response_tx,
             })
             .await
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
         let result = response_rx.await?;
         Ok(result)
     }
 
     /// Cancel the current db_checkpoint creation task, if any.
-    pub async fn cancel_db_checkpoint_creation(&self) -> Result<bool, DBCheckpointError> {
+    pub async fn cancel_db_checkpoint_creation(&self) -> Result<bool, DbCheckpointError> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.command_tx
-            .send(DBCheckpointRequest::CancelBackup {
+            .send(DbCheckpointRequest::CancelBackup {
                 response: response_tx,
             })
             .await
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
         let result = response_rx
             .await
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
         Ok(result)
     }
 
     /// The background task that handles db_checkpoint requests.
     async fn execution_loop(
         db: Arc<RocksDB>,
-        config: DBCheckpointConfig,
+        config: DbCheckpointConfig,
         cancel_token: CancellationToken,
-        mut command_rx: tokio::sync::mpsc::Receiver<DBCheckpointRequest>,
-    ) -> Result<(), DBCheckpointError> {
+        mut command_rx: tokio::sync::mpsc::Receiver<DbCheckpointRequest>,
+    ) -> Result<(), DbCheckpointError> {
         let mut current_task: Option<Arc<DelayedTask>> = None;
 
         loop {
@@ -367,7 +367,7 @@ impl DBCheckpointManager {
 
                 Some(cmd) = command_rx.recv() => {
                     match cmd {
-                        DBCheckpointRequest::CreateDBCheckpoint {
+                        DbCheckpointRequest::CreateDbCheckpoint {
                             response,
                             db_checkpoint_dir,
                             delay,
@@ -376,7 +376,7 @@ impl DBCheckpointManager {
                                 matches!(task.get_status(), TaskStatus::Running(_))
                             }) {
                                 let _ = response.send(
-                                    TaskResult::Failed(DBCheckpointError::CheckpointInProgress)
+                                    TaskResult::Failed(DbCheckpointError::CheckpointInProgress)
                                 );
                             } else {
                                 let db_clone = db.clone();
@@ -403,13 +403,13 @@ impl DBCheckpointManager {
                                 )));
                             }
                         },
-                        DBCheckpointRequest::GetStatus { response } => {
+                        DbCheckpointRequest::GetStatus { response } => {
                             let status = current_task.as_ref().map_or(TaskStatus::Idle, |task| {
                                 task.get_status()
                             });
                             let _ = response.send(status);
                         },
-                        DBCheckpointRequest::CancelBackup { response } => {
+                        DbCheckpointRequest::CancelBackup { response } => {
                             if let Some(task) = current_task.as_ref() {
                                 task.cancel().await;
                                 let _ = response.send(true);
@@ -426,14 +426,14 @@ impl DBCheckpointManager {
     }
 
     async fn schedule_loop(
-        config: DBCheckpointConfig,
+        config: DbCheckpointConfig,
         cancel_token: CancellationToken,
-        command_tx: tokio::sync::mpsc::Sender<DBCheckpointRequest>,
-    ) -> Result<(), DBCheckpointError> {
+        command_tx: tokio::sync::mpsc::Sender<DbCheckpointRequest>,
+    ) -> Result<(), DbCheckpointError> {
         tracing::info!("db_checkpoint manager schedule loop started.");
         let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() else {
-            return Err(DBCheckpointError::Other(anyhow::anyhow!(
-                "DBCheckpoint directory not set"
+            return Err(DbCheckpointError::Other(anyhow::anyhow!(
+                "DbCheckpoint directory not set"
             )));
         };
 
@@ -472,7 +472,7 @@ impl DBCheckpointManager {
                 _ = time::sleep_until(next_db_checkpoint_time) => {
                     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
-                    if let Err(e) = command_tx.send(DBCheckpointRequest::CreateDBCheckpoint {
+                    if let Err(e) = command_tx.send(DbCheckpointRequest::CreateDbCheckpoint {
                         response: response_tx,
                         db_checkpoint_dir: db_checkpoint_dir.to_path_buf(),
                         delay: None,
@@ -507,7 +507,7 @@ impl DBCheckpointManager {
     /// Get the next db_checkpoint time based on the result of the previous db_checkpoint task.
     fn get_next_db_checkpoint_time(
         db_checkpoint_interval_secs: u64,
-        result: &TaskResult<DBCheckpointError>,
+        result: &TaskResult<DbCheckpointError>,
     ) -> time::Instant {
         if let TaskResult::Success = result {
             time::Instant::now() + StdDuration::from_secs(db_checkpoint_interval_secs)
@@ -520,11 +520,11 @@ impl DBCheckpointManager {
     async fn calculate_first_db_checkpoint_time(
         db_checkpoint_dir: &Path,
         db_checkpoint_interval_secs: u64,
-    ) -> Result<time::Instant, DBCheckpointError> {
+    ) -> Result<time::Instant, DbCheckpointError> {
         let latest_timestamp = Self::get_latest_db_checkpoint_timestamp(db_checkpoint_dir)?;
         let now = Utc::now().timestamp();
         let interval_secs = i64::try_from(db_checkpoint_interval_secs)
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
         let next_ts = if let Some(last_ts) = latest_timestamp {
             std::cmp::max(last_ts + interval_secs, now)
         } else {
@@ -540,7 +540,7 @@ impl DBCheckpointManager {
     /// Get the timestamp of the latest db_checkpoint, if any.
     pub fn get_latest_db_checkpoint_timestamp(
         db_checkpoint_dir: &Path,
-    ) -> Result<Option<i64>, DBCheckpointError> {
+    ) -> Result<Option<i64>, DbCheckpointError> {
         let engine = Self::create_backup_engine(db_checkpoint_dir)?;
         let backup_info = engine.get_backup_info();
 
@@ -554,13 +554,13 @@ impl DBCheckpointManager {
     }
 
     /// Create a BackupEngine instance.
-    fn create_backup_engine(db_checkpoint_dir: &Path) -> Result<BackupEngine, DBCheckpointError> {
-        let env = Env::new().map_err(|e| DBCheckpointError::Other(e.into()))?;
+    fn create_backup_engine(db_checkpoint_dir: &Path) -> Result<BackupEngine, DbCheckpointError> {
+        let env = Env::new().map_err(|e| DbCheckpointError::Other(e.into()))?;
 
         let backup_opts = BackupEngineOptions::new(db_checkpoint_dir)
-            .map_err(|e| DBCheckpointError::Other(e.into()))?;
+            .map_err(|e| DbCheckpointError::Other(e.into()))?;
 
-        BackupEngine::open(&backup_opts, &env).map_err(|e| DBCheckpointError::Other(e.into()))
+        BackupEngine::open(&backup_opts, &env).map_err(|e| DbCheckpointError::Other(e.into()))
     }
 
     /// Delete old db_checkpoints to maintain the max_db_checkpoints limit.
@@ -575,7 +575,7 @@ impl DBCheckpointManager {
         };
         let result = engine
             .purge_old_backups(max_db_checkpoints)
-            .map_err(|e| DBCheckpointError::Other(anyhow::anyhow!("Purge error: {}", e)));
+            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("Purge error: {}", e)));
 
         match result {
             Ok(_) => tracing::info!(
@@ -591,7 +591,7 @@ impl DBCheckpointManager {
         db_checkpoint_dir: &Path,
         db_path: &Path,
         wal_dir: Option<&Path>,
-    ) -> Result<(), DBCheckpointError> {
+    ) -> Result<(), DbCheckpointError> {
         // Create a fresh BackupEngine for this operation.
         let mut engine = Self::create_backup_engine(db_checkpoint_dir)?;
 
@@ -601,7 +601,7 @@ impl DBCheckpointManager {
         tracing::info!("restoring database from latest backup");
         engine
             .restore_from_latest_backup(db_path, wal_path, &restore_opts)
-            .map_err(|e| DBCheckpointError::Other(anyhow::anyhow!("restore error: {}", e)))?;
+            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("restore error: {}", e)))?;
 
         tracing::info!("database restored successfully");
         Ok(())
@@ -621,7 +621,7 @@ impl DBCheckpointManager {
         db: &Arc<RocksDB>,
         db_checkpoint_dir: &Path,
         flush_before_backup: bool,
-    ) -> Result<(), DBCheckpointError> {
+    ) -> Result<(), DbCheckpointError> {
         let mut engine = Self::create_backup_engine(db_checkpoint_dir)?;
 
         tracing::info!("start creating RocksDB backup");
@@ -629,7 +629,7 @@ impl DBCheckpointManager {
         let db_ref = &db.underlying;
         engine
             .create_new_backup_flush(db_ref, flush_before_backup)
-            .map_err(|e| DBCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)))?;
+            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)))?;
 
         tracing::info!("rocksDB backup created successfully");
         Ok(())
@@ -641,16 +641,16 @@ impl DBCheckpointManager {
     }
 
     /// Join the background tasks and clean up resources.
-    pub async fn join(&mut self) -> Result<(), DBCheckpointError> {
+    pub async fn join(&mut self) -> Result<(), DbCheckpointError> {
         if let Err(e) = (&mut self.execution_loop).await {
             tracing::warn!(?e, "Error joining execution loop");
-            return Err(DBCheckpointError::Other(e.into()));
+            return Err(DbCheckpointError::Other(e.into()));
         }
 
         if let Some(handle) = self.schedule_loop_handle.take() {
             if let Err(e) = handle.await {
                 tracing::warn!(?e, "Error joining schedule loop");
-                return Err(DBCheckpointError::Other(e.into()));
+                return Err(DbCheckpointError::Other(e.into()));
             }
         }
 
@@ -753,9 +753,9 @@ mod tests {
                 db_map.insert(key, value)?;
             }
 
-            let db_checkpoint_manager = DBCheckpointManager::new(
+            let db_checkpoint_manager = DbCheckpointManager::new(
                 db,
-                DBCheckpointConfig {
+                DbCheckpointConfig {
                     db_checkpoint_dir: Some(db_checkpoint_dir.path().to_path_buf()),
                     ..Default::default()
                 },
@@ -773,7 +773,7 @@ mod tests {
         );
 
         // Restore from backup to a new location.
-        DBCheckpointManager::restore_latest(db_checkpoint_dir.path(), restore_dir.path(), None)
+        DbCheckpointManager::restore_latest(db_checkpoint_dir.path(), restore_dir.path(), None)
             .await?;
 
         // Reopen restored DB and verify contents.

@@ -34,7 +34,7 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_service::{
-    DBCheckpointManager,
+    DbCheckpointManager,
     SyncNodeConfigError,
     common::config::SuiConfig,
     node::{
@@ -79,7 +79,7 @@ struct Args {
 #[derive(Debug, Clone)]
 struct AdminArgs {
     /// Checkpoint manager.
-    checkpoint_manager: Option<Arc<DBCheckpointManager>>,
+    checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     /// Admin socket path.
     admin_socket_path: Option<PathBuf>,
 }
@@ -1411,7 +1411,7 @@ impl StorageNodeRuntime {
 /// Handle checkpoint commands from admin socket.
 async fn handle_checkpoint_command(
     command: CheckpointCommands,
-    manager: &Arc<DBCheckpointManager>,
+    manager: &Arc<DbCheckpointManager>,
 ) -> Result<String, String> {
     match command {
         CheckpointCommands::Create { path, delay_secs } => {

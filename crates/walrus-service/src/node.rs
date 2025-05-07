@@ -160,7 +160,7 @@ use crate::{
         config::{SuiConfig, combine_rpc_urls},
         utils::should_reposition_cursor,
     },
-    node::db_checkpoint::DBCheckpointManager,
+    node::db_checkpoint::DbCheckpointManager,
     utils::ShardDiffCalculator,
 };
 
@@ -519,7 +519,7 @@ pub struct StorageNodeInner {
     thread_pool: BoundedThreadPool,
     registry: Registry,
     latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
-    checkpoint_manager: Option<Arc<DBCheckpointManager>>,
+    checkpoint_manager: Option<Arc<DbCheckpointManager>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -600,7 +600,7 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
-        let checkpoint_manager = match DBCheckpointManager::new(
+        let checkpoint_manager = match DbCheckpointManager::new(
             storage.get_db(),
             config.checkpoint_config.clone(),
         )
@@ -767,7 +767,7 @@ impl StorageNode {
     }
 
     /// Returns the checkpoint manager for the node.
-    pub fn checkpoint_manager(&self) -> Option<Arc<DBCheckpointManager>> {
+    pub fn checkpoint_manager(&self) -> Option<Arc<DbCheckpointManager>> {
         self.inner.checkpoint_manager.clone()
     }
 

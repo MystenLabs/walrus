@@ -43,7 +43,7 @@ use walrus_sui::types::{
 use super::storage::DatabaseConfig;
 use crate::{
     common::{config::SuiConfig, utils},
-    node::{db_checkpoint::DBCheckpointConfig, events::EventProcessorConfig},
+    node::{db_checkpoint::DbCheckpointConfig, events::EventProcessorConfig},
 };
 
 /// Configuration for the config synchronizer.
@@ -173,7 +173,7 @@ pub struct StorageNodeConfig {
     pub thread_pool: ThreadPoolConfig,
     /// Configuration for the checkpointing task.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub checkpoint_config: DBCheckpointConfig,
+    pub checkpoint_config: DbCheckpointConfig,
     /// Admin socket path.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub admin_socket_path: Option<PathBuf>,
