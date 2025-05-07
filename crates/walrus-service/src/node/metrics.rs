@@ -291,6 +291,8 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
             ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
+            // Note: this is required due to the `#[non_exhaustive]` attribute on the enum.
+            _ => "telemetry-label-unhandled",
         }
     }
 }
