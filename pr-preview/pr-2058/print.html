@@ -3272,8 +3272,10 @@ served by the portal).</p>
 <p>If you don't want to use this default location, you can specify the path to the configuration file
 with the <code>--ws-resources</code> flag when running the <code>publish</code> or <code>update</code> commands.</p>
 <h3 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h3>
-<p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final Walrus Site object.</p>
-<p>The <code>ignore</code> field is a list of resource paths to skip. Each pattern must start with a <code>/</code>, and may end with a <code>*</code> to indicate a wildcard match.</p>
+<p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
+This is useful when you want to keep development files, secrets, or temporary assets out of the final build.</p>
+<p>The <code>ignore</code> field is a list of resource paths to skip. Each pattern must start with a <code>/</code>,
+and may end with a <code>*</code> to indicate a wildcard match.</p>
 <p>For example:</p>
 <pre><code class="language-json">"ignore": [
   "/private/*",
@@ -3281,9 +3283,11 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
   "/images/tmp/*"
 ]
 </code></pre>
-<p>This configuration will skip all files inside the <code>/private/</code> and <code>/images/tmp/</code> directories, as well as a specific file <code>/secret.txt</code>.</p>
+<p>This configuration will skip all files inside the <code>/private/</code> and <code>/images/tmp/</code> directories,
+as well as a specific file <code>/secret.txt</code>.</p>
 <blockquote>
-<p>Wildcards are only supported in the <strong>last position</strong> of the path (e.g., <code>/foo/*</code> is valid, but <code>/foo/*/bar</code> is not).</p>
+<p>Wildcards are only supported in the <strong>last position</strong> of the path (e.g., <code>/foo/*</code> is valid,
+but <code>/foo/*/bar</code> is not).</p>
 </blockquote>
 <p>The file is JSON-formatted, and looks like the following:</p>
 <pre><code class="language-JSON">{
@@ -3308,7 +3312,8 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
   "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 </code></pre>
-<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>, <code>metadata</code> and the <code>ignore</code> section.</p>
+<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>,
+<code>metadata</code>, and the <code>ignore</code> section.</p>
 <h2 id="specifying-http-response-headers"><a class="header" href="#specifying-http-response-headers">Specifying HTTP response headers</a></h2>
 <p>The <code>headers</code> section allows you to specify custom HTTP response headers for specific resources.
 The keys in the <code>headers</code> object are the paths of the resources, and the values are lists of
