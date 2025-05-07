@@ -1880,8 +1880,16 @@ impl StorageNodeInner {
             None => self.owned_shards_at_latest_epoch(),
         };
 
+        self.is_stored_at_specific_shards(blob_id, &shards).await
+    }
+
+    async fn is_stored_at_specific_shards(
+        &self,
+        blob_id: &BlobId,
+        shards: &[ShardIndex],
+    ) -> anyhow::Result<bool> {
         for shard in shards {
-            match self.storage.is_stored_at_shard(blob_id, shard).await {
+            match self.storage.is_stored_at_shard(blob_id, *shard).await {
                 Ok(false) => return Ok(false),
                 Ok(true) => continue,
                 Err(error) => {
@@ -1911,6 +1919,27 @@ impl StorageNodeInner {
     ) -> anyhow::Result<bool> {
         self.is_stored_at_all_shards_impl(blob_id, Some(epoch))
             .await
+    }
+
+    /// Returns true if the blob is stored at all shards that are in Active state.
+    pub(crate) async fn is_stored_at_all_active_shards(
+        &self,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<bool> {
+        let shards = self
+            .storage
+            .existing_shard_storages()
+            .await
+            .iter()
+            .filter_map(|shard_storage| {
+                shard_storage
+                    .status()
+                    .is_ok_and(|status| status == ShardStatus::Active)
+                    .then_some(shard_storage.id())
+            })
+            .collect::<Vec<_>>();
+
+        self.is_stored_at_specific_shards(blob_id, &shards).await
     }
 
     pub(crate) fn storage(&self) -> &Storage {

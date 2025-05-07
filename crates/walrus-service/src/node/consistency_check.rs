@@ -191,7 +191,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             // column families, and perform sequential scan along with
                             // BlobInfoIterator to conduct more efficient existence check. This
                             // requires the SafeIterator to support seek() functionality first.
-                            rt.block_on(node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0)),
+                            rt.block_on(node.is_stored_at_all_active_shards(&blob_info.0)),
                             &mut total_fully_stored,
                             &mut existence_check_error,
                             &blob_info.0,
@@ -206,7 +206,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                     {
                         handle_existence_check_result(
                             futures::executor::block_on(
-                                node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0),
+                                node.is_stored_at_all_active_shards(&blob_info.0),
                             ),
                             &mut total_fully_stored,
                             &mut existence_check_error,
