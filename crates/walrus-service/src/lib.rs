@@ -29,4 +29,4 @@ pub use common::utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-pub use node::checkpoint::CheckpointManager;
+pub use node::db_checkpoint::CheckpointManager;

@@ -160,12 +160,11 @@ use crate::{
         config::{SuiConfig, combine_rpc_urls},
         utils::should_reposition_cursor,
     },
-    node::checkpoint::CheckpointManager,
+    node::db_checkpoint::CheckpointManager,
     utils::ShardDiffCalculator,
 };
 
-/// Checkpoint manager.
-pub(crate) mod checkpoint;
+pub(crate) mod db_checkpoint;
 
 pub mod committee;
 pub mod config;
