@@ -34,7 +34,7 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_service::{
-    CheckpointManager,
+    DBCheckpointManager,
     SyncNodeConfigError,
     common::config::SuiConfig,
     node::{
@@ -79,7 +79,7 @@ struct Args {
 #[derive(Debug, Clone)]
 struct AdminArgs {
     /// Checkpoint manager.
-    checkpoint_manager: Option<Arc<CheckpointManager>>,
+    checkpoint_manager: Option<Arc<DBCheckpointManager>>,
     /// Admin socket path.
     admin_socket_path: Option<PathBuf>,
 }
@@ -1411,12 +1411,12 @@ impl StorageNodeRuntime {
 /// Handle checkpoint commands from admin socket.
 async fn handle_checkpoint_command(
     command: CheckpointCommands,
-    manager: &Arc<CheckpointManager>,
+    manager: &Arc<DBCheckpointManager>,
 ) -> Result<String, String> {
     match command {
         CheckpointCommands::Create { path, delay_secs } => {
             match manager
-                .schedule_and_wait_for_checkpoint_creation(
+                .schedule_and_wait_for_db_checkpoint_creation(
                     path.as_deref(),
                     delay_secs.map(std::time::Duration::from_secs),
                 )
@@ -1431,7 +1431,7 @@ async fn handle_checkpoint_command(
             Ok("Checkpoint listing not implemented yet".to_string())
         }
         CheckpointCommands::Cancel => {
-            let result = manager.cancel_checkpoint_creation().await;
+            let result = manager.cancel_db_checkpoint_creation().await;
             match result {
                 Ok(true) => Ok("Checkpoint creation cancelled".to_string()),
                 Ok(false) => Ok("No backup was in progress".to_string()),

@@ -406,7 +406,7 @@ pub enum SyncNodeConfigError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CheckpointError {
+pub enum DBCheckpointError {
     #[error("Failed to create checkpoint: {0}")]
     CheckpointCreationError(String),
     #[error("Backup already in progress")]
