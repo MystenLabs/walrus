@@ -17,9 +17,11 @@ with the `--ws-resources` flag when running the `publish` or `update` commands.
 
 ### Ignoring files from being uploaded
 
-You can use the optional `ignore` field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final Walrus Site object.
+You can use the optional `ignore` field to exclude certain files or folders from being published.
+This is useful when you want to keep development files, secrets, or temporary assets out of the final build.
 
-The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`, and may end with a `*` to indicate a wildcard match.
+The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`,
+and may end with a `*` to indicate a wildcard match.
 
 For example:
 
@@ -31,9 +33,11 @@ For example:
 ]
 ```
 
-This configuration will skip all files inside the `/private/` and `/images/tmp/` directories, as well as a specific file `/secret.txt`.
+This configuration will skip all files inside the `/private/` and `/images/tmp/` directories,
+as well as a specific file `/secret.txt`.
 
-> Wildcards are only supported in the **last position** of the path (e.g., `/foo/*` is valid, but `/foo/*/bar` is not).
+> Wildcards are only supported in the **last position** of the path (e.g., `/foo/*` is valid,
+but `/foo/*/bar` is not).
 
 The file is JSON-formatted, and looks like the following:
 
@@ -61,7 +65,8 @@ The file is JSON-formatted, and looks like the following:
 }
 ```
 
-We now describe in detail four sections of the configuration file: `headers`, `routes`, `metadata` and the `ignore` section.
+We now describe in detail four sections of the configuration file: `headers`, `routes`,
+`metadata`, and the `ignore` section.
 
 ## Specifying HTTP response headers
 
