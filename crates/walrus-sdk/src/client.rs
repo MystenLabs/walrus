@@ -243,7 +243,7 @@ impl<T: ReadClient> Client<T> {
         self.read_blob_internal(blob_id, Some(blob_status)).await
     }
 
-    /// Wait for a blob to be certified, returning the blob status if found within timeout.
+    /// Try to get the blob status with certified_epoch, if not found, wait for it to be certified.
     async fn test_get_blob_status_waiting_for_certification(
         &self,
         blob_id: &BlobId,
