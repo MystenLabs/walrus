@@ -40,7 +40,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::{
-    EnvFilter, Layer,
+    EnvFilter,
+    Layer,
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
