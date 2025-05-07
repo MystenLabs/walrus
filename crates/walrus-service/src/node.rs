@@ -3406,7 +3406,10 @@ mod tests {
                 && (store_at_shard(&shard, SliverType::Primary)
                     || store_at_shard(&shard, SliverType::Secondary))
             {
-                node.client().store_metadata(&blob.metadata).await?;
+                retry_until_success_or_timeout(TIMEOUT, || {
+                    node.client().store_metadata(&blob.metadata)
+                })
+                .await?;
                 metadata_stored.push(node.public_key());
             }
 
