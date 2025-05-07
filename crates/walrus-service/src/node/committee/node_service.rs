@@ -173,19 +173,12 @@ where
 {
 }
 
-<<<<<<< HEAD
-/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
-#[derive(Clone, Debug)]
-pub(crate) struct RemoteStorageNode {
-    client: StorageNodeClient,
-=======
 pub(crate) type RemoteStorageNode = ConcurrencyLimit<UnboundedRemoteStorageNode>;
 
-/// A [`NodeService`] that is reachable via a [`walrus_rest_client::client::Client`].
+/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
 #[derive(Clone, Debug)]
 pub(crate) struct UnboundedRemoteStorageNode {
-    client: Client,
->>>>>>> ef3cfa00 (refactor: limit concurrent requests sent to remote nodes)
+    client: StorageNodeClient,
     encoding_config: Arc<EncodingConfig>,
 }
 
