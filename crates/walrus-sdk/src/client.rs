@@ -243,35 +243,6 @@ impl<T: ReadClient> Client<T> {
         self.read_blob_internal(blob_id, Some(blob_status)).await
     }
 
-    /// Try to get the blob status with certified_epoch, if not found, wait for it to be certified.
-    async fn test_get_blob_status_waiting_for_certification(
-        &self,
-        blob_id: &BlobId,
-    ) -> ClientResult<BlobStatus> {
-        let start_time = Instant::now();
-        let timeout_duration = Duration::from_secs(30);
-        let poll_interval = Duration::from_millis(500);
-
-        let mut status = self
-            .get_blob_status_with_retries(blob_id, &self.sui_client)
-            .await?;
-
-        while status.is_registered()
-            && status.initial_certified_epoch().is_none()
-            && start_time.elapsed() < timeout_duration
-        {
-            tokio::time::sleep(poll_interval).await;
-            status = self
-                .get_verified_blob_status(blob_id, &self.sui_client, Duration::from_secs(10))
-                .await?;
-        }
-
-        match status.initial_certified_epoch() {
-            Some(_) => Ok(status),
-            None => Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist)),
-        }
-    }
-
     /// Internal method to handle the common logic for reading blobs.
     async fn read_blob_internal<U>(
         &self,
@@ -288,20 +259,14 @@ impl<T: ReadClient> Client<T> {
 
         let certified_epoch = if committees.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
-            let status = match blob_status {
+            let blob_status = match blob_status {
                 Some(status) => status,
-                #[cfg(any(test, feature = "test-utils"))]
-                None => {
-                    self.test_get_blob_status_waiting_for_certification(blob_id)
-                        .await?
-                }
-                #[cfg(not(any(test, feature = "test-utils")))]
                 None => {
                     self.get_blob_status_with_retries(blob_id, &self.sui_client)
                         .await?
                 }
             };
-            status
+            blob_status
                 .initial_certified_epoch()
                 .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
         } else {
