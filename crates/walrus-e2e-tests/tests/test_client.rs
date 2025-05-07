@@ -89,7 +89,7 @@ async fn read_blob_with_wait_for_certification(
     timeout_duration: Duration,
 ) -> TestResult<Vec<u8>> {
     let start = Instant::now();
-    
+
     while start.elapsed() < timeout_duration {
         match client.read_blob::<Primary>(blob_id).await {
             Ok(data) => return Ok(data),
@@ -99,33 +99,8 @@ async fn read_blob_with_wait_for_certification(
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     continue;
                 }
-                
-                return Err(err.into()); 
-            }
-        }
-    }
 
-    Err(anyhow::anyhow!("Timed out waiting for blob to be available").into())
-}
-
-async fn read_blob_with_wait_for_certification(
-    client: &Client<SuiContractClient>,
-    blob_id: &BlobId,
-    timeout_duration: Duration,
-) -> TestResult<Vec<u8>> {
-    let start = Instant::now();
-    
-    while start.elapsed() < timeout_duration {
-        match client.read_blob::<Primary>(blob_id).await {
-            Ok(data) => return Ok(data),
-            Err(err) => {
-                // Check if the error is BlobIdDoesNotExist.
-                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    continue;
-                }
-                
-                return Err(err.into()); 
+                return Err(err.into());
             }
         }
     }
@@ -210,7 +185,7 @@ where
     // Read back and verify all blobs.
     for (path, blob_id) in path_to_blob_id {
         let read_data = read_blob_with_wait_for_certification(
-            &client.as_ref(),
+            client.as_ref(),
             &blob_id,
             Duration::from_secs(30),
         )
@@ -645,11 +620,13 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     let read_result =
         futures::future::join_all(store_result_with_path.iter().map(|result| async {
-            let blob =
-                read_blob_with_wait_for_certification(
-                    client,
-                    &result.blob_store_result.blob_id().expect("blob id should be present"),
-                    Duration::from_secs(30),
+            let blob = read_blob_with_wait_for_certification(
+                client,
+                &result
+                    .blob_store_result
+                    .blob_id()
+                    .expect("blob id should be present"),
+                Duration::from_secs(30),
             )
             .await
             .expect("should be able to read blob");
@@ -959,7 +936,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 
     assert_eq!(
         read_blob_with_wait_for_certification(
-            &client,
+            client,
             &blob_id.expect("blob id should be present"),
             Duration::from_secs(30),
         )
