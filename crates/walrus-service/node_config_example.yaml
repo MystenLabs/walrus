@@ -151,3 +151,4 @@ thread_pool:
 consistency_check:
   enable_consistency_check: true
   enable_sliver_data_existence_check: false
+  sliver_data_existence_check_sample_rate_percentage: 100

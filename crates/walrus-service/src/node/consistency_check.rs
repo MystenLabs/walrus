@@ -9,6 +9,7 @@ use std::{collections::HashSet, hash::Hasher, sync::Arc};
 
 use anyhow::{Context, Result};
 use prometheus::IntCounterVec;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 #[cfg(msim)]
@@ -33,6 +34,9 @@ pub struct StorageNodeConsistencyCheckConfig {
     pub enable_consistency_check: bool,
     /// Enable the sliver data existence check.
     pub enable_sliver_data_existence_check: bool,
+    /// The sample rate of the sliver data existence check. Value is between 0 and 100.
+    #[serde(deserialize_with = "deserialize_data_existence_check_sample_rate_percentage")]
+    pub sliver_data_existence_check_sample_rate_percentage: u64,
 }
 
 impl Default for StorageNodeConsistencyCheckConfig {
@@ -40,7 +44,24 @@ impl Default for StorageNodeConsistencyCheckConfig {
         Self {
             enable_consistency_check: true,
             enable_sliver_data_existence_check: false,
+            sliver_data_existence_check_sample_rate_percentage: 100,
         }
+    }
+}
+
+fn deserialize_data_existence_check_sample_rate_percentage<'de, D>(
+    deserializer: D,
+) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value > 100 {
+        Err(serde::de::Error::custom(
+            "Percentage must be between 0 and 100",
+        ))
+    } else {
+        Ok(value)
     }
 }
 
@@ -176,6 +197,10 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
                 if enable_sliver_data_existence_check
                     && !blobs_not_yet_fully_synced.contains(&blob_info.0)
+                    && rand::thread_rng().gen_range(0..100)
+                        < node
+                            .consistency_check_config
+                            .sliver_data_existence_check_sample_rate_percentage
                 {
                     total_synced_scanned += 1;
 

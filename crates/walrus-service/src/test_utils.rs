@@ -2749,6 +2749,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
                 enable_sliver_data_existence_check: true,
+                sliver_data_existence_check_sample_rate_percentage: 100,
             },
         },
         temp_dir,
