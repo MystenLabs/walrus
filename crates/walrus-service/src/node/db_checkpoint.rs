@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    fs::create_dir_all,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration as StdDuration, Instant},
+    time::Duration as StdDuration,
 };
 
 use chrono::Utc;
@@ -237,7 +238,7 @@ impl DBCheckpointManager {
         config: DBCheckpointConfig,
     ) -> Result<Self, DBCheckpointError> {
         if let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() {
-            Self::create_db_checkpoint_dir_if_not_exists(db_checkpoint_dir)?;
+            create_dir_all(db_checkpoint_dir).map_err(|e| DBCheckpointError::Other(e.into()))?;
         }
 
         let cancel_token = CancellationToken::new();
@@ -299,7 +300,7 @@ impl DBCheckpointManager {
             ));
         };
 
-        Self::create_db_checkpoint_dir_if_not_exists(&db_checkpoint_path)?;
+        create_dir_all(&db_checkpoint_path).map_err(|e| DBCheckpointError::Other(e.into()))?;
 
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.command_tx
@@ -606,6 +607,16 @@ impl DBCheckpointManager {
         Ok(())
     }
 
+    #[tracing::instrument(
+        level = "info",
+        name = "create_rocksdb_backup",
+        skip(db),
+        fields(
+            db_checkpoint_dir = ?db_checkpoint_dir,
+            db_path = ?db.db_path
+        ),
+        err
+    )]
     fn create_backup_impl(
         db: &Arc<RocksDB>,
         db_checkpoint_dir: &Path,
@@ -613,48 +624,15 @@ impl DBCheckpointManager {
     ) -> Result<(), DBCheckpointError> {
         let mut engine = Self::create_backup_engine(db_checkpoint_dir)?;
 
-        let start_time = Instant::now();
-        tracing::info!(
-            db_checkpoint_dir = ?db_checkpoint_dir,
-            "start creating RocksDB backup"
-        );
+        tracing::info!("start creating RocksDB backup");
 
         let db_ref = &db.underlying;
-        let backup_result = engine
+        engine
             .create_new_backup_flush(db_ref, flush_before_backup)
-            .map_err(|e| DBCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)));
+            .map_err(|e| DBCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)))?;
 
-        let duration = start_time.elapsed();
-
-        match backup_result {
-            Ok(_) => {
-                tracing::info!(
-                    duration = ?duration,
-                    "rocksDB backup created successfully"
-                );
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!(
-                    ?e,
-                    duration = ?duration,
-                    "rocksDB backup failed",
-                );
-                Err(e)
-            }
-        }
-    }
-
-    /// Create the db_checkpoint directory if it doesn't exist.
-    fn create_db_checkpoint_dir_if_not_exists(
-        db_checkpoint_dir: &Path,
-    ) -> Result<(), DBCheckpointError> {
-        match db_checkpoint_dir.try_exists() {
-            Ok(true) => Ok(()),
-            Ok(false) => std::fs::create_dir_all(db_checkpoint_dir)
-                .map_err(|e| DBCheckpointError::Other(e.into())),
-            Err(e) => Err(DBCheckpointError::Other(e.into())),
-        }
+        tracing::info!("rocksDB backup created successfully");
+        Ok(())
     }
 
     /// Cancel db_checkpoint manager.

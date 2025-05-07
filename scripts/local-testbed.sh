@@ -182,8 +182,7 @@ if ! $use_existing_config; then
     --with-subsidies
 
   # Generate configs
-  generate_dry_run_args=( --working-dir "$working_dir" --use-legacy-event-provider )
-  # generate_dry_run_args=( --working-dir "$working_dir" )
+  generate_dry_run_args=( --working-dir "$working_dir" )
   if [[ -n "$backup_database_url" ]]; then
     generate_dry_run_args+=( --backup-database-url "$backup_database_url" )
   fi
