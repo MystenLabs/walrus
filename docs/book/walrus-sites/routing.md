@@ -18,7 +18,7 @@ with the `--ws-resources` flag when running the `publish` or `update` commands.
 ### Ignoring files from being uploaded
 
 You can use the optional `ignore` field to exclude certain files or folders from being published.
-This is useful when you want to keep development files, secrets, or temporary assets out of 
+This is useful when you want to keep development files, secrets, or temporary assets out of
 the final build.
 
 The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`,
