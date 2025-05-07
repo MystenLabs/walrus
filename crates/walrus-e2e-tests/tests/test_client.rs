@@ -83,6 +83,7 @@ use walrus_sui::{
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
+/// Read a blob with retries if the blob is registered but not certified.
 async fn read_blob_with_wait_for_certification(
     client: &Client<SuiContractClient>,
     blob_id: &BlobId,
