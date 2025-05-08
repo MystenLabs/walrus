@@ -3,8 +3,11 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use alloc::vec::Vec;
-use core::num::NonZeroU16;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt::Debug, num::NonZeroU16};
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -20,6 +23,7 @@ use crate::{
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
+        QuiltError,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
     },
@@ -44,6 +48,105 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
+}
+
+/// Represents a blob within a unencoded quilt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltPatchV1 {
+    /// The unencoded length of the blob.
+    unencoded_length: u64,
+    /// The start sliver index of the blob.
+    #[serde(skip)]
+    pub start_index: u16,
+    /// The end sliver index of the blob.
+    pub end_index: u16,
+    /// The identifier of the blob, it can be used to locate the blob in the quilt.
+    identifier: String,
+}
+
+impl QuiltPatchV1 {
+    /// Returns a new [`QuiltPatchV1`].
+    pub fn new(unencoded_length: u64, identifier: String) -> Self {
+        Self {
+            unencoded_length,
+            start_index: 0,
+            end_index: 0,
+            identifier,
+        }
+    }
+
+    /// Returns the identifier of the patch.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    /// Returns the unencoded length of the patch.
+    pub fn unencoded_length(&self) -> u64 {
+        self.unencoded_length
+    }
+}
+
+/// An index over the patches(blobs) in a quilt.
+///
+/// Each quilt patch represents a blob stored in the quilt. And each patch is
+/// mapped to a contiguous index range.
+///
+/// INV: The patches are sorted by their end indices, as well as their blob_ids.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltIndexV1 {
+    /// Location/identity index of the blob in the quilt.
+    pub quilt_patches: Vec<QuiltPatchV1>,
+}
+
+impl QuiltIndexV1 {
+    /// Returns the quilt patch with the given blob identifier.
+    pub fn get_quilt_patch_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<&QuiltPatchV1, QuiltError> {
+        self.quilt_patches
+            .iter()
+            .find(|patch| patch.identifier() == identifier)
+            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
+
+    /// Returns an iterator over the identifiers of the blobs in the quilt.
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.quilt_patches.iter().map(|patch| patch.identifier())
+    }
+
+    /// Returns the number of patches in the quilt.
+    pub fn len(&self) -> usize {
+        self.quilt_patches.len()
+    }
+
+    /// Returns true if the quilt index is empty.
+    pub fn is_empty(&self) -> bool {
+        self.quilt_patches.is_empty()
+    }
+
+    /// Populate start_indices of the patches, since the start index is not stored in wire format.
+    pub fn populate_start_indices(&mut self, first_start: u16) {
+        if let Some(first_patch) = self.quilt_patches.first_mut() {
+            first_patch.start_index = first_start;
+        }
+
+        for i in 1..self.quilt_patches.len() {
+            let prev_end_index = self.quilt_patches[i - 1].end_index;
+            self.quilt_patches[i].start_index = prev_end_index;
+        }
+    }
+}
+
+/// Metadata associated with a quilt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltMetadataV1 {
+    /// The BlobId of the quilt blob.
+    pub quilt_blob_id: BlobId,
+    /// The blob metadata of the quilt blob.
+    pub metadata: BlobMetadata,
+    /// The index of the quilt.
+    pub index: QuiltIndexV1,
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].

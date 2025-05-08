@@ -167,7 +167,7 @@ walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "log", "metrics", "tokio-metrics"] }
 
 [dev-dependencies]
-hex = "0.4.3"
+hex.workspace = true
 http-body-util.workspace = true
 mockall.workspace = true
 ring = "0.17.14"

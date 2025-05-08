@@ -12039,6 +12039,7 @@ dependencies = [
  "criterion",
  "enum_dispatch",
  "fastcrypto",
+ "hex",
  "p256",
  "rand 0.8.5",
  "raptorq",
@@ -12049,6 +12050,7 @@ dependencies = [
  "sui-types",
  "thiserror 2.0.12",
  "tracing",
+ "tracing-subscriber",
  "utoipa",
  "walrus-test-utils",
 ]
