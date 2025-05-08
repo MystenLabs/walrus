@@ -72,9 +72,9 @@ jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 once_cell = { version = "1.21.3" }
@@ -92,7 +92,7 @@ rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
-rocksdb = "0.21.0"
+rocksdb = "0.22.0"
 rstest = "0.25.0"
 rustls = { version = "0.23.26", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
@@ -104,24 +104,24 @@ serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 syn = "2.0"
 tap = "1.0.1"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 tempfile = "3.19.1"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 thiserror = "2.0.12"
 tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"

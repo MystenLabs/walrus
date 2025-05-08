@@ -205,7 +205,7 @@ impl RocksDB {
     }
 
     /// Get multiple values from a specific column family
-    pub fn batched_multi_get_cf_opt<I, K>(
+    pub fn batched_multi_get_cf_opt<'a, K, I>(
         &self,
         cf: &impl AsColumnFamilyRef,
         keys: I,
@@ -213,8 +213,8 @@ impl RocksDB {
         readopts: &ReadOptions,
     ) -> Vec<Result<Option<DBPinnableSlice<'_>>, Error>>
     where
-        I: IntoIterator<Item = K>,
-        K: AsRef<[u8]>,
+        K: AsRef<[u8]> + 'a + ?Sized,
+        I: IntoIterator<Item = &'a K>,
     {
         self.underlying
             .batched_multi_get_cf_opt(cf, keys, sorted_input, readopts)
@@ -785,15 +785,17 @@ impl<K, V> DBMap<K, V> {
         } else {
             None
         };
-        let keys_bytes: Result<Vec<_>, TypedStoreError> = keys
+        let keys_bytes: Result<Vec<_>, _> = keys
             .into_iter()
             .map(|k| be_fix_int_ser(k.borrow()))
             .collect();
+        let keys_bytes = keys_bytes?;
+        let keys_refs = keys_bytes.iter().collect::<Vec<&Vec<u8>>>();
         let results: Result<Vec<_>, TypedStoreError> = self
             .rocksdb
             .batched_multi_get_cf_opt(
                 &self.cf(),
-                keys_bytes?,
+                keys_refs,
                 /*sorted_keys=*/ false,
                 &self.opts.readopts(),
             )
