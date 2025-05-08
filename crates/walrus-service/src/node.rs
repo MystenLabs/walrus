@@ -167,7 +167,7 @@ use crate::{
 
 pub mod committee;
 pub mod config;
-pub mod consistency_check;
+pub(crate) mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
 pub mod events;
