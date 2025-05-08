@@ -5,6 +5,8 @@ exchange_objects:
 - 0x26a8a417b553b18d13027c23e8016c3466b81e7083225436b55143c127f3c0cb
 - 0xaf3819c82de2e0257c0cc2177dfce6432efa42ca6c04c0b774dbb3c5ca2573cd
 wallet_config: null
+rpc_urls:
+- https://fullnode.testnet.sui.io:443
 communication_config:
   max_concurrent_writes: null
   max_concurrent_sliver_reads: null

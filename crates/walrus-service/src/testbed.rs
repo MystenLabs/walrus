@@ -569,6 +569,7 @@ pub async fn create_client_config(
         contract_config,
         exchange_objects,
         wallet_config: Some(WalletConfig::from_path(wallet_path)),
+        rpc_urls: vec![],
         communication_config: ClientCommunicationConfig {
             sui_client_request_timeout,
             ..Default::default()

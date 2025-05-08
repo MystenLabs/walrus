@@ -2558,6 +2558,7 @@ pub mod test_cluster {
                 contract_config,
                 exchange_objects: vec![],
                 wallet_config: None,
+                rpc_urls: vec![],
                 communication_config: self
                     .communication_config
                     .unwrap_or_else(ClientCommunicationConfig::default_for_test),

@@ -25,10 +25,7 @@ use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{BlobId, encoding::Primary};
-use walrus_sdk::{
-    client::Client,
-    config::{ClientCommunicationConfig, ClientConfig},
-};
+use walrus_sdk::{client::Client, config::ClientConfig};
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
     types::{BlobEvent, ContractEvent, EpochChangeEvent, EpochChangeStart},
@@ -604,13 +601,8 @@ async fn backup_fetcher(
     .await
     .context("[backup_fetcher] cannot create SuiReadClient")?;
 
-    let walrus_client_config = ClientConfig {
-        contract_config: backup_config.sui.contract_config.clone(),
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: ClientCommunicationConfig::default(),
-        refresh_config: Default::default(),
-    };
+    let walrus_client_config =
+        ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
     let read_client =
         Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())

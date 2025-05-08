@@ -722,13 +722,7 @@ pub async fn collect_event_blobs_for_catchup(
 
     let contract_config = ContractConfig::new(system_object_id, staking_object_id);
     let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::ClientConfig {
-        contract_config,
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: Default::default(),
-        refresh_config: Default::default(),
-    };
+    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
 
     let walrus_client =
         walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())

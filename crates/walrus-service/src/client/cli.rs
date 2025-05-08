@@ -42,30 +42,19 @@ pub use args::{
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 
-/// Default URL of the testnet RPC node.
-pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
-/// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
-pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
-
-/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to
-/// Sui.
+/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
 ///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
-/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
+/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
+/// successfully.
 pub async fn get_read_client(
     config: ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
-    allow_fallback_to_default: bool,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiReadClient>> {
-    let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-        &config,
-        rpc_url,
-        wallet,
-        allow_fallback_to_default,
-    )
-    .await?;
+    let sui_read_client =
+        get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
 
     let refresh_handle = config
         .refresh_config
@@ -105,58 +94,63 @@ pub async fn get_contract_client(
 
 /// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
 ///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
-/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
+/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
+/// successfully.
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
-// the argument docs in `crates/walrus-service/bin/client.rs`.
+// the argument docs in `crates/walrus-service/client/cli/args.rs`.
 pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     config: &ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
-    allow_fallback_to_default: bool,
 ) -> Result<SuiReadClient> {
     tracing::debug!(
         ?rpc_url,
-        %allow_fallback_to_default,
-        "attempting to create a read client from explicitly set RPC URL, wallet config, or default"
+        ?config.rpc_urls,
+        "attempting to create a read client from explicitly set RPC URL, RPC URLs in client \
+        config, or wallet config"
     );
     let backoff_config = config.backoff_config().clone();
-    let sui_client = match rpc_url {
-        Some(url) => {
-            tracing::info!("using explicitly set RPC URL {url}");
-            RetriableSuiClient::new_for_rpc_urls(
-                &[&url],
-                backoff_config,
-                config.communication_config.sui_client_request_timeout,
-            )
-            .await
-            .context(format!("cannot connect to Sui RPC node at {url}"))
+    let rpc_urls = match (rpc_url, &config.rpc_urls, wallet) {
+        (Some(url), _, _) => {
+            tracing::info!("using explicitly set RPC URL: {url}");
+            vec![url]
         }
-        None => match wallet {
-            Ok(wallet) => {
-                tracing::info!("using RPC URL set in wallet configuration");
-                RetriableSuiClient::new_from_wallet(&wallet, backoff_config)
-                    .await
-                    .context("cannot connect to Sui RPC node specified in the wallet configuration")
-            }
-            Err(e) => {
-                if allow_fallback_to_default {
-                    tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
-                    RetriableSuiClient::new_for_rpc_urls(
-                        &[DEFAULT_RPC_URL],
-                        backoff_config,
-                        config.communication_config.sui_client_request_timeout,
-                    )
-                    .await
-                    .context(format!(
-                        "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"
-                    ))
-                } else {
-                    Err(e)
-                }
-            }
-        },
-    }?;
+        (_, urls, _) if !urls.is_empty() => {
+            tracing::info!(
+                "using RPC URLs set in client configuration: {}",
+                urls.join(", ")
+            );
+            urls.clone()
+        }
+        (_, _, Ok(wallet)) => {
+            let url = wallet
+                .config
+                .get_active_env()
+                .context("unable to get the wallet's active environment")?
+                .rpc
+                .clone();
+            tracing::info!("using RPC URL set in wallet configuration: {url}");
+            vec![url]
+        }
+        (_, _, Err(e)) => {
+            anyhow::bail!(
+                "Sui RPC url is not specified as a CLI argument or in the client configuration, \
+                and no valid Sui wallet was provided ({e})"
+            );
+        }
+    };
+
+    let sui_client = RetriableSuiClient::new_for_rpc_urls(
+        &rpc_urls,
+        backoff_config,
+        config.communication_config.sui_client_request_timeout,
+    )
+    .await
+    .context(format!(
+        "cannot connect to Sui RPC nodes at {}",
+        rpc_urls.join(", ")
+    ))?;
 
     Ok(config.new_read_client(sui_client).await?)
 }

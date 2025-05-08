@@ -11,6 +11,8 @@ contexts:
       # path: ~/.sui/sui_config/client.yaml
       # Optional override for the Sui address to use.
       # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.mainnet.sui.io:443
   testnet:
     system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
     staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
@@ -27,4 +29,6 @@ contexts:
       # path: ~/.sui/sui_config/client.yaml
       # Optional override for the Sui address to use.
       # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.testnet.sui.io:443
 default_context: mainnet
