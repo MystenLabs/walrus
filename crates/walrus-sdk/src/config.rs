@@ -204,7 +204,7 @@ mod tests {
     use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
     use walrus_sui::client::contract_config::ContractConfig;
-    use walrus_test_utils::Result as TestResult;
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 
@@ -239,6 +239,34 @@ mod tests {
         )
         .expect("overwrite failed");
 
+        Ok(())
+    }
+
+    param_test! {
+        check_client_config -> TestResult: [
+            testnet: ("../../setup/client_config_testnet.yaml", None, None),
+            mainnet: ("../../setup/client_config_mainnet.yaml", None, None),
+            multi_config: ("../../setup/client_config.yaml", None, Some("mainnet")),
+            multi_config_with_testnet_context: (
+                "../../setup/client_config.yaml",
+                Some("testnet"),
+                Some("testnet"),
+            ),
+            multi_config_with_mainnet_context: (
+                "../../setup/client_config.yaml",
+                Some("mainnet"),
+                Some("mainnet"),
+            ),
+        ]
+    }
+    /// This test ensures that the client configurations contained in our documentation are valid.
+    fn check_client_config(
+        path: &str,
+        input_context: Option<&str>,
+        expected_context: Option<&str>,
+    ) -> TestResult {
+        let (_config, context) = ClientConfig::load_from_multi_config(path, input_context)?;
+        assert_eq!(context.as_deref(), expected_context);
         Ok(())
     }
 
