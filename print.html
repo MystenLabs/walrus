@@ -3290,11 +3290,12 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
       "description": "This is a walrus site.",
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
-  }
+  },
+  "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 </code></pre>
-<p>We now describe in details the two sections of the configuration file, <code>headers</code>, <code>routes</code> and
-<code>metadata</code>.</p>
+<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>,
+<code>metadata</code>, and the <code>ignore</code> section.</p>
 <h2 id="specifying-http-response-headers"><a class="header" href="#specifying-http-response-headers">Specifying HTTP response headers</a></h2>
 <p>The <code>headers</code> section allows you to specify custom HTTP response headers for specific resources.
 The keys in the <code>headers</code> object are the paths of the resources, and the values are lists of
@@ -3416,6 +3417,25 @@ example you can place a link to your sites favicon.</li>
 <li><code>project_url</code>: If your site is open-source, add a link to your site's GitHub repository.</li>
 <li><code>creator</code>: Add the name of your company, group, or individual creator of your site.</li>
 </ul>
+<h2 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h2>
+<p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
+This is useful when you want to keep development files, secrets, or temporary assets out of
+the final build.</p>
+<p>The <code>ignore</code> field is a list of resource paths to skip. Each pattern must start with a <code>/</code>,
+and may end with a <code>*</code> to indicate a wildcard match.</p>
+<p>For example:</p>
+<pre><code class="language-json">"ignore": [
+  "/private/*",
+  "/secret.txt",
+  "/images/tmp/*"
+]
+</code></pre>
+<p>This configuration will skip all files inside the <code>/private/</code> and <code>/images/tmp/</code> directories,
+as well as a specific file <code>/secret.txt</code>.</p>
+<blockquote>
+<p>Wildcards are only supported in the <strong>last position</strong> of the path (e.g., <code>/foo/*</code> is valid,
+but <code>/foo/*/bar</code> is not).</p>
+</blockquote>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="linking-from-and-to-walrus-sites"><a class="header" href="#linking-from-and-to-walrus-sites">Linking from and to Walrus Sites</a></h1>
 <div id="admonition-walrus-sites-links-are-currently-unavailable" class="admonition admonish-warning" role="note" aria-labelledby="admonition-walrus-sites-links-are-currently-unavailable-title">
