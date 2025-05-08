@@ -31,13 +31,16 @@ outputs:
   isOpenapi:
     description: True when changes happened in the OpenAPI files
     value: "${{ steps.diff.outputs.isOpenapi }}"
+  isCLI:
+    description: True when changes happened in the files directly affecting the Walrus CLI
+    value: "${{ steps.diff.outputs.isCLI }}"
 
 runs:
   using: composite
   steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
     - name: Detect Changes
-      uses: dorny/paths-filter@v3
+      uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # pin@v3
       id: diff
       with:
         filters: |
@@ -72,3 +75,7 @@ runs:
           isOpenapi:
             - 'crates/walrus-service/*_openapi.html'
             - 'crates/walrus-service/*_openapi.yaml'
+          isCLI:
+            - 'crates/walrus-service/bin/client.rs'
+            - 'crates/walrus-service/src/client/cli.rs'
+            - 'crates/walrus-service/src/client/cli/**'

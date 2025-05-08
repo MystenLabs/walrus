@@ -49,6 +49,7 @@ jobs:
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isMainnetContracts: ${{ steps.diff.outputs.isMainnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
+      isCLI: ${{ steps.diff.outputs.isCLI }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Detect Changes
@@ -283,6 +284,30 @@ jobs:
               partially. A useful pattern there is to implement `Default` for the struct and derive
               `#[serde(default)]` on it, see `BlobRecoveryConfig` as an example.
             - You may need to update the documentation to reflect the changes.
+
+  cli-warning:
+    name: Check if the PR touches any of the CLI files
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isCLI == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Post a warning if the PR modifies the Walrus CLI
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
+        with:
+          message: |
+            **Warning:** This PR modifies the Walrus CLI. Please consider the following:
+
+            - Make sure the changes are backwards compatible. Consider deprecating options before
+              removing them.
+            - Generally only use `long` CLI options, not `short` ones to avoid conflicts in the
+              future.
+            - If you added new options or features, or modified the behavior, please document the
+              changes in the release notes of the PR and update the documentation in the `docs/book`
+              directory.
 
   openapi-warning:
     name: Check if the PR touches any of the OpenAPI files
