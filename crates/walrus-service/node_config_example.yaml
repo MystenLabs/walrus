@@ -148,3 +148,11 @@ balance_check:
 thread_pool:
   max_concurrent_tasks: null
   max_blocking_io_threads: 1024
+checkpoint_config:
+  db_checkpoint_dir: null
+  max_db_checkpoints: 3
+  db_checkpoint_interval_secs: 86400
+  sync: true
+  max_background_operations: 2
+  periodic_db_checkpoints: false
+admin_socket_path: null

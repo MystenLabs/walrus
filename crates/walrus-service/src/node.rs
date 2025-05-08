@@ -161,8 +161,11 @@ use crate::{
         config::{SuiConfig, combine_rpc_urls},
         utils::should_reposition_cursor,
     },
+    node::db_checkpoint::DbCheckpointManager,
     utils::ShardDiffCalculator,
 };
+
+pub(crate) mod db_checkpoint;
 
 pub mod committee;
 pub mod config;
@@ -517,6 +520,7 @@ pub struct StorageNodeInner {
     thread_pool: BoundedThreadPool,
     registry: Registry,
     latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
+    checkpoint_manager: Option<Arc<DbCheckpointManager>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -602,6 +606,18 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        let checkpoint_manager = match DbCheckpointManager::new(
+            storage.get_db(),
+            config.checkpoint_config.clone(),
+        )
+        .await
+        {
+            Ok(manager) => Some(Arc::new(manager)),
+            Err(e) => {
+                tracing::warn!(?e, "Failed to initialize checkpoint manager");
+                None
+            }
+        };
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -629,6 +645,7 @@ impl StorageNode {
             encoding_config,
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
+            checkpoint_manager,
         });
 
         blocklist.start_refresh_task();
@@ -719,6 +736,9 @@ impl StorageNode {
                 }
             },
             _ = cancel_token.cancelled() => {
+                if let Some(checkpoint_manager) = self.checkpoint_manager() {
+                    checkpoint_manager.shutdown();
+                }
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
             },
@@ -750,6 +770,11 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Returns the checkpoint manager for the node.
+    pub fn checkpoint_manager(&self) -> Option<Arc<DbCheckpointManager>> {
+        self.inner.checkpoint_manager.clone()
     }
 
     /// Returns the shards which the node currently manages in its storage.
