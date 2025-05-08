@@ -313,7 +313,7 @@ impl MetricPushRuntime {
                             // clone because we serialize this with our metrics
                             mp_config.config.labels.clone(),
                         ).await {
-                            tracing::error!(?error, "unable to push metrics");
+                            tracing::warn!(?error, "unable to push metrics");
                             client = create_push_client();
                         }
                     }
@@ -387,12 +387,12 @@ async fn push_metrics(
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
     let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
-        tracing::error!(?error, "unable to serialize MetricPayload to JSON");
+        tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
     let mut s = snap::raw::Encoder::new();
     let compressed = s.compress_vec(&serialized).inspect_err(|error| {
-        tracing::error!(?error, "unable to snappy encode");
+        tracing::warn!(?error, "unable to snappy encode metrics");
     })?;
 
     let uid = Uuid::now_v7();

@@ -1127,11 +1127,22 @@ impl StorageNode {
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
         mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent");
-        tracing::info!(
-            ?epoch_change_event,
-            "{} event received",
-            epoch_change_event.name()
-        );
+        match epoch_change_event {
+            EpochChangeEvent::ShardsReceived(_) => {
+                tracing::debug!(
+                    ?epoch_change_event,
+                    "{} event received",
+                    epoch_change_event.name()
+                );
+            }
+            _ => {
+                tracing::info!(
+                    ?epoch_change_event,
+                    "{} event received",
+                    epoch_change_event.name()
+                );
+            }
+        }
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
                 mysten_metrics::monitored_scope(
