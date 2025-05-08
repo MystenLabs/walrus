@@ -239,25 +239,6 @@ site's resources (in other words, the file is not part of the resulting Walrus S
 served by the portal).</p>
 <p>If you don't want to use this default location, you can specify the path to the configuration file
 with the <code>--ws-resources</code> flag when running the <code>publish</code> or <code>update</code> commands.</p>
-<h3 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h3>
-<p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
-This is useful when you want to keep development files, secrets, or temporary assets out of
-the final build.</p>
-<p>The <code>ignore</code> field is a list of resource paths to skip. Each pattern must start with a <code>/</code>,
-and may end with a <code>*</code> to indicate a wildcard match.</p>
-<p>For example:</p>
-<pre><code class="language-json">"ignore": [
-  "/private/*",
-  "/secret.txt",
-  "/images/tmp/*"
-]
-</code></pre>
-<p>This configuration will skip all files inside the <code>/private/</code> and <code>/images/tmp/</code> directories,
-as well as a specific file <code>/secret.txt</code>.</p>
-<blockquote>
-<p>Wildcards are only supported in the <strong>last position</strong> of the path (e.g., <code>/foo/*</code> is valid,
-but <code>/foo/*/bar</code> is not).</p>
-</blockquote>
 <p>The file is JSON-formatted, and looks like the following:</p>
 <pre><code class="language-JSON">{
   "headers": {
@@ -404,6 +385,25 @@ example you can place a link to your sites favicon.</li>
 <li><code>project_url</code>: If your site is open-source, add a link to your site's GitHub repository.</li>
 <li><code>creator</code>: Add the name of your company, group, or individual creator of your site.</li>
 </ul>
+<h2 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h2>
+<p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
+This is useful when you want to keep development files, secrets, or temporary assets out of
+the final build.</p>
+<p>The <code>ignore</code> field is a list of resource paths to skip. Each pattern must start with a <code>/</code>,
+and may end with a <code>*</code> to indicate a wildcard match.</p>
+<p>For example:</p>
+<pre><code class="language-json">"ignore": [
+  "/private/*",
+  "/secret.txt",
+  "/images/tmp/*"
+]
+</code></pre>
+<p>This configuration will skip all files inside the <code>/private/</code> and <code>/images/tmp/</code> directories,
+as well as a specific file <code>/secret.txt</code>.</p>
+<blockquote>
+<p>Wildcards are only supported in the <strong>last position</strong> of the path (e.g., <code>/foo/*</code> is valid,
+but <code>/foo/*/bar</code> is not).</p>
+</blockquote>
 
                     </main>
 
