@@ -16,9 +16,13 @@ const THRESHOLD_MS: number = 1000;
 
 // Filters header keys by searching for "cache" substring inside them.
 function headerKeyContainsCache(headers: Headers): HeaderMatch[] {
-    return [...headers.entries()].filter(([key, _]) => {
-        return key.toLowerCase().includes("cache")
-    }).map(([key, value]) => { return { key, value } });
+    let filtered = [];
+    headers.forEach((value, key, _parent) => {
+        if (key.toLowerCase().includes("cache")) {
+            filtered.push({key, value});
+        }
+    });
+    return filtered;
 }
 
 function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
