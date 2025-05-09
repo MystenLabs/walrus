@@ -781,9 +781,7 @@ impl RetriableSuiClient {
         self.failover_sui_client.get_current_client().await
     }
 
-    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    /// Returns the Sui Object of type `U` with the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
@@ -796,6 +794,29 @@ impl RetriableSuiClient {
             )
             .await?;
         get_sui_object_from_object_response(&sui_object_response)
+    }
+
+    /// Returns the Sui Objects of type `U` with the provided [`ObjectID`]s.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_sui_objects<U>(&self, object_ids: &[ObjectID]) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let mut responses = vec![];
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(
+                    obj_id_batch.to_vec(),
+                    SuiObjectDataOptions::new().with_bcs().with_type(),
+                )
+                .await?,
+            );
+        }
+
+        responses
+            .iter()
+            .map(|r| get_sui_object_from_object_response(r))
+            .collect::<Result<Vec<_>, _>>()
     }
 
     /// Returns the chain identifier.
@@ -819,31 +840,6 @@ impl RetriableSuiClient {
     }
 
     // Other wrapper methods.
-
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_objects<U>(
-        &self,
-        object_ids: &[ObjectID],
-    ) -> SuiClientResult<Vec<U>>
-    where
-        U: AssociatedContractStruct,
-    {
-        let mut responses = vec![];
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(
-                    obj_id_batch.to_vec(),
-                    SuiObjectDataOptions::new().with_bcs().with_type(),
-                )
-                .await?,
-            );
-        }
-
-        responses
-            .iter()
-            .map(|r| get_sui_object_from_object_response(r))
-            .collect::<Result<Vec<_>, _>>()
-    }
 
     pub(crate) async fn get_extended_field<V>(
         &self,
