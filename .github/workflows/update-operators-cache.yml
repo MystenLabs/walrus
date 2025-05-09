@@ -1,4 +1,4 @@
-name: Update Operators Cache
+name: Update Aggregator Cache Info
 
 on:
   workflow_dispatch:
