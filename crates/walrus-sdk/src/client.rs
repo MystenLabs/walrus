@@ -55,7 +55,7 @@ use walrus_sui::{
     },
     types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
 };
-use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
+use walrus_utils::backoff::BackoffStrategy;
 
 use self::{
     communication::NodeResult,
@@ -67,7 +67,7 @@ pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
     config::CommunicationLimits,
-    error::{ClientError, ClientErrorKind, ClientResult},
+    error::{ClientError, ClientResult},
     store_when::StoreWhen,
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
@@ -84,10 +84,10 @@ pub mod resource;
 pub mod responses;
 
 /// A client to communicate with Walrus shards and storage nodes.
-#[derive(Debug, Clone)]
-pub struct Client<T> {
+#[derive(Debug)]
+pub struct Client<SuiClientT> {
     config: ClientConfig,
-    sui_client: T,
+    sui_client: SuiClientT,
     communication_limits: CommunicationLimits,
     committees_handle: CommitteesRefresherHandle,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
@@ -98,36 +98,18 @@ pub struct Client<T> {
 }
 
 impl Client<()> {
-    /// Creates a new Walrus client without a Sui client.
-    pub async fn new(
+    /// Creates a new Walrus client with a Sui client.
+    pub async fn new<SuiClientT>(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
-    ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None).await
-    }
-
-    /// Creates a new Walrus client without a Sui client, that records metrics to the provided
-    /// registry.
-    pub async fn new_with_metrics(
-        config: ClientConfig,
-        committees_handle: CommitteesRefresherHandle,
-        metrics_registry: Registry,
-    ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, Some(metrics_registry)).await
-    }
-
-    async fn new_inner(
-        config: ClientConfig,
-        committees_handle: CommitteesRefresherHandle,
-        metrics_registry: Option<Registry>,
-    ) -> ClientResult<Self> {
+        sui_client: SuiClientT,
+    ) -> ClientResult<Client<SuiClientT>> {
         tracing::debug!(?config, "running client");
 
         // Request the committees and price computation from the cache.
         let (committees, _) = committees_handle
             .send_committees_and_price_request(RequestKind::Get)
-            .await
-            .map_err(ClientError::other)?;
+            .await?;
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
         let communication_limits =
@@ -135,8 +117,8 @@ impl Client<()> {
 
         let encoding_config = Arc::new(encoding_config);
 
-        Ok(Self {
-            sui_client: (),
+        Ok(Client {
+            sui_client,
             encoding_config: encoding_config.clone(),
             communication_limits,
             committees_handle,
@@ -144,69 +126,14 @@ impl Client<()> {
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
                 encoding_config,
-                metrics_registry,
+                None,
             )?,
             config,
         })
     }
-
-    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
-    pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
-        let Self {
-            config,
-            sui_client: _,
-            committees_handle,
-            encoding_config,
-            communication_limits,
-            blocklist,
-            communication_factory: node_client_factory,
-        } = self;
-        Client::<C> {
-            config,
-            sui_client,
-            committees_handle,
-            encoding_config,
-            communication_limits,
-            blocklist,
-            communication_factory: node_client_factory,
-        }
-    }
 }
 
-impl<T: ReadClient> Client<T> {
-    /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(
-        config: ClientConfig,
-        committees_handle: CommitteesRefresherHandle,
-        sui_read_client: T,
-    ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client)
-            .await)
-    }
-
-    /// Creates a new read client, and starts a committes refresher process in the background.
-    ///
-    /// This is useful when only one client is needed, and the refresher handle is not useful.
-    pub async fn new_read_client_with_refresher(
-        config: ClientConfig,
-        sui_read_client: T,
-    ) -> ClientResult<Self>
-    where
-        T: ReadClient + Clone + 'static,
-    {
-        let committees_handle = config
-            .refresh_config
-            .build_refresher_and_run(sui_read_client.clone())
-            .await
-            .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
-            .await?
-            .with_client(sui_read_client)
-            .await)
-    }
-
+impl<C: ReadClient> Client<C> {
     /// Reconstructs the blob by reading slivers from Walrus shards.
     ///
     /// The operation is retried if epoch it fails due to epoch change.
@@ -268,7 +195,7 @@ impl<T: ReadClient> Client<T> {
             };
             blob_status
                 .initial_certified_epoch()
-                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
+                .ok_or_else(|| ClientError::BlobIdDoesNotExist)?
         } else {
             // We are not during epoch change, we can read from the current epoch directly.
             committees.epoch()
@@ -277,10 +204,10 @@ impl<T: ReadClient> Client<T> {
         // Return early if the committee is behind.
         let current_epoch = committees.epoch();
         if certified_epoch > current_epoch {
-            return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
+            return Err(ClientError::BehindCurrentEpoch {
                 client_epoch: current_epoch,
                 certified_epoch,
-            }));
+            });
         }
 
         self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
@@ -341,7 +268,7 @@ impl<T: ReadClient> Client<T> {
                             %error,
                             "operation aborted; maybe because of epoch change; retrying"
                         );
-                        if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
+                        if !matches!(error, ClientError::CommitteeChangeNotified) {
                             // If the error is CommitteeChangeNotified, we do not need to refresh
                             // the committees.
                             self.force_refresh_committees().await?;
@@ -379,16 +306,16 @@ impl<T: ReadClient> Client<T> {
                 if e.to_string()
                     .contains("response does not contain object data")
                 {
-                    ClientError::from(ClientErrorKind::BlobIdDoesNotExist)
+                    ClientError::BlobIdDoesNotExist
                 } else {
-                    ClientError::other(e)
+                    ClientError::from(e)
                 }
             })
     }
 
     /// Executes the function while also awaiiting on the change notification.
     ///
-    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if the client is notified that
+    /// Returns a [`ClientError::CommitteeChangeNotified`] error if the client is notified that
     /// the committee has changed.
     async fn await_while_checking_notification<Fut, R>(&self, future: Fut) -> ClientResult<R>
     where
@@ -396,7 +323,7 @@ impl<T: ReadClient> Client<T> {
     {
         tokio::select! {
             _ = self.committees_handle.change_notified() => {
-                Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified))
+                Err(ClientError::CommitteeChangeNotified)
             },
             result = future => result,
         }
@@ -404,36 +331,6 @@ impl<T: ReadClient> Client<T> {
 }
 
 impl Client<SuiContractClient> {
-    /// Creates a new client starting from a config file.
-    pub async fn new_contract_client(
-        config: ClientConfig,
-        committees_handle: CommitteesRefresherHandle,
-        sui_client: SuiContractClient,
-    ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
-            .await?
-            .with_client(sui_client)
-            .await)
-    }
-
-    /// Creates a new client, and starts a committes refresher process in the background.
-    ///
-    /// This is useful when only one client is needed, and the refresher handle is not useful.
-    pub async fn new_contract_client_with_refresher(
-        config: ClientConfig,
-        sui_client: SuiContractClient,
-    ) -> ClientResult<Self> {
-        let committees_handle = config
-            .refresh_config
-            .build_refresher_and_run(sui_client.read_client().clone())
-            .await
-            .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
-            .await?
-            .with_client(sui_client)
-            .await)
-    }
-
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
     #[allow(clippy::too_many_arguments)]
@@ -637,13 +534,13 @@ impl Client<SuiContractClient> {
                 .sum::<usize>();
             let max_total_blob_size = self.config().communication_config.max_total_blob_size;
             if total_blob_size > max_total_blob_size {
-                return Err(ClientError::from(ClientErrorKind::Other(
+                return Err(ClientError::Other(
                     format!(
                         "total blob size {} exceeds the maximum limit of {}",
                         total_blob_size, max_total_blob_size
                     )
                     .into(),
-                )));
+                ));
             }
         }
 
@@ -688,8 +585,7 @@ impl Client<SuiContractClient> {
         let (pairs, metadata) = self
             .encoding_config
             .get_for_type(encoding_type)
-            .encode_with_metadata(blob)
-            .map_err(ClientError::other)?;
+            .encode_with_metadata(blob)?;
 
         let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
@@ -708,7 +604,7 @@ impl Client<SuiContractClient> {
 
     /// Stores the blobs on Walrus, reserving space or extending registered blobs, if necessary.
     ///
-    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if, during the registration or
+    /// Returns a [`ClientError::CommitteeChangeNotified`] error if, during the registration or
     /// store operations, the client is notified that the committee has changed.
     async fn reserve_and_store_encoded_blobs<'a, T: Debug + Clone + Send + Sync + 'a>(
         &'a self,
@@ -812,7 +708,7 @@ impl Client<SuiContractClient> {
             self.get_committees().await?.as_ref(),
         ) {
             tracing::warn!("committees have changed while registering blobs");
-            return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
+            return Err(ClientError::CommitteeChangeNotified);
         }
 
         let get_certificates_timer = Instant::now();
@@ -858,7 +754,7 @@ impl Client<SuiContractClient> {
             .map_err(|e| {
                 tracing::warn!(error = %e, "Failure occurred while certifying and extending \
                 blobs on Sui");
-                ClientError::from(ClientErrorKind::CertificationFailed(e))
+                ClientError::CertificationFailed(e)
             })?;
         let sui_cert_timer_duration = sui_cert_timer.elapsed();
         tracing::info!(
@@ -1143,15 +1039,12 @@ impl Client<SuiContractClient> {
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn get_latest_committees_in_test(&self) -> Result<ActiveCommittees, ClientError> {
         Ok(ActiveCommittees::from_committees_and_state(
-            self.sui_client
-                .get_committees_and_state()
-                .await
-                .map_err(ClientError::other)?,
+            self.sui_client.get_committees_and_state().await?,
         ))
     }
 }
 
-impl<T> Client<T> {
+impl<SuiClientT> Client<SuiClientT> {
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.
@@ -1367,8 +1260,7 @@ impl<T> Client<T> {
         );
 
         let cert =
-            ConfirmationCertificate::from_signed_messages_and_indices(signed_messages, signers)
-                .map_err(ClientError::other)?;
+            ConfirmationCertificate::from_signed_messages_and_indices(signed_messages, signers)?;
         Ok(cert)
     }
 
@@ -1377,12 +1269,12 @@ impl<T> Client<T> {
         weight: usize,
         committees: &ActiveCommittees,
     ) -> ClientError {
-        ClientErrorKind::NotEnoughConfirmations(weight, committees.min_n_correct()).into()
+        ClientError::NotEnoughConfirmations(weight, committees.min_n_correct())
     }
 
     /// Requests the slivers and decodes them into a blob.
     ///
-    /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
+    /// Returns a [`ClientError`] of kind [`ClientError::BlobIdDoesNotExist`] if it receives a
     /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn request_slivers_and_decode<U>(
@@ -1429,8 +1321,7 @@ impl<T> Client<T> {
         let mut decoder = self
             .encoding_config
             .get_for_type(metadata.metadata().encoding_type())
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
-            .map_err(ClientError::other)?;
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
         let enough_source_symbols = |weight| {
@@ -1477,16 +1368,13 @@ impl<T> Client<T> {
 
         if committees.is_quorum(n_not_found + n_forbidden) {
             return if n_not_found > n_forbidden {
-                Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                Err(ClientError::BlobIdDoesNotExist)
             } else {
-                Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+                Err(ClientError::BlobIdBlocked(*metadata.blob_id()))
             };
         }
 
-        if let Some((blob, _meta)) = decoder
-            .decode_and_verify(metadata.blob_id(), slivers)
-            .map_err(ClientError::other)?
-        {
+        if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
             Ok(blob)
         } else {
@@ -1535,9 +1423,7 @@ impl<T> Client<T> {
         {
             match result {
                 Ok(sliver) => {
-                    let result = decoder
-                        .decode_and_verify(metadata.blob_id(), [sliver])
-                        .map_err(ClientError::other)?;
+                    let result = decoder.decode_and_verify(metadata.blob_id(), [sliver])?;
                     if let Some((blob, _meta)) = result {
                         return Ok(blob);
                     }
@@ -1555,16 +1441,16 @@ impl<T> Client<T> {
                         .is_quorum(n_not_found + n_forbidden)
                     {
                         return if n_not_found > n_forbidden {
-                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                            Err(ClientError::BlobIdDoesNotExist)
                         } else {
-                            Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+                            Err(ClientError::BlobIdBlocked(*metadata.blob_id()))
                         };
                     }
                 }
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
-        Err(ClientErrorKind::NotEnoughSlivers.into())
+        Err(ClientError::NotEnoughSlivers)
     }
 
     /// Requests the metadata from storage nodes, and keeps the first reply that correctly verifies.
@@ -1575,9 +1461,9 @@ impl<T> Client<T> {
     /// 1. If the function receives valid metadata for the blob, then it returns the metadata.
     /// 1. Otherwise:
     ///    1. If it received f+1 "not found" status responses, it can conclude that the blob ID was
-    ///       not certified and returns an error of kind [`ClientErrorKind::BlobIdDoesNotExist`].
+    ///       not certified and returns an error of kind [`ClientError::BlobIdDoesNotExist`].
     ///    1. Otherwise, there is some major problem with the network and returns an error of kind
-    ///       [`ClientErrorKind::NoMetadataReceived`].
+    ///       [`ClientError::NoMetadataReceived`].
     ///
     /// This procedure works because:
     /// 1. If the blob ID was never certified: Then at least f+1 of the 2f+1 nodes by stake that
@@ -1649,22 +1535,22 @@ impl<T> Client<T> {
                             // starting to read, this error should not technically happen unless (1)
                             // the client was disconnected while reading, or (2) the bft threshold
                             // was exceeded.
-                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                            Err(ClientError::BlobIdDoesNotExist)
                         } else {
-                            Err(ClientErrorKind::BlobIdBlocked(*blob_id).into())
+                            Err(ClientError::BlobIdBlocked(*blob_id))
                         };
                     }
                 }
             }
         }
-        Err(ClientErrorKind::NoMetadataReceived.into())
+        Err(ClientError::NoMetadataReceived)
     }
 
     /// Retries to get the verified blob status.
     ///
     /// Retries are implemented with backoff, until the fetch succeeds or the maximum number of
     /// retries is reached. If the maximum number of retries is reached, the function returns an
-    /// error of kind [`ClientErrorKind::NoValidStatusReceived`].
+    /// error of kind [`ClientError::NoValidStatusReceived`].
     #[tracing::instrument(skip_all, fields(%blob_id), err(level = Level::WARN))]
     pub async fn get_blob_status_with_retries<U: ReadClient>(
         &self,
@@ -1688,9 +1574,7 @@ impl<T> Client<T> {
                 Ok(_) => {
                     return maybe_status;
                 }
-                Err(client_error)
-                    if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) =>
-                {
+                Err(client_error) if matches!(client_error, ClientError::BlobIdDoesNotExist) => {
                     return Err(client_error);
                 }
                 Err(_) => (),
@@ -1704,7 +1588,7 @@ impl<T> Client<T> {
             }
         }
 
-        return Err(ClientErrorKind::NoValidStatusReceived.into());
+        return Err(ClientError::NoValidStatusReceived);
     }
 
     /// Gets the blob status from multiple nodes and returns the latest status that can be verified.
@@ -1744,7 +1628,7 @@ impl<T> Client<T> {
             .filter(|err| err.is_status_not_found())
             .count();
         if committees.is_quorum(n_not_found) {
-            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+            return Err(ClientError::BlobIdDoesNotExist);
         }
 
         // Check the received statuses.
@@ -1767,16 +1651,16 @@ impl<T> Client<T> {
             }
         }
 
-        Err(ClientErrorKind::NoValidStatusReceived.into())
+        Err(ClientError::NoValidStatusReceived)
     }
 
-    /// Returns a [`ClientError`] with [`ClientErrorKind::BlobIdBlocked`] if the provided blob ID is
+    /// Returns a [`ClientError`] with [`ClientError::BlobIdBlocked`] if the provided blob ID is
     /// contained in the blocklist.
     fn check_blob_id(&self, blob_id: &BlobId) -> ClientResult<()> {
         if let Some(blocklist) = &self.blocklist {
             if blocklist.is_blocked(blob_id) {
                 tracing::debug!(%blob_id, "encountered blocked blob ID");
-                return Err(ClientErrorKind::BlobIdBlocked(*blob_id).into());
+                return Err(ClientError::BlobIdBlocked(*blob_id));
             }
         }
         Ok(())
@@ -1828,12 +1712,12 @@ impl<T> Client<T> {
     }
 
     /// Returns the inner sui client.
-    pub fn sui_client(&self) -> &T {
+    pub fn sui_client(&self) -> &SuiClientT {
         &self.sui_client
     }
 
     /// Returns the inner sui client as mutable reference.
-    pub fn sui_client_mut(&mut self) -> &mut T {
+    pub fn sui_client_mut(&mut self) -> &mut SuiClientT {
         &mut self.sui_client
     }
 
@@ -1846,10 +1730,10 @@ impl<T> Client<T> {
     pub async fn get_committees_and_price(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        self.committees_handle
+        Ok(self
+            .committees_handle
             .send_committees_and_price_request(RequestKind::Get)
-            .await
-            .map_err(ClientError::other)
+            .await?)
     }
 
     /// Forces a refresh of the committees and price computation.
@@ -1861,9 +1745,8 @@ impl<T> Client<T> {
             .committees_handle
             .send_committees_and_price_request(RequestKind::Refresh)
             .await
-            .map_err(|error| {
+            .inspect_err(|error| {
                 tracing::warn!(?error, "[force_refresh_committees] refresh failed");
-                ClientError::other(error)
             })?;
         tracing::info!("[force_refresh_committees] refresh succeeded");
         Ok(result)
