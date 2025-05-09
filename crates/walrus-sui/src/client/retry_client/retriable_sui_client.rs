@@ -175,11 +175,6 @@ pub struct RetriableSuiClient {
 
 impl RetriableSuiClient {
     /// Creates a new retriable client.
-    ///
-    /// NB: If you are creating the sui client from a wallet context, you should use
-    /// [`RetriableSuiClient::new_from_wallet`] instead. This is because the wallet context will
-    /// make a call to the RPC server in [`Wallet::get_client`], which may fail without any
-    /// retries. `new_from_wallet` will handle this case correctly.
     pub async fn new(
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
