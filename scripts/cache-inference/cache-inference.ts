@@ -38,7 +38,7 @@ function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
 async function updateAggregatorCacheInfo(
     aggregators: Record<string, AggregatorData>,
     blobId: string,
-    vergose: boolean,
+    verbose: boolean,
 ) {
 
     // Used for debugging purposes
