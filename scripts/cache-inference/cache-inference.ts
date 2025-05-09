@@ -10,23 +10,15 @@ type HeaderMatch = {
     key: string;
     value: string | null
 };
-type HasCacheOutput = {
-    hasCache: boolean;
-    matches: HeaderMatch[];
-};
 
 // Speedups bigger than this value (milliseconds) will are attributed to cache hits.
 const THRESHOLD_MS: number = 1000;
 
-function headerKeyContainsCache(headers: Headers): HasCacheOutput {
-    const matches = [...headers.entries()].filter(([key, _]) => {
+// Filters header keys by searching for "cache" substring inside them.
+function headerKeyContainsCache(headers: Headers): HeaderMatch[] {
+    return [...headers.entries()].filter(([key, _]) => {
         return key.toLowerCase().includes("cache")
     }).map(([key, value]) => { return { key, value } });
-
-    return {
-        hasCache: matches.length > 0,
-        matches
-    };
 }
 
 function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
@@ -69,24 +61,22 @@ async function updateAggregatorCacheInfo(
         }
         const speedupMs = fetch1 - fetch2;
 
-        let output1 = headerKeyContainsCache(headers1);
-        let output2 = headerKeyContainsCache(headers2);
-        const matches1 = output1.matches;
-        const matches2 = output2.matches;
+        let headersWithCacheKey1 = headerKeyContainsCache(headers1);
+        let headersWithCacheKey2 = headerKeyContainsCache(headers2);
 
         // Update value.cache in the existing operators
-        if (headersHaveCacheHit(matches1)) { // Try identifying cache-hit on the first request
+        if (headersHaveCacheHit(headersWithCacheKey1)) { // Try identifying cache-hit on the first request
             console.warn(`Error measuring cache speedup for ${blobUrl}:`);
-            console.warn(`First fetch is a cache-hit: ${JSON.stringify(matches1)}`);
+            console.warn(`First fetch is a cache-hit: ${JSON.stringify(headersWithCacheKey1)}`);
             value.cache = true;
         } else {
-            value.cache = speedupMs > THRESHOLD_MS || headersHaveCacheHit(matches2)
+            value.cache = speedupMs > THRESHOLD_MS || headersHaveCacheHit(headersWithCacheKey2)
         }
         if (verbose) {
             // Create a single key -> value1, value2 mapping
             // ie. commonkey -> [value from first fetch, value from second fetch]
-            const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
-            const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
+            const map2 = Object.fromEntries(headersWithCacheKey2.map(({ key, value }) => [key, value]));
+            const merged = headersWithCacheKey1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
                 (acc, { key, value }) => {
                     acc[key] = [value, map2[key] ?? undefined];
                     return acc;
@@ -99,9 +89,7 @@ async function updateAggregatorCacheInfo(
     }
 }
 
-
 // Get command line arguments
-
 let parsedArgs: {
   mainnetBlobId: string;
   testnetBlobId: string;
