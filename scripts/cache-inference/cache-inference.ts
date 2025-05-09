@@ -101,30 +101,51 @@ async function updateAggregatorCacheInfo(
 
 
 // Get command line arguments
-const argv = yargs(hideBin(process.argv))
-    .usage('Usage: $0 <mainnetBlobId> [testnetBlobId] [--verbose]')
-    .positional('mainnetBlobId', {
-        describe: 'Blob ID for mainnet',
-        type: 'string',
-        demandOption: true,
-    })
-    .positional('testnetBlobId', {
-        describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
-        type: 'string',
-    })
-    .option('verbose', {
-        alias: 'v',
-        type: 'boolean',
-        description: 'Enable verbose mode',
-        default: false,
-    })
-    .help()
-    .parseSync();
-const mainnetBlobId = argv.mainnetBlobId;
-const testnetBlobId = argv.testnetBlobId || mainnetBlobId;
-const verbose = argv.verbose;
+
+let parsedArgs: {
+  mainnetBlobId: string;
+  testnetBlobId: string;
+  verbose: boolean;
+} = {
+  mainnetBlobId: '',
+  testnetBlobId: '',
+  verbose: false
+};
+
+yargs(hideBin(process.argv))
+  .scriptName('bin')
+  .command(
+    '$0 <mainnetBlobId> [testnetBlobId]',
+    'Run the binary',
+    (yargs) =>
+      yargs
+        .positional('mainnetBlobId', {
+          describe: 'Blob ID for mainnet',
+          type: 'string',
+        })
+        .positional('testnetBlobId', {
+          describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
+          type: 'string',
+        })
+        .option('verbose', {
+          alias: 'v',
+          type: 'boolean',
+          description: 'Run with verbose logging',
+          default: false,
+        }),
+    (argv) => {
+      parsedArgs = {
+        mainnetBlobId: argv.mainnetBlobId!,
+        testnetBlobId: argv.testnetBlobId ?? argv.mainnetBlobId!,
+        verbose: argv.verbose ?? false,
+      };
+    }
+  )
+  .strict()
+  .parseSync()
 
 async function run() {
+    const { mainnetBlobId, testnetBlobId, verbose } = parsedArgs;
     const nodes: Operators = mdbookOperatorsJson;
     await updateAggregatorCacheInfo(nodes.mainnet.aggregators, mainnetBlobId, verbose);
     await updateAggregatorCacheInfo(nodes.testnet.aggregators, testnetBlobId, verbose);
