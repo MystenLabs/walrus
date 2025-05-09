@@ -6,15 +6,6 @@ import { hideBin } from 'yargs/helpers';
 import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
 import { AggregatorData, AggregatorDataVerbose, HeaderValue, Operators } from './types';
 
-const KnownCacheKeys = [
-    "cdn-cache",
-    "cdn-cachedat",
-    "cache-status",
-    "cache-control",
-    "cf-cache-status",
-    "x-cache-status"
-];
-
 type HeaderMatch = {
     key: string;
     value: string | null
@@ -112,26 +103,25 @@ async function updateAggregatorCacheInfo(
 // Get command line arguments
 const argv = yargs(hideBin(process.argv))
     .usage('Usage: $0 <mainnetBlobId> [testnetBlobId] [--verbose]')
+    .positional('mainnetBlobId', {
+        describe: 'Blob ID for mainnet',
+        type: 'string',
+        demandOption: true,
+    })
+    .positional('testnetBlobId', {
+        describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
+        type: 'string',
+    })
     .option('verbose', {
         alias: 'v',
         type: 'boolean',
         description: 'Enable verbose mode',
         default: false,
     })
-    .positional('mainnet-blob-id', {
-        describe: 'Blob ID for mainnet',
-        type: 'string',
-        demandOption: true,
-    })
-    .positional('testnet-blob-id', {
-        describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
-        type: 'string',
-    })
     .help()
-    .argv;
-
-const mainnetBlobId = argv._[0];
-const testnetBlobId = argv._[1] ?? mainnetBlobId;
+    .parseSync();
+const mainnetBlobId = argv.mainnetBlobId;
+const testnetBlobId = argv.testnetBlobId || mainnetBlobId;
 const verbose = argv.verbose;
 
 async function run() {
