@@ -22,6 +22,9 @@ type HasCacheOutput = {
     matches: HeaderMatch[];
 };
 
+// Speedups bigger than this value (milliseconds) will are attributed to cache hits.
+const THRESHOLD_MS: number = 1000;
+
 function headerKeyContainsCache(headers: Headers): HasCacheOutput {
     const matches = [...headers.entries()].filter(([key, _]) => {
         return key.toLowerCase().includes("cache")
@@ -42,7 +45,6 @@ function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
 async function updateAggregatorCacheInfo(
     aggregators: Record<string, AggregatorData>,
     blobId: string,
-    threshold: number,
 ) {
 
     // Used for debugging purposes
@@ -84,7 +86,7 @@ async function updateAggregatorCacheInfo(
             value.cache = { hasCache: true, speedupMs: value.cache?.speedupMs };
         } else {
             value.cache = {
-                hasCache: speedupMs > threshold || headersHaveCacheHit(matches2),
+                hasCache: speedupMs > THRESHOLD_MS || headersHaveCacheHit(matches2),
                 speedupMs
             };
         }
@@ -121,7 +123,6 @@ async function updateAggregatorCacheInfo(
     // console.log(JSON.stringify(results, null, 2));
 }
 
-const THRESHOLD: number = 1000;
 
 // Get command line arguments
 const args = process.argv.slice(2);
@@ -134,8 +135,8 @@ const [BLOB_ID_MAINNET, BLOB_ID_TESTNET] = args;
 
 async function run() {
     const nodes: Operators = mdbookOperatorsJson;
-    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, BLOB_ID_MAINNET, THRESHOLD);
-    await updateAggregatorCacheInfo(nodes.testnet.aggregators, BLOB_ID_TESTNET, THRESHOLD);
+    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, BLOB_ID_MAINNET);
+    await updateAggregatorCacheInfo(nodes.testnet.aggregators, BLOB_ID_TESTNET);
     console.log(JSON.stringify(nodes, null, 2))
 }
 
