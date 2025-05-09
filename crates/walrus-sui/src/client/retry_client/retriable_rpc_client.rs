@@ -113,14 +113,23 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                     .map(Arc::new)
                     .map_err(|e| FailoverError::FailedToGetClient(e.to_string()))?;
                 if *ensure_experimental_rest_endpoint {
-                    ensure_experimental_rest_endpoint_exists(client.inner().await)
-                        .await
-                        .map_err(|e| {
-                            FailoverError::FailedToGetClient(format!(
-                                "Client validation failed for {:?}: {:?}",
-                                rpc_url, e
-                            ))
-                        })?;
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        ensure_experimental_rest_endpoint_exists(client.inner().await),
+                    )
+                    .await
+                    .map_err(|_| {
+                        FailoverError::FailedToGetClient(format!(
+                            "Client validation timed out for {:?}",
+                            rpc_url
+                        ))
+                    })?
+                    .map_err(|e| {
+                        FailoverError::FailedToGetClient(format!(
+                            "Client validation failed for {:?}: {:?}",
+                            rpc_url, e
+                        ))
+                    })?;
                 }
                 Ok(client)
             }
