@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
 import { AggregatorData, AggregatorDataVerbose, HeaderValue, Operators } from './types';
 
@@ -45,6 +47,7 @@ function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
 async function updateAggregatorCacheInfo(
     aggregators: Record<string, AggregatorData>,
     blobId: string,
+    vergose: boolean,
 ) {
 
     // Used for debugging purposes
@@ -88,51 +91,53 @@ async function updateAggregatorCacheInfo(
         } else {
             value.cache = speedupMs > THRESHOLD_MS || headersHaveCacheHit(matches2)
         }
-        const hasCache = value.cache;
-        // Create a single key -> value1, value2 mapping
-        const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
-        const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
-            (acc, { key, value }) => {
-                acc[key] = [value, map2[key] ?? undefined];
-                return acc;
-            }, {}
-        );
+        if (verbose) {
+            // Create a single key -> value1, value2 mapping
+            // ie. commonkey -> [value from first fetch, value from second fetch]
+            const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
+            const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
+                (acc, { key, value }) => {
+                    acc[key] = [value, map2[key] ?? undefined];
+                    return acc;
+                }, {}
+            );
 
-        const missing = Object.keys(merged).filter((key) => !KnownCacheKeys.includes(key));
-
-        if (missing.length > 0) {
-            console.warn(`New '.*cache.*' headers found:`);
-            missing.map((missing) => {
-                console.warn(`- ${missing}: ${merged[missing]}`);
-            });
+            aggregatorsVerbose[url].cacheHeaders = merged;
+            aggregatorsVerbose[url].cacheSpeedupMs = [speedupMs, [fetch1, fetch2]];
         }
-
-        aggregatorsVerbose[url] = {
-            cache: hasCache,
-            cacheHeaders: merged,
-            cacheSpeedupMs: [speedupMs, [fetch1, fetch2]]
-        };
     }
-    // let results = {
-    //     aggregators: aggregatorsVerbose,
-    // }
-    // console.log(JSON.stringify(results, null, 2));
 }
 
 
 // Get command line arguments
-const args = process.argv.slice(2);
-if (args.length !== 2) {
-    console.error('Usage: ts-node cache-inference.ts <mainnet-blob-id> <testnet-blob-id>');
-    process.exit(1);
-}
+const argv = yargs(hideBin(process.argv))
+    .usage('Usage: $0 <mainnetBlobId> [testnetBlobId] [--verbose]')
+    .option('verbose', {
+        alias: 'v',
+        type: 'boolean',
+        description: 'Enable verbose mode',
+        default: false,
+    })
+    .positional('mainnet-blob-id', {
+        describe: 'Blob ID for mainnet',
+        type: 'string',
+        demandOption: true,
+    })
+    .positional('testnet-blob-id', {
+        describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
+        type: 'string',
+    })
+    .help()
+    .argv;
 
-const [BLOB_ID_MAINNET, BLOB_ID_TESTNET] = args;
+const mainnetBlobId = argv._[0];
+const testnetBlobId = argv._[1] ?? mainnetBlobId;
+const verbose = argv.verbose;
 
 async function run() {
     const nodes: Operators = mdbookOperatorsJson;
-    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, BLOB_ID_MAINNET);
-    await updateAggregatorCacheInfo(nodes.testnet.aggregators, BLOB_ID_TESTNET);
+    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, mainnetBlobId, verbose);
+    await updateAggregatorCacheInfo(nodes.testnet.aggregators, testnetBlobId, verbose);
     console.log(JSON.stringify(nodes, null, 2))
 }
 
