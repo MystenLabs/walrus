@@ -545,7 +545,7 @@ pub struct BlobRecoveryConfig {
 impl Default for BlobRecoveryConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_blob_syncs: 100,
+            max_concurrent_blob_syncs: 1_000,
             max_concurrent_sliver_syncs: 2_000,
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
@@ -593,9 +593,9 @@ impl Default for CommitteeServiceConfig {
     fn default() -> Self {
         Self {
             retry_interval_min: Duration::from_secs(1),
-            retry_interval_max: Duration::from_secs(3600),
+            retry_interval_max: Duration::from_secs(30),
             metadata_request_timeout: Duration::from_secs(5),
-            sliver_request_timeout: Duration::from_secs(300),
+            sliver_request_timeout: Duration::from_secs(10),
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
