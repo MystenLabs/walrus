@@ -36,8 +36,6 @@ async function updateAggregatorCacheInfo(
     blobId: string,
     verbose: boolean,
 ) {
-
-    // Used for debugging purposes
     const aggregatorsVerbose: Record<string, AggregatorDataVerbose> = {};
     for (const [url, value] of Object.entries(aggregators)) {
         const blobUrl = new URL(`v1/blobs/${blobId}`, url);

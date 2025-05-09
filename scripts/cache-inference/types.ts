@@ -25,6 +25,8 @@ type NotExisting = undefined;
 type NullHeaderValue = null;
 export type HeaderValue = string | NotExisting | NullHeaderValue
 
+// Includes more info on the measured request for debugging purposes
+// Enabled using `--verbose`
 export type AggregatorDataVerbose = AggregatorData & {
     cacheHeaders?: Record<string, [HeaderValue, HeaderValue]>;
     cacheSpeedupMs?: [number, [number, number]];
