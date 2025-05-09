@@ -126,6 +126,7 @@ impl From<SuiClientError> for ClientError {
 /// Inner error type, raised when the client operation fails.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
+#[non_exhaustive]
 pub enum ClientErrorKind {
     /// The certification of the blob failed.
     #[error("blob certification failed: {0}")]
