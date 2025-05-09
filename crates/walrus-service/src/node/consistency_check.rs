@@ -9,7 +9,7 @@ use std::{collections::HashSet, hash::Hasher, sync::Arc};
 
 use anyhow::{Context, Result};
 use prometheus::IntCounterVec;
-use rand::Rng;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 #[cfg(msim)]
@@ -177,6 +177,10 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
     let epoch_bucket = get_epoch_bucket(epoch);
 
+    // Using Epoch as the seed for the RNG to make the sampled blob selection deterministic for the
+    // same epoch.
+    let mut rng = StdRng::seed_from_u64(epoch as u64);
+
     // For data existence check, we should only check it if the node is in Active state. Otherwise,
     // the node may not be fully synced with the latest epoch.
     let enable_sliver_data_existence_check = node
@@ -197,7 +201,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
                 if enable_sliver_data_existence_check
                     && !blobs_not_yet_fully_synced.contains(&blob_info.0)
-                    && rand::thread_rng().gen_range(0..100)
+                    && rng.gen_range(0..100)
                         < node
                             .consistency_check_config
                             .sliver_data_existence_check_sample_rate_percentage
