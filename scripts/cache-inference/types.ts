@@ -4,10 +4,7 @@
 export type Network = "mainnet" | "testnet";
 
 export type AggregatorData = {
-    cache?: {
-        hasCache: boolean;
-        speedupMs?: number | [number, [number, number]]
-    },
+    cache?: boolean;
     operator?: string;
     [key: string]: unknown;
 }
@@ -29,9 +26,8 @@ type NullHeaderValue = null;
 export type HeaderValue = string | NotExisting | NullHeaderValue
 
 export type AggregatorDataVerbose = AggregatorData & {
-    cache?: {
-        headers?: Record<string, [HeaderValue, HeaderValue]>;
-    };
+    cacheHeaders?: Record<string, [HeaderValue, HeaderValue]>;
+    cacheSpeedupMs?: [number, [number, number]];
 };
 
 export type NetworkDataVerbose = {

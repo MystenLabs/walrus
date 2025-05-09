@@ -79,18 +79,16 @@ async function updateAggregatorCacheInfo(
         let output2 = headerKeyContainsCache(headers2);
         const matches1 = output1.matches;
         const matches2 = output2.matches;
+
         // Update value.cache in the existing operators
         if (headersHaveCacheHit(matches1)) { // Try identifying cache-hit on the first request
             console.warn(`Error measuring cache speedup for ${blobUrl}:`);
             console.warn(`First fetch is a cache-hit: ${JSON.stringify(matches1)}`);
-            value.cache = { hasCache: true, speedupMs: value.cache?.speedupMs };
+            value.cache = true;
         } else {
-            value.cache = {
-                hasCache: speedupMs > THRESHOLD_MS || headersHaveCacheHit(matches2),
-                speedupMs
-            };
+            value.cache = speedupMs > THRESHOLD_MS || headersHaveCacheHit(matches2)
         }
-        const hasCache = value.cache.hasCache;
+        const hasCache = value.cache;
         // Create a single key -> value1, value2 mapping
         const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
         const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
@@ -110,11 +108,9 @@ async function updateAggregatorCacheInfo(
         }
 
         aggregatorsVerbose[url] = {
-            cache: {
-                hasCache,
-                headers: merged,
-                speedupMs: [speedupMs, [fetch1, fetch2]]
-            }
+            cache: hasCache,
+            cacheHeaders: merged,
+            cacheSpeedupMs: [speedupMs, [fetch1, fetch2]]
         };
     }
     // let results = {
