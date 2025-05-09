@@ -15,4 +15,3 @@ crates/typed-store/src/traits.rs
 crates/typed-store/src/rocks/errors.rs
 crates/typed-store/src/rocks/safe_iter.rs
 crates/typed-store/src/rocks/tests.rs
-crates/typed-store-derive/src/lib.rs

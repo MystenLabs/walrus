@@ -12116,7 +12116,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "typed-store-derive 0.3.0",
+ "typed-store-derive",
  "typed-store-error",
  "typed-store-workspace-hack",
 ]
@@ -12146,7 +12146,6 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tracing",
- "typed-store-derive 1.26.0",
  "uint 0.10.0",
 ]
 
@@ -12159,16 +12158,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "typed-store-derive"
-version = "1.26.0"
-dependencies = [
- "itertools 0.13.0",
- "proc-macro2",
- "quote",
- "syn 2.0.101",
 ]
 
 [[package]]

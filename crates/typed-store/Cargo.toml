@@ -25,7 +25,6 @@ tap.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full", "test-util"] }
 tracing.workspace = true
-typed-store-derive = { path = "../typed-store-derive" }
 
 [dev-dependencies]
 once_cell.workspace = true

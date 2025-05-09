@@ -1,13 +1,10 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use rstest::rstest;
 
 use super::*;
-use crate::{
-    reopen,
-    rocks::safe_iter::{SafeIter, SafeRevIter},
-};
+use crate::rocks::safe_iter::{SafeIter, SafeRevIter};
 
 fn temp_dir() -> std::path::PathBuf {
     tempfile::tempdir()
@@ -96,31 +93,6 @@ async fn test_reopen() {
         db.contains_key(&123456789)
             .expect("Failed to retrieve item in storage")
     );
-}
-
-#[tokio::test]
-async fn test_reopen_macro() {
-    const FIRST_CF: &str = "First_CF";
-    const SECOND_CF: &str = "Second_CF";
-
-    let rocks = open_cf(
-        temp_dir(),
-        None,
-        MetricConf::default(),
-        &[FIRST_CF, SECOND_CF],
-    )
-    .unwrap();
-
-    let (db_map_1, db_map_2) = reopen!(&rocks, FIRST_CF;<i32, String>, SECOND_CF;<i32, String>);
-
-    let keys_vals_cf1 = (1..100).map(|i| (i, i.to_string()));
-    let keys_vals_cf2 = (1..100).map(|i| (i, i.to_string()));
-
-    assert_eq!(db_map_1.cf, FIRST_CF);
-    assert_eq!(db_map_2.cf, SECOND_CF);
-
-    assert!(db_map_1.multi_insert(keys_vals_cf1).is_ok());
-    assert!(db_map_2.multi_insert(keys_vals_cf2).is_ok());
 }
 
 #[tokio::test]
@@ -713,62 +685,6 @@ async fn test_multi_remove() {
     }
 }
 
-#[tokio::test]
-async fn open_as_secondary_test() {
-    let primary_path = temp_dir();
-
-    // Init a DB
-    let primary_db = DBMap::<i32, String>::open(
-        primary_path.clone(),
-        MetricConf::default(),
-        None,
-        Some("table"),
-        &ReadWriteOptions::default(),
-    )
-    .expect("Failed to open storage");
-    // Create kv pairs
-    let keys_vals = (0..101).map(|i| (i, i.to_string()));
-
-    primary_db
-        .multi_insert(keys_vals.clone())
-        .expect("Failed to multi-insert");
-
-    let opt = rocksdb::Options::default();
-    let secondary_store = open_cf_opts_secondary(
-        primary_path,
-        None,
-        None,
-        MetricConf::default(),
-        &[("table", opt)],
-    )
-    .unwrap();
-    let secondary_db = DBMap::<i32, String>::reopen(
-        &secondary_store,
-        Some("table"),
-        &ReadWriteOptions::default(),
-        false,
-    )
-    .unwrap();
-
-    secondary_db.try_catch_up_with_primary().unwrap();
-    // Check secondary
-    for (k, v) in keys_vals {
-        assert_eq!(secondary_db.get(&k).unwrap(), Some(v));
-    }
-
-    // Update the value from 0 to 10
-    primary_db.insert(&0, &"10".to_string()).unwrap();
-
-    // This should still be stale since secondary is behind
-    assert_eq!(secondary_db.get(&0).unwrap(), Some("0".to_string()));
-
-    // Try force catchup
-    secondary_db.try_catch_up_with_primary().unwrap();
-
-    // New value should be present
-    assert_eq!(secondary_db.get(&0).unwrap(), Some("10".to_string()));
-}
-
 fn open_map<P: AsRef<Path>, K, V>(path: P, opt_cf: Option<&str>) -> DBMap<K, V> {
     DBMap::<K, V>::open(
         path,
@@ -782,4 +698,36 @@ fn open_map<P: AsRef<Path>, K, V>(path: P, opt_cf: Option<&str>) -> DBMap<K, V> 
 
 fn open_rocksdb<P: AsRef<Path>>(path: P, opt_cfs: &[&str]) -> Arc<RocksDB> {
     open_cf(path, None, MetricConf::default(), opt_cfs).expect("failed to open rocksdb")
+}
+
+#[tokio::test]
+async fn test_sampling() {
+    let sampling_interval = SamplingInterval::new(Duration::ZERO, 10);
+    for _i in 0..10 {
+        assert!(!sampling_interval.sample());
+    }
+    assert!(sampling_interval.sample());
+    for _i in 0..10 {
+        assert!(!sampling_interval.sample());
+    }
+    assert!(sampling_interval.sample());
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn test_sampling_time() {
+    let sampling_interval = SamplingInterval::new(Duration::from_secs(1), 10);
+    for _i in 0..10 {
+        assert!(!sampling_interval.sample());
+    }
+    assert!(!sampling_interval.sample());
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(sampling_interval.sample());
+    for _i in 0..10 {
+        assert!(!sampling_interval.sample());
+    }
+    assert!(!sampling_interval.sample());
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(sampling_interval.sample());
 }

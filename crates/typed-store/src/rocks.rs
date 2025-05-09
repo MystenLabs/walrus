@@ -1,9 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// Copyright (c) Mysten Labs, Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 /// Error types and utilities for RocksDB operations
 pub mod errors;
 
@@ -12,7 +9,7 @@ pub(crate) mod safe_iter;
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     env,
     ffi::CStr,
     fmt,
@@ -38,9 +35,7 @@ use rocksdb::{
     Error,
     LiveFile,
     MultiThreaded,
-    OptimisticTransactionDB,
     ReadOptions,
-    SnapshotWithThreadMode,
     WriteBatch,
     WriteOptions,
     checkpoint::Checkpoint,
@@ -48,10 +43,8 @@ use rocksdb::{
     properties::num_files_at_level,
 };
 use serde::{Serialize, de::DeserializeOwned};
-use sui_macros::{fail_point, nondeterministic};
 use tap::TapFallible;
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     TypedStoreError,
@@ -77,20 +70,6 @@ const DEFAULT_DB_WRITE_BUFFER_SIZE: usize = 1024;
 const ENV_VAR_DB_WAL_SIZE: &str = "DB_WAL_SIZE_MB";
 const DEFAULT_DB_WAL_SIZE: usize = 1024;
 
-// Environment variable to control behavior of write throughput optimized tables.
-const ENV_VAR_L0_NUM_FILES_COMPACTION_TRIGGER: &str = "L0_NUM_FILES_COMPACTION_TRIGGER";
-const DEFAULT_L0_NUM_FILES_COMPACTION_TRIGGER: usize = 4;
-const DEFAULT_UNIVERSAL_COMPACTION_L0_NUM_FILES_COMPACTION_TRIGGER: usize = 80;
-const ENV_VAR_MAX_WRITE_BUFFER_SIZE_MB: &str = "MAX_WRITE_BUFFER_SIZE_MB";
-const DEFAULT_MAX_WRITE_BUFFER_SIZE_MB: usize = 256;
-const ENV_VAR_MAX_WRITE_BUFFER_NUMBER: &str = "MAX_WRITE_BUFFER_NUMBER";
-const DEFAULT_MAX_WRITE_BUFFER_NUMBER: usize = 6;
-const ENV_VAR_TARGET_FILE_SIZE_BASE_MB: &str = "TARGET_FILE_SIZE_BASE_MB";
-const DEFAULT_TARGET_FILE_SIZE_BASE_MB: usize = 128;
-
-// Set to 1 to disable blob storage for transactions and effects.
-const ENV_VAR_DISABLE_BLOB_STORAGE: &str = "DISABLE_BLOB_STORAGE";
-
 const ENV_VAR_DB_PARALLELISM: &str = "DB_PARALLELISM";
 
 // TODO: remove this after Rust rocksdb has the TOTAL_BLOB_FILES_SIZE property built-in.
@@ -99,57 +78,6 @@ const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
 
 #[cfg(test)]
 mod tests;
-
-/// A helper macro to reopen multiple column families. The macro returns
-/// a tuple of DBMap structs in the same order that the column families
-/// are defined.
-///
-/// # Arguments
-///
-/// * `db` - a reference to a rocks DB object
-/// * `cf;<ty,ty>` - a comma separated list of column families to open. For each column family a
-///   concatenation of column family name (cf) and Key-Value <ty, ty> should be provided.
-///
-/// # Examples
-///
-/// We successfully open two different column families.
-/// ```
-/// use typed_store::reopen;
-/// use typed_store::rocks::*;
-/// use tempfile::tempdir;
-/// use prometheus::Registry;
-/// use std::sync::Arc;
-/// use typed_store::metrics::DBMetrics;
-/// use core::fmt::Error;
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Error> {
-/// const FIRST_CF: &str = "First_CF";
-/// const SECOND_CF: &str = "Second_CF";
-///
-///
-/// /// Create the rocks database reference for the desired column families
-/// let rocks = open_cf(tempdir().unwrap(), None, MetricConf::default(),
-///     &[FIRST_CF, SECOND_CF]).unwrap();
-///
-/// /// Now simply open all the column families for their expected Key-Value types
-/// let (db_map_1, db_map_2) = reopen!(&rocks, FIRST_CF;<i32, String>,
-///     SECOND_CF;<i32, String>);
-/// Ok(())
-/// }
-/// ```
-///
-#[macro_export]
-macro_rules! reopen {
-    ( $db:expr, $($cf:expr;<$K:ty, $V:ty>),*) => {
-        (
-            $(
-                DBMap::<$K, $V>::reopen($db, Some($cf), &ReadWriteOptions::default(), false)
-                    .expect(&format!("Cannot open {} CF.", $cf)[..])
-            ),*
-        )
-    };
-}
 
 #[derive(Debug)]
 /// The rocksdb database
@@ -275,9 +203,9 @@ impl RocksDB {
         key: K,
         writeopts: &WriteOptions,
     ) -> Result<(), rocksdb::Error> {
-        fail_point!("delete-cf-before");
+        sui_macros::fail_point!("delete-cf-before");
         let ret = self.underlying.delete_cf_opt(cf, key, writeopts);
-        fail_point!("delete-cf-after");
+        sui_macros::fail_point!("delete-cf-after");
         #[allow(clippy::let_and_return)]
         ret
     }
@@ -299,9 +227,9 @@ impl RocksDB {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
     {
-        fail_point!("put-cf-before");
+        sui_macros::fail_point!("put-cf-before");
         let ret = self.underlying.put_cf_opt(cf, key, value, writeopts);
-        fail_point!("put-cf-after");
+        sui_macros::fail_point!("put-cf-after");
         #[allow(clippy::let_and_return)]
         ret
     }
@@ -327,11 +255,11 @@ impl RocksDB {
         batch: rocksdb::WriteBatch,
         writeopts: &WriteOptions,
     ) -> Result<(), TypedStoreError> {
-        fail_point!("batch-write-before");
+        sui_macros::fail_point!("batch-write-before");
         self.underlying
             .write_opt(batch, writeopts)
             .map_err(typed_store_err_from_rocks_err)?;
-        fail_point!("batch-write-after");
+        sui_macros::fail_point!("batch-write-after");
         #[allow(clippy::let_and_return)]
         Ok(())
     }
@@ -444,56 +372,6 @@ impl RocksDB {
     }
 }
 
-/// A snapshot of the database
-pub enum RocksDBSnapshot<'a> {
-    /// The rocksdb snapshot
-    DBWithThreadMode(rocksdb::Snapshot<'a>),
-    /// The optimistic transaction db snapshot
-    OptimisticTransactionDB(SnapshotWithThreadMode<'a, OptimisticTransactionDB>),
-}
-
-impl fmt::Debug for RocksDBSnapshot<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RocksDBSnapshot")
-    }
-}
-
-/// A snapshot of the database
-impl<'a> RocksDBSnapshot<'a> {
-    /// Get multiple values from a specific column family
-    pub fn multi_get_cf_opt<'b: 'a, K, I, W>(
-        &'a self,
-        keys: I,
-        readopts: ReadOptions,
-    ) -> Vec<Result<Option<Vec<u8>>, rocksdb::Error>>
-    where
-        K: AsRef<[u8]>,
-        I: IntoIterator<Item = (&'b W, K)>,
-        W: 'b + AsColumnFamilyRef,
-    {
-        match self {
-            Self::DBWithThreadMode(s) => s.multi_get_cf_opt(keys, readopts),
-            Self::OptimisticTransactionDB(s) => s.multi_get_cf_opt(keys, readopts),
-        }
-    }
-
-    /// Get multiple values from a specific column family
-    pub fn multi_get_cf<'b: 'a, K, I, W>(
-        &'a self,
-        keys: I,
-    ) -> Vec<Result<Option<Vec<u8>>, rocksdb::Error>>
-    where
-        K: AsRef<[u8]>,
-        I: IntoIterator<Item = (&'b W, K)>,
-        W: 'b + AsColumnFamilyRef,
-    {
-        match self {
-            Self::DBWithThreadMode(s) => s.multi_get_cf(keys),
-            Self::OptimisticTransactionDB(s) => s.multi_get_cf(keys),
-        }
-    }
-}
-
 /// A configuration for metrics
 #[derive(Debug, Default)]
 pub struct MetricConf {
@@ -512,7 +390,7 @@ impl MetricConf {
     /// Create a new metric configuration
     pub fn new(db_name: &str) -> Self {
         if db_name.is_empty() {
-            error!("A meaningful db name should be used for metrics reporting.")
+            tracing::error!("A meaningful db name should be used for metrics reporting.")
         }
         Self {
             db_name: db_name.to_string(),
@@ -587,13 +465,13 @@ impl<K, V> DBMap<K, V> {
                             if let Err(e) = tokio::task::spawn_blocking(move || {
                                 Self::report_metrics(&db, &cf, &db_metrics);
                             }).await {
-                                error!("Failed to log metrics with error: {}", e);
+                                tracing::error!("Failed to log metrics with error: {}", e);
                             }
                         }
                         _ = &mut recv => break,
                     }
                 }
-                debug!("Returning the cf metric logging task for DBMap: {}", &cf);
+                tracing::debug!("Returning the cf metric logging task for DBMap: {}", &cf);
             });
         }
         DBMap {
@@ -614,7 +492,13 @@ impl<K, V> DBMap<K, V> {
     ///
     /// This database is used to perform operations on single column family, and parametrizes
     /// all operations in `DBBatch` when writing across column families.
-    #[instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cf), err)]
+    #[tracing::instrument(
+        level="debug",
+        skip_all,
+        fields(path = ?path.as_ref(),
+        cf = ?opt_cf),
+        err
+    )]
     pub fn open<P: AsRef<Path>>(
         path: P,
         metric_conf: MetricConf,
@@ -663,7 +547,7 @@ impl<K, V> DBMap<K, V> {
     ///    Ok(())
     ///    }
     /// ```
-    #[instrument(level = "debug", skip(db), err)]
+    #[tracing::instrument(level = "debug", skip(db), err)]
     pub fn reopen(
         db: &Arc<RocksDB>,
         opt_cf: Option<&str>,
@@ -1309,7 +1193,7 @@ impl DBBatch {
     }
 
     /// Consume the batch and write its operations to the database
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     pub fn write(self) -> Result<(), TypedStoreError> {
         let db_name = self.rocksdb.db_name();
         let timer = self
@@ -1339,7 +1223,7 @@ impl DBBatch {
         }
         let elapsed = timer.stop_and_record();
         if elapsed > 1.0 {
-            warn!(?elapsed, ?db_name, "very slow batch write");
+            tracing::warn!(?elapsed, ?db_name, "very slow batch write");
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_batch_writes_count
@@ -1467,7 +1351,7 @@ where
     type Error = TypedStoreError;
     type SafeIterator = SafeIter<'a, K, V>;
 
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
         let key_buf = be_fix_int_ser(key)?;
         // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
@@ -1483,7 +1367,7 @@ where
                 .is_some())
     }
 
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_contains_keys<J>(
         &self,
         keys: impl IntoIterator<Item = J>,
@@ -1495,7 +1379,7 @@ where
         Ok(values.into_iter().map(|v| v.is_some()).collect())
     }
 
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn get(&self, key: &K) -> Result<Option<V>, TypedStoreError> {
         let _timer = self
             .db_metrics
@@ -1531,7 +1415,7 @@ where
         }
     }
 
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn insert(&self, key: &K, value: &V) -> Result<(), TypedStoreError> {
         let timer = self
             .db_metrics
@@ -1562,7 +1446,7 @@ where
 
         let elapsed = timer.stop_and_record();
         if elapsed > 1.0 {
-            warn!(?elapsed, cf = ?self.cf, "very slow insert");
+            tracing::warn!(?elapsed, cf = ?self.cf, "very slow insert");
             self.db_metrics
                 .op_metrics
                 .rocksdb_very_slow_puts_count
@@ -1578,7 +1462,7 @@ where
         Ok(())
     }
 
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn remove(&self, key: &K) -> Result<(), TypedStoreError> {
         let _timer = self
             .db_metrics
@@ -1612,7 +1496,7 @@ where
     /// with the same name. The two operations are not atomic and hence it is possible
     /// to get into a race condition where the column family has been dropped but new
     /// one is not created yet
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn unsafe_clear(&self) -> Result<(), TypedStoreError> {
         let _ = self.rocksdb.drop_cf(&self.cf);
         self.rocksdb
@@ -1629,7 +1513,7 @@ where
     /// compaction actually deletes them which will happen sometime after. By
     /// default ignore_range_deletions is set to true on a DBMap (unless it is
     /// overridden in the config), so please use this function with caution
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn schedule_delete_all(&self) -> Result<(), TypedStoreError> {
         let first_key = self.safe_iter().next().transpose()?.map(|(k, _v)| k);
         let last_key = self
@@ -1700,7 +1584,7 @@ where
     }
 
     /// Returns a vector of values corresponding to the keys provided.
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_get<J>(
         &self,
         keys: impl IntoIterator<Item = J>,
@@ -1723,7 +1607,7 @@ where
     }
 
     /// Convenience method for batch insertion
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_insert<J, U>(
         &self,
         key_val_pairs: impl IntoIterator<Item = (J, U)>,
@@ -1738,7 +1622,7 @@ where
     }
 
     /// Convenience method for batch removal
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_remove<J>(&self, keys: impl IntoIterator<Item = J>) -> Result<(), Self::Error>
     where
         J: Borrow<K>,
@@ -1749,7 +1633,7 @@ where
     }
 
     /// Try to catch up with primary when running as secondary
-    #[instrument(level = "trace", skip_all, err)]
+    #[tracing::instrument(level = "trace", skip_all, err)]
     fn try_catch_up_with_primary(&self) -> Result<(), Self::Error> {
         self.rocksdb
             .try_catch_up_with_primary()
@@ -1763,9 +1647,10 @@ pub fn read_size_from_env(var_name: &str) -> Option<usize> {
         .ok()?
         .parse::<usize>()
         .tap_err(|e| {
-            warn!(
+            tracing::warn!(
                 "Env var {} does not contain valid usize integer: {}",
-                var_name, e
+                var_name,
+                e
             )
         })
         .ok()
@@ -1826,192 +1711,6 @@ impl fmt::Debug for DBOptions {
     }
 }
 
-impl DBOptions {
-    /// Optimize lookup perf for tables where no scans are performed.
-    /// If non-trivial number of values can be > 512B in size, it is beneficial to also
-    /// specify optimize_for_large_values_no_scan().
-    pub fn optimize_for_point_lookup(mut self, block_cache_size_mb: usize) -> DBOptions {
-        // NOTE: this overwrites the block options.
-        self.options
-            .optimize_for_point_lookup(block_cache_size_mb as u64);
-        self
-    }
-
-    /// Optimize write and lookup perf for tables which are rarely scanned, and have large values.
-    /// <https://rocksdb.org/blog/2021/05/26/integrated-blob-db.html>
-    pub fn optimize_for_large_values_no_scan(mut self, min_blob_size: u64) -> DBOptions {
-        if env::var(ENV_VAR_DISABLE_BLOB_STORAGE).is_ok() {
-            info!("Large value blob storage optimization is disabled via env var.");
-            return self;
-        }
-
-        // Blob settings.
-        self.options.set_enable_blob_files(true);
-        self.options
-            .set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
-        self.options.set_enable_blob_gc(true);
-        // Since each blob can have non-trivial size overhead, and
-        // compression does not work across blobs,
-        // set a min blob size in bytes to so small transactions and
-        // effects are kept in sst files.
-        self.options.set_min_blob_size(min_blob_size);
-
-        // Increase write buffer size to 256MiB.
-        let write_buffer_size = read_size_from_env(ENV_VAR_MAX_WRITE_BUFFER_SIZE_MB)
-            .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_SIZE_MB)
-            * 1024
-            * 1024;
-        self.options.set_write_buffer_size(write_buffer_size);
-        // Since large blobs are not in sst files, reduce the target file size and base level
-        // target size.
-        let target_file_size_base = 64 << 20;
-        self.options
-            .set_target_file_size_base(target_file_size_base);
-        // Level 1 default to 64MiB * 4 ~ 256MiB.
-        let max_level_zero_file_num = read_size_from_env(ENV_VAR_L0_NUM_FILES_COMPACTION_TRIGGER)
-            .unwrap_or(DEFAULT_L0_NUM_FILES_COMPACTION_TRIGGER);
-        self.options
-            .set_max_bytes_for_level_base(target_file_size_base * max_level_zero_file_num as u64);
-
-        self
-    }
-
-    /// Optimize tables with a mix of lookup and scan workloads.
-    pub fn optimize_for_read(mut self, block_cache_size_mb: usize) -> DBOptions {
-        self.options
-            .set_block_based_table_factory(&get_block_options(block_cache_size_mb, 16 << 10));
-        self
-    }
-
-    /// Optimize DB receiving significant insertions.
-    pub fn optimize_db_for_write_throughput(mut self, db_max_write_buffer_gb: u64) -> DBOptions {
-        self.options
-            .set_db_write_buffer_size(db_max_write_buffer_gb as usize * 1024 * 1024 * 1024);
-        self.options
-            .set_max_total_wal_size(db_max_write_buffer_gb * 1024 * 1024 * 1024);
-        self
-    }
-
-    /// Optimize tables receiving significant insertions.
-    pub fn optimize_for_write_throughput(mut self) -> DBOptions {
-        // Increase write buffer size to 256MiB.
-        let write_buffer_size = read_size_from_env(ENV_VAR_MAX_WRITE_BUFFER_SIZE_MB)
-            .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_SIZE_MB)
-            * 1024
-            * 1024;
-        self.options.set_write_buffer_size(write_buffer_size);
-        // Increase write buffers to keep to 6 before slowing down writes.
-        let max_write_buffer_number = read_size_from_env(ENV_VAR_MAX_WRITE_BUFFER_NUMBER)
-            .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_NUMBER);
-        self.options
-            .set_max_write_buffer_number(max_write_buffer_number.try_into().unwrap());
-        // Keep 1 write buffer so recent writes can be read from memory.
-        self.options
-            .set_max_write_buffer_size_to_maintain((write_buffer_size).try_into().unwrap());
-
-        // Increase compaction trigger for level 0 to 6.
-        let max_level_zero_file_num = read_size_from_env(ENV_VAR_L0_NUM_FILES_COMPACTION_TRIGGER)
-            .unwrap_or(DEFAULT_L0_NUM_FILES_COMPACTION_TRIGGER);
-        self.options.set_level_zero_file_num_compaction_trigger(
-            max_level_zero_file_num.try_into().unwrap(),
-        );
-        self.options.set_level_zero_slowdown_writes_trigger(
-            (max_level_zero_file_num * 12).try_into().unwrap(),
-        );
-        self.options
-            .set_level_zero_stop_writes_trigger((max_level_zero_file_num * 16).try_into().unwrap());
-
-        // Increase sst file size to 128MiB.
-        self.options.set_target_file_size_base(
-            read_size_from_env(ENV_VAR_TARGET_FILE_SIZE_BASE_MB)
-                .unwrap_or(DEFAULT_TARGET_FILE_SIZE_BASE_MB) as u64
-                * 1024
-                * 1024,
-        );
-
-        // Increase level 1 target size to 256MiB * 6 ~ 1.5GiB.
-        self.options
-            .set_max_bytes_for_level_base((write_buffer_size * max_level_zero_file_num) as u64);
-
-        self
-    }
-
-    /// Optimize tables receiving significant insertions, without any deletions.
-    /// TODO: merge this function with optimize_for_write_throughput(), and use a flag to
-    /// indicate if deletion is received.
-    pub fn optimize_for_write_throughput_no_deletion(mut self) -> DBOptions {
-        // Increase write buffer size to 256MiB.
-        let write_buffer_size = read_size_from_env(ENV_VAR_MAX_WRITE_BUFFER_SIZE_MB)
-            .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_SIZE_MB)
-            * 1024
-            * 1024;
-        self.options.set_write_buffer_size(write_buffer_size);
-        // Increase write buffers to keep to 6 before slowing down writes.
-        let max_write_buffer_number = read_size_from_env(ENV_VAR_MAX_WRITE_BUFFER_NUMBER)
-            .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_NUMBER);
-        self.options
-            .set_max_write_buffer_number(max_write_buffer_number.try_into().unwrap());
-        // Keep 1 write buffer so recent writes can be read from memory.
-        self.options
-            .set_max_write_buffer_size_to_maintain((write_buffer_size).try_into().unwrap());
-
-        // Switch to universal compactions.
-        self.options
-            .set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-        let mut compaction_options = rocksdb::UniversalCompactOptions::default();
-        compaction_options.set_max_size_amplification_percent(10000);
-        compaction_options.set_stop_style(rocksdb::UniversalCompactionStopStyle::Similar);
-        self.options
-            .set_universal_compaction_options(&compaction_options);
-
-        let max_level_zero_file_num = read_size_from_env(ENV_VAR_L0_NUM_FILES_COMPACTION_TRIGGER)
-            .unwrap_or(DEFAULT_UNIVERSAL_COMPACTION_L0_NUM_FILES_COMPACTION_TRIGGER);
-        self.options.set_level_zero_file_num_compaction_trigger(
-            max_level_zero_file_num.try_into().unwrap(),
-        );
-        self.options.set_level_zero_slowdown_writes_trigger(
-            (max_level_zero_file_num * 12).try_into().unwrap(),
-        );
-        self.options
-            .set_level_zero_stop_writes_trigger((max_level_zero_file_num * 16).try_into().unwrap());
-
-        // Increase sst file size to 128MiB.
-        self.options.set_target_file_size_base(
-            read_size_from_env(ENV_VAR_TARGET_FILE_SIZE_BASE_MB)
-                .unwrap_or(DEFAULT_TARGET_FILE_SIZE_BASE_MB) as u64
-                * 1024
-                * 1024,
-        );
-
-        // This should be a no-op for universal compaction but increasing it to be safe.
-        self.options
-            .set_max_bytes_for_level_base((write_buffer_size * max_level_zero_file_num) as u64);
-
-        self
-    }
-
-    /// Overrides the block options with different block cache size and block size.
-    pub fn set_block_options(
-        mut self,
-        block_cache_size_mb: usize,
-        block_size_bytes: usize,
-    ) -> DBOptions {
-        self.options
-            .set_block_based_table_factory(&get_block_options(
-                block_cache_size_mb,
-                block_size_bytes,
-            ));
-        self
-    }
-
-    /// Disables write stalling and stopping based on pending compaction bytes.
-    pub fn disable_write_throttling(mut self) -> DBOptions {
-        self.options.set_soft_pending_compaction_bytes_limit(0);
-        self.options.set_hard_pending_compaction_bytes_limit(0);
-        self
-    }
-}
-
 /// Creates a default RocksDB option, to be used when RocksDB option is unspecified.
 pub fn default_db_options() -> DBOptions {
     let mut opt = rocksdb::Options::default();
@@ -2022,7 +1721,7 @@ pub fn default_db_options() -> DBOptions {
         let limit = match outcome {
             fdlimit::Outcome::LimitRaised { to, .. } => to,
             fdlimit::Outcome::Unsupported => {
-                warn!("Failed to raise fdlimit, defaulting to 1024");
+                tracing::warn!("Failed to raise fdlimit, defaulting to 1024");
                 1024
             }
         };
@@ -2099,7 +1798,7 @@ fn get_block_options(block_cache_size_mb: usize, block_size_bytes: usize) -> Blo
 
 /// Opens a database with options, and a number of column families that are created
 /// if they do not exist.
-#[instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cfs), err)]
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cfs), err)]
 pub fn open_cf<P: AsRef<Path>>(
     path: P,
     db_options: Option<rocksdb::Options>,
@@ -2129,7 +1828,7 @@ fn prepare_db_options(db_options: Option<rocksdb::Options>) -> rocksdb::Options 
 
 /// Opens a database with options, and a number of column families with individual options that
 /// are created if they do not exist.
-#[instrument(level="debug", skip_all, fields(path = ?path.as_ref()), err)]
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref()), err)]
 pub fn open_cf_opts<P: AsRef<Path>>(
     path: P,
     db_options: Option<rocksdb::Options>,
@@ -2146,7 +1845,7 @@ pub fn open_cf_opts<P: AsRef<Path>>(
     // This is a no-op in non-simulator builds.
 
     let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
-    nondeterministic!({
+    sui_macros::nondeterministic!({
         let options = prepare_db_options(db_options);
         let rocksdb = {
             rocksdb::DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(
@@ -2165,88 +1864,6 @@ pub fn open_cf_opts<P: AsRef<Path>>(
     })
 }
 
-/// Opens a database with options, and a number of column families with individual options that
-/// are created if they do not exist.
-pub fn open_cf_opts_secondary<P: AsRef<Path>>(
-    primary_path: P,
-    secondary_path: Option<P>,
-    db_options: Option<rocksdb::Options>,
-    metric_conf: MetricConf,
-    opt_cfs: &[(&str, rocksdb::Options)],
-) -> Result<Arc<RocksDB>, TypedStoreError> {
-    let primary_path = primary_path.as_ref();
-    let secondary_path = secondary_path.as_ref().map(|p| p.as_ref());
-    // See comment above for explanation of why nondeterministic is necessary here.
-    nondeterministic!({
-        // Customize database options
-        let mut options = db_options.unwrap_or_else(|| default_db_options().options);
-
-        fdlimit::raise_fd_limit().map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-        // This is a requirement by RocksDB when opening as secondary
-        options.set_max_open_files(-1);
-
-        let mut opt_cfs: std::collections::HashMap<_, _> = opt_cfs.iter().cloned().collect();
-        let cfs = rocksdb::DBWithThreadMode::<MultiThreaded>::list_cf(&options, primary_path)
-            .ok()
-            .unwrap_or_default();
-
-        let default_db_options = default_db_options();
-        // Add CFs not explicitly listed
-        for cf_key in cfs.iter() {
-            if !opt_cfs.contains_key(&cf_key[..]) {
-                opt_cfs.insert(cf_key, default_db_options.options.clone());
-            }
-        }
-
-        let primary_path = primary_path.to_path_buf();
-        let secondary_path = secondary_path.map(|q| q.to_path_buf()).unwrap_or_else(|| {
-            let mut s = primary_path.clone();
-            s.pop();
-            s.push("SECONDARY");
-            s.as_path().to_path_buf()
-        });
-
-        let rocksdb = {
-            options.create_if_missing(true);
-            options.create_missing_column_families(true);
-            let db = rocksdb::DBWithThreadMode::<MultiThreaded>::open_cf_descriptors_as_secondary(
-                &options,
-                &primary_path,
-                &secondary_path,
-                opt_cfs
-                    .iter()
-                    .map(|(name, opts)| ColumnFamilyDescriptor::new(*name, (*opts).clone())),
-            )
-            .map_err(typed_store_err_from_rocks_err)?;
-            db.try_catch_up_with_primary()
-                .map_err(typed_store_err_from_rocks_err)?;
-            db
-        };
-        Ok(Arc::new(RocksDB::new(rocksdb, metric_conf, secondary_path)))
-    })
-}
-
-/// List the tables in the database
-pub fn list_tables(path: std::path::PathBuf) -> eyre::Result<Vec<String>> {
-    const DB_DEFAULT_CF_NAME: &str = "default";
-
-    let opts = rocksdb::Options::default();
-    rocksdb::DBWithThreadMode::<rocksdb::MultiThreaded>::list_cf(&opts, path)
-        .map_err(|e| e.into())
-        .map(|q| {
-            q.iter()
-                .filter_map(|s| {
-                    // The `default` table is not used
-                    if s != DB_DEFAULT_CF_NAME {
-                        Some(s.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        })
-}
-
 /// TODO: Good description of why we're doing this :
 /// RocksDB stores keys in BE and has a seek operator
 /// on iterators, see `https://github.com/facebook/rocksdb/wiki/Iterator#introduction`
@@ -2262,30 +1879,7 @@ where
         .map_err(typed_store_err_from_bincode_err)
 }
 
-/// The map of table names to DB options
-#[derive(Clone, Debug)]
-pub struct DBMapTableConfigMap(BTreeMap<String, DBOptions>);
-impl DBMapTableConfigMap {
-    /// Create a new DBMapTableConfigMap
-    pub fn new(map: BTreeMap<String, DBOptions>) -> Self {
-        Self(map)
-    }
-
-    /// Convert the DBMapTableConfigMap to a BTreeMap
-    pub fn to_map(&self) -> BTreeMap<String, DBOptions> {
-        self.0.clone()
-    }
-}
-
 /// The type of database access
-#[derive(Debug)]
-pub enum RocksDBAccessType {
-    /// The primary database
-    Primary,
-    /// The secondary database
-    Secondary(Option<PathBuf>),
-}
-
 /// Safe drop the database
 pub fn safe_drop_db(path: PathBuf) -> Result<(), rocksdb::Error> {
     rocksdb::DB::destroy(&rocksdb::Options::default(), path)

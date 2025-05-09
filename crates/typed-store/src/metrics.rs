@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
@@ -22,7 +22,6 @@ use prometheus::{
 };
 use rocksdb::{PerfContext, PerfMetric, PerfStatsLevel, perf::set_perf_stats};
 use tap::TapFallible;
-use tracing::warn;
 
 thread_local! {
     static PER_THREAD_ROCKS_PERF_CONTEXT: std::cell::RefCell<rocksdb::PerfContext> =
@@ -1083,7 +1082,7 @@ impl DBMetrics {
         let _ = ONCE
             .set(Arc::new(DBMetrics::new(registry)))
             // this happens many times during tests
-            .tap_err(|_| warn!("DBMetrics registry overwritten"));
+            .tap_err(|_| tracing::warn!("DBMetrics registry overwritten"));
         ONCE.get().unwrap()
     }
     /// Increment the number of active databases

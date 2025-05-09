@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! A type-safe wrapper around RocksDB that provides a key-value store interface.
@@ -28,13 +28,6 @@ pub use rocks::errors::TypedStoreError;
 /// The traits for the typed store
 pub use traits::Map;
 
-/// The error type for the typed store
-pub type StoreError = rocks::errors::TypedStoreError;
-
 /// The metrics for the typed store
 pub mod metrics;
-
-/// The metrics for the typed store
 pub use metrics::DBMetrics;
-/// The derive macros for the typed store
-pub use typed_store_derive::DBMapUtils;
