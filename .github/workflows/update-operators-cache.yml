@@ -43,8 +43,8 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update operators.json with new cache measurements"
-          title: "chore: Update operators.json with new cache measurements"
+          commit-message: "chore: update aggregator cache info"
+          title: "chore: update aggregator cache info"
           body: |
             This PR updates the operators.json file with new cache measurements.
 
