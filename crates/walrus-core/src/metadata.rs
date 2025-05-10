@@ -140,6 +140,21 @@ impl QuiltIndexV1 {
 
 /// Metadata associated with a quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QuiltMetadata {
+    /// Version 1 of the quilt metadata.
+    V1(QuiltMetadataV1),
+}
+
+impl QuiltMetadata {
+    /// Returns the verified metadata for the quilt blob.
+    pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
+        match self {
+            QuiltMetadata::V1(quilt_metadata_v1) => quilt_metadata_v1.get_verified_metadata(),
+        }
+    }
+}
+/// Metadata associated with a quilt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {
     /// The BlobId of the quilt blob.
     pub quilt_blob_id: BlobId,
@@ -147,6 +162,16 @@ pub struct QuiltMetadataV1 {
     pub metadata: BlobMetadata,
     /// The index of the quilt.
     pub index: QuiltIndexV1,
+}
+
+impl QuiltMetadataV1 {
+    /// Returns the verified metadata for the quilt blob.
+    pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
+        VerifiedBlobMetadataWithId::new_verified_unchecked(
+            self.quilt_blob_id,
+            self.metadata.clone(),
+        )
+    }
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
