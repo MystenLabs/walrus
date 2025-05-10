@@ -15,16 +15,26 @@ use crate::{
     register_metric,
 };
 
+/// HANDLER_HITS is a counter vector for tracking number of HTTP requests handled by each handler.
+///
+/// # Panics
+///
+/// This will panic if the `CounterVec` cannot be created or registered.
+/// This typically indicates a programming error or a conflicting metric name.
 static HANDLER_HITS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(
-        CounterVec::new(
-            Opts::new("http_handler_hits", "Number of HTTP requests made.",),
-            &["handler", "remote"]
-        )
-        .unwrap()
+    register_metric!(CounterVec::new(
+        Opts::new("http_handler_hits", "Number of HTTP requests made."),
+        &["handler", "remote"]
     )
+    .expect("Failed to create and register http_handler_hits CounterVec"))
 });
 
+/// HTTP_HANDLER_DURATION is a histogram vector for measuring HTTP request latencies.
+///
+/// # Panics
+///
+/// This will panic if the `HistogramVec` cannot be created or registered.
+/// This typically indicates a programming error or a conflicting metric name.
 static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     register_metric!(
         HistogramVec::new(

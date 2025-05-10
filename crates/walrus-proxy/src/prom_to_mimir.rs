@@ -13,6 +13,10 @@ pub struct Mimir<S> {
     state: S,
 }
 
+/// # Panics
+///
+/// This implementation panics if label name or value comparison returns `None`.
+/// Since all label names and values are valid strings, this case should never occur.
 impl From<&Metric> for Mimir<RepeatedField<remote_write::Label>> {
     fn from(m: &Metric) -> Self {
         // we consume metric labels from an owned version so we can sort them
@@ -21,7 +25,7 @@ impl From<&Metric> for Mimir<RepeatedField<remote_write::Label>> {
         sorted.sort_by(|a, b| {
             (a.get_name(), a.get_value())
                 .partial_cmp(&(b.get_name(), b.get_value()))
-                .unwrap()
+                .expect("Label names and values are valid strings and always comparable")
         });
         let mut r = RepeatedField::<remote_write::Label>::default();
         for label in sorted {

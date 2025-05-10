@@ -15,6 +15,7 @@ use walrus_core::ShardIndex;
 use super::{BINARY_PATH, ProtocolCommands, ProtocolMetrics, ProtocolParameters};
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 
+/// Represents how shards are allocated across nodes.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 enum ShardsAllocation {
     /// Evenly distribute the specified number of shards among the nodes.
@@ -24,8 +25,14 @@ enum ShardsAllocation {
 }
 
 impl Default for ShardsAllocation {
+    /// Create the default shard allocation configuration.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if creating a `NonZeroU16` with value 10 fails,
+    /// which is impossible and thus this is guaranteed to succeed.
     fn default() -> Self {
-        Self::Even(NonZeroU16::new(10).unwrap())
+        Self::Even(NonZeroU16::new(10).expect("10 is a valid NonZeroU16"))
     }
 }
 
