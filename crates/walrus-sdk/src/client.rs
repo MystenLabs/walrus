@@ -2223,13 +2223,13 @@ impl<T> Client<T> {
 
 /// A facade for Quilt-related operations
 #[derive(Debug, Clone)]
-pub struct QuiltClientFacade<'a, T, V: QuiltVersion> {
+pub struct QuiltClient<'a, T, V: QuiltVersion> {
     client: &'a Client<T>,
     _version: PhantomData<V>,
 }
 
-impl<'a, T: ReadClient, V: QuiltVersion> QuiltClientFacade<'a, T, V> {
-    /// Creates a new QuiltClientFacade for the given client.
+impl<'a, T: ReadClient, V: QuiltVersion> QuiltClient<'a, T, V> {
+    /// Creates a new QuiltClient for the given client.
     pub fn new(client: &'a Client<T>) -> Self {
         Self {
             client,
@@ -2366,7 +2366,7 @@ impl<'a, T: ReadClient, V: QuiltVersion> QuiltClientFacade<'a, T, V> {
     }
 }
 
-impl<V: QuiltVersion> QuiltClientFacade<'_, SuiContractClient, V> {
+impl<V: QuiltVersion> QuiltClient<'_, SuiContractClient, V> {
     /// Stores all files from a folder as a quilt, using file names as descriptions.
     #[tracing::instrument(skip_all, fields(path = %path.display()))]
     pub async fn reserve_and_store_quilt_from_path(
