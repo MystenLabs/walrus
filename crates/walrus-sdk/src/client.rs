@@ -6,13 +6,15 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    fs,
+    marker::PhantomData,
     path::PathBuf,
     sync::Arc,
     time::Instant,
 };
 
 use anyhow::anyhow;
-pub use client_types::{WalrusStoreBlob, WalrusStoreBlobApi};
+pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
@@ -29,18 +31,31 @@ use walrus_core::{
     EpochCount,
     ShardIndex,
     Sliver,
+    SliverIndex,
     bft,
     encoding::{
         BlobDecoderEnum,
+        BlobWithIdentifier,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
+        Primary,
+        QuiltApi,
+        QuiltConfigApi,
+        QuiltConfigV1,
+        QuiltDecoderApi,
+        QuiltDecoderV1,
+        QuiltEncoderApi,
+        QuiltError,
+        QuiltVersion,
+        QuiltVersionEnum,
+        Secondary,
         SliverData,
         SliverPair,
     },
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
@@ -61,7 +76,7 @@ use self::{
     communication::NodeResult,
     refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
-    responses::{BlobStoreResult, BlobStoreResultWithPath},
+    responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
 };
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
@@ -82,6 +97,51 @@ pub mod metrics;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+
+// Reads all files recursively from a given path and returns them as path-content pairs.
+///
+/// If the path is a file, it's read directly.
+/// If the path is a directory, its files are read recursively.
+/// Only regular files (not directories or other special files) are included in the result.
+/// If the provided path is unreadable, or not a file or directory, an error is returned.
+fn read_blobs_from_path(path: PathBuf) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
+    let mut collected_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+
+    if path.is_file() {
+        // Path is a file, read it and return.
+        let content = fs::read(&path).map_err(ClientError::other)?;
+        collected_files.push((path, content));
+        Ok(collected_files)
+    } else if path.is_dir() {
+        // Path is a directory, process its entries.
+        let dir_entries = fs::read_dir(&path).map_err(ClientError::other)?;
+
+        for entry_result in dir_entries {
+            let entry = entry_result.map_err(ClientError::other)?;
+            let current_entry_path = entry.path();
+
+            if current_entry_path.is_file() {
+                let content = fs::read(&current_entry_path).map_err(ClientError::other)?;
+                collected_files.push((current_entry_path, content));
+            } else if current_entry_path.is_dir() {
+                // Recursively read this directory and extend the collected_files vector
+                let sub_dir_files = read_blobs_from_path(current_entry_path)?;
+                collected_files.extend(sub_dir_files);
+            }
+            // Other entry types (symlinks, etc.) are ignored.
+        }
+        Ok(collected_files)
+    } else {
+        // Path is not a file or directory, or is unreadable.
+        Err(ClientError::from(ClientErrorKind::Other(
+            format!(
+                "Path is not a readable file or directory: {}",
+                path.display()
+            )
+            .into(),
+        )))
+    }
+}
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -400,6 +460,285 @@ impl<T: ReadClient> Client<T> {
             },
             result = future => result,
         }
+    }
+
+    /// Gets the certified epoch for a blob, handling epoch changes appropriately.
+    ///
+    /// This function determines the correct epoch to use when retrieving blob data:
+    /// - During epoch changes, it uses the initial certified epoch from the blob status
+    /// - Otherwise, it uses the current epoch
+    ///
+    /// Returns an error if the blob doesn't exist or if the certified epoch is ahead of
+    /// the client's epoch.
+    async fn get_certified_epoch(
+        &self,
+        blob_id: &BlobId,
+        blob_status: Option<BlobStatus>,
+    ) -> ClientResult<Epoch> {
+        let committees = self.get_committees().await?;
+
+        let certified_epoch = if committees.is_change_in_progress() {
+            tracing::info!("epoch change in progress, reading from initial certified epoch");
+            let blob_status = match blob_status {
+                Some(status) => status,
+                None => {
+                    self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                        .await?
+                }
+            };
+            blob_status
+                .initial_certified_epoch()
+                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
+        } else {
+            // We are not during epoch change, we can read from the current epoch directly.
+            committees.epoch()
+        };
+
+        // Return early if the committee is behind.
+        let current_epoch = committees.epoch();
+        if certified_epoch > current_epoch {
+            return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
+                client_epoch: current_epoch,
+                certified_epoch,
+            }));
+        }
+
+        Ok(certified_epoch)
+    }
+
+    /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
+    ///
+    /// This function will keep retrying until all requested slivers are received or the maximum
+    /// number of retries is reached.
+    pub async fn retrieve_slivers_with_retry<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+        max_retries: Option<usize>,
+        timeout_duration: Option<Duration>,
+    ) -> Result<Vec<SliverData<E>>, ClientError>
+    where
+        SliverData<E>: TryFrom<walrus_core::Sliver>,
+    {
+        let mut all_slivers: HashMap<SliverIndex, SliverData<E>> = HashMap::new();
+        let mut missing_indices: Vec<SliverIndex> = sliver_indices.to_vec();
+        let mut retry_count = 0;
+        let retry_delay_ms = 100; // Fixed retry delay of 100ms
+        let timeout_duration = timeout_duration.unwrap_or(Duration::from_secs(30));
+        let start_time = Instant::now();
+
+        while !missing_indices.is_empty() {
+            // Check if we've exceeded the timeout.
+            if start_time.elapsed() > timeout_duration {
+                tracing::warn!(
+                    "Timeout reached after {:?} while retrieving slivers",
+                    timeout_duration
+                );
+                break;
+            }
+
+            // Check if we've exceeded max retries.
+            if let Some(max) = max_retries {
+                if retry_count >= max {
+                    tracing::debug!("Max retry count ({}) reached", max);
+                    break;
+                }
+            }
+
+            tracing::debug!("Retrieving missing slivers: {:?}", missing_indices);
+
+            match self
+                .retrieve_slivers_retry_committees(metadata, &missing_indices, certified_epoch)
+                .await
+            {
+                Ok(new_slivers) => {
+                    // Track which indices we've successfully retrieved
+                    let retrieved_indices: Vec<SliverIndex> =
+                        new_slivers.iter().map(|s| s.index).collect();
+
+                    // Add new slivers to our collection
+                    for sliver in new_slivers {
+                        all_slivers.insert(sliver.index, sliver);
+                    }
+
+                    // Update missing indices for next attempt
+                    missing_indices.retain(|idx| !retrieved_indices.contains(idx));
+
+                    if !missing_indices.is_empty() {
+                        tracing::debug!(
+                            "Still missing slivers: {:?} (attempt {}/{}, elapsed: {:?})",
+                            missing_indices,
+                            retry_count + 1,
+                            max_retries.unwrap_or(usize::MAX),
+                            start_time.elapsed()
+                        );
+                        tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Error retrieving slivers: {:?}", e);
+                    tokio::time::sleep(Duration::from_millis(retry_delay_ms * 2)).await;
+                }
+            }
+
+            retry_count += 1;
+        }
+
+        // Log summary of retrieval operation
+        let total_requested = sliver_indices.len();
+        let total_retrieved = all_slivers.len();
+
+        if total_retrieved == total_requested {
+            tracing::debug!(
+                "Successfully retrieved all {} slivers after {} attempts and {:?}",
+                total_requested,
+                retry_count,
+                start_time.elapsed()
+            );
+            return Ok(all_slivers.into_values().collect());
+        }
+
+        tracing::debug!(
+            "Retrieved {}/{} requested slivers after {} attempts and {:?}",
+            total_retrieved,
+            total_requested,
+            retry_count,
+            start_time.elapsed()
+        );
+
+        Err(ClientError::from(ClientErrorKind::Other(
+            format!(
+                "Failed to retrieve all slivers after {} attempts and {:?}",
+                retry_count,
+                start_time.elapsed()
+            )
+            .into(),
+        )))
+    }
+
+    /// Retrieves specific slivers from storage nodes based on their indices.
+    ///
+    /// The operation is retried if epoch it fails due to epoch change.
+    pub async fn retrieve_slivers_retry_committees<U>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<SliverData<U>>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        self.retry_if_notified_epoch_change(|| {
+            self.retrieve_slivers::<U>(metadata, sliver_indices, certified_epoch)
+        })
+        .await
+    }
+
+    /// Retrieves specific slivers from storage nodes based on their indices.
+    ///
+    /// This function:
+    /// 1. Maps sliver indices to the nodes that host them
+    /// 2. Retrieves the slivers from those nodes
+    ///
+    /// Returns the retrieved slivers or an error if they cannot be found.
+    #[tracing::instrument(level = Level::ERROR, skip_all)]
+    pub async fn retrieve_slivers<'a, E: EncodingAxis>(
+        &self,
+        metadata: &'a VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<SliverData<E>>>
+    where
+        SliverData<E>: TryFrom<Sliver>,
+    {
+        let blob_id = metadata.blob_id();
+        tracing::debug!("starting to retrieve specific slivers");
+        self.check_blob_id(blob_id)?;
+
+        let committees = self.get_committees().await?;
+
+        // Create a progress bar to track the progress of the sliver retrieval.
+        let progress_bar: indicatif::ProgressBar = styled_progress_bar(sliver_indices.len() as u64);
+        progress_bar.set_message("requesting specific slivers");
+
+        // Get communications with storage nodes
+        let comms = self
+            .communication_factory
+            .node_read_communications(&committees, certified_epoch)?;
+
+        // Find which nodes have which slivers
+        let node_to_sliver_indices =
+            find_nodes_for_sliver_indices::<E>(blob_id, sliver_indices, &committees).await;
+
+        // Create futures for retrieving slivers from each node
+        let n_shards = committees.n_shards();
+        let futures = node_to_sliver_indices
+            .iter()
+            .flat_map(|(&node_idx, indices)| {
+                let node_comms = &comms[node_idx];
+                let pb_clone = progress_bar.clone();
+                indices.iter().map(move |&sliver_idx| {
+                    // Convert sliver index to pair index based on encoding axis
+                    let pair_idx = sliver_idx.to_pair_index::<E>(n_shards);
+
+                    // Get the shard index for this pair
+                    let shard_idx = pair_idx.to_shard_index(n_shards, blob_id);
+
+                    node_comms
+                        .retrieve_verified_sliver::<E>(metadata, shard_idx)
+                        .instrument(node_comms.span.clone())
+                        // Increment the progress bar if the sliver is successfully retrieved.
+                        .inspect({
+                            let value = pb_clone.clone();
+                            move |result| {
+                                if result.is_ok() {
+                                    value.inc(1)
+                                }
+                            }
+                        })
+                })
+            });
+
+        let mut requests = WeightedFutures::new(futures);
+
+        // Execute all requests with appropriate concurrency limits
+        requests
+            .execute_weight(
+                &|_| false, // We want to execute all futures
+                self.communication_limits
+                    .max_concurrent_sliver_reads_for_blob_size(
+                        metadata.metadata().unencoded_length(),
+                        &self.encoding_config,
+                        metadata.metadata().encoding_type(),
+                    ),
+            )
+            .await;
+
+        progress_bar.finish_with_message("slivers received");
+
+        let mut n_not_found = 0;
+        let mut n_forbidden = 0;
+        let slivers = requests
+            .take_results()
+            .into_iter()
+            .filter_map(|NodeResult { node, result, .. }| {
+                result
+                    .map_err(|error| {
+                        tracing::debug!(%node, %error, "retrieving sliver failed");
+                        if error.is_status_not_found() {
+                            n_not_found += 1;
+                        } else if error.is_blob_blocked() {
+                            n_forbidden += 1;
+                        }
+                    })
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+        tracing::info!("Received slivers: {:?}", slivers);
+
+        Ok(slivers)
     }
 }
 
@@ -1882,6 +2221,246 @@ impl<T> Client<T> {
     }
 }
 
+/// A facade for Quilt-related operations
+#[derive(Debug, Clone)]
+pub struct QuiltClientFacade<'a, T, V: QuiltVersion> {
+    client: &'a Client<T>,
+    _version: PhantomData<V>,
+}
+
+impl<'a, T: ReadClient, V: QuiltVersion> QuiltClientFacade<'a, T, V> {
+    /// Creates a new QuiltClientFacade for the given client.
+    pub fn new(client: &'a Client<T>) -> Self {
+        Self {
+            client,
+            _version: PhantomData,
+        }
+    }
+
+    /// Retrieves the [`QuiltMetadata`] for a quilt
+    pub async fn get_quilt_metadata(&self, quilt_id: &BlobId) -> ClientResult<QuiltMetadata> {
+        // // Check cache first
+        // {
+        //     let cache = self.client.quilt_cache.lock().unwrap();
+        //     if let Some(metadata) = cache.get(quilt_id) {
+        //         return Ok(metadata.clone());
+        //     }
+        // }
+        self.client.check_blob_id(quilt_id)?;
+        let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;
+        let metadata = self
+            .client
+            .retrieve_metadata(certified_epoch, quilt_id)
+            .await?;
+
+        let slivers = self
+            .client
+            .retrieve_slivers_with_retry::<Secondary>(
+                &metadata,
+                &[SliverIndex::new(0)],
+                certified_epoch,
+                None,
+                None,
+            )
+            .await?;
+
+        let first_sliver = slivers.first().expect("no sliver received");
+
+        let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data());
+        match quilt_version {
+            QuiltVersionEnum::V1 => {
+                let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
+                let mut decoder = QuiltDecoderV1::new(&sliver_refs);
+                let quilt_index = decoder.decode_quilt_index().map_err(ClientError::other)?;
+                Ok(QuiltMetadata::V1(QuiltMetadataV1 {
+                    quilt_blob_id: *quilt_id,
+                    metadata: metadata.metadata().clone(),
+                    index: quilt_index.clone(),
+                }))
+            }
+            other => Err(ClientError::other(QuiltError::Other(format!(
+                "unsupported quilt version: {:?}",
+                other
+            )))),
+        }
+    }
+
+    /// Retrieves the list of blobs contained in a quilt
+    pub async fn get_blobs(
+        &self,
+        quilt_id: &BlobId,
+        identifiers: &[&str],
+    ) -> ClientResult<Vec<Vec<u8>>> {
+        let metadata = self.get_quilt_metadata(quilt_id).await?;
+
+        match metadata {
+            QuiltMetadata::V1(metadata) => {
+                let mut decoder = QuiltDecoderV1::new_with_quilt_index(&[], metadata.index.clone());
+                let mut sliver_indices = Vec::new();
+                for &identifier in identifiers {
+                    match metadata.index.get_quilt_patch_by_identifier(identifier) {
+                        Ok(patch) => {
+                            // Add all indices in the range [start_index, end_index)
+                            for idx in patch.start_index..patch.end_index {
+                                sliver_indices.push(SliverIndex::new(idx));
+                            }
+                        }
+                        Err(e) => {
+                            return Err(ClientError::from(ClientErrorKind::Other(Box::new(e))));
+                        }
+                    }
+                }
+
+                // Retrieve necessary blob data
+                let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;
+
+                // Retrieve the slivers using the existing helper
+                let retrieve_slivers = self
+                    .client
+                    .retrieve_slivers_with_retry::<Secondary>(
+                        &metadata.get_verified_metadata(),
+                        &sliver_indices,
+                        certified_epoch,
+                        None,
+                        None,
+                    )
+                    .await;
+
+                let blobs = if let Ok(slivers) = retrieve_slivers {
+                    let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
+                    decoder.add_slivers(&sliver_refs);
+
+                    identifiers
+                        .iter()
+                        .map(|identifier| {
+                            decoder
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    let quilt_blob = self
+                        .client
+                        .read_blob_retry_committees::<Primary>(quilt_id)
+                        .await?;
+                    let quilt = QuiltConfigV1::parse_from_quilt_blob(
+                        quilt_blob,
+                        &metadata,
+                        self.client.encoding_config().n_shards(),
+                    )
+                    .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))?;
+
+                    identifiers
+                        .iter()
+                        .map(|identifier| {
+                            quilt
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                };
+
+                Ok(blobs)
+            }
+        }
+    }
+}
+
+impl<V: QuiltVersion> QuiltClientFacade<'_, SuiContractClient, V> {
+    /// Stores all files from a folder as a quilt, using file names as descriptions.
+    #[tracing::instrument(skip_all, fields(path = %path.display()))]
+    pub async fn reserve_and_store_quilt_from_path(
+        &self,
+        path: PathBuf,
+        encoding_type: EncodingType,
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult<V>> {
+        // Read files from the folder.
+        let blobs_with_paths = read_blobs_from_path(path).map_err(|e| {
+            ClientError::from(ClientErrorKind::Other(
+                format!("Failed to read directory: {}", e).into(),
+            ))
+        })?;
+        if blobs_with_paths.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                "No valid files found in the specified folder".into(),
+            )));
+        }
+
+        let blobs_with_identifiers: Vec<_> = blobs_with_paths
+            .iter()
+            .map(|(path, blob)| {
+                BlobWithIdentifier::new(
+                    blob,
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+
+        self.reserve_and_store_quilt(
+            &blobs_with_identifiers,
+            encoding_type,
+            epochs_ahead,
+            store_when,
+            persistence,
+            post_store,
+        )
+        .await
+    }
+
+    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
+    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
+    /// [`ConfirmationCertificate`] on chain.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn reserve_and_store_quilt(
+        &self,
+        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
+        encoding_type: EncodingType,
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult<V>> {
+        if blobs_with_identifiers.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::StoreBlobInternal(
+                "no blobs to store".to_string(),
+            )));
+        }
+
+        let encoder = V::QuiltConfig::get_encoder(
+            self.client.encoding_config().get_for_type(encoding_type),
+            blobs_with_identifiers,
+        );
+        let quilt = encoder
+            .construct_quilt()
+            .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))?;
+
+        let result = self
+            .client
+            .reserve_and_store_blobs_retry_committees(
+                &[quilt.data()],
+                encoding_type,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+                None,
+            )
+            .await?;
+
+        Ok(QuiltStoreResult {
+            quilt_blob_store_result: result.first().unwrap().clone(),
+            quilt_index: quilt.quilt_index().clone(),
+        })
+    }
+}
+
 /// Verifies the [`BlobStatus`] using the on-chain event.
 ///
 /// This only verifies the [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] variants and does
@@ -1930,4 +2509,38 @@ async fn verify_blob_status_event(
     };
 
     Ok(())
+}
+
+/// This function maps multiple sliver indices to the nodes that hold them.
+///
+/// Returns a mapping from node indices to the pair indices they hold.
+///
+/// For primary slivers, the sliver index is directly converted to a pair index.
+/// For secondary slivers, the sliver index is converted using n_shards - index - 1.
+async fn find_nodes_for_sliver_indices<E: EncodingAxis>(
+    blob_id: &BlobId,
+    sliver_indices: &[SliverIndex],
+    committees: &ActiveCommittees,
+) -> HashMap<usize, Vec<SliverIndex>> {
+    let mut node_to_sliver_indices: HashMap<usize, Vec<SliverIndex>> = HashMap::new();
+    let n_shards = committees.n_shards();
+
+    for &sliver_index in sliver_indices {
+        // Convert sliver index to pair index based on encoding axis
+        let pair_index = sliver_index.to_pair_index::<E>(n_shards);
+
+        // Get the shard index for this pair
+        let shard_index = pair_index.to_shard_index(n_shards, blob_id);
+
+        for (node_idx, node) in committees.write_committee().members().iter().enumerate() {
+            if node.shard_ids.contains(&shard_index) {
+                node_to_sliver_indices
+                    .entry(node_idx)
+                    .or_default()
+                    .push(sliver_index);
+            }
+        }
+    }
+
+    node_to_sliver_indices
 }
