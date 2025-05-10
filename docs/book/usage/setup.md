@@ -232,3 +232,9 @@ wallet_config:
 # blob due to timeouts or other networking errors.
 {{ #include ../setup/client_config_example.yaml:8: }}
 ```
+
+## Learn more
+
+```admonish info title="RedStuff Encoding Algorithm"
+Walrus uses an optimized erasure coding algorithm called **RedStuff** to achieve efficient and fault-tolerant data storage.  
+You can learn more about this algorithm in [the detailed documentation](https://github.com/MystenLabs/walrus/blob/main/docs/red-stuff.md)
