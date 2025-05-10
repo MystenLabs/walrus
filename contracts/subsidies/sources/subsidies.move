@@ -224,6 +224,33 @@ public fun reserve_space(
     storage
 }
 
+/// Proxy Register blob by calling the system contract
+public fun register_blob(
+    self: &mut Subsidies,
+    system: &mut System,
+    storage: Storage,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Blob {
+    assert!(self.version == VERSION, EWrongVersion);
+    let blob = system.register_blob(
+        storage,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        deletable,
+        write_payment,
+        ctx,
+    );
+    blob
+}
+
 entry fun migrate(subsidies: &mut Subsidies, admin_cap: &AdminCap, package_id: ID) {
     check_admin(subsidies, admin_cap);
     check_version_upgrade(subsidies);

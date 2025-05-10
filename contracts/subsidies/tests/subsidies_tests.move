@@ -212,7 +212,7 @@ fun test_extend_blob_no_funds_no_subsidies(): (System, Coin<WAL>, Blob) {
 
     let storage = get_storage_resource(&mut system, ENCODED_SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+    let mut blob = register_default_blob(&mut subsidies, &mut system, storage, false);
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
@@ -243,7 +243,7 @@ fun test_extend_blob_no_funds_buyer_subsidies(): (System, Coin<WAL>, Blob) {
 
     let storage = get_storage_resource(&mut system, ENCODED_SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+    let mut blob = register_default_blob(&mut subsidies, &mut system, storage, false);
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
@@ -272,7 +272,7 @@ fun test_extend_blob_no_funds_storage_node_subsidies(): (System, Coin<WAL>, Blob
 
     let storage = get_storage_resource(&mut system, ENCODED_SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+    let mut blob = register_default_blob(&mut subsidies, &mut system, storage, false);
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
@@ -304,7 +304,7 @@ fun test_extend_blob_funds_with_subsidies(): (System, Coin<WAL>, Blob) {
     let mut payment = mint_frost(1000, ctx);
     let storage = get_storage_resource(&mut system, ENCODED_SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+    let mut blob = register_default_blob(&mut subsidies, &mut system, storage, false);
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
@@ -479,7 +479,7 @@ fun test_extend_blob_funds_with_subsidies_full_pool_consumption(): (System, Coin
     let mut payment = mint_frost(1000, ctx);
     let storage = get_storage_resource(&mut system, ENCODED_SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+    let mut blob = register_default_blob(&mut subsidies, &mut system, storage, false);
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
@@ -542,12 +542,18 @@ fun test_subsidies_with_zero_system_rate(): (System, Coin<WAL>, Storage) {
     (system, payment, storage)
 }
 
-fun register_default_blob(system: &mut System, storage: Storage, deletable: bool): Blob {
+fun register_default_blob(
+    subsidies: &mut Subsidies,
+    system: &mut System,
+    storage: Storage,
+    deletable: bool,
+): Blob {
     let ctx = &mut tx_context::dummy();
     let mut fake_coin = mint_frost(N_COINS, ctx);
     // Register a Blob
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, UNENCODED_SIZE);
-    let blob = system.register_blob(
+    let blob = subsidies.register_blob(
+        system,
         storage,
         blob_id,
         ROOT_HASH,
