@@ -146,7 +146,7 @@ pub trait QuiltApi<V: QuiltVersion> {
 }
 
 /// A wrapper around a blob and its identifier.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlobWithIdentifier<'a> {
     blob: &'a [u8],
     identifier: String,
@@ -159,6 +159,43 @@ impl<'a> BlobWithIdentifier<'a> {
             blob,
             identifier: identifier.into(),
         }
+    }
+
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &'a [u8] {
+        self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// A wrapper around an owned blob and its identifier.
+#[derive(Debug, Clone)]
+pub struct BlobWithIdentifierOwned {
+    blob: Vec<u8>,
+    identifier: String,
+}
+
+impl BlobWithIdentifierOwned {
+    /// Creates a new `BlobWithIdentifierOwned` from an owned blob and an identifier.
+    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+        }
+    }
+
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &[u8] {
+        &self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
     }
 }
 

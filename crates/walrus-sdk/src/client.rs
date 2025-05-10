@@ -7,7 +7,6 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     fs,
-    marker::PhantomData,
     path::PathBuf,
     sync::Arc,
     time::Instant,
@@ -36,6 +35,7 @@ use walrus_core::{
     encoding::{
         BlobDecoderEnum,
         BlobWithIdentifier,
+        BlobWithIdentifierOwned,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
@@ -2219,24 +2219,27 @@ impl<T> Client<T> {
         let (_, price_computation) = self.get_committees_and_price().await?;
         Ok(price_computation)
     }
+
+    /// Returns a new QuiltClient for storing quilt blobs.
+    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
+        QuiltClient::new(self)
+    }
 }
 
 /// A facade for Quilt-related operations
 #[derive(Debug, Clone)]
-pub struct QuiltClient<'a, T, V: QuiltVersion> {
+pub struct QuiltClient<'a, T> {
     client: &'a Client<T>,
-    _version: PhantomData<V>,
 }
 
-impl<'a, T: ReadClient, V: QuiltVersion> QuiltClient<'a, T, V> {
+impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient for the given client.
     pub fn new(client: &'a Client<T>) -> Self {
-        Self {
-            client,
-            _version: PhantomData,
-        }
+        Self { client }
     }
+}
 
+impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the [`QuiltMetadata`] for a quilt
     pub async fn get_quilt_metadata(&self, quilt_id: &BlobId) -> ClientResult<QuiltMetadata> {
         // // Check cache first
@@ -2290,7 +2293,7 @@ impl<'a, T: ReadClient, V: QuiltVersion> QuiltClient<'a, T, V> {
         &self,
         quilt_id: &BlobId,
         identifiers: &[&str],
-    ) -> ClientResult<Vec<Vec<u8>>> {
+    ) -> ClientResult<Vec<BlobWithIdentifierOwned>> {
         let metadata = self.get_quilt_metadata(quilt_id).await?;
 
         match metadata {
@@ -2326,18 +2329,19 @@ impl<'a, T: ReadClient, V: QuiltVersion> QuiltClient<'a, T, V> {
                     )
                     .await;
 
-                let blobs = if let Ok(slivers) = retrieve_slivers {
+                if let Ok(slivers) = retrieve_slivers {
                     let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
                     decoder.add_slivers(&sliver_refs);
 
                     identifiers
                         .iter()
                         .map(|identifier| {
-                            decoder
-                                .get_blob_by_identifier(identifier)
-                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                            let blob = decoder.get_blob_by_identifier(identifier).map_err(|e| {
+                                ClientError::from(ClientErrorKind::Other(Box::new(e)))
+                            })?;
+                            Ok(BlobWithIdentifierOwned::new(blob, *identifier))
                         })
-                        .collect::<Result<Vec<_>, _>>()?
+                        .collect::<Result<Vec<_>, _>>()
                 } else {
                     let quilt_blob = self
                         .client
@@ -2353,23 +2357,22 @@ impl<'a, T: ReadClient, V: QuiltVersion> QuiltClient<'a, T, V> {
                     identifiers
                         .iter()
                         .map(|identifier| {
-                            quilt
-                                .get_blob_by_identifier(identifier)
-                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                            let blob = quilt.get_blob_by_identifier(identifier).map_err(|e| {
+                                ClientError::from(ClientErrorKind::Other(Box::new(e)))
+                            })?;
+                            Ok(BlobWithIdentifierOwned::new(blob, *identifier))
                         })
-                        .collect::<Result<Vec<_>, _>>()?
-                };
-
-                Ok(blobs)
+                        .collect::<Result<Vec<_>, _>>()
+                }
             }
         }
     }
 }
 
-impl<V: QuiltVersion> QuiltClient<'_, SuiContractClient, V> {
+impl QuiltClient<'_, SuiContractClient> {
     /// Stores all files from a folder as a quilt, using file names as descriptions.
     #[tracing::instrument(skip_all, fields(path = %path.display()))]
-    pub async fn reserve_and_store_quilt_from_path(
+    pub async fn reserve_and_store_quilt_from_path<V: QuiltVersion>(
         &self,
         path: PathBuf,
         encoding_type: EncodingType,
@@ -2418,7 +2421,7 @@ impl<V: QuiltVersion> QuiltClient<'_, SuiContractClient, V> {
     /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
     /// [`ConfirmationCertificate`] on chain.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_quilt(
+    pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
         blobs_with_identifiers: &[BlobWithIdentifier<'_>],
         encoding_type: EncodingType,
