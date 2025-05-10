@@ -153,7 +153,7 @@ impl ClientConfig {
     }
 
     /// Creates a [`SuiReadClient`] based on the configuration.
-    pub async fn new_read_client(
+    pub async fn new_read_client_with_refresher(
         &self,
         sui_client: RetriableSuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {

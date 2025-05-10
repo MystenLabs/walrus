@@ -69,7 +69,7 @@ pub fn combine_rpc_urls(rpc: &str, additional_rpc_endpoints: &[String]) -> Vec<S
 
 impl SuiConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
-    pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
+    pub async fn new_read_client_with_refresher(&self) -> Result<SuiReadClient, SuiClientError> {
         let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
         SuiReadClient::new_for_rpc_urls(
             &combined_rpc_urls,
@@ -153,7 +153,7 @@ pub struct SuiReaderConfig {
 
 impl SuiReaderConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
-    pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
+    pub async fn new_read_client_with_refresher(&self) -> Result<SuiReadClient, SuiClientError> {
         let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
         SuiReadClient::new_for_rpc_urls(
             &combined_rpc_urls,

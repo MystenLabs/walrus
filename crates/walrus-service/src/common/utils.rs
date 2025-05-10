@@ -724,8 +724,7 @@ pub async fn collect_event_blobs_for_catchup(
     let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
 
     let walrus_client =
-        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
-            .await?;
+        walrus_sdk::client::Client::new_read_client(config, sui_read_client.clone()).await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
     let blob_ids = blob_downloader

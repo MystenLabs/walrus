@@ -478,7 +478,7 @@ impl SimStorageNodeHandle {
 
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
-        let sui_read_client = sui_config.new_read_client().await?;
+        let sui_read_client = sui_config.new_read_client_with_refresher().await?;
         let event_provider: Box<dyn EventManager> = if config.use_legacy_event_provider {
             Box::new(crate::node::system_events::SuiSystemEventProvider::new(
                 sui_read_client.clone(),

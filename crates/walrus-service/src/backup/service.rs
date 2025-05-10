@@ -605,8 +605,7 @@ async fn backup_fetcher(
         ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
     let read_client =
-        Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())
-            .await?;
+        Client::new_read_client(walrus_client_config, sui_read_client.clone()).await?;
 
     let mut consecutive_fetch_errors = 0;
     loop {

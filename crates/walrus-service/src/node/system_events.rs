@@ -187,7 +187,7 @@ impl SuiSystemEventProvider {
     /// Creates a new provider with for a [`SuiReadClient`] constructed from the config.
     pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
         Ok(Self::new(
-            config.new_read_client().await?,
+            config.new_read_client_with_refresher().await?,
             config.event_polling_interval,
         ))
     }

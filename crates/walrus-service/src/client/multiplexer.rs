@@ -77,7 +77,7 @@ impl ClientMultiplexer {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let read_client = Client::new_read_client(
+        let read_client = Client::new_read_client_with_refresher(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),

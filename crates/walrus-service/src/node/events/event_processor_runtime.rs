@@ -51,7 +51,7 @@ impl EventProcessorRuntime {
         };
         let system_config = SystemConfig {
             system_pkg_id: sui_reader_config
-                .new_read_client()
+                .new_read_client_with_refresher()
                 .await?
                 .get_system_package_id(),
             system_object_id: sui_reader_config.contract_config.system_object,
@@ -88,7 +88,8 @@ impl EventProcessorRuntime {
 
         let (event_manager, event_processor_handle): (Box<dyn EventManager>, _) =
             if use_legacy_event_provider {
-                let read_client = runtime.block_on(async { sui_config.new_read_client().await })?;
+                let read_client = runtime
+                    .block_on(async { sui_config.new_read_client_with_refresher().await })?;
                 (
                     Box::new(SuiSystemEventProvider::new(
                         read_client,

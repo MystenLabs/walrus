@@ -175,7 +175,7 @@ impl Client<()> {
 
 impl<T: ReadClient> Client<T> {
     /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(
+    pub async fn new_read_client_with_refresher(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
@@ -189,10 +189,7 @@ impl<T: ReadClient> Client<T> {
     /// Creates a new read client, and starts a committes refresher process in the background.
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
-    pub async fn new_read_client_with_refresher(
-        config: ClientConfig,
-        sui_read_client: T,
-    ) -> ClientResult<Self>
+    pub async fn new_read_client(config: ClientConfig, sui_read_client: T) -> ClientResult<Self>
     where
         T: ReadClient + Clone + 'static,
     {

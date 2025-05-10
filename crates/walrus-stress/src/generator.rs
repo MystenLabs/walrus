@@ -77,14 +77,16 @@ impl LoadGenerator {
         )
         .await?;
 
-        let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
+        let sui_read_client = client_config
+            .new_read_client_with_refresher(sui_client.clone())
+            .await?;
 
         let refresher_handle = client_config
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         for read_client in try_join_all((0..n_clients).map(|_| {
-            Client::new_read_client(
+            Client::new_read_client_with_refresher(
                 client_config.clone(),
                 refresher_handle.clone(),
                 sui_read_client.clone(),

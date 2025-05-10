@@ -482,7 +482,7 @@ impl StorageNodeBuilder {
 pub(crate) async fn create_read_client(
     sui_config: &SuiConfig,
 ) -> Result<SuiReadClient, anyhow::Error> {
-    Ok(sui_config.new_read_client().await?)
+    Ok(sui_config.new_read_client_with_refresher().await?)
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
