@@ -7,18 +7,18 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cmp, fmt, num::NonZeroU16};
+use core::{cmp, fmt};
 use std::collections::HashMap;
 
 use hex;
 use serde::{Deserialize, Serialize};
 use tracing::{Level, Span};
 
-use super::{EncodingConfig, EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
+use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
     SliverIndex,
     encoding::{QuiltError, blob_encoding::BlobEncoder, config::EncodingConfigTrait as _},
-    metadata::{QuiltIndexV1, QuiltMetadataV1, QuiltPatchV1},
+    metadata::{QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1, QuiltPatchV1},
 };
 
 /// The number of bytes to store the size of the quilt index.
@@ -30,36 +30,53 @@ const QUILT_TYPE_SIZE: usize = 1;
 /// The maximum number of columns a quilt index can have.
 const MAX_NUM_COLUMNS_FOR_QUILT_INDEX: usize = 1;
 
+/// Gets the quilt version enum from the data.
+#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+pub fn get_quilt_version_enum(data: &[u8]) -> QuiltVersionEnum {
+    QuiltVersionEnum::new_from_bytes(utils::get_quilt_version_bytes(data))
+}
+
+/// The version of the quilt.
 pub trait QuiltVersion: Sized {
+    /// The type of the quilt config.
     type QuiltConfig: for<'a> QuiltConfigApi<'a, Self>;
+    /// The type of the quilt encoder.
     type QuiltEncoder<'a>: QuiltEncoderApi<Self>;
+    /// The type of the quilt decoder.
     type QuiltDecoder<'a>: QuiltDecoderApi<'a, Self>;
+    /// The type of the quilt.
     type Quilt: QuiltApi<Self>;
-    type QuiltIndex;
+    /// The type of the quilt index.
+    type QuiltIndex: Clone;
+    /// The type of the quilt metadata.
     type QuiltMetadata;
 
     /// The serialized bytes of the quilt type.
     fn quilt_type_bytes() -> &'static [u8];
 }
 
-/// The version of the quilt.
+/// API to access a quilt.
 #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-pub enum QuiltVersionEnum {
-    V1,
-    Invalid,
-}
+pub trait QuiltApi<V: QuiltVersion> {
+    /// Returns a new quilt from a quilt blob.
+    fn new_from_quilt_blob(
+        quilt_blob: Vec<u8>,
+        encoding_config: &EncodingConfigEnum<'_>,
+    ) -> Result<V::Quilt, QuiltError>;
 
-impl QuiltVersionEnum {
-    /// Creates a new `QuiltVersionEnum` from its serialized bytes.
+    /// Gets a blob by its identifier from the quilt.
     #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn new_from_bytes(type_bytes: &[u8]) -> QuiltVersionEnum {
-        match type_bytes {
-            &[0x00] => QuiltVersionEnum::V1,
-            _ => QuiltVersionEnum::Invalid,
-        }
-    }
-}
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
 
+    /// Returns the quilt index.
+    fn quilt_index(&self) -> &V::QuiltIndex;
+
+    /// Returns the data of the quilt.
+    fn data(&self) -> &[u8];
+
+    /// Returns the symbol size of the quilt.
+    fn symbol_size(&self) -> usize;
+}
 /// The configuration of the quilt.
 #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltConfigApi<'a, V: QuiltVersion> {
@@ -71,13 +88,6 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
 
     /// Returns a new decoder for the given slivers.
     fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> V::QuiltDecoder<'a>;
-
-    /// Loads a raw quilt blob into a Quilt.
-    fn parse_from_quilt(
-        quilt_blob: Vec<u8>,
-        metadata: &V::QuiltMetadata,
-        n_shards: NonZeroU16,
-    ) -> Result<V::Quilt, QuiltError>;
 }
 
 /// Encoder to construct a quilt and encode the blobs into slivers.
@@ -90,7 +100,7 @@ pub trait QuiltEncoderApi<V: QuiltVersion> {
     fn encode(&self) -> Result<Vec<SliverPair>, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
-    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, V::QuiltMetadata), QuiltError>;
+    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadata), QuiltError>;
 }
 
 /// Decoder to decode a quilt from slivers.
@@ -112,24 +122,59 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
 }
 
-/// API to access a quilt.
-pub trait QuiltApi<V: QuiltVersion> {
-    /// Gets a blob by its identifier from the quilt.
+/// The version of the quilt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuiltVersionEnum {
+    /// QuiltVersionV1.
+    V1,
+    /// Invalid version.
+    Invalid,
+}
+
+impl QuiltVersionEnum {
+    /// Creates a new `QuiltVersionEnum` from its serialized bytes.
     #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
+    pub fn new_from_bytes(type_bytes: &[u8]) -> QuiltVersionEnum {
+        match type_bytes {
+            &[0x00] => QuiltVersionEnum::V1,
+            _ => QuiltVersionEnum::Invalid,
+        }
+    }
+
+    /// Creates a new `QuiltVersionEnum` from a sliver.
+    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+    pub fn new_from_sliver(sliver: &[u8]) -> QuiltVersionEnum {
+        QuiltVersionEnum::new_from_bytes(&sliver[0..QUILT_TYPE_SIZE])
+    }
+}
+
+/// The quilt enum.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum QuiltEnum {
+    /// The quilt version 1.
+    V1(QuiltV1),
+}
+
+impl QuiltEnum {
+    /// Returns the blob identified by the given identifier.
+    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+    pub fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
+        }
+    }
 
     /// Returns the quilt index.
-    fn quilt_index(&self) -> &V::QuiltIndex;
-
-    /// Returns the data of the quilt.
-    fn data(&self) -> &[u8];
-
-    /// Returns the symbol size of the quilt.
-    fn symbol_size(&self) -> usize;
+    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+    pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => Ok(QuiltIndex::V1(quilt_v1.quilt_index.clone())),
+        }
+    }
 }
 
 /// A wrapper around a blob and its identifier.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlobWithIdentifier<'a> {
     blob: &'a [u8],
     identifier: String,
@@ -144,13 +189,48 @@ impl<'a> BlobWithIdentifier<'a> {
         }
     }
 
-    /// Returns the length of the blob.
-    pub fn len(&self) -> usize {
-        self.blob.len()
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &'a [u8] {
+        self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// A wrapper around an owned blob and its identifier.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+pub struct BlobWithIdentifierOwned {
+    blob: Vec<u8>,
+    identifier: String,
+}
+
+#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+impl BlobWithIdentifierOwned {
+    /// Creates a new `BlobWithIdentifierOwned` from an owned blob and an identifier.
+    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+        }
+    }
+
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &[u8] {
+        &self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
     }
 }
 
 /// Quilt version 1.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
@@ -170,58 +250,9 @@ impl QuiltVersion for QuiltVersionV1 {
     }
 }
 
-/// Configuration for the quilt version 1.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct QuiltConfigV1 {}
-
-impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
-    fn get_encoder(
-        encoding_config: EncodingConfigEnum<'a>,
-        blobs: &'a [BlobWithIdentifier<'a>],
-    ) -> QuiltEncoderV1<'a> {
-        QuiltEncoderV1::new(encoding_config, blobs)
-    }
-
-    fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> QuiltDecoderV1<'a> {
-        QuiltDecoderV1::new(slivers)
-    }
-
-    fn parse_from_quilt(
-        quilt_blob: Vec<u8>,
-        metadata: &QuiltMetadataV1,
-        n_shards: NonZeroU16,
-    ) -> Result<QuiltV1, QuiltError> {
-        let encoding_config = EncodingConfig::new(n_shards);
-        let config = encoding_config.get_for_type(metadata.metadata.encoding_type());
-
-        let n_primary_source_symbols = config.n_primary_source_symbols().get();
-        let n_secondary_source_symbols = config.n_secondary_source_symbols().get();
-        let n_source_symbols = n_primary_source_symbols * n_secondary_source_symbols;
-
-        // Verify data alignment.
-        if quilt_blob.len() % usize::from(n_source_symbols) != 0 {
-            return Err(QuiltError::InvalidFormatNotAligned);
-        }
-
-        // Calculate matrix dimensions.
-        let row_size = quilt_blob.len() / usize::from(n_primary_source_symbols);
-        let symbol_size = row_size / usize::from(n_secondary_source_symbols);
-
-        // Parse the quilt index from the quilt blob.
-        let quilt_index = utils::get_quilt_index_v1_from_data(&quilt_blob, row_size, symbol_size)?;
-        assert_eq!(quilt_index, metadata.index);
-
-        Ok(QuiltV1 {
-            data: quilt_blob,
-            row_size,
-            quilt_index,
-            symbol_size,
-        })
-    }
-}
-
 /// A quilt is a collection of blobs encoded into a single blob.
 ///
+/// For QuiltVersionV1:
 /// The data is organized as a 2D matrix where:
 /// - Each blob occupies a consecutive range of columns (secondary slivers).
 /// - The first column's initial `QUILT_INDEX_SIZE_PREFIX_SIZE` bytes contain the unencoded
@@ -248,6 +279,33 @@ pub struct QuiltV1 {
 }
 
 impl QuiltApi<QuiltVersionV1> for QuiltV1 {
+    fn new_from_quilt_blob(
+        quilt_blob: Vec<u8>,
+        encoding_config: &EncodingConfigEnum<'_>,
+    ) -> Result<QuiltV1, QuiltError> {
+        let n_primary_source_symbols =
+            usize::from(encoding_config.n_source_symbols::<Primary>().get());
+        let n_secondary_source_symbols =
+            usize::from(encoding_config.n_source_symbols::<Secondary>().get());
+        let n_source_symbols: usize = n_primary_source_symbols * n_secondary_source_symbols;
+        assert!(
+            quilt_blob.len() % n_source_symbols == 0,
+            "quilt_blob length {} is not a multiple of n_source_symbols {}",
+            quilt_blob.len(),
+            n_source_symbols
+        );
+        let row_size = quilt_blob.len() / n_primary_source_symbols;
+        let symbol_size = quilt_blob.len() / n_source_symbols;
+        let quilt_index = utils::get_quilt_index_v1_from_data(&quilt_blob, row_size, symbol_size)?;
+
+        Ok(QuiltV1 {
+            data: quilt_blob,
+            row_size,
+            quilt_index,
+            symbol_size,
+        })
+    }
+
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
             .get_quilt_patch_by_identifier(identifier)
@@ -397,6 +455,23 @@ impl fmt::Debug for DebugQuiltIndex<'_> {
     }
 }
 
+/// Configuration for the quilt version 1.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct QuiltConfigV1 {}
+
+impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
+    fn get_encoder(
+        encoding_config: EncodingConfigEnum<'a>,
+        blobs: &'a [BlobWithIdentifier<'a>],
+    ) -> QuiltEncoderV1<'a> {
+        QuiltEncoderV1::new(encoding_config, blobs)
+    }
+
+    fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> QuiltDecoderV1<'a> {
+        QuiltDecoderV1::new(slivers)
+    }
+}
+
 /// EncoderV1.
 #[derive(Debug)]
 pub struct QuiltEncoderV1<'a> {
@@ -524,8 +599,8 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let mut final_index_data = Vec::with_capacity(index_total_size);
         let index_size_u64 = index_total_size as u64;
-        final_index_data.extend_from_slice(&index_size_u64.to_le_bytes());
         final_index_data.extend_from_slice(QuiltVersionV1::quilt_type_bytes());
+        final_index_data.extend_from_slice(&index_size_u64.to_le_bytes());
         final_index_data
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
 
@@ -554,7 +629,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
     }
 
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
-    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadataV1), QuiltError> {
+    fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadata), QuiltError> {
         let _guard = self.span.enter();
         tracing::event!(Level::DEBUG, "starting to encode quilt with metadata");
 
@@ -571,13 +646,13 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         assert_eq!(encoder.symbol_usize(), quilt.symbol_size);
 
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
-        let quilt_metadata = QuiltMetadataV1 {
+        let quilt_metadata = QuiltMetadata::V1(QuiltMetadataV1 {
             quilt_blob_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
                 quilt_patches: quilt.quilt_index().quilt_patches.clone(),
             },
-        };
+        });
 
         Ok((sliver_pairs, quilt_metadata))
     }
@@ -851,12 +926,12 @@ mod utils {
 
     /// Get the data size of the quilt index.
     pub fn get_quilt_index_data_size(combined_data: &[u8]) -> Result<usize, QuiltError> {
-        if combined_data.len() < QUILT_INDEX_SIZE_PREFIX_SIZE {
+        if combined_data.len() < QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE {
             return Err(QuiltError::FailedToExtractQuiltIndexSize);
         }
 
         let data_size = u64::from_le_bytes(
-            combined_data[0..QUILT_INDEX_SIZE_PREFIX_SIZE]
+            combined_data[QUILT_TYPE_SIZE..QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE]
                 .try_into()
                 .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
         );
@@ -865,14 +940,8 @@ mod utils {
         Ok(data_size)
     }
 
-    /// Gets the quilt version enum from the data.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn get_quilt_version_enum(data: &[u8]) -> QuiltVersionEnum {
-        QuiltVersionEnum::new_from_bytes(get_quilt_version_bytes(data))
-    }
-
     pub fn get_quilt_version_bytes(data: &[u8]) -> &[u8] {
-        &data[QUILT_INDEX_SIZE_PREFIX_SIZE..QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE]
+        &data[0..QUILT_TYPE_SIZE]
     }
 
     /// Gets the ith column of data, as if `data` is a 2D matrix.
@@ -969,6 +1038,7 @@ mod utils {
 #[cfg(test)]
 mod tests {
     use alloc::boxed::Box;
+    use core::num::NonZeroU16;
 
     use walrus_test_utils::{param_test, random_data};
 
@@ -1239,6 +1309,8 @@ mod tests {
             quilt_metadata
         );
 
+        let QuiltMetadata::V1(quilt_metadata_v1) = quilt_metadata;
+
         let slivers: Vec<&SliverData<Secondary>> = sliver_pairs
             .iter()
             .map(|sliver_pair| &sliver_pair.secondary)
@@ -1248,8 +1320,7 @@ mod tests {
             .iter()
             .find(|sliver| sliver.index == SliverIndex::new(0))
             .expect("Should find first sliver");
-        let quilt_version: QuiltVersionEnum =
-            utils::get_quilt_version_enum(first_sliver.symbols.data());
+        let quilt_version: QuiltVersionEnum = get_quilt_version_enum(first_sliver.symbols.data());
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
         let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
         assert!(matches!(
@@ -1261,7 +1332,7 @@ mod tests {
         quilt_decoder.add_slivers(&sliver_vec);
         assert_eq!(
             quilt_decoder.decode_quilt_index(),
-            Ok(&quilt_metadata.index)
+            Ok(&quilt_metadata_v1.index)
         );
 
         let identifier = blobs_with_identifiers
@@ -1295,12 +1366,12 @@ mod tests {
         }
 
         let mut decoder = config
-            .get_blob_decoder::<Secondary>(quilt_metadata.metadata.unencoded_length())
+            .get_blob_decoder::<Secondary>(quilt_metadata_v1.metadata.unencoded_length())
             .expect("Should create decoder");
 
         let (quilt_blob, metadata_with_id) = decoder
             .decode_and_verify(
-                &quilt_metadata.quilt_blob_id,
+                &quilt_metadata_v1.quilt_blob_id,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
@@ -1309,10 +1380,9 @@ mod tests {
             .expect("Should decode and verify quilt")
             .expect("Should decode quilt");
 
-        assert_eq!(metadata_with_id.metadata(), &quilt_metadata.metadata);
+        assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 
-        let quilt = QuiltConfigV1::parse_from_quilt(quilt_blob, &quilt_metadata, config.n_shards())
-            .expect("Should create quilt");
+        let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, &config).expect("Should create quilt");
         assert_eq!(
             quilt.data(),
             encoder

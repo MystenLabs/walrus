@@ -86,6 +86,13 @@ impl QuiltPatchV1 {
     }
 }
 
+/// A enum wrapper around the quilt index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QuiltIndex {
+    /// QuiltIndexV1.
+    V1(QuiltIndexV1),
+}
+
 /// An index over the patches(blobs) in a quilt.
 ///
 /// Each quilt patch represents a blob stored in the quilt. And each patch is
