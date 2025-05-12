@@ -987,6 +987,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let QuiltStoreResult {
         quilt_blob_store_result,
         quilt_index,
+        path,
     } = store_operation_result;
     let blob_object = match quilt_blob_store_result {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,

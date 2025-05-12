@@ -239,7 +239,6 @@ impl<W> NodeCommunication<'_, W> {
             .client
             .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config)
             .await;
-
         // Each sliver is in this case requested individually, so the weight is 1.
         self.to_node_result(1, sliver)
     }

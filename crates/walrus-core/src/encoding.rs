@@ -26,10 +26,12 @@ pub use quilt_encoding::{
     QuiltDecoderV1,
     QuiltEncoderApi,
     QuiltEncoderV1,
+    QuiltEnum,
     QuiltV1,
     QuiltVersion,
     QuiltVersionEnum,
     QuiltVersionV1,
+    get_quilt_version_enum,
 };
 
 mod common;

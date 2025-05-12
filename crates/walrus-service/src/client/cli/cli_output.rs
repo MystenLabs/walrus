@@ -9,11 +9,11 @@ use indoc::printdoc;
 use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
-use walrus_core::{BlobId, ShardIndex};
+use walrus_core::{BlobId, ShardIndex, encoding::QuiltVersionV1};
 use walrus_sdk::{
     client::{
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
     format_event_id,
 };
@@ -235,6 +235,29 @@ impl CliOutput for BlobStoreResultWithPath {
                     error_msg,
                 )
             }
+        }
+    }
+}
+
+impl CliOutput for QuiltStoreResult<QuiltVersionV1> {
+    fn print_cli_output(&self) {
+        let path = self.path.clone().unwrap_or_default();
+        let blob_store_result = BlobStoreResultWithPath {
+            blob_store_result: self.quilt_blob_store_result.clone(),
+            path,
+        };
+        blob_store_result.print_cli_output();
+
+        println!("\n{}", "Quilt contents".bold().walrus_purple());
+        for patch in &self.quilt_index.quilt_patches {
+            println!(
+                "{} Blob {} stored in quilt at [{}, {}), size: {}",
+                success(),
+                patch.identifier(),
+                patch.start_index,
+                patch.end_index,
+                HumanReadableBytes(patch.unencoded_length())
+            );
         }
     }
 }

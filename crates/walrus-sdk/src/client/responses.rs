@@ -149,4 +149,6 @@ pub struct QuiltStoreResult<V: QuiltVersion> {
     pub quilt_blob_store_result: BlobStoreResult,
     /// The structure of the quilt.
     pub quilt_index: V::QuiltIndex,
+    /// Path to the directory containing the blobs.
+    pub path: Option<PathBuf>,
 }

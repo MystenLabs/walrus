@@ -42,6 +42,16 @@ where
     ))
 }
 
+/// Can be used to deserialize paths such that the `~` is resolved to the user's home
+/// directory.
+pub fn resolve_home_dir_path<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let path: PathBuf = Deserialize::deserialize(deserializer)?;
+    path_with_resolved_home_dir(path).map_err(D::Error::custom)
+}
+
 fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
     if path.starts_with("~/") {
         let home = home::home_dir().context("unable to resolve home directory")?;
