@@ -7,16 +7,18 @@ on:
         description: 'Mainnet blob ID'
         required: true
         type: string
+        default: 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo'
       testnet-blob-id:
         description: 'Testnet blob ID'
         required: true
         type: string
-  # schedule:
-  #   - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
+        default: 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo'
+  schedule:
+    - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
 
 env:
-  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || '6SCk-C85lApQY_3bGwJMpVve5ASWiIhxWplg22fKHvo' }}
-  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'AYTUffH740r9eHKRgICusBEw-M6DucKqIBAHctZDCC8' }}
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo' }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo' }}
 
 jobs:
   update-cache:
