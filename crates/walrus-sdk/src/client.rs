@@ -675,11 +675,11 @@ impl<T: ReadClient> Client<T> {
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
 
-        // Find which nodes have which slivers
+        // Find which nodes have which slivers.
         let node_to_sliver_indices =
             find_nodes_for_sliver_indices::<E>(blob_id, sliver_indices, &committees).await;
 
-        // Create futures for retrieving slivers from each node
+        // Create futures for retrieving slivers from each node.
         let n_shards = committees.n_shards();
         let futures = node_to_sliver_indices
             .iter()
@@ -690,7 +690,7 @@ impl<T: ReadClient> Client<T> {
                     .expect("node not found");
                 let pb_clone = progress_bar.clone();
                 indices.iter().map(move |&sliver_idx| {
-                    // Convert sliver index to pair index based on encoding axis
+                    // Convert sliver index to pair index based on encoding axis.
                     let pair_idx = sliver_idx.to_pair_index::<E>(n_shards);
 
                     // Get the shard index for this pair
@@ -718,10 +718,10 @@ impl<T: ReadClient> Client<T> {
 
         let mut requests = WeightedFutures::new(futures);
 
-        // Execute all requests with appropriate concurrency limits
+        // Execute all requests with appropriate concurrency limits.
         requests
             .execute_weight(
-                &|_| false, // We want to execute all futures
+                &|_| false, // We want to execute all futures.
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
@@ -2364,7 +2364,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         &metadata.get_verified_metadata(),
                         &sliver_indices,
                         certified_epoch,
-                        None,
+                        Some(2),
                         None,
                     )
                     .await;
@@ -2429,6 +2429,44 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 }
 
 impl QuiltClient<'_, SuiContractClient> {
+    /// Constructs a quilt from a folder of files.
+    pub async fn construct_quilt_from_path<V: QuiltVersion>(
+        &self,
+        path: PathBuf,
+        encoding_type: EncodingType,
+    ) -> ClientResult<V::Quilt> {
+        let blobs_with_paths = read_blobs_from_path(path).map_err(|e| {
+            ClientError::from(ClientErrorKind::Other(
+                format!("Failed to read directory: {}", e).into(),
+            ))
+        })?;
+        if blobs_with_paths.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                "No valid files found in the specified folder".into(),
+            )));
+        }
+
+        let blobs_with_identifiers: Vec<_> = blobs_with_paths
+            .iter()
+            .map(|(path, blob)| {
+                BlobWithIdentifier::new(
+                    blob,
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+
+        let encoder = V::QuiltConfig::get_encoder(
+            self.client.encoding_config().get_for_type(encoding_type),
+            &blobs_with_identifiers,
+        );
+
+        encoder.construct_quilt().map_err(ClientError::other)
+    }
+
     /// Stores all files from a folder as a quilt, using file names as descriptions.
     #[tracing::instrument(skip_all, fields(path = %path.display()))]
     pub async fn reserve_and_store_quilt_from_path<V: QuiltVersion>(

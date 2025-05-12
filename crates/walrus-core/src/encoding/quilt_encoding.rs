@@ -7,12 +7,13 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cmp, fmt};
+use core::{cmp, fmt, hash::Hasher};
 use std::collections::HashMap;
 
 use hex;
 use serde::{Deserialize, Serialize};
 use tracing::{Level, Span};
+use twox_hash::XxHash32;
 
 use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
@@ -121,7 +122,7 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
 }
 
 /// The version of the quilt.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuiltVersionEnum {
     /// QuiltVersionV1.
     V1,
@@ -142,6 +143,24 @@ impl QuiltVersionEnum {
     /// Creates a new `QuiltVersionEnum` from a sliver.
     pub fn new_from_sliver(sliver: &[u8]) -> QuiltVersionEnum {
         QuiltVersionEnum::new_from_bytes(&sliver[0..QUILT_TYPE_SIZE])
+    }
+}
+
+impl From<String> for QuiltVersionEnum {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "v1" | "V1" | "1" => QuiltVersionEnum::V1,
+            _ => QuiltVersionEnum::Invalid,
+        }
+    }
+}
+
+impl fmt::Display for QuiltVersionEnum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QuiltVersionEnum::V1 => write!(f, "v1"),
+            QuiltVersionEnum::Invalid => write!(f, "invalid"),
+        }
     }
 }
 
@@ -501,13 +520,25 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             n_rows
         );
 
-        let mut blob_pairs = Vec::new();
-        for blob in self.blobs.iter() {
-            blob_pairs.push(blob);
-        }
+        // Use hash to sort the blobs, so that the same blobs are encoded in the same order.
+        let mut blob_pairs_with_hash: Vec<_> = self
+            .blobs
+            .iter()
+            .map(|pair| {
+                let mut hasher = XxHash32::default();
+                hasher.write(pair.blob);
+                let hash = hasher.finish() as u32;
+                (pair, hash)
+            })
+            .collect();
+        blob_pairs_with_hash.sort_by(|(a, hash_a), (b, hash_b)| {
+            hash_a.cmp(hash_b).then_with(|| a.blob.cmp(b.blob))
+        });
 
-        // Sort blobs by their identifiers.
-        blob_pairs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+        let blob_pairs: Vec<_> = blob_pairs_with_hash
+            .into_iter()
+            .map(|(pair, _)| pair)
+            .collect();
 
         // Create initial QuiltPatches.
         let quilt_patches: Vec<QuiltPatchV1> = blob_pairs

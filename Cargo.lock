@@ -12051,6 +12051,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
+ "twox-hash 1.6.3",
  "utoipa",
  "walrus-test-utils",
 ]

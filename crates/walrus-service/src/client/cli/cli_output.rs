@@ -9,7 +9,12 @@ use indoc::printdoc;
 use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
-use walrus_core::{BlobId, ShardIndex, encoding::QuiltVersionV1};
+use walrus_core::{
+    BlobId,
+    ShardIndex,
+    encoding::QuiltVersionV1,
+    metadata::{QuiltIndex, QuiltIndexV1},
+};
 use walrus_sdk::{
     client::{
         resource::RegisterBlobOp,
@@ -57,6 +62,7 @@ use crate::client::{
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
+        StoreQuiltDryRunOutput,
         WalletOutput,
     },
 };
@@ -241,24 +247,16 @@ impl CliOutput for BlobStoreResultWithPath {
 
 impl CliOutput for QuiltStoreResult<QuiltVersionV1> {
     fn print_cli_output(&self) {
-        let path = self.path.clone().unwrap_or_default();
+        let Some(path) = self.path.clone() else {
+            println!("Quilt should have been uploaded from a directory.");
+            return;
+        };
         let blob_store_result = BlobStoreResultWithPath {
             blob_store_result: self.quilt_blob_store_result.clone(),
             path,
         };
         blob_store_result.print_cli_output();
-
-        println!("\n{}", "Quilt contents".bold().walrus_purple());
-        for patch in &self.quilt_index.quilt_patches {
-            println!(
-                "{} Blob {} stored in quilt at [{}, {}), size: {}",
-                success(),
-                patch.identifier(),
-                patch.start_index,
-                patch.end_index,
-                HumanReadableBytes(patch.unencoded_length())
-            );
-        }
+        self.quilt_index.print_cli_output();
     }
 }
 
@@ -309,6 +307,44 @@ impl CliOutput for DryRunOutput {
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.storage_cost),
         )
+    }
+}
+
+impl CliOutput for StoreQuiltDryRunOutput {
+    fn print_cli_output(&self) {
+        self.quilt_blob_output.print_cli_output();
+        self.quilt_index.print_cli_output();
+    }
+}
+
+impl CliOutput for QuiltIndex {
+    fn print_cli_output(&self) {
+        match self {
+            QuiltIndex::V1(indexv1) => indexv1.print_cli_output(),
+        }
+    }
+}
+
+impl CliOutput for QuiltIndexV1 {
+    fn print_cli_output(&self) {
+        println!(
+            "{}",
+            format!(
+                "Blob list in quilt, total number of blobs: {}",
+                self.quilt_patches.len()
+            )
+            .bold()
+            .walrus_purple()
+        );
+        for patch in &self.quilt_patches {
+            println!(
+                "{} is stored at [{}, {}), size: {}",
+                patch.identifier().bold().walrus_purple(),
+                patch.start_index,
+                patch.end_index,
+                HumanReadableBytes(patch.unencoded_length())
+            );
+        }
     }
 }
 

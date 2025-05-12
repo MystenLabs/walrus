@@ -21,7 +21,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
-    encoding::{EncodingConfig, EncodingConfigTrait},
+    encoding::{EncodingConfig, EncodingConfigTrait, QuiltVersionEnum},
     ensure,
 };
 use walrus_sui::{
@@ -294,6 +294,19 @@ pub enum CliCommands {
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
+    /// Construct a quilt from a folder of files.
+    ConstructQuilt {
+        /// The path to the directory containing the files to be used to construct the quilt.
+        #[arg(required = true, value_name = "PATH")]
+        path: PathBuf,
+        /// Quilt Version.
+        #[arg(long, default_value_t = QuiltVersionEnum::V1)]
+        version: QuiltVersionEnum,
+        /// The file path where to write the quilt.
+        #[arg(long)]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
+        out: PathBuf,
+    },
     /// Read a blob from Walrus, given the blob ID.
     Read {
         /// The blob ID to be read.
@@ -334,6 +347,17 @@ pub enum CliCommands {
             deserialize_with = "walrus_utils::config::resolve_home_dir_option"
         )]
         out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// List the blobs in a quilt.
+    ListBlobsInQuilt {
+        /// The blob ID to be read.
+        #[serde_as(as = "DisplayFromStr")]
+        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
+        blob_id: BlobId,
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]

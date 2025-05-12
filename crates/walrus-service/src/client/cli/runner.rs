@@ -30,11 +30,13 @@ use walrus_core::{
         EncodingConfig,
         EncodingConfigTrait as _,
         Primary,
+        QuiltApi,
+        QuiltVersionEnum,
         QuiltVersionV1,
         encoded_blob_length_for_n_shards,
     },
     ensure,
-    metadata::BlobMetadataApi as _,
+    metadata::{BlobMetadataApi as _, QuiltIndex, QuiltMetadata},
 };
 use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
@@ -115,6 +117,7 @@ use crate::{
             ServiceHealthInfoOutput,
             ShareBlobOutput,
             StakeOutput,
+            StoreQuiltDryRunOutput,
             WalletOutput,
         },
     },
@@ -224,6 +227,10 @@ impl ClientCommandRunner {
                     encoding_type,
                 )
                 .await
+            }
+
+            CliCommands::ConstructQuilt { path, version, out } => {
+                self.construct_quilt(path, version, out).await
             }
 
             CliCommands::BlobStatus {
@@ -457,6 +464,11 @@ impl ClientCommandRunner {
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => self.read_quilt(blob_id, identifiers, out, rpc_url).await,
+
+            CliCommands::ListBlobsInQuilt {
+                blob_id,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.list_blobs_in_quilt(blob_id, rpc_url).await,
         }
     }
 
@@ -683,20 +695,22 @@ impl ClientCommandRunner {
                 encoding_type.expect("just checked that option is Some")
             ));
         }
+        if persistence.is_deletable() && post_store == PostStoreAction::Share {
+            anyhow::bail!("deletable blobs cannot be shared");
+        }
 
+        tracing::info!("storing files in {} as a quilt on Walrus", path.display());
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
-        if persistence.is_deletable() && post_store == PostStoreAction::Share {
-            anyhow::bail!("deletable blobs cannot be shared");
+        if dry_run {
+            return Self::store_quilt_dry_run(client, path, encoding_type, epochs_ahead, self.json)
+                .await;
         }
-
-        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-
-        tracing::info!("storing files in {} as a quilt on Walrus", path.display());
 
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client();
@@ -718,6 +732,88 @@ impl ClientCommandRunner {
         );
 
         result.print_cli_output();
+        Ok(())
+    }
+
+    /// Performs a dry run of quilt storage
+    async fn store_quilt_dry_run(
+        client: Client<SuiContractClient>,
+        path: PathBuf,
+        encoding_type: EncodingType,
+        epochs_ahead: EpochCount,
+        json: bool,
+    ) -> Result<()> {
+        tracing::info!("performing dry-run for quilt from {}", path.display());
+
+        let quilt_client = client.quilt_client();
+        let quilt = quilt_client
+            .construct_quilt_from_path::<QuiltVersionV1>(path.clone(), encoding_type)
+            .await?;
+        let (_, metadata) =
+            client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
+        let unencoded_size = metadata.metadata().unencoded_length();
+        let encoded_size = encoded_blob_length_for_n_shards(
+            client.encoding_config().n_shards(),
+            unencoded_size,
+            encoding_type,
+        )
+        .expect("must be valid as the encoding succeeded");
+
+        let storage_cost = client.get_price_computation().await?.operation_cost(
+            &RegisterBlobOp::RegisterFromScratch {
+                encoded_length: encoded_size,
+                epochs_ahead,
+            },
+        );
+
+        let output = StoreQuiltDryRunOutput {
+            quilt_blob_output: DryRunOutput {
+                path,
+                blob_id: *metadata.blob_id(),
+                encoding_type,
+                unencoded_size,
+                encoded_size,
+                storage_cost,
+            },
+            quilt_index: QuiltIndex::V1(quilt.quilt_index().clone()),
+        };
+
+        if json {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            Ok(())
+        } else {
+            output.print_cli_output();
+            Ok(())
+        }
+    }
+
+    pub(crate) async fn construct_quilt(
+        self,
+        path: PathBuf,
+        version: QuiltVersionEnum,
+        out: PathBuf,
+    ) -> Result<()> {
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let quilt_write_client = client.quilt_client();
+        match version {
+            QuiltVersionEnum::V1 => {
+                let quilt = quilt_write_client
+                    .construct_quilt_from_path::<QuiltVersionV1>(path, DEFAULT_ENCODING)
+                    .await?;
+                std::fs::write(out.clone(), quilt.data())?;
+                println!("Quilt constructed and saved to {}", out.display());
+                for patch in quilt.quilt_index().quilt_patches.iter() {
+                    println!(
+                        "Blob {} stored in quilt at [{}, {}), size: {}",
+                        patch.identifier(),
+                        patch.start_index,
+                        patch.end_index,
+                        patch.unencoded_length()
+                    );
+                }
+            }
+            _ => anyhow::bail!("unsupported quilt version"),
+        }
         Ok(())
     }
 
@@ -824,6 +920,41 @@ impl ClientCommandRunner {
                 identifier, output_file_path
             );
         }
+        Ok(())
+    }
+
+    pub(crate) async fn list_blobs_in_quilt(
+        self,
+        blob_id: BlobId,
+        rpc_url: Option<String>,
+    ) -> Result<()> {
+        let config = self.config?;
+        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+            &config,
+            rpc_url,
+            self.wallet,
+            !self.wallet_set_explicitly,
+        )
+        .await?;
+        let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
+
+        let quilt_read_client = read_client.quilt_client();
+
+        let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
+        match quilt_metadata {
+            QuiltMetadata::V1(quilt_metadata_v1) => {
+                for patch in &quilt_metadata_v1.index.quilt_patches {
+                    println!(
+                        "Blob {} stored in quilt at [{}, {}), size: {}",
+                        patch.identifier(),
+                        patch.start_index,
+                        patch.end_index,
+                        patch.unencoded_length()
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 

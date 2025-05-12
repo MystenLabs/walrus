@@ -28,6 +28,7 @@ serde_with.workspace = true
 sui-types = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
+twox-hash = "1.6"
 utoipa = { workspace = true, optional = true }
 walrus-test-utils = { workspace = true, optional = true }
 
