@@ -19,7 +19,7 @@ function headerKeyContainsCache(headers: Headers): HeaderMatch[] {
     let filtered = [];
     headers.forEach((value, key, _parent) => {
         if (key.toLowerCase().includes("cache")) {
-            filtered.push({key, value});
+            filtered.push({ key, value });
         }
     });
     return filtered;
@@ -67,7 +67,7 @@ async function updateAggregatorCacheInfo(
         let headersWithCacheKey2 = headerKeyContainsCache(headers2);
 
         // Update value.cache in the existing operators
-        if (headersHaveCacheHit(headersWithCacheKey1)) { // Try identifying cache-hit on the first request
+        if (headersHaveCacheHit(headersWithCacheKey1)) { // Identifying cache-hit on the 1st request
             console.warn(`Error measuring cache speedup for ${blobUrl}:`);
             console.warn(`First fetch is a cache-hit: ${JSON.stringify(headersWithCacheKey1)}`);
             value.cache = true;
@@ -77,7 +77,9 @@ async function updateAggregatorCacheInfo(
         if (verbose) {
             // Create a single key -> value1, value2 mapping
             // ie. commonkey -> [value from first fetch, value from second fetch]
-            const map2 = Object.fromEntries(headersWithCacheKey2.map(({ key, value }) => [key, value]));
+            const map2 = Object.fromEntries(
+                headersWithCacheKey2.map(({ key, value }) => [key, value])
+            );
             const merged = headersWithCacheKey1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
                 (acc, { key, value }) => {
                     acc[key] = [value, map2[key] ?? undefined];
@@ -93,46 +95,46 @@ async function updateAggregatorCacheInfo(
 
 // Get command line arguments
 let parsedArgs: {
-  mainnetBlobId: string;
-  testnetBlobId: string;
-  verbose: boolean;
+    mainnetBlobId: string;
+    testnetBlobId: string;
+    verbose: boolean;
 } = {
-  mainnetBlobId: '',
-  testnetBlobId: '',
-  verbose: false
+    mainnetBlobId: '',
+    testnetBlobId: '',
+    verbose: false
 };
 
 yargs(hideBin(process.argv))
-  .scriptName('bin')
-  .command(
-    '$0 <mainnetBlobId> [testnetBlobId]',
-    'Run the binary',
-    (yargs) =>
-      yargs
-        .positional('mainnetBlobId', {
-          describe: 'Blob ID for mainnet',
-          type: 'string',
-        })
-        .positional('testnetBlobId', {
-          describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
-          type: 'string',
-        })
-        .option('verbose', {
-          alias: 'v',
-          type: 'boolean',
-          description: 'Run with verbose logging',
-          default: false,
-        }),
-    (argv) => {
-      parsedArgs = {
-        mainnetBlobId: argv.mainnetBlobId!,
-        testnetBlobId: argv.testnetBlobId ?? argv.mainnetBlobId!,
-        verbose: argv.verbose ?? false,
-      };
-    }
-  )
-  .strict()
-  .parseSync()
+    .scriptName('bin')
+    .command(
+        '$0 <mainnetBlobId> [testnetBlobId]',
+        'Run the binary',
+        (yargs) =>
+            yargs
+                .positional('mainnetBlobId', {
+                    describe: 'Blob ID for mainnet',
+                    type: 'string',
+                })
+                .positional('testnetBlobId', {
+                    describe: 'Blob ID for testnet (optional, defaults to mainnetBlobId)',
+                    type: 'string',
+                })
+                .option('verbose', {
+                    alias: 'v',
+                    type: 'boolean',
+                    description: 'Run with verbose logging',
+                    default: false,
+                }),
+        (argv) => {
+            parsedArgs = {
+                mainnetBlobId: argv.mainnetBlobId!,
+                testnetBlobId: argv.testnetBlobId ?? argv.mainnetBlobId!,
+                verbose: argv.verbose ?? false,
+            };
+        }
+    )
+    .strict()
+    .parseSync()
 
 async function run() {
     const { mainnetBlobId, testnetBlobId, verbose } = parsedArgs;
