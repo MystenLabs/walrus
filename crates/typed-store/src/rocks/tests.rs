@@ -9,7 +9,7 @@ use crate::rocks::safe_iter::{SafeIter, SafeRevIter};
 fn temp_dir() -> std::path::PathBuf {
     tempfile::tempdir()
         .expect("Failed to open temporary directory")
-        .into_path()
+        .keep()
 }
 
 enum TestIteratorWrapper<'a, K, V> {
