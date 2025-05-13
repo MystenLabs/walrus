@@ -26,6 +26,7 @@ use walrus_sui::{
     config::WalletConfig,
     types::move_structs::StakedWal,
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     client::{Blocklist, Client, ClientConfig, refresh::CommitteesRefresherHandle},
@@ -177,7 +178,7 @@ impl Walrus {
             let sui_read_client = {
                 let sui_client = RetriableSuiClient::new_for_rpc_urls(
                     &self.config.rpc_urls,
-                    Default::default(),
+                    ExponentialBackoffConfig::default(),
                     self.config.communication_config.sui_client_request_timeout,
                 )
                 .await
@@ -189,16 +190,18 @@ impl Walrus {
                 self.config.new_read_client(sui_client).await?
             };
 
-            let refresh_handle = self.get_refresh_handle(sui_read_client.clone()).await?;
-            let client =
-                Client::new_read_client(self.config.clone(), refresh_handle, sui_read_client)
-                    .await?;
+            let mut client = Client::new_read_client(
+                self.config.clone(),
+                self.get_refresh_handle(sui_read_client.clone()).await?,
+                sui_read_client,
+            )
+            .await?;
 
             if let Some(blocklist) = self.blocklist.as_ref() {
-                client.with_blocklist(blocklist.clone())
-            } else {
-                client
+                client = client.with_blocklist(blocklist.clone());
             }
+
+            client
         };
 
         let start_timer = std::time::Instant::now();
@@ -206,7 +209,7 @@ impl Walrus {
         let blob_size = blob.len();
         let elapsed = start_timer.elapsed();
 
-        tracing::info!(%blob_id, ?elapsed, blob_size, "finished reading blob");
+        tracing::debug!(%blob_id, ?elapsed, blob_size, "finished reading blob");
         Ok(blob)
     }
 
