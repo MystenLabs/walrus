@@ -261,14 +261,18 @@ impl RetriableRpcClient {
             request_timeout: Duration,
         ) -> Result<CheckpointData, RetriableClientError> {
             client
-                    .call(
-                        |rpc_client| async move {
-                            rpc_client.get_full_checkpoint(sequence_number).await
-                        },
-                        request_timeout,
-                    )
-                    .await
-                    .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
+                .call(
+                    |rpc_client| {
+                        async move {
+                            rpc_client
+                                .get_full_checkpoint(sequence_number)
+                                .await
+                        }
+                    },
+                    request_timeout,
+                )
+                .await
+                .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
@@ -327,16 +331,13 @@ impl RetriableRpcClient {
             return Err(error);
         };
 
-        if !error.is_eligible_for_fallback(
-            sequence_number,
-            self.last_success.load(Ordering::Relaxed),
-            self.num_failures.load(Ordering::Relaxed),
-        ) {
-            let last_success = self.last_success.load(Ordering::Relaxed);
-            let num_failures = self.num_failures.load(Ordering::Relaxed);
+        let last_success = self.last_success.load(Ordering::Relaxed);
+        let num_failures = self.num_failures.load(Ordering::Relaxed);
+        if !error.is_eligible_for_fallback(sequence_number, last_success, num_failures) {
             tracing::debug!(
-                "primary client error while fetching checkpoint is not eligible for fallback, last_success: {:?}, num_failures: {:?}",
-                last_success,
+                "primary client error while fetching checkpoint is not eligible for fallback, \
+                since last_success: {:?}, num_failures: {:?}",
+                last_success.elapsed(),
                 num_failures
             );
             if let Some(metrics) = self.metrics.as_ref() {
@@ -533,7 +534,7 @@ impl RetriableClientError {
     /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(300);
     /// The maximum number of failures allowed.
-    const MAX_FAILURES: usize = 10;
+    const MAX_FAILURES: usize = 20;
 
     /// Returns `true` if the error is eligible for fallback.
     ///
@@ -573,16 +574,18 @@ impl RetriableClientError {
         last_success.elapsed() > Self::FAILURE_WINDOW && num_failures > Self::MAX_FAILURES
     }
 
-    pub(crate) fn is_checkpoint_not_produced(&self) -> bool {
+    /// Returns `true` if the checkpoint may have been produced.
+    pub(crate) fn is_checkpoint_produced(&self) -> bool {
         match self {
             Self::RpcError(rpc_error) => {
                 rpc_error.status.code() == tonic::Code::NotFound
                     && rpc_error
                         .status
                         .checkpoint_height()
-                        .is_some_and(|height| rpc_error.checkpoint_seq_num.unwrap_or(0) > height)
+                        .is_some_and(|height| rpc_error.checkpoint_seq_num.unwrap_or(0) <= height)
             }
-            _ => false,
+            // For all other errors, we assume the checkpoint has been produced.
+            _ => true,
         }
     }
 }

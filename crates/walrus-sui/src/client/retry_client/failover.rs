@@ -62,10 +62,8 @@ impl EligibleForFailover for SuiClientError {
 
 impl EligibleForFailover for RetriableClientError {
     fn is_eligible_for_failover(&self) -> bool {
-        if self.is_checkpoint_not_produced() {
-            return false;
-        }
-        true
+        // When checkpoint is not produced, we don't need to failover, but simply wait and retry.
+        self.is_checkpoint_produced()
     }
 }
 
@@ -135,7 +133,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         })
     }
 
-    /// Returns the name of the current client.
+    /// Returns the current client.
     pub async fn get_current_client(&self) -> Result<Arc<ClientT>, FailoverError> {
         let mut state = self.state.lock().await;
         match state.as_ref() {
@@ -149,7 +147,8 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         }
     }
 
-    /// Returns the name of the current client.
+    /// Returns the current client's RPC URL.
+    // This is a helper function is mainly used for logging.
     pub async fn get_current_rpc_url(&self) -> String {
         match self.state.lock().await.as_ref() {
             Some(state) => state
@@ -180,6 +179,11 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             .await
     }
 
+    /// Fetches the next client set in the FailoverWrapper. Excluding the clients that have already
+    /// been tried in the `tried_client_indices` set.
+    ///
+    /// This function is locked on the `state` mutex, and will update the state if a new client is
+    /// fetched.
     async fn fetch_next_client_locked(
         &self,
         tried_client_indices: &mut BTreeSet<usize>,
@@ -195,12 +199,14 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 return Ok(state.client.clone());
             }
         };
+
         // Compute the next wrapped index.
         let mut next_index = if let Some(state) = state.as_ref() {
             (state.current_index + 1) % self.client_count()
         } else {
             0
         };
+
         // It may be the case that the LazyClientBuilder fails to connect to a client, but let's not
         // let that stop us from trying the next one.
         loop {
@@ -274,6 +280,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 let tried_client_indices = once(state.current_index).collect::<BTreeSet<_>>();
                 (state.client.clone(), tried_client_indices)
             } else {
+                // First time using a new FailoverWrapper, fetch the first client.
                 let mut tried_client_indices = BTreeSet::new();
                 let client = self
                     .fetch_next_client_locked(&mut tried_client_indices, &mut state)
@@ -324,10 +331,11 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     return Ok(result);
                 }
                 Err(error) => {
+                    // If the error is not eligible for failover, return it immediately.
                     if !error.is_eligible_for_failover() {
                         tracing::debug!(
-                            "Non-retriable error for failover, returning last failure value: {:?}",
-                            error
+                            ?error,
+                            "error is not eligible for failover, returning the last failed error",
                         );
                         return Err(error);
                     }
@@ -344,7 +352,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                                 last_error = ?error,
                                 failed_rpc_url,
                                 next_rpc_url,
-                                "Failed to execute operation on client, retrying with next client"
+                                "failed to execute operation on client, retrying with next client"
                             );
                         }
                         Err(fetch_client_error) => {
@@ -355,7 +363,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                                 last_error = ?error,
                                 failed_rpc_url,
                                 ?fetch_client_error,
-                                "Failed to fetch_next_client, failing rpc"
+                                "failed to fetch_next_client, failing rpc"
                             );
                             return Err(error);
                         }
