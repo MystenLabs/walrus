@@ -185,9 +185,10 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         loop {
             // PLAN phase.
             if tried_client_indices.len() >= self.max_tries {
-                return Err(FailoverError::FailedToGetClient(
-                    "max failovers exceeded".to_string(),
-                ));
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "max failovers {} exceeded",
+                    self.max_tries
+                )));
             }
 
             if !tried_client_indices.insert(next_index) {
@@ -204,7 +205,10 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 Ok(client) => client,
                 Err(error) => {
                     // Log the error and failover to the next client.
-                    tracing::warn!("Failed to get client from url: {}", error);
+                    tracing::warn!(
+                        "Failed to get client from url: {}, failover to next client",
+                        error
+                    );
                     continue;
                 }
             };

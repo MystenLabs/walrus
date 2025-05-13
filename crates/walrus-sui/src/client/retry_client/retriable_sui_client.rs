@@ -134,7 +134,7 @@ impl LazySuiClientBuilder {
 impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     // TODO: WAL-796 Out of concern for consistency, we are disabling the failover mechanism for
     // SuiClient for now.
-    const DEFAULT_MAX_TRIES: usize = 1;
+    const DEFAULT_MAX_TRIES: usize = 3;
 
     async fn lazy_build_client(&self) -> Result<Arc<SuiClient>, FailoverError> {
         match self {
