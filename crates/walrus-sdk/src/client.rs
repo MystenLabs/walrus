@@ -2328,7 +2328,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
-    /// Retrieves the list of blobs contained in a quilt
+    /// Retrieves the list of blobs contained in a quilt.
     pub async fn get_blobs(
         &self,
         quilt_id: &BlobId,
