@@ -34,7 +34,8 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: cd scripts/cache-inference && npm install
+        working-directory: ./scripts/cache-inference
+        run: npm install
 
       - name: Run cache inference
         run: |
