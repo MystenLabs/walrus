@@ -36,7 +36,6 @@ async function updateAggregatorCacheInfo(
     blobId: string,
     verbose: boolean,
 ) {
-    const aggregatorsVerbose: Record<string, AggregatorDataVerbose> = {};
     for (const [url, value] of Object.entries(aggregators)) {
         const blobUrl = new URL(`v1/blobs/${blobId}`, url);
         let fetch1: number;
@@ -87,8 +86,8 @@ async function updateAggregatorCacheInfo(
                 }, {}
             );
 
-            aggregatorsVerbose[url].cacheHeaders = merged;
-            aggregatorsVerbose[url].cacheSpeedupMs = [speedupMs, [fetch1, fetch2]];
+            value.cacheHeaders = merged;
+            value.cacheSpeedupMs = [speedupMs, [fetch1, fetch2]];
         }
     }
 }
