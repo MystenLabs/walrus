@@ -27,6 +27,7 @@ walrus_utils::metrics::define_metric_set! {
 }
 
 impl CommonDatabaseMetrics {
+    /// Records the duration of a database operation using provided labels.
     pub fn observe_operation_duration(&self, labels: Labels, duration: Duration) {
         walrus_utils::with_label!(
             self.operation_duration_seconds,

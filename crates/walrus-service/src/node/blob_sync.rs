@@ -61,6 +61,13 @@ pub(crate) struct BlobSyncHandler {
 }
 
 impl BlobSyncHandler {
+    /// Creates a new [`BlobSyncHandler`] with concurrency limits for blob and sliver syncs.
+    ///
+    /// # Parameters
+    ///
+    /// - `node`: The storage node instance associated with this handler.
+    /// - `max_concurrent_blob_syncs`: Maximum number of blobs that can be synced concurrently.
+    /// - `max_concurrent_sliver_syncs`: Maximum number of sliver pairs that can be synced concurrently.
     pub fn new(
         node: Arc<StorageNodeInner>,
         max_concurrent_blob_syncs: usize,
@@ -424,6 +431,14 @@ pub(super) struct BlobSynchronizer {
 }
 
 impl BlobSynchronizer {
+    /// Creates a new [`BlobSynchronizer`] for the given blob and node context.
+    ///
+    /// # Parameters
+    ///
+    /// - `blob_id`: Identifier of the blob to be synchronized.
+    /// - `certified_epoch`: The certified epoch in which the blob is valid.
+    /// - `node`: The associated storage node context.
+    /// - `cancel_token`: Cancellation token to allow cooperative shutdown of the sync process.
     pub fn new(
         blob_id: BlobId,
         certified_epoch: Epoch,

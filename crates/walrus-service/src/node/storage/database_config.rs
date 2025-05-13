@@ -143,6 +143,7 @@ impl DatabaseTableOptions {
         }
     }
 
+    /// Converts the table configuration into a RocksDB `Options` instance.
     pub fn to_options(&self) -> Options {
         let mut options = Options::default();
         if let Some(enable_blob_files) = self.enable_blob_files {

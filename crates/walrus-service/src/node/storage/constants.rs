@@ -55,6 +55,7 @@ pub fn event_cursor_cf_name() -> &'static str {
     EVENT_CURSOR_COLUMN_FAMILY_NAME
 }
 
+/// Returns the key used for storing the event cursor.
 pub fn event_cursor_key() -> &'static [u8; 6] {
     &EVENT_CURSOR_KEY
 }
