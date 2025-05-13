@@ -573,21 +573,6 @@ impl RetriableClientError {
     fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
         last_success.elapsed() > Self::FAILURE_WINDOW && num_failures > Self::MAX_FAILURES
     }
-
-    /// Returns `true` if the checkpoint may have been produced.
-    pub(crate) fn is_checkpoint_produced(&self) -> bool {
-        match self {
-            Self::RpcError(rpc_error) => {
-                rpc_error.status.code() == tonic::Code::NotFound
-                    && rpc_error
-                        .status
-                        .checkpoint_height()
-                        .is_some_and(|height| rpc_error.checkpoint_seq_num.unwrap_or(0) <= height)
-            }
-            // For all other errors, we assume the checkpoint has been produced.
-            _ => true,
-        }
-    }
 }
 
 /// Error type for RPC operations
@@ -625,5 +610,15 @@ impl From<tonic::Status> for CheckpointRpcError {
             status,
             checkpoint_seq_num: None,
         }
+    }
+}
+
+impl CheckpointRpcError {
+    pub(crate) fn is_checkpoint_not_produced(&self) -> bool {
+        self.status.code() == tonic::Code::NotFound
+            && self
+                .status
+                .checkpoint_height()
+                .is_some_and(|height| self.checkpoint_seq_num.unwrap_or(0) > height)
     }
 }

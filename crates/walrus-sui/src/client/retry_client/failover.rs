@@ -8,7 +8,12 @@ use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Du
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
-use super::{RetriableClientError, ToErrorType, retry_count_guard::RetryCountGuard};
+use super::{
+    RetriableClientError,
+    RetriableRpcError,
+    ToErrorType,
+    retry_count_guard::RetryCountGuard,
+};
 use crate::client::{SuiClientError, SuiClientMetricSet};
 
 /// A trait that defines the implementation of a thunk to build (or re-use) a client lazily.
@@ -45,25 +50,6 @@ pub enum FailoverError {
 impl From<FailoverError> for SuiClientError {
     fn from(err: FailoverError) -> Self {
         SuiClientError::Internal(err.into())
-    }
-}
-
-/// A trait that defines whether an error is eligible for failover.
-pub trait EligibleForFailover {
-    /// Whether the error is eligible for failover.
-    fn is_eligible_for_failover(&self) -> bool;
-}
-
-impl EligibleForFailover for SuiClientError {
-    fn is_eligible_for_failover(&self) -> bool {
-        true
-    }
-}
-
-impl EligibleForFailover for RetriableClientError {
-    fn is_eligible_for_failover(&self) -> bool {
-        // When checkpoint is not produced, we don't need to failover, but simply wait and retry.
-        self.is_checkpoint_produced()
     }
 }
 
@@ -267,8 +253,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
         E: MakeRetriableError,
-        E: ToErrorType + std::fmt::Debug + From<FailoverError>,
-        E: EligibleForFailover,
+        E: RetriableRpcError + ToErrorType + std::fmt::Debug + From<FailoverError>,
     {
         let mut retry_guard = metrics
             .as_ref()
@@ -332,7 +317,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 }
                 Err(error) => {
                     // If the error is not eligible for failover, return it immediately.
-                    if !error.is_eligible_for_failover() {
+                    if !error.is_retriable_rpc_error() {
                         tracing::debug!(
                             ?error,
                             "error is not eligible for failover, returning the last failed error",
