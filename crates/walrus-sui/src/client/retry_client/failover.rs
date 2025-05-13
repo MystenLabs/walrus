@@ -48,6 +48,27 @@ impl From<FailoverError> for SuiClientError {
     }
 }
 
+/// A trait that defines whether an error is eligible for failover.
+pub trait EligibleForFailover {
+    /// Whether the error is eligible for failover.
+    fn is_eligible_for_failover(&self) -> bool;
+}
+
+impl EligibleForFailover for SuiClientError {
+    fn is_eligible_for_failover(&self) -> bool {
+        true
+    }
+}
+
+impl EligibleForFailover for RetriableClientError {
+    fn is_eligible_for_failover(&self) -> bool {
+        if self.is_checkpoint_not_produced() {
+            return false;
+        }
+        true
+    }
+}
+
 /// A trait that defines the implementation of a function to create an injectable error. Note that
 /// this is only used by the `msim` feature, and is not used in production code.
 pub trait MakeRetriableError {
@@ -240,6 +261,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         Fut: Future<Output = Result<R, E>>,
         E: MakeRetriableError,
         E: ToErrorType + std::fmt::Debug + From<FailoverError>,
+        E: EligibleForFailover,
     {
         let mut retry_guard = metrics
             .as_ref()
@@ -301,6 +323,14 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     return Ok(result);
                 }
                 Err(error) => {
+                    if !error.is_eligible_for_failover() {
+                        tracing::debug!(
+                            "Non-retriable error for failover, returning last failure value: {:?}",
+                            error
+                        );
+                        return Err(error);
+                    }
+
                     let failed_rpc_url = self.get_current_rpc_url().await;
                     match self.fetch_next_client(&mut tried_client_indices).await {
                         Ok(next_client) => {

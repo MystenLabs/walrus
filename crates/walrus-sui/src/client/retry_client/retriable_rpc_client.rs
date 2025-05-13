@@ -260,11 +260,15 @@ impl RetriableRpcClient {
             sequence_number: u64,
             request_timeout: Duration,
         ) -> Result<CheckpointData, RetriableClientError> {
-            client.call(|rpc_client| {
-                async move { rpc_client.get_full_checkpoint(sequence_number).await }
-            }, request_timeout)
-            .await
-            .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
+            client
+                    .call(
+                        |rpc_client| async move {
+                            rpc_client.get_full_checkpoint(sequence_number).await
+                        },
+                        request_timeout,
+                    )
+                    .await
+                    .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
@@ -563,6 +567,19 @@ impl RetriableClientError {
     /// more than `FAILURE_WINDOW` minutes ago.
     fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
         last_success.elapsed() > Self::FAILURE_WINDOW && num_failures > Self::MAX_FAILURES
+    }
+
+    pub(crate) fn is_checkpoint_not_produced(&self) -> bool {
+        match self {
+            Self::RpcError(rpc_error) => {
+                rpc_error.status.code() == tonic::Code::NotFound
+                    && rpc_error
+                        .status
+                        .checkpoint_height()
+                        .is_some_and(|height| rpc_error.checkpoint_seq_num.unwrap_or(0) > height)
+            }
+            _ => false,
+        }
     }
 }
 
