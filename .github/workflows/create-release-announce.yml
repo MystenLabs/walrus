@@ -1,0 +1,90 @@
+name: Create tag for release and announcements
+run-name: Create Walrus Release for ${{ inputs.network }}
+
+concurrency: ${{ github.workflow }}-${{ inputs.network }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Network to generate release for
+        type: string
+        required: true
+
+jobs:
+  generate-tag-release:
+    name: Create a release tag and release in Git
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sui repo main branch to get sui version
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        with:
+          repository: "MystenLabs/sui"
+          fetch-depth: 0
+          ref: main
+
+      - name: Get current release branch
+        shell: bash
+        run: |
+          export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')"
+          export major_version=$(echo $sui_main_version | cut -d. -f1)
+          export minor_version=$(echo $sui_main_version | cut -d. -f2)
+          export patch_version=$(echo $sui_main_version | cut -d. -f3)
+          export current_minor_version=$(($minor_version - 1))
+          export current_release_version=$major_version.$current_minor_version.$patch_version
+          echo "current_release_version=${current_release_version}" >> $GITHUB_ENV
+
+          export current_release_branch="releases/walrus-v${current_release_version}-release"
+          echo "current_release_branch=${current_release_branch}" >> $GITHUB_ENV
+
+          export previous_minor_version=$(($current_minor_version - 1))
+          export previous_release_version=$major_version.$previous_minor_version.$patch_version
+          export previous_release_branch="releases/walrus-v${previous_release_version}-release"
+          echo "previous_release_branch=${previous_release_branch}" >> $GITHUB_ENV
+
+      - name: Checkout release branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        env:
+          RELEASE_BRANCH: ${{ env.current_release_branch }}
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_BRANCH }}
+
+      - name: Update ${{ inputs.network }} branch
+        shell: bash
+        run: |
+          export walrus_commit=$(git rev-parse HEAD)
+          echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
+          git push --force origin ${walrus_commit}:${{ inputs.network }} 
+
+      - name: Create a release tag
+        shell: bash
+        env:
+          WALRUS_VERSION: ${{ env.walrus_version }}
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/MystenLabs/walrus/git/refs \
+            -d '{
+              "ref": "refs/tags/${{ inputs.network }}-v${{ env.WALRUS_VERSION }}",
+              "sha": "${walrus_commit}"
+            }'
+
+      - name: Get previous release branch
+
+
+
+
+
+      - name: Create Release
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # pin@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.WALRUS_CREATE_RELEASE }}
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          release_name: ${{ inputs.release_tag }}
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
+          draft: false
+          prerelease: ${{ env.pre_release }}
