@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A failover client wrapper for Sui (HTTP and gRPC) clients.
-use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Duration};
+use std::{
+    any::type_name,
+    collections::BTreeSet,
+    future::Future,
+    iter::once,
+    sync::Arc,
+    time::Duration,
+};
 
 #[cfg(msim)]
 use sui_macros::fail_point_if;
@@ -107,15 +114,40 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         // will need to be updated to track a failover count separately.
         assert!(lazy_client_builders.len() >= max_tries);
 
-        Ok(Self {
-            max_tries,
-            state: Arc::new(Mutex::new(FailoverState {
-                client: lazy_client_builders[0].lazy_build_client().await?,
-                rpc_url: lazy_client_builders[0].get_rpc_url().map(|s| s.to_string()),
-                current_index: 0,
-            })),
-            lazy_client_builders,
-        })
+        // Find a valid client to start with.
+        for (current_index, lazy_client_builder) in lazy_client_builders.iter().enumerate() {
+            match lazy_client_builder.lazy_build_client().await {
+                Ok(client) => {
+                    tracing::debug!(
+                        rpc_url = ?lazy_client_builder.get_rpc_url(),
+                        client_type = type_name::<ClientT>(),
+                        "Client built successfully"
+                    );
+                    return Ok(Self {
+                        max_tries,
+                        state: Arc::new(Mutex::new(FailoverState {
+                            client,
+                            rpc_url: lazy_client_builder.get_rpc_url().map(|s| s.to_string()),
+                            current_index,
+                        })),
+                        lazy_client_builders,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        rpc_url = ?lazy_client_builder.get_rpc_url(),
+                        client_type = type_name::<ClientT>(),
+                        "Failed to build client from url"
+                    );
+                }
+            }
+        }
+
+        // We've tried all the rpc_urls and none of them worked.
+        Err(anyhow::anyhow!(
+            "Failed to create failover wrapper: no valid clients available"
+        ))
     }
 
     /// Returns the name of the current client.
