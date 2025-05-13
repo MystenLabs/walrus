@@ -11,6 +11,7 @@ The script makes two sequential requests to each aggregator and determines cachi
 ## Usage
 
 ```bash
+npm install --prefix scripts/cache-inference
 npx ts-node ./cache-inference.ts <mainnetBlobId> [testnetBlobId] [--verbose]
 ```
 
