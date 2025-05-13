@@ -230,6 +230,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                         "Failed to get client from url: {}, failover to next client",
                         error
                     );
+                    next_index = (next_index + 1) % self.client_count();
                     continue;
                 }
             };

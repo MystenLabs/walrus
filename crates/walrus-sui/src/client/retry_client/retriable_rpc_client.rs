@@ -332,8 +332,12 @@ impl RetriableRpcClient {
             self.last_success.load(Ordering::Relaxed),
             self.num_failures.load(Ordering::Relaxed),
         ) {
+            let last_success = self.last_success.load(Ordering::Relaxed);
+            let num_failures = self.num_failures.load(Ordering::Relaxed);
             tracing::debug!(
-                "primary client error while fetching checkpoint is not eligible for fallback"
+                "primary client error while fetching checkpoint is not eligible for fallback, last_success: {:?}, num_failures: {:?}",
+                last_success,
+                num_failures
             );
             if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
@@ -529,7 +533,7 @@ impl RetriableClientError {
     /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(300);
     /// The maximum number of failures allowed.
-    const MAX_FAILURES: usize = 100;
+    const MAX_FAILURES: usize = 10;
 
     /// Returns `true` if the error is eligible for fallback.
     ///
