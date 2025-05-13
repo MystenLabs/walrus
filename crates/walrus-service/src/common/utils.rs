@@ -131,6 +131,12 @@ where
     Fut: Future,
     F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
 {
+    /// Creates a new [`Observe`] wrapper around a future.
+    ///
+    /// This function takes:
+    /// - `inner`: The future to observe,
+    /// - `histograms`: A Prometheus histogram vector for timing,
+    /// - `get_labels`: A closure to generate label values from the output of the future.
     pub fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
         Self {
             inner,

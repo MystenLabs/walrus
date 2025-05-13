@@ -386,6 +386,10 @@ struct RequestMonitor {
 }
 
 impl RequestMonitor {
+    /// Creates a new [`RequestMonitor`] for the given HTTP request.
+    ///
+    /// This function initializes metrics, tracing spans, and tracking state needed
+    /// to monitor the request lifecycle until a response is received.
     pub fn new(request: &Request, url_template: &'static str, metrics: HttpClientMetrics) -> Self {
         let labels = HttpLabels::new(request, url_template);
         let request_body_size = request
@@ -412,6 +416,9 @@ impl RequestMonitor {
         }
     }
 
+    /// Returns a reference to the HTTP tracing span, if available.
+    ///
+    /// Useful for instrumentation or propagating the span context.
     pub fn http_span(&self) -> Option<&Span> {
         self.inner.as_ref().map(|inner| &inner.http_span)
     }

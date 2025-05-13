@@ -57,6 +57,10 @@ pub fn source_symbols_per_blob(
         .expect("product of two u16 always fits into a u32")
 }
 
+/// Extracts the data portion from an [`EncodingPacket`].
+///
+/// The packet is split into its header and payload components, and
+/// this function returns the payload part as a `Vec<u8>`.
 #[inline]
 pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
     packet.split().1
