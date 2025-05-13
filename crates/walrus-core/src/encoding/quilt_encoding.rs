@@ -32,8 +32,8 @@ const MAX_NUM_COLUMNS_FOR_QUILT_INDEX: usize = 1;
 
 /// Gets the quilt version enum from the data.
 #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-pub fn get_quilt_version_enum(data: &[u8]) -> QuiltVersionEnum {
-    QuiltVersionEnum::new_from_bytes(utils::get_quilt_version_bytes(data))
+pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
+    QuiltVersionEnum::try_from(utils::get_quilt_version_byte(data)?)
 }
 
 /// The version of the quilt.
@@ -52,7 +52,7 @@ pub trait QuiltVersion: Sized {
     type QuiltMetadata;
 
     /// The serialized bytes of the quilt type.
-    fn quilt_type_bytes() -> &'static [u8];
+    fn quilt_version_byte() -> u8;
 }
 
 /// API to access a quilt.
@@ -77,6 +77,7 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Returns the symbol size of the quilt.
     fn symbol_size(&self) -> usize;
 }
+
 /// The configuration of the quilt.
 #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltConfigApi<'a, V: QuiltVersion> {
@@ -121,27 +122,40 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
 
 /// The version of the quilt.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(u8)]
 pub enum QuiltVersionEnum {
     /// QuiltVersionV1.
     V1,
-    /// Invalid version.
-    Invalid,
+}
+
+impl From<QuiltVersionEnum> for u8 {
+    fn from(value: QuiltVersionEnum) -> Self {
+        value as u8
+    }
+}
+
+impl TryFrom<u8> for QuiltVersionEnum {
+    type Error = QuiltError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(QuiltVersionEnum::V1),
+            _ => Err(QuiltError::Other(format!(
+                "Invalid quilt version byte: {}",
+                value
+            ))),
+        }
+    }
 }
 
 impl QuiltVersionEnum {
-    /// Creates a new `QuiltVersionEnum` from its serialized bytes.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn new_from_bytes(type_bytes: &[u8]) -> QuiltVersionEnum {
-        match type_bytes {
-            &[0x00] => QuiltVersionEnum::V1,
-            _ => QuiltVersionEnum::Invalid,
-        }
-    }
-
     /// Creates a new `QuiltVersionEnum` from a sliver.
     #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn new_from_sliver(sliver: &[u8]) -> QuiltVersionEnum {
-        QuiltVersionEnum::new_from_bytes(&sliver[0..QUILT_TYPE_SIZE])
+    pub fn new_from_sliver(sliver: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
+        if sliver.is_empty() {
+            return Err(QuiltError::Other("Sliver is empty".to_string()));
+        }
+        QuiltVersionEnum::try_from(sliver[0])
     }
 }
 
@@ -231,7 +245,7 @@ impl BlobWithIdentifierOwned {
 pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
-    const QUILT_TYPE_BYTES: &'static [u8] = &[0x00];
+    const QUILT_VERSION_BYTE: u8 = 0x00;
 }
 
 impl QuiltVersion for QuiltVersionV1 {
@@ -242,8 +256,8 @@ impl QuiltVersion for QuiltVersionV1 {
     type QuiltIndex = QuiltIndexV1;
     type QuiltMetadata = QuiltMetadataV1;
 
-    fn quilt_type_bytes() -> &'static [u8] {
-        QuiltVersionV1::QUILT_TYPE_BYTES
+    fn quilt_version_byte() -> u8 {
+        QuiltVersionV1::QUILT_VERSION_BYTE
     }
 }
 
@@ -259,10 +273,10 @@ impl QuiltVersion for QuiltVersionV1 {
 ///   `MAX_NUM_COLUMNS_FOR_QUILT_INDEX`.
 /// - The blob layout is defined by the [`QuiltIndexV1`].
 ///
-/// INV:
-///  - `data.len()` is an integer multiple of `row_size`.
-///  - `row_size` is an integer multiple of `symbol_size`.
-///  - QuiltPatches are sorted by their identifiers.
+// INV:
+//  - `data.len()` is an integer multiple of `row_size`.
+//  - `row_size` is an integer multiple of `symbol_size`.
+//  - Blobs are stored in the order of their identifiers in the quilt.
 #[derive(Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuiltV1 {
     /// The data of the quilt.
@@ -285,14 +299,17 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         let n_secondary_source_symbols =
             usize::from(encoding_config.n_source_symbols::<Secondary>().get());
         let n_source_symbols: usize = n_primary_source_symbols * n_secondary_source_symbols;
-        assert!(
-            quilt_blob.len() % n_source_symbols == 0,
-            "quilt_blob length {} is not a multiple of n_source_symbols {}",
-            quilt_blob.len(),
-            n_source_symbols
-        );
-        let row_size = quilt_blob.len() / n_primary_source_symbols;
+
+        if quilt_blob.len() % n_source_symbols != 0 {
+            return Err(QuiltError::InvalidFormatNotAligned(format!(
+                "quilt_blob length {} is not a multiple of n_source_symbols {}",
+                quilt_blob.len(),
+                n_source_symbols
+            )));
+        }
+
         let symbol_size = quilt_blob.len() / n_source_symbols;
+        let row_size = symbol_size * n_secondary_source_symbols;
         let quilt_index = utils::get_quilt_index_v1_from_data(&quilt_blob, row_size, symbol_size)?;
 
         Ok(QuiltV1 {
@@ -452,7 +469,7 @@ impl fmt::Debug for DebugQuiltIndex<'_> {
 
 /// Configuration for the quilt version 1.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct QuiltConfigV1 {}
+pub struct QuiltConfigV1;
 
 impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     fn get_encoder(
@@ -496,17 +513,13 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let n_rows = self.config.n_source_symbols::<Primary>().get().into();
         let n_columns = self.config.n_source_symbols::<Secondary>().get().into();
-        tracing::event!(
-            Level::DEBUG,
+        tracing::debug!(
             "Constructing quilt with n_columns: {}, n_rows: {}",
             n_columns,
             n_rows
         );
 
-        let mut blob_pairs = Vec::new();
-        for blob in self.blobs.iter() {
-            blob_pairs.push(blob);
-        }
+        let mut blob_pairs = self.blobs.iter().collect::<Vec<_>>();
 
         // Sort blobs by their identifiers.
         blob_pairs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
@@ -574,8 +587,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // First pass: Fill data with actual blobs and populate quilt patches.
         for (i, blob) in blob_pairs.iter().enumerate() {
             let cols_needed = blob.blob.len().div_ceil(column_size);
-            tracing::event!(
-                Level::DEBUG,
+            tracing::debug!(
                 "Blob: {:?} needs {} columns, current_col: {}",
                 blob.identifier,
                 cols_needed,
@@ -594,13 +606,15 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let mut final_index_data = Vec::with_capacity(index_total_size);
         let index_size_u64 = index_total_size as u64;
-        final_index_data.extend_from_slice(QuiltVersionV1::quilt_type_bytes());
+        final_index_data.push(QuiltVersionV1::quilt_version_byte());
         final_index_data.extend_from_slice(&index_size_u64.to_le_bytes());
         final_index_data
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
 
         // Add the index to the quilt.
         add_blob_to_data(&final_index_data, 0);
+
+        tracing::debug!("construct quilt success {}", data.len());
 
         Ok(QuiltV1 {
             data,
@@ -613,7 +627,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
     /// Encodes the blobs into a quilt and returns the slivers.
     fn encode(&self) -> Result<Vec<SliverPair>, QuiltError> {
         let _guard = self.span.enter();
-        tracing::event!(Level::DEBUG, "starting to encode quilt");
+        tracing::debug!("starting to encode quilt");
 
         let quilt = self.construct_quilt()?;
         let encoder = BlobEncoder::new(self.config.clone(), quilt.data()).map_err(|_| {
@@ -626,14 +640,9 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
     /// Encodes the blobs into a quilt and returns the slivers and metadata.
     fn encode_with_metadata(&self) -> Result<(Vec<SliverPair>, QuiltMetadata), QuiltError> {
         let _guard = self.span.enter();
-        tracing::event!(Level::DEBUG, "starting to encode quilt with metadata");
+        tracing::debug!("starting to encode quilt with metadata");
 
         let quilt = self.construct_quilt()?;
-        tracing::event!(
-            Level::DEBUG,
-            "construct quilt success {}",
-            quilt.data().len()
-        );
         let encoder = BlobEncoder::new(self.config.clone(), quilt.data()).map_err(|_| {
             QuiltError::QuiltOversize(format!("quilt is too large: {}", quilt.data.len()))
         })?;
@@ -662,17 +671,13 @@ pub struct QuiltDecoderV1<'a> {
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
-        let index = SliverIndex(0);
-
+        let first_sliver_index = SliverIndex(0);
         let first_sliver = self
             .slivers
-            .get(&index)
-            .ok_or(QuiltError::MissingSlivers(vec![index]))?;
+            .get(&first_sliver_index)
+            .ok_or(QuiltError::MissingSlivers(vec![first_sliver_index]))?;
 
-        assert_eq!(
-            QuiltVersionV1::quilt_type_bytes(),
-            utils::get_quilt_version_bytes(first_sliver.symbols.data())
-        );
+        utils::check_quilt_version::<QuiltVersionV1>(first_sliver.symbols.data())?;
 
         let data_size = utils::get_quilt_index_data_size(first_sliver.symbols.data())?;
 
@@ -693,10 +698,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             let next_sliver = self
                 .slivers
                 .get(&next_index)
-                .ok_or(QuiltError::Other(format!(
-                    "Unexpected state, sliver {} not found",
-                    next_index
-                )))?;
+                .expect("sliver should be present");
 
             let remaining_needed = index_size - combined_data.len();
             let sliver_data = next_sliver.symbols.data();
@@ -781,17 +783,15 @@ impl<'a> QuiltDecoderV1<'a> {
         // Collect data from the appropriate slivers.
         for i in start_idx..end_idx {
             let sliver_idx = SliverIndex(i as u16);
-            if let Some(sliver) = self.slivers.get(&sliver_idx) {
-                let remaining_needed = unencoded_length - blob.len();
-                blob.extend_from_slice(
-                    &sliver.symbols.data()[..remaining_needed.min(sliver.symbols.data().len())],
-                );
-            } else {
-                return Err(QuiltError::Other(format!(
-                    "Unexpected state, sliver {} not found",
-                    sliver_idx
-                )));
-            }
+            let sliver = self
+                .slivers
+                .get(&sliver_idx)
+                .expect("sliver should be present");
+
+            let remaining_needed = unencoded_length - blob.len();
+            blob.extend_from_slice(
+                &sliver.symbols.data()[..remaining_needed.min(sliver.symbols.data().len())],
+            );
         }
 
         Ok(blob)
@@ -931,8 +931,13 @@ mod utils {
         Ok(data_size)
     }
 
-    pub fn get_quilt_version_bytes(data: &[u8]) -> &[u8] {
-        &data[0..QUILT_TYPE_SIZE]
+    pub fn get_quilt_version_byte(data: &[u8]) -> Result<u8, QuiltError> {
+        if data.is_empty() {
+            return Err(QuiltError::Other(
+                "failed to get quilt version byte: data is empty".to_string(),
+            ));
+        }
+        Ok(data[0])
     }
 
     /// Gets the ith column of data, as if `data` is a 2D matrix.
@@ -958,7 +963,12 @@ mod utils {
             || row_size % symbol_size != 0
             || data.len() % row_size != 0
         {
-            return Err(QuiltError::InvalidFormatNotAligned);
+            return Err(QuiltError::InvalidFormatNotAligned(format!(
+                "row_size: {}, symbol_size: {}, data.len(): {}",
+                row_size,
+                symbol_size,
+                data.len()
+            )));
         }
 
         let n_rows = data.len() / row_size;
@@ -994,8 +1004,7 @@ mod utils {
             QuiltError::QuiltIndexSerDerError("failed to extract first column".to_string())
         })?;
 
-        let quilt_type_bytes = get_quilt_version_bytes(&first_column);
-        assert_eq!(quilt_type_bytes, QuiltVersionV1::quilt_type_bytes());
+        utils::check_quilt_version::<QuiltVersionV1>(&first_column)?;
 
         let data_size = get_quilt_index_data_size(&first_column)?;
         let prefix_size = QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
@@ -1023,6 +1032,18 @@ mod utils {
             u16::try_from(current_column).expect("current_column should fit in u16"),
         );
         Ok(quilt_index)
+    }
+
+    /// Checks the quilt version.
+    pub fn check_quilt_version<V: QuiltVersion>(data: &[u8]) -> Result<(), QuiltError> {
+        let quilt_version_byte = get_quilt_version_byte(data)?;
+        if quilt_version_byte != V::quilt_version_byte() {
+            return Err(QuiltError::QuiltVersionMismatch(
+                quilt_version_byte,
+                V::quilt_version_byte(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -1310,7 +1331,8 @@ mod tests {
             .iter()
             .find(|sliver| sliver.index == SliverIndex::new(0))
             .expect("Should find first sliver");
-        let quilt_version: QuiltVersionEnum = get_quilt_version_enum(first_sliver.symbols.data());
+        let quilt_version =
+            get_quilt_version_enum(first_sliver.symbols.data()).expect("Should get quilt version");
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
         let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
         assert!(matches!(

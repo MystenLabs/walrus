@@ -155,9 +155,12 @@ pub enum QuiltError {
     /// The blob is not found in the quilt.
     #[error("the blob is not found in the quilt: {0}")]
     BlobNotFoundInQuilt(String),
+    /// The quilt version does not match the expected version.
+    #[error("the quilt version does not match the expected version: {0}, expected: {1}")]
+    QuiltVersionMismatch(u8, u8),
     /// The blob is not aligned with the quilt.
-    #[error("the blob is not aligned with the quilt")]
-    InvalidFormatNotAligned,
+    #[error("the blob is not aligned with the quilt: {0}")]
+    InvalidFormatNotAligned(String),
     /// Failed to extract the quilt index size.
     #[error("failed to extract the quilt index size")]
     FailedToExtractQuiltIndexSize,
