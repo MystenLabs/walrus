@@ -778,7 +778,10 @@ impl RetriableSuiClient {
         note = "please implement a full treatment in RetriableSuiClient for your use case"
     )]
     pub async fn get_current_client(&self) -> Arc<SuiClient> {
-        self.failover_sui_client.get_current_client().await
+        self.failover_sui_client
+            .get_current_client()
+            .await
+            .expect("client must have been created")
     }
 
     /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
@@ -1040,6 +1043,7 @@ impl RetriableSuiClient {
             .failover_sui_client
             .get_current_client()
             .await
+            .expect("client must have been created")
             .transaction_builder()
             .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
             .await;

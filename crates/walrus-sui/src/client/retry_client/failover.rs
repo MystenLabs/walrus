@@ -74,7 +74,7 @@ impl MakeRetriableError for RetriableClientError {
 #[derive(Clone)]
 pub struct FailoverWrapper<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug> {
     lazy_client_builders: Vec<BuilderT>,
-    state: Arc<Mutex<FailoverState<ClientT>>>,
+    state: Arc<Mutex<Option<FailoverState<ClientT>>>>,
     max_tries: usize,
 }
 
@@ -108,29 +108,35 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         assert!(lazy_client_builders.len() >= max_tries);
 
         Ok(Self {
-            max_tries,
-            state: Arc::new(Mutex::new(FailoverState {
-                client: lazy_client_builders[0].lazy_build_client().await?,
-                rpc_url: lazy_client_builders[0].get_rpc_url().map(|s| s.to_string()),
-                current_index: 0,
-            })),
             lazy_client_builders,
+            state: Arc::new(Mutex::new(None)),
+            max_tries,
         })
     }
 
     /// Returns the name of the current client.
-    pub async fn get_current_client(&self) -> Arc<ClientT> {
-        self.state.lock().await.client.clone()
+    pub async fn get_current_client(&self) -> Result<Arc<ClientT>, FailoverError> {
+        let mut state = self.state.lock().await;
+        match state.as_ref() {
+            Some(state) => Ok(state.client.clone()),
+            None => {
+                let client = self
+                    .fetch_next_client_locked(&mut BTreeSet::new(), &mut state)
+                    .await?;
+                Ok(client)
+            }
+        }
     }
 
     /// Returns the name of the current client.
     pub async fn get_current_rpc_url(&self) -> String {
-        self.state
-            .lock()
-            .await
-            .rpc_url
-            .clone()
-            .unwrap_or("unknown_url".to_string())
+        match self.state.lock().await.as_ref() {
+            Some(state) => state
+                .rpc_url
+                .clone()
+                .unwrap_or_else(|| "unknown_url".to_string()),
+            None => "uninitialized_client".to_string(),
+        }
     }
 
     fn client_count(&self) -> usize {
@@ -148,21 +154,32 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 "only one client available, try adding rpc urls".to_string(),
             ));
         }
-
         let mut state = self.state.lock().await;
+        self.fetch_next_client_locked(tried_client_indices, &mut state)
+            .await
+    }
 
+    async fn fetch_next_client_locked(
+        &self,
+        tried_client_indices: &mut BTreeSet<usize>,
+        state: &mut Option<FailoverState<ClientT>>,
+    ) -> Result<Arc<ClientT>, FailoverError> {
         // Check if the state of the FailoverWrapper has already advanced to a client we haven't
         // tried yet. If so, go ahead and use that one. Note that this condition is subtle as it
         // mutates the `tried_client_indices`.
-        if tried_client_indices.len() < self.max_tries
-            && tried_client_indices.insert(state.current_index)
-        {
-            return Ok(state.client.clone());
-        }
-
+        if let Some(state) = state.as_mut() {
+            if tried_client_indices.len() < self.max_tries
+                && tried_client_indices.insert(state.current_index)
+            {
+                return Ok(state.client.clone());
+            }
+        };
         // Compute the next wrapped index.
-        let mut next_index = (state.current_index + 1) % self.client_count();
-
+        let mut next_index = if let Some(state) = state.as_ref() {
+            (state.current_index + 1) % self.client_count()
+        } else {
+            0
+        };
         // It may be the case that the LazyClientBuilder fails to connect to a client, but let's not
         // let that stop us from trying the next one.
         loop {
@@ -193,11 +210,13 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             };
 
             // COMMIT phase. NB: never fail during this phase.
-            state.current_index = next_index;
-            state.client = client.clone();
-            state.rpc_url = self.lazy_client_builders[next_index]
-                .get_rpc_url()
-                .map(|s| s.to_string());
+            *state = Some(FailoverState {
+                client: client.clone(),
+                rpc_url: self.lazy_client_builders[next_index]
+                    .get_rpc_url()
+                    .map(|s| s.to_string()),
+                current_index: next_index,
+            });
 
             // We're done, return the client.
             return Ok(client);
@@ -222,9 +241,18 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             .as_ref()
             .map(|m| RetryCountGuard::new(m.clone(), format!("{method}_with_failover").as_str()));
         let (mut client, mut tried_client_indices) = {
-            let state = self.state.lock().await;
-            let tried_client_indices = once(state.current_index).collect::<BTreeSet<_>>();
-            (state.client.clone(), tried_client_indices)
+            let mut state = self.state.lock().await;
+
+            if let Some(state) = state.as_ref() {
+                let tried_client_indices = once(state.current_index).collect::<BTreeSet<_>>();
+                (state.client.clone(), tried_client_indices)
+            } else {
+                let mut tried_client_indices = BTreeSet::new();
+                let client = self
+                    .fetch_next_client_locked(&mut tried_client_indices, &mut state)
+                    .await?;
+                (client, tried_client_indices)
+            }
         };
         loop {
             let result = {
@@ -389,14 +417,19 @@ mod tests {
                 "operation",
             )
             .await;
-
         assert!(matches!(result, Ok(ref s) if s == "success"));
         assert_eq!(failing_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(
             succeeding_calls.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
-        assert!(!failover_wrapper.get_current_client().await.should_fail,);
+        assert!(
+            !failover_wrapper
+                .get_current_client()
+                .await
+                .expect("client must have been created")
+                .should_fail,
+        );
     }
 
     #[tokio::test]
