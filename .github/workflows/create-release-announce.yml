@@ -8,8 +8,11 @@ on:
     inputs:
       network:
         description: Network to generate release for
-        type: string
         required: true
+        type: choice
+        options:
+          - testnet
+          - mainnet
 
 env:
   RELEASE_NOTES_FILE: "./release_notes.txt"
