@@ -93,7 +93,7 @@ async fn read_blob_with_wait_for_certification(
             Ok(data) => return Ok(data),
             Err(err) => {
                 // Check if the error is BlobIdDoesNotExist.
-                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
+                if matches!(err, ClientError::BlobIdDoesNotExist) {
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     continue;
                 }
