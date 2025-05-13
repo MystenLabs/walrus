@@ -12,7 +12,7 @@ on:
         required: true
 
 env:
-  RELEASE_NOTES_FILE: "./release_notes.txt"        
+  RELEASE_NOTES_FILE: "./release_notes.txt"
 
 jobs:
   generate-tag-release:
@@ -58,7 +58,7 @@ jobs:
         run: |
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
-          git push --force origin ${walrus_commit}:${{ inputs.network }} 
+          git push --force origin ${walrus_commit}:${{ inputs.network }}
 
       - name: Create a release tag
         shell: bash
@@ -79,9 +79,9 @@ jobs:
 
       - name: Get commits for branches
         shell: bash
-        env: 
+        env:
           PREVIOUS_BRANCH: ${{ env.current_release_branch }}
-          CURRENT_BRANCH:  ${{ env.previous_release_branch }}
+          CURRENT_BRANCH: ${{ env.previous_release_branch }}
         working-directory: ./
         run: |
           echo "previous_commit=$(curl -s \
