@@ -110,10 +110,7 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ///
     /// The decoded quilt index is stored in the decoder and can be retrieved
     /// using the `get_quilt_index` method after this method returns.
-    fn decode_quilt_index(&mut self) -> Result<&V::QuiltIndex, QuiltError>;
-
-    /// Returns the decoded quilt index, if available.
-    fn get_quilt_index(&self) -> Option<&V::QuiltIndex>;
+    fn get_or_decode_quilt_index(&mut self) -> Result<&V::QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
@@ -330,7 +327,7 @@ impl QuiltV1 {
     fn get_blob(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
         let start_idx = usize::from(quilt_patch.start_index);
         let end_idx = usize::from(quilt_patch.end_index);
-        let mut blob = vec![0u8; quilt_patch.unencoded_length() as usize];
+        let mut blob = vec![0u8; quilt_patch.unencoded_length as usize];
 
         let mut written = 0;
         for col in start_idx..end_idx {
@@ -445,9 +442,7 @@ impl fmt::Debug for DebugQuiltIndex<'_> {
             list.entry(&format_args!(
                 "\nQuiltPatch {{\n    unencoded_length: {},\
                 \n    end_index: {}\n    identifier: {:?}\n}}",
-                patch.unencoded_length(),
-                patch.end_index,
-                patch.identifier()
+                patch.unencoded_length, patch.end_index, patch.identifier
             ));
         }
         list.finish()?;
@@ -666,7 +661,7 @@ pub struct QuiltDecoderV1<'a> {
 }
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
-    fn decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
+    fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
         let index = SliverIndex(0);
 
         let first_sliver = self
@@ -732,10 +727,6 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .expect("quilt index should be decoded"))
     }
 
-    fn get_quilt_index(&self) -> Option<&QuiltIndexV1> {
-        self.quilt_index.as_ref()
-    }
-
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
             .as_ref()
@@ -781,7 +772,7 @@ impl<'a> QuiltDecoderV1<'a> {
 
         self.check_missing_slivers(start_idx, end_idx)?;
 
-        let unencoded_length = usize::try_from(quilt_patch.unencoded_length())
+        let unencoded_length = usize::try_from(quilt_patch.unencoded_length)
             .expect("unencoded_length should fit in usize");
 
         // Extract and reconstruct the blob.
@@ -1247,8 +1238,7 @@ mod tests {
                 .get_quilt_patch_by_identifier(blob_with_identifier.identifier.as_str())
                 .expect("Patch should exist for this blob ID");
             assert_eq!(
-                quilt_patch.identifier(),
-                &blob_with_identifier.identifier,
+                quilt_patch.identifier, blob_with_identifier.identifier,
                 "Mismatch in blob description"
             );
 
@@ -1324,14 +1314,14 @@ mod tests {
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
         let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
         assert!(matches!(
-            quilt_decoder.decode_quilt_index(),
+            quilt_decoder.get_or_decode_quilt_index(),
             Err(QuiltError::MissingSlivers(_))
         ));
 
         let sliver_vec = vec![*first_sliver];
         quilt_decoder.add_slivers(&sliver_vec);
         assert_eq!(
-            quilt_decoder.decode_quilt_index(),
+            quilt_decoder.get_or_decode_quilt_index(),
             Ok(&quilt_metadata_v1.index)
         );
 
@@ -1341,11 +1331,11 @@ mod tests {
             .identifier
             .as_str();
         let patch = quilt_decoder
-            .get_quilt_index()
+            .get_or_decode_quilt_index()
             .expect("quilt index should exist")
             .get_quilt_patch_by_identifier(identifier)
             .expect("quilt patch should exist");
-        assert_eq!(patch.identifier(), identifier);
+        assert_eq!(patch.identifier, identifier);
 
         let missing_indices: Vec<SliverIndex> = (patch.start_index..patch.end_index)
             .map(SliverIndex)

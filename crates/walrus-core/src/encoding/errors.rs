@@ -152,9 +152,6 @@ pub enum SymbolVerificationError {
 /// Errors that may be encountered while interacting with quilt.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QuiltError {
-    /// The quilt version is not supported.
-    // #[error("invalid quilt version, expected {0:?}, got {1:?}")]
-    // InvalidQuiltVersion(QuiltVersion, QuiltVersion),
     /// The blob is not found in the quilt.
     #[error("the blob is not found in the quilt: {0}")]
     BlobNotFoundInQuilt(String),

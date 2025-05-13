@@ -54,14 +54,14 @@ pub enum VerificationError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
     /// The unencoded length of the blob.
-    unencoded_length: u64,
+    pub unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
     /// The end sliver index of the blob.
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
-    identifier: String,
+    pub identifier: String,
 }
 
 impl QuiltPatchV1 {
@@ -74,16 +74,6 @@ impl QuiltPatchV1 {
             identifier,
         }
     }
-
-    /// Returns the identifier of the patch.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
-    }
-
-    /// Returns the unencoded length of the patch.
-    pub fn unencoded_length(&self) -> u64 {
-        self.unencoded_length
-    }
 }
 
 /// A enum wrapper around the quilt index.
@@ -93,12 +83,11 @@ pub enum QuiltIndex {
     V1(QuiltIndexV1),
 }
 
-/// An index over the patches(blobs) in a quilt.
+/// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
 ///
 /// Each quilt patch represents a blob stored in the quilt. And each patch is
 /// mapped to a contiguous index range.
-///
-/// INV: The patches are sorted by their end indices, as well as their blob_ids.
+// INV: The patches are sorted by their end indices.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
@@ -113,13 +102,15 @@ impl QuiltIndexV1 {
     ) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_patches
             .iter()
-            .find(|patch| patch.identifier() == identifier)
+            .find(|patch| patch.identifier == identifier)
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
     }
 
     /// Returns an iterator over the identifiers of the blobs in the quilt.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.quilt_patches.iter().map(|patch| patch.identifier())
+        self.quilt_patches
+            .iter()
+            .map(|patch| patch.identifier.as_str())
     }
 
     /// Returns the number of patches in the quilt.
