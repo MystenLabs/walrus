@@ -3,28 +3,40 @@
 
 //! The primary entrypoint for Walrus SDK users.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 pub use epochs::EpochArg;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
+use tokio::sync::Mutex;
 use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
-    encoding::{EncodingConfig, EncodingConfigTrait as _},
+    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction},
+    client::{BlobPersistence, PostStoreAction, SuiReadClient, retry_client::RetriableSuiClient},
     config::WalletConfig,
     types::move_structs::StakedWal,
 };
 
-use crate::{client::ClientConfig, config::load_configuration, store_when::StoreWhen};
+use crate::{
+    client::{Blocklist, Client, ClientConfig, refresh::CommitteesRefresherHandle},
+    config::load_configuration,
+    store_when::StoreWhen,
+};
 pub mod epochs;
+
+/// The handle to the global refresher. This is a singleton.
+static REFRESH_HANDLE: LazyLock<Mutex<Option<CommitteesRefresherHandle>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 /// The output of the `store_blobs_dry_run` method.
 #[derive(Debug, Clone)]
@@ -120,6 +132,8 @@ pub struct Walrus {
     _wallet_context: Arc<WalletContext>,
     /// The config for the client.
     config: ClientConfig,
+    /// A blocklist of blobs to avoid.
+    blocklist: Option<Blocklist>,
 }
 
 impl std::fmt::Debug for Walrus {
@@ -136,6 +150,7 @@ impl Walrus {
         config: &Option<PathBuf>,
         context: Option<&str>,
         wallet_override: &Option<PathBuf>,
+        blocklist: Option<Blocklist>,
     ) -> Result<Self> {
         let config = load_configuration(config.as_ref(), context)?;
         let wallet_config = wallet_override
@@ -150,14 +165,49 @@ impl Walrus {
         Ok(Self {
             _wallet_context: wallet_context,
             config,
+            blocklist,
         })
     }
 
     // Implementations of client commands.
 
     /// Read a blob from the Walrus network.
-    pub async fn read_blob(&self, _blob_id: BlobId) -> Result<Vec<u8>> {
-        todo!()
+    pub async fn read_blob(&self, blob_id: BlobId) -> Result<Vec<u8>> {
+        let client = {
+            let sui_read_client = {
+                let sui_client = RetriableSuiClient::new_for_rpc_urls(
+                    &self.config.rpc_urls,
+                    Default::default(),
+                    self.config.communication_config.sui_client_request_timeout,
+                )
+                .await
+                .context(format!(
+                    "cannot connect to Sui RPC nodes at {}",
+                    self.config.rpc_urls.join(", ")
+                ))?;
+
+                self.config.new_read_client(sui_client).await?
+            };
+
+            let refresh_handle = self.get_refresh_handle(sui_read_client.clone()).await?;
+            let client =
+                Client::new_read_client(self.config.clone(), refresh_handle, sui_read_client)
+                    .await?;
+
+            if let Some(blocklist) = self.blocklist.as_ref() {
+                client.with_blocklist(blocklist.clone())
+            } else {
+                client
+            }
+        };
+
+        let start_timer = std::time::Instant::now();
+        let blob = client.read_blob::<Primary>(&blob_id).await?;
+        let blob_size = blob.len();
+        let elapsed = start_timer.elapsed();
+
+        tracing::info!(%blob_id, ?elapsed, blob_size, "finished reading blob");
+        Ok(blob)
     }
 
     /// Write one or more blobs to the Walrus network.
@@ -215,5 +265,25 @@ impl Walrus {
         _node_ids_with_amounts: Vec<(ObjectID, u64)>,
     ) -> Result<Vec<StakedWal>> {
         todo!()
+    }
+
+    // Get access to the global committees refresher handle. Create one if it doesn't exist.
+    async fn get_refresh_handle(
+        &self,
+        sui_read_client: SuiReadClient,
+    ) -> Result<CommitteesRefresherHandle> {
+        let mut global_refresher_handle = REFRESH_HANDLE.lock().await;
+        match global_refresher_handle.as_ref() {
+            Some(handle) => Ok(handle.clone()),
+            None => {
+                let new_handle = self
+                    .config
+                    .refresh_config
+                    .build_refresher_and_run(sui_read_client)
+                    .await?;
+                *global_refresher_handle = Some(new_handle.clone());
+                Ok(new_handle)
+            }
+        }
     }
 }
