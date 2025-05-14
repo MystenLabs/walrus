@@ -190,7 +190,7 @@ pub struct RetriableRpcClient {
     metrics: Option<Arc<SuiClientMetricSet>>,
     last_success: Arc<AtomicInstant>,
     num_failures: Arc<AtomicUsize>,
-    skip_rpc_node_until: Arc<AtomicInstant>,
+    skip_rpc_for_checkpoint_until: Arc<AtomicInstant>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
@@ -218,7 +218,13 @@ impl RetriableRpcClient {
     ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
-            FallbackClient::new(url, request_timeout)
+            FallbackClient::new(
+                url,
+                request_timeout,
+                config.skip_rpc_for_checkpoint_duration,
+                config.min_failures_to_start_fallback,
+                config.failure_window_to_start_fallback_duration,
+            )
         });
 
         Ok(Self {
@@ -229,7 +235,7 @@ impl RetriableRpcClient {
             metrics,
             last_success: Arc::new(AtomicInstant::new(Instant::now())),
             num_failures: Arc::new(AtomicUsize::new(0)),
-            skip_rpc_node_until: Arc::new(AtomicInstant::new(Instant::now())),
+            skip_rpc_for_checkpoint_until: Arc::new(AtomicInstant::new(Instant::now())),
         })
     }
 
@@ -332,10 +338,10 @@ impl RetriableRpcClient {
         let start_time = Instant::now();
 
         // Check if we should directly skip RPC node due to previous failures, and use fallback.
-        let skip_rpc_node_until = self.skip_rpc_node_until.load(Ordering::SeqCst);
-        let try_rpc_node = self.fallback_client.is_none() || start_time >= skip_rpc_node_until;
+        let try_rpc_node_first = self.fallback_client.is_none()
+            || start_time >= self.skip_rpc_for_checkpoint_until.load(Ordering::Relaxed);
 
-        if try_rpc_node {
+        if try_rpc_node_first {
             let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
                 Ok(checkpoint) => {
                     if let Some(metrics) = self.metrics.as_ref() {
@@ -364,7 +370,11 @@ impl RetriableRpcClient {
 
             // If the fallback client is not set, or the error is not eligible for fallback,
             if self.fallback_client.is_none()
-                || !error.is_eligible_for_fallback(sequence_number, last_success, num_failures)
+                || !self
+                    .fallback_client
+                    .as_ref()
+                    .unwrap()
+                    .is_eligible_for_fallback(sequence_number, &error, last_success, num_failures)
             {
                 tracing::debug!(
                     failback_client_set = ?self.fallback_client.is_some(),
@@ -390,8 +400,15 @@ impl RetriableRpcClient {
 
             // RPC node failure is sustained, so we skip it for 5 minutes.
             // Also, at this point, the fallback client must be set.
-            self.skip_rpc_node_until
-                .store(Instant::now() + Duration::from_secs(300), Ordering::SeqCst);
+            self.skip_rpc_for_checkpoint_until.store(
+                Instant::now()
+                    + self
+                        .fallback_client
+                        .as_ref()
+                        .expect("fallback client must set")
+                        .skip_rpc_for_checkpoint_duration(),
+                Ordering::Relaxed,
+            );
         }
 
         let fallback_start_time = Instant::now();
@@ -579,23 +596,11 @@ impl From<tonic::Status> for RetriableClientError {
 }
 
 impl RetriableClientError {
-    // TODO(zhewu): These should be configurable.
-    /// The time window during which failures are counted.
-    const FAILURE_WINDOW: Duration = Duration::from_secs(300);
-    /// The maximum number of failures allowed.
-    const MAX_FAILURES: usize = 10;
-
     /// Returns `true` if the error is eligible for fallback.
     ///
     /// For pruned checkpoints (indicated by a `NotFound` error and sequence number <= height),
     /// we will fallback immediately. For missing events, we will also fallback immediately.
-    /// For all other errors, we will fallback if the failure window has been exceeded.
-    fn is_eligible_for_fallback(
-        &self,
-        next_checkpoint: u64,
-        last_success: Instant,
-        num_failures: usize,
-    ) -> bool {
+    fn is_eligible_for_fallback_immediately(&self, next_checkpoint: u64) -> bool {
         match self {
             Self::RpcError(rpc_error)
                 if rpc_error.status.code() == tonic::Code::NotFound
@@ -612,15 +617,8 @@ impl RetriableClientError {
             {
                 true
             }
-            _ => self.is_failure_window_exceeded(last_success, num_failures),
+            _ => false,
         }
-    }
-
-    /// Returns `true` if the failure window has been exceeded. Failure window is exceeded if
-    /// the number of failures exceeds `MAX_FAILURES` and if the last successful RPC call was
-    /// more than `FAILURE_WINDOW` minutes ago.
-    fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
-        last_success.elapsed() > Self::FAILURE_WINDOW && num_failures > Self::MAX_FAILURES
     }
 }
 
