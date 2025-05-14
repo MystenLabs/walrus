@@ -62,28 +62,26 @@ jobs:
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
 
-          export walrus_commit="748f3b623aa623ac9dacd4cc87ef0c4748505eb4"
-
           echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
-          echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} --header "Accept: application/vnd.github+json" --input -
+          echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} \
+            --header "Accept: application/vnd.github+json" --input -
 
-
-      # - name: Create a release tag
-      #   shell: bash
-      #   env:
-      #     WALRUS_VERSION: ${{ env.current_release_version }}
-      #     WALRUS_COMMIT: ${{ env.walrus_commit }}
-      #   run: |
-      #     export release_tag="${{ inputs.network }}-v${{ env.WALRUS_VERSION }}"
-      #     echo "release_tag=${release_tag}" >> $GITHUB_ENV
-      #     curl -X POST \
-      #       -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-      #       -H "Accept: application/vnd.github+json" \
-      #       https://api.github.com/repos/MystenLabs/walrus/git/refs \
-      #       -d '{
-      #         "ref": "refs/tags/${release_tag}",
-      #         "sha": "${{ env.WALRUS_COMMIT }}"
-      #       }'
+      - name: Create a release tag
+        shell: bash
+        env:
+          WALRUS_VERSION: ${{ env.current_release_version }}
+          WALRUS_COMMIT: ${{ env.walrus_commit }}
+        run: |
+          export release_tag="${{ inputs.network }}-v${{ env.WALRUS_VERSION }}"
+          echo "release_tag=${release_tag}" >> $GITHUB_ENV
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/MystenLabs/walrus/git/refs \
+            -d '{
+              "ref": "refs/tags/${release_tag}",
+              "sha": "${{ env.WALRUS_COMMIT }}"
+            }'
 
       # - name: Get commits for branches
       #   shell: bash
