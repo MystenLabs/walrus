@@ -32,7 +32,7 @@ jobs:
       - name: Get current and previous release branches
         shell: bash
         run: |
-          export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')"
+          export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')
           export major_version=$(echo $sui_main_version | cut -d. -f1)
           export minor_version=$(echo $sui_main_version | cut -d. -f2)
           export patch_version=$(echo $sui_main_version | cut -d. -f3)
