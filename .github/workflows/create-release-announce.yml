@@ -149,7 +149,7 @@ jobs:
           prerelease: ${{ env.PRE_RELEASE }}
 
   announce-release:
-    name: Announce Release
+    name: Announce Release in Discord
     if: ${{ inputs.announce == true }}
     needs: create-release
     runs-on: ubuntu-latest
