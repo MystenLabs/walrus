@@ -1,6 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// *******************************************************************************
+// DISCLAIMER: The quilt format is still under active development.
+// Please use with caution as it is subject to change without prior notice.
+// *******************************************************************************
+
 use alloc::{
     format,
     string::{String, ToString},
