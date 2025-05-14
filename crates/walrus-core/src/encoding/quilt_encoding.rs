@@ -682,6 +682,10 @@ pub struct QuiltDecoderV1<'a> {
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
+        if self.quilt_index.is_some() {
+            return Ok(self.quilt_index.as_ref().expect("quilt index should exist"));
+        }
+
         let first_sliver_index = SliverIndex(0);
         let first_sliver = self
             .slivers
