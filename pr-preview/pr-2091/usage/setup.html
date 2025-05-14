@@ -1,0 +1,577 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Setup - Walrus</title>
+
+
+        <!-- Custom HTML head -->
+        <script type="text/javascript">
+          // Hacky check to only load Amplitude in production since we don't have environments:
+          const localAddresses = ['localhost', '127.0.0.1', '[::1]'];
+          if (localAddresses.indexOf(document.location.hostname) === -1) {
+            !function(){"use strict";!function(e,t){var r=e.amplitude||{_q:[],_iq:{}};if(r.invoked)e.console&&console.error&&console.error("Amplitude snippet has been loaded.");else{var n=function(e,t){e.prototype[t]=function(){return this._q.push({name:t,args:Array.prototype.slice.call(arguments,0)}),this}},s=function(e,t,r){return function(n){e._q.push({name:t,args:Array.prototype.slice.call(r,0),resolve:n})}},o=function(e,t,r){e._q.push({name:t,args:Array.prototype.slice.call(r,0)})},i=function(e,t,r){e[t]=function(){if(r)return{promise:new Promise(s(e,t,Array.prototype.slice.call(arguments)))};o(e,t,Array.prototype.slice.call(arguments))}},a=function(e){for(var t=0;t<g.length;t++)i(e,g[t],!1);for(var r=0;r<m.length;r++)i(e,m[r],!0)};r.invoked=!0;var c=t.createElement("script");c.type="text/javascript",c.integrity="sha384-pY2pkwHaLM/6UIseFHVU3hOKr6oAvhLcdYkoRZyaMDWLjpM6B7nTxtOdE823WAOQ",c.crossOrigin="anonymous",c.async=!0,c.src="https://cdn.amplitude.com/libs/analytics-browser-2.11.0-min.js.gz",c.onload=function(){e.amplitude.runQueuedFunctions||console.log("[Amplitude] Error: could not load SDK")};var u=t.getElementsByTagName("script")[0];u.parentNode.insertBefore(c,u);for(var p=function(){return this._q=[],this},l=["add","append","clearAll","prepend","set","setOnce","unset","preInsert","postInsert","remove","getUserProperties"],d=0;d<l.length;d++)n(p,l[d]);r.Identify=p;for(var f=function(){return this._q=[],this},v=["getEventProperties","setProductId","setQuantity","setPrice","setRevenue","setRevenueType","setEventProperties"],y=0;y<v.length;y++)n(f,v[y]);r.Revenue=f;var g=["getDeviceId","setDeviceId","getSessionId","setSessionId","getUserId","setUserId","setOptOut","setTransport","reset","extendSession"],m=["init","add","remove","track","logEvent","identify","groupIdentify","setGroup","revenue","flush"];a(r),r.createInstance=function(e){return r._iq[e]={_q:[]},a(r._iq[e]),r._iq[e]},e.amplitude=r}}(window,document)}();
+            amplitude.init('f60df2d0d709d50faa2ffda153a84bc0', { identityStorage:'none', defaultTracking: true });
+          }
+        </script>
+        
+        <script>
+            function initAskCookbook() {
+              // It's a public API key, so it's safe to expose it here
+              const PUBLIC_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0.Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
+        
+              let cookbookContainer = document.getElementById("__cookbook");
+              if (!cookbookContainer) {
+                cookbookContainer = document.createElement("div");
+                cookbookContainer.id = "__cookbook";
+                cookbookContainer.dataset.apiKey = PUBLIC_API_KEY;
+                document.body.appendChild(cookbookContainer);
+              }
+        
+              let cookbookScript = document.getElementById("__cookbook-script");
+              if (!cookbookScript) {
+                cookbookScript = document.createElement("script");
+                cookbookScript.id = "__cookbook-script";
+                cookbookScript.src = "https://cdn.jsdelivr.net/npm/@cookbookdev/docsbot/dist/standalone/index.cjs.js";
+                cookbookScript.async = true;
+                document.head.appendChild(cookbookScript);
+              }
+        
+        
+              const keyPressPropagationBlocker = function (e) {
+                e.stopPropagation();
+              };
+              document.addEventListener("cookbook:modal:state:change", function (e) {
+                const isOpen = e.detail.isOpen;
+                if (isOpen) {
+                  document.body.addEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                } else {
+                  document.body.removeEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                }
+              });
+            }
+        
+            // Check if the document is already loaded and if so, initialize the script, otherwise wait for the load event
+            if (document.readyState === "complete") {
+              initAskCookbook();
+            } else {
+              window.addEventListener("load", initAskCookbook);
+            }
+          </script>
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../docs/mdbook-admonish.css">
+        <link rel="stylesheet" href="../docs/theme/tabs.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Walrus</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Dev Blog</li><li class="chapter-item expanded "><a href="../blog/00_intro.html"><strong aria-hidden="true">1.</strong> Blog Preface</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../blog/01_announcing_walrus.html"><strong aria-hidden="true">1.1.</strong> Announcing Walrus</a></li><li class="chapter-item expanded "><a href="../blog/02_devnet_update.html"><strong aria-hidden="true">1.2.</strong> Devnet Update</a></li><li class="chapter-item expanded "><a href="../blog/03_whitepaper.html"><strong aria-hidden="true">1.3.</strong> Announcing the Walrus Whitepaper</a></li><li class="chapter-item expanded "><a href="../blog/04_testnet_update.html"><strong aria-hidden="true">1.4.</strong> Announcing Testnet</a></li><li class="chapter-item expanded "><a href="../blog/05_testnet_redeployment.html"><strong aria-hidden="true">1.5.</strong> Announcing Testnet v2</a></li><li class="chapter-item expanded "><a href="../blog/06_mainnet.html"><strong aria-hidden="true">1.6.</strong> Announcing Mainnet</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Usage</li><li class="chapter-item expanded "><a href="../usage/started.html"><strong aria-hidden="true">2.</strong> Getting started</a></li><li class="chapter-item expanded "><a href="../usage/setup.html" class="active"><strong aria-hidden="true">3.</strong> Setup</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/networks.html"><strong aria-hidden="true">3.1.</strong> Available networks</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/interacting.html"><strong aria-hidden="true">4.</strong> Interacting with Walrus</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/client-cli.html"><strong aria-hidden="true">4.1.</strong> Using the client CLI</a></li><li class="chapter-item expanded "><a href="../usage/json-api.html"><strong aria-hidden="true">4.2.</strong> Using the client JSON API</a></li><li class="chapter-item expanded "><a href="../usage/web-api.html"><strong aria-hidden="true">4.3.</strong> Using the client HTTP API</a></li><li class="chapter-item expanded "><a href="../usage/sdks.html"><strong aria-hidden="true">4.4.</strong> SDKs and other tools</a></li></ol></li><li class="chapter-item expanded "><a href="../dev-guide/dev-guide.html"><strong aria-hidden="true">5.</strong> Developer guide</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../dev-guide/components.html"><strong aria-hidden="true">5.1.</strong> Components</a></li><li class="chapter-item expanded "><a href="../dev-guide/dev-operations.html"><strong aria-hidden="true">5.2.</strong> Operations</a></li><li class="chapter-item expanded "><a href="../dev-guide/costs.html"><strong aria-hidden="true">5.3.</strong> Storage costs</a></li><li class="chapter-item expanded "><a href="../dev-guide/sui-struct.html"><strong aria-hidden="true">5.4.</strong> Sui structures</a></li><li class="chapter-item expanded "><a href="../dev-guide/data-security.html"><strong aria-hidden="true">5.5.</strong> Data security</a></li></ol></li><li class="chapter-item expanded "><a href="../operator-guide/aggregator.html"><strong aria-hidden="true">6.</strong> Operating an aggregator or publisher</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../operator-guide/auth-publisher.html"><strong aria-hidden="true">6.1.</strong> The authenticated Publisher</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/stake.html"><strong aria-hidden="true">7.</strong> Staking and unstaking</a></li><li class="chapter-item expanded "><a href="../usage/examples.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li class="chapter-item expanded "><a href="../usage/troubleshooting.html"><strong aria-hidden="true">9.</strong> Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Sites</li><li class="chapter-item expanded "><a href="../walrus-sites/intro.html"><strong aria-hidden="true">10.</strong> Introduction to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial.html"><strong aria-hidden="true">11.</strong> Your first Walrus Site</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-install.html"><strong aria-hidden="true">11.1.</strong> Installing the site builder</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-publish.html"><strong aria-hidden="true">11.2.</strong> Publishing a Walrus Site</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-suins.html"><strong aria-hidden="true">11.3.</strong> Set a SuiNS name</a></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/advanced.html"><strong aria-hidden="true">12.</strong> Advanced functionality</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/commands.html"><strong aria-hidden="true">12.1.</strong> Site builder commands</a></li><li class="chapter-item expanded "><a href="../walrus-sites/builder-config.html"><strong aria-hidden="true">12.2.</strong> Advanced site-builder configuration</a></li><li class="chapter-item expanded "><a href="../walrus-sites/routing.html"><strong aria-hidden="true">12.3.</strong> Specifying headers, routing, and metadata</a></li><li class="chapter-item expanded "><a href="../walrus-sites/linking.html"><strong aria-hidden="true">12.4.</strong> Linking from and to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/redirects.html"><strong aria-hidden="true">12.5.</strong> Redirecting objects to Walrus Sites</a></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/overview.html"><strong aria-hidden="true">13.</strong> Technical overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/portal.html"><strong aria-hidden="true">13.1.</strong> The Walrus Sites portal</a></li><li class="chapter-item expanded "><a href="../walrus-sites/bring-your-own-domain.html"><strong aria-hidden="true">13.2.</strong> Bring your own domain</a></li><li class="chapter-item expanded "><a href="../walrus-sites/authentication.html"><strong aria-hidden="true">13.3.</strong> Site data authentication</a></li><li class="chapter-item expanded "><a href="../walrus-sites/restrictions.html"><strong aria-hidden="true">13.4.</strong> Known restrictions</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Design</li><li class="chapter-item expanded "><a href="../design/objectives_use_cases.html"><strong aria-hidden="true">14.</strong> Objectives and use cases</a></li><li class="chapter-item expanded "><a href="../design/overview.html"><strong aria-hidden="true">15.</strong> Overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/architecture.html"><strong aria-hidden="true">15.1.</strong> Architecture</a></li><li class="chapter-item expanded "><a href="../design/encoding.html"><strong aria-hidden="true">15.2.</strong> Encoding</a></li></ol></li><li class="chapter-item expanded "><a href="../design/operations.html"><strong aria-hidden="true">16.</strong> Operations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/operations-sui.html"><strong aria-hidden="true">16.1.</strong> Sui operations</a></li><li class="chapter-item expanded "><a href="../design/operations-off-chain.html"><strong aria-hidden="true">16.2.</strong> Off-chain operations</a></li></ol></li><li class="chapter-item expanded "><a href="../design/properties.html"><strong aria-hidden="true">17.</strong> Properties</a></li><li class="chapter-item expanded "><a href="../design/future.html"><strong aria-hidden="true">18.</strong> Future discussion</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="../glossary.html">Glossary</a></li><li class="chapter-item expanded affix "><a href="../legal/testnet_tos.html">Testnet terms of service</a></li><li class="chapter-item expanded affix "><a href="../legal/privacy.html">Privacy policy</a></li><li class="chapter-item expanded affix "><a href="../legal/walrus_general_tos.html">Walrus general terms of service</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Walrus</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<h1 id="setup"><a class="header" href="#setup">Setup</a></h1>
+<p>We provide a pre-compiled <code>walrus</code> client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
+supports different usage patterns (see <a href="./interacting.html">the next chapter</a>). This chapter describes
+the <a href="#prerequisites">prerequisites</a>, <a href="#installation">installation</a>, and
+<a href="#configuration">configuration</a> of the Walrus client.</p>
+<p>Walrus is open-source under an Apache 2 license, and can also be built and installed from the Rust
+source code via cargo.</p>
+<div id="admonition-walrus-networks" class="admonition admonish-info" role="note" aria-labelledby="admonition-walrus-networks-title">
+<div class="admonition-title">
+<div id="admonition-walrus-networks-title">
+<p>Walrus networks</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-walrus-networks"></a>
+</div>
+<div>
+<p>This page describes how to connect to Walrus <strong>Mainnet</strong>. See <a href="./networks.html">Available networks</a>
+for an overview over all Walrus networks.</p>
+</div>
+</div>
+<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites: Sui wallet, SUI and WAL</a></h2>
+<div id="admonition-quick-wallet-setup" class="admonition admonish-tip" role="note" aria-labelledby="admonition-quick-wallet-setup-title">
+<div class="admonition-title">
+<div id="admonition-quick-wallet-setup-title">
+<p>Quick wallet setup</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-quick-wallet-setup"></a>
+</div>
+<div>
+<p>If you just want to set up a new Sui wallet for Walrus, you can generate one using the
+<code>walrus generate-sui-wallet --network mainnet</code> command after <a href="#installation">installing Walrus</a>.
+You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.</p>
+</div>
+</div>
+<p>Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
+normal way to set this up is via the Sui CLI; see the <a href="https://docs.sui.io/guides/developer/getting-started/sui-install">installation
+instructions</a> in the Sui
+documentation.</p>
+<p>After installing the Sui CLI, you need to set up a wallet by running <code>sui client</code>, which
+prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
+full node at <code>https://fullnode.mainnet.sui.io:443</code> for this. See
+<a href="https://docs.sui.io/guides/developer/getting-started/connect">here</a> for further details.</p>
+<p>After this, you should get something like this (everything besides the <code>mainnet</code> line is optional):</p>
+<pre><code class="language-terminal">$ sui client envs
+╭──────────┬─────────────────────────────────────┬────────╮
+│ alias    │ url                                 │ active │
+├──────────┼─────────────────────────────────────┼────────┤
+│ devnet   │ https://fullnode.devnet.sui.io:443  │        │
+│ localnet │ http://127.0.0.1:9000               │        │
+│ testnet  │ https://fullnode.testnet.sui.io:443 │        │
+│ mainnet  │ https://fullnode.mainnet.sui.io:443 │ *      │
+╰──────────┴─────────────────────────────────────┴────────╯
+</code></pre>
+<p>Make sure you have at least one gas coin with at least 1 SUI.</p>
+<pre><code class="language-terminal">$ sui client gas
+╭─────────────────┬────────────────────┬──────────────────╮
+│ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
+├─────────────────┼────────────────────┼──────────────────┤
+│ 0x65dca966dc... │ 1000000000         │ 1.00             │
+╰─────────────────┴────────────────────┴──────────────────╯
+</code></pre>
+<p>Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
+costs. You can buy WAL through a variety of centralized or decentralized exchanges.</p>
+<p>The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
+different Sui wallet, you can specify this in the <a href="#configuration">Walrus configuration file</a> or
+when <a href="./interacting.html">running the CLI</a>.</p>
+<h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
+<p>We currently provide the <code>walrus</code> client binary for macOS (Intel and Apple CPUs), Ubuntu, and
+Windows. The Ubuntu version most likely works on other Linux distributions as well.</p>
+<div class="table-wrapper"><table><thead><tr><th>OS</th><th>CPU</th><th>Architecture</th></tr></thead><tbody>
+<tr><td>Ubuntu</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64"><code>ubuntu-x86_64</code></a></td></tr>
+<tr><td>Ubuntu</td><td>Intel 64bit (generic)</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic"><code>ubuntu-x86_64-generic</code></a></td></tr>
+<tr><td>MacOS</td><td>Apple Silicon</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64"><code>macos-arm64</code></a></td></tr>
+<tr><td>MacOS</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64"><code>macos-x86_64</code></a></td></tr>
+<tr><td>Windows</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe"><code>windows-x86_64.exe</code></a></td></tr>
+</tbody></table>
+</div>
+<h3 id="nix-install"><a class="header" href="#nix-install">Install via script</a></h3>
+<p>To download and install <code>walrus</code> to your <code>"$HOME"/.local/bin</code> directory, run one of the following
+commands in your terminal then follow on-screen instructions. See <a href="#windows-install">Windows
+instructions</a> if you are on Windows.</p>
+<pre><code class="language-sh"># Run a first-time install using the latest Mainnet version.
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+
+# Install the latest Testnet version instead.
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
+
+# Update an existing installation (overwrites prior version of walrus).
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
+</code></pre>
+<p>Make sure that the <code>"$HOME"/.local/bin</code> directory is in your <code>$PATH</code>.</p>
+<p>Once this is done, you should be able to run Walrus by using the <code>walrus</code> command in your terminal.</p>
+<p>You can see usage instructions as follows (see <a href="./interacting.html">the next chapter</a> for further
+details):</p>
+<pre><code class="language-terminal">$ walrus --help
+Walrus client
+
+Usage: walrus [OPTIONS] &lt;COMMAND&gt;
+
+Commands:
+⋮
+</code></pre>
+<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
+<div class="admonition-title">
+<div id="admonition-tip-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-tip"></a>
+</div>
+<div>
+<p>Our latest Walrus binaries are also available on Walrus itself, namely on
+<a href="https://bin.wal.app">https://bin.wal.app</a>, for example, <a href="https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64">https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64</a>.
+Note that due to DoS protection, it may not be possible to download the binaries with <code>curl</code> or
+<code>wget</code>.</p>
+</div>
+</div>
+<h3 id="windows-install"><a class="header" href="#windows-install">Install on Windows</a></h3>
+<p>To download <code>walrus</code> to your Microsoft Windows computer, run the following in a PowerShell.</p>
+<pre><code class="language-PowerShell">(New-Object System.Net.WebClient).DownloadFile(
+  "https://storage.googleapis.com/mysten-walrus-binaries/walrus-testnet-latest-windows-x86_64.exe",
+  "walrus.exe"
+)
+</code></pre>
+<p>From there, you'll need to place <code>walrus.exe</code> somewhere in your <code>PATH</code>.</p>
+<div id="admonition-windows" class="admonition admonish-note" role="note" aria-labelledby="admonition-windows-title">
+<div class="admonition-title">
+<div id="admonition-windows-title">
+<p>Windows</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-windows"></a>
+</div>
+<div>
+<p>Note that most of the remaining instructions assume a UNIX-based system for the directory structure,
+commands, etc. If you use Windows, you may need to adapt most of those.</p>
+</div>
+</div>
+<h3 id="github-releases"><a class="header" href="#github-releases">GitHub releases</a></h3>
+<p>You can find all our releases including release notes on <a href="https://github.com/MystenLabs/walrus/releases">GitHub</a>.
+Simply download the archive for your system and extract the <code>walrus</code> binary.</p>
+<h3 id="install-via-cargo"><a class="header" href="#install-via-cargo">Install via Cargo</a></h3>
+<p>You can also install Walrus via Cargo. For example, to install the latest Mainnet version:</p>
+<pre><code class="language-sh">cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
+</code></pre>
+<p>In place of <code>--branch mainnet</code>, you can also specify specific tags (e.g., <code>--tag mainnet-v1.18.2</code>)
+or commits (e.g., <code>--rev b2009ac73388705f379ddad48515e1c1503fc8fc</code>).</p>
+<h3 id="build-from-source"><a class="header" href="#build-from-source">Build from source</a></h3>
+<p>Walrus is open-source software published under the Apache 2 license. The code is developed in a
+<code>git</code> repository at <a href="https://github.com/MystenLabs/walrus">https://github.com/MystenLabs/walrus</a>.</p>
+<p>The latest version of Mainnet and Testnet are available under the branches <code>mainnet</code> and <code>testnet</code>
+respectively, and the latest version under the <code>main</code> branch. We welcome reports of issues and bug
+fixes. Follow the instructions in the <code>README.md</code> file to build and use Walrus from source.</p>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<p>The Walrus client needs to know about the Sui objects that store the Walrus system and staking
+information, see the <a href="../dev-guide/sui-struct.html#system-and-staking-information">developer guide</a>.
+These need to be configured in a file <code>~/.config/walrus/client_config.yaml</code>. Additionally, a
+<code>subsidies</code> object can be specified, which will subsidize storage bought with the client.</p>
+<p>You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
+CLI configuration refers to the standard location for Sui configuration
+(<code>"~/.sui/sui_config/client.yaml"</code>).</p>
+<pre><code class="language-yaml">contexts:
+  mainnet:
+    system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+    exchange_objects: []
+    wallet_config:
+      # Sui environment to use.
+      active_env: mainnet
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
+      # Optional override for the Sui address to use.
+      # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.mainnet.sui.io:443
+  testnet:
+    system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
+    subsidies_object: 0xda799d85db0429765c8291c594d334349ef5bc09220e79ad397b30106161a0af
+    exchange_objects:
+      - 0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073
+      - 0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862
+      - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
+      - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
+    wallet_config:
+      # Sui environment to use.
+      active_env: testnet
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
+      # Optional override for the Sui address to use.
+      # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.testnet.sui.io:443
+default_context: mainnet
+</code></pre>
+<!-- markdownlint-disable code-fence-style -->
+<div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
+<div class="admonition-title">
+<div id="admonition-tip-1-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-tip-1"></a>
+</div>
+<div>
+<p>The easiest way to obtain the latest configuration is by downloading it directly from Walrus:</p>
+<pre><code class="language-sh">curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+</code></pre>
+</div>
+</div>
+<!-- markdownlint-enable code-fence-style -->
+<div id="admonition-walrus-testnet-redeployment" class="admonition admonish-warning" role="note" aria-labelledby="admonition-walrus-testnet-redeployment-title">
+<div class="admonition-title">
+<div id="admonition-walrus-testnet-redeployment-title">
+<p>Walrus Testnet redeployment</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-walrus-testnet-redeployment"></a>
+</div>
+<div>
+<p>The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
+here refer to the <em>new</em> Testnet v3, which will be operational after 2025-04-03T15:00:00Z.</p>
+</div>
+</div>
+<h3 id="config-custom-path"><a class="header" href="#config-custom-path">Custom path (optional)</a></h3>
+<p>By default, the Walrus client will look for the <code>client_config.yaml</code> (or <code>client_config.yml</code>)
+configuration file in the current directory, <code>$XDG_CONFIG_HOME/walrus/</code>, <code>~/.config/walrus/</code>, or
+<code>~/.walrus/</code>. However, you can place the file anywhere and name it anything you like; in this case
+you need to use the <code>--config</code> option when running the <code>walrus</code> binary.</p>
+<h3 id="advanced-configuration-optional"><a class="header" href="#advanced-configuration-optional">Advanced configuration (optional)</a></h3>
+<p>The configuration file currently supports the following parameters for each of the contexts:</p>
+<pre><code class="language-yaml"># These are the only mandatory fields. These objects are specific for a particular Walrus
+# deployment but then do not change over time.
+system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+
+# The subsidies object allows the client to use the subsidies contract to purchase storage
+# which will reduce the cost of obtaining a storage resource and extending blobs and also
+# adds subsidies to the rewards of the staking pools.
+subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+
+# You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
+# (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
+# directory), or the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order. Both
+# `active_env` and `active_address` can be omitted, in which case the values from the Sui wallet
+# are used.
+wallet_config:
+  # The path to the wallet configuration file.
+  path: ~/.sui/sui_config/client.yaml
+  # The optional `active_env` to use to override whatever `active_env` is listed in the
+  # configuration file.
+  active_env: mainnet
+  # The optional `active_address` to use to override whatever `active_address` is listed in the
+  # configuration file.
+  active_address: 0x...
+
+# The following parameters can be used to tune the networking behavior of the client. There is no
+# risk in playing around with these values. In the worst case, you may not be able to store/read
+# blob due to timeouts or other networking errors.
+rpc_urls:
+- https://fullnode.testnet.sui.io:443
+communication_config:
+  max_concurrent_writes: null
+  max_concurrent_sliver_reads: null
+  max_concurrent_metadata_reads: 3
+  max_concurrent_status_reads: null
+  max_data_in_flight: null
+  reqwest_config:
+    total_timeout_millis: 30000
+    pool_idle_timeout_millis: null
+    http2_keep_alive_timeout_millis: 5000
+    http2_keep_alive_interval_millis: 30000
+    http2_keep_alive_while_idle: true
+  request_rate_config:
+    max_node_connections: 10
+    backoff_config:
+      min_backoff_millis: 1000
+      max_backoff_millis: 30000
+      max_retries: 5
+  disable_proxy: false
+  disable_native_certs: false
+  sliver_write_extra_time:
+    factor: 0.5
+    base_millis: 500
+  registration_delay_millis: 200
+  max_total_blob_size: 1073741824
+  committee_change_backoff:
+    min_backoff_millis: 1000
+    max_backoff_millis: 5000
+    max_retries: 5
+  sui_client_request_timeout_millis: null
+refresh_config:
+  refresh_grace_period_secs: 10
+  max_auto_refresh_interval_secs: 30
+  min_auto_refresh_interval_secs: 5
+  epoch_change_distance_threshold_secs: 300
+  refresher_channel_size: 100
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../usage/started.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../usage/networks.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../usage/started.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../usage/networks.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/theme/tabs.js"></script>
+
+
+    </div>
+    </body>
+</html>
