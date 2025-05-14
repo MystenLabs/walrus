@@ -71,7 +71,7 @@ jobs:
           WALRUS_VERSION: ${{ env.current_release_version }}
           WALRUS_COMMIT: ${{ env.walrus_commit }}
         run: |
-          export release_tag="${{ inputs.network }}-v${{ env.WALRUS_VERSION }}"
+          export release_tag="${{ inputs.network }}-v${{ env.WALRUS_VERSION }}-test2"
           echo "release_tag=${release_tag}" >> $GITHUB_ENV
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -82,59 +82,59 @@ jobs:
               \"sha\": \"${{ env.WALRUS_COMMIT }}\"
             }"
 
-      # - name: Get commits for branches
-      #   shell: bash
-      #   env:
-      #     PREVIOUS_BRANCH: ${{ env.current_release_branch }}
-      #     CURRENT_BRANCH: ${{ env.previous_release_branch }}
-      #   working-directory: ./
-      #   run: |
-      #     echo "previous_commit=$(curl -s \
-      #       -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-      #       https://api.github.com/repos/MystenLabs/walrus/commits/${{ env.PREVIOUS_BRANCH }}| jq .sha | tr -d '"')" >> $GITHUB_ENV
-      #     echo "current_commit=$(curl -s \
-      #       -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-      #       https://api.github.com/repos/MystenLabs/walrus/commits/${{ env.CURRENT_BRANCH }} | jq .sha | tr -d '"')" >> $GITHUB_ENV
+      - name: Get commits for branches
+        shell: bash
+        env:
+          PREVIOUS_BRANCH: ${{ env.current_release_branch }}
+          CURRENT_BRANCH: ${{ env.previous_release_branch }}
+        working-directory: ./
+        run: |
+          echo "previous_commit=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/MystenLabs/walrus/commits/${{ env.PREVIOUS_BRANCH }}| jq .sha | tr -d '"')" >> $GITHUB_ENV
+          echo "current_commit=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/MystenLabs/walrus/commits/${{ env.CURRENT_BRANCH }} | jq .sha | tr -d '"')" >> $GITHUB_ENV
 
-      # - name: Checkout main
-      #   uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      #   with:
-      #     fetch-depth: 0
-      #     ref: main
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        with:
+          fetch-depth: 0
+          ref: main
 
-      # - name: Setup Python
-      #   uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # pin@v5.6.0
-      #   with:
-      #     python-version: 3.10.10
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # pin@v5.6.0
+        with:
+          python-version: 3.10.10
 
-      # - name: Generate Release Notes
-      #   shell: bash
-      #   env:
-      #     PREVIOUS_COMMIT: ${{ env.previous_commit }}
-      #     CURRENT_COMMIT: ${{ env.current_commit }}
-      #     RELEASE_TAG: ${{ env.release_tag }}
-      #   working-directory: ./
-      #   run: |
-      #     WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} \
-      #     python ./scripts/release_notes.py generate ${{ env.PREVIOUS_COMMIT }} ${{ env.CURRENT_COMMIT }} | tee -a ${{ env.RELEASE_NOTES_FILE }}
-      #     echo "---" >> ${{ env.RELEASE_NOTES_FILE }}
-      #     echo "#### Full Log: https://github.com/MystenLabs/walrus/commits/${{ env.RELEASE_TAG }}" >> ${{ env.RELEASE_NOTES_FILE }}
+      - name: Generate Release Notes
+        shell: bash
+        env:
+          PREVIOUS_COMMIT: ${{ env.previous_commit }}
+          CURRENT_COMMIT: ${{ env.current_commit }}
+          RELEASE_TAG: ${{ env.release_tag }}
+        working-directory: ./
+        run: |
+          WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+          python ./scripts/release_notes.py generate ${{ env.PREVIOUS_COMMIT }} ${{ env.CURRENT_COMMIT }} | tee -a ${{ env.RELEASE_NOTES_FILE }}
+          echo "---" >> ${{ env.RELEASE_NOTES_FILE }}
+          echo "#### Full Log: https://github.com/MystenLabs/walrus/commits/${{ env.RELEASE_TAG }}" >> ${{ env.RELEASE_NOTES_FILE }}
 
-      #     if [[ ${{ env.RELEASE_TAG }} == devnet* ]]; then
-      #       echo "pre_release=true" >> $GITHUB_ENV
-      #     else
-      #       echo "pre_release=false" >> $GITHUB_ENV
-      #     fi
+          if [[ ${{ env.RELEASE_TAG }} == devnet* ]]; then
+            echo "pre_release=true" >> $GITHUB_ENV
+          else
+            echo "pre_release=false" >> $GITHUB_ENV
+          fi
 
-      # - name: Create Release
-      #   uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # pin@v1
-      #   env:
-      #     RELEASE_TAG: ${{ env.release_tag }}
-      #     GITHUB_TOKEN: ${{ secrets.WALRUS_CREATE_RELEASE }}
-      #     PRE_RELEASE: ${{ env.pre_release }}
-      #   with:
-      #     tag_name: ${{ env.RELEASE_TAG }}
-      #     release_name: ${{ env.RELEASE_TAG }}
-      #     body_path: ${{ env.RELEASE_NOTES_FILE }}
-      #     draft: false
-      #     prerelease: ${{ env.PRE_RELEASE }}
+      - name: Create Release
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # pin@v1
+        env:
+          RELEASE_TAG: ${{ env.release_tag }}
+          GITHUB_TOKEN: ${{ secrets.WALRUS_CREATE_RELEASE }}
+          PRE_RELEASE: ${{ env.pre_release }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          release_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
+          draft: false
+          prerelease: ${{ env.PRE_RELEASE }}
