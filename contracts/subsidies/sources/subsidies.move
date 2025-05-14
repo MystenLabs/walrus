@@ -133,10 +133,81 @@ public fun set_system_subsidy_rate(self: &mut Subsidies, cap: &AdminCap, new_rat
     self.system_subsidy_rate = new_rate;
 }
 
+fun allocate_subsidies(self: &Subsidies, cost: u64, initial_pool_value: u64): (u64, u64) {
+    // Return early if the subsidy pool is empty.
+    if (initial_pool_value == 0) {
+        return (0, 0)
+    };
+    let buyer_subsidy = cost * (self.buyer_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
+    let system_subsidy = cost * (self.system_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
+    let total_subsidy = buyer_subsidy + system_subsidy;
+
+    // Apply subsidy up to the available amount in the pool.
+    if (initial_pool_value >= total_subsidy) {
+        (buyer_subsidy, system_subsidy)
+    } else {
+        // If we don't have enough in the pool to pay the full subsidies,
+        // split the remainder proportionally between the buyer and system subsidies.
+        let pool_value = initial_pool_value;
+        let total_subsidy_rate = self.buyer_subsidy_rate + self.system_subsidy_rate;
+        let buyer_subsidy =
+            pool_value * (self.buyer_subsidy_rate as u64) / (total_subsidy_rate as u64);
+        let system_subsidy =
+            pool_value * (self.system_subsidy_rate as u64) / (total_subsidy_rate as u64);
+        (buyer_subsidy, system_subsidy)
+    }
+}
+
+/// Combine payment and subsidy pool
+fun pre_system_call(
+    self: &mut Subsidies,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): (u64, u64) {
+    let initial_payment_value = payment.value();
+    let pool_coin = self.subsidy_pool.withdraw_all().into_coin(ctx);
+    let initial_pool_value = pool_coin.value();
+
+    payment.join(pool_coin);
+    (initial_payment_value, initial_pool_value)
+}
+
 /// Applies subsidies and sends rewards to the system.
+///
+/// This will send WAL back to the buyer coin from the subsidy pool,
+/// and send the storage node subsidy to the system.
+fun handle_subsidies(
+    self: &mut Subsidies,
+    system: &mut System,
+    payment: &mut Coin<WAL>,
+    initial_payment_value: u64,
+    initial_pool_value: u64,
+    epochs_ahead: u32,
+    ctx: &mut TxContext,
+) {
+    // Calculate cost
+    let initial_combined_value = initial_pool_value + initial_payment_value;
+    let remaining_value = payment.value();
+    let cost = initial_combined_value - payment.value();
+
+    // Refund buyer
+    self.subsidy_pool.join(payment.split(remaining_value, ctx).into_balance());
+    let (buyer_subsidy, system_subsidy) = self.allocate_subsidies(cost, initial_pool_value);
+    let buyer_coin_value = initial_payment_value + buyer_subsidy - cost;
+    let buyer_refund = self.subsidy_pool.split(buyer_coin_value).into_coin(ctx);
+    payment.join(buyer_refund);
+
+    // Subsidize system
+    let system_subsidy_coin = self.subsidy_pool.split(system_subsidy).into_coin(ctx);
+    system.add_subsidy(system_subsidy_coin, epochs_ahead);
+    assert!(payment.value() <= initial_payment_value);
+}
+
+/// (Deprecated) Applies subsidies and sends rewards to the system.
 ///
 /// This will deduct funds from the subsidy pool,
 /// and send the storage node subsidy to the system.
+#[allow(unused_function, unused_variable, unused_mut_parameter)]
 fun apply_subsidies(
     self: &mut Subsidies,
     cost: u64,
@@ -144,36 +215,7 @@ fun apply_subsidies(
     payment: &mut Coin<WAL>,
     system: &mut System,
     ctx: &mut TxContext,
-) {
-    // Return early if the subsidy pool is empty.
-    if (self.subsidy_pool.value() == 0) {
-        return
-    };
-
-    let buyer_subsidy = cost * (self.buyer_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
-    let system_subsidy = cost * (self.system_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
-    let total_subsidy = buyer_subsidy + system_subsidy;
-
-    // Apply subsidy up to the available amount in the pool.
-    let (buyer_subsidy, system_subsidy) = if (self.subsidy_pool.value() >= total_subsidy) {
-        (buyer_subsidy, system_subsidy)
-    } else {
-        // If we don't have enough in the pool to pay the full subsidies,
-        // split the remainder proportionally between the buyer and system subsidies.
-        let pool_value = self.subsidy_pool.value();
-        let total_subsidy_rate = self.buyer_subsidy_rate + self.system_subsidy_rate;
-        let buyer_subsidy =
-            pool_value * (self.buyer_subsidy_rate as u64) / (total_subsidy_rate as u64);
-        let system_subsidy =
-            pool_value * (self.system_subsidy_rate as u64) / (total_subsidy_rate as u64);
-        (buyer_subsidy, system_subsidy)
-    };
-    let buyer_subsidy_coin = self.subsidy_pool.split(buyer_subsidy).into_coin(ctx);
-    payment.join(buyer_subsidy_coin);
-
-    let system_subsidy_coin = self.subsidy_pool.split(system_subsidy).into_coin(ctx);
-    system.add_subsidy(system_subsidy_coin, epochs_ahead)
-}
+) {}
 
 /// Extends a blob's lifetime and applies the buyer and storage node subsidies.
 ///
@@ -188,13 +230,20 @@ public fun extend_blob(
     ctx: &mut TxContext,
 ) {
     assert!(self.version == VERSION, EWrongVersion);
-    let initial_payment_value = payment.value();
+    if (self.subsidy_pool.value() == 0) {
+        return system.extend_blob(blob, epochs_ahead, payment)
+    };
+    let (initial_payment_value, initial_pool_value) = self.pre_system_call(payment, ctx);
+
     system.extend_blob(blob, epochs_ahead, payment);
-    self.apply_subsidies(
-        initial_payment_value - payment.value(),
-        epochs_ahead,
-        payment,
+
+    handle_subsidies(
+        self,
         system,
+        payment,
+        initial_payment_value,
+        initial_pool_value,
+        epochs_ahead,
         ctx,
     );
 }
@@ -212,13 +261,20 @@ public fun reserve_space(
     ctx: &mut TxContext,
 ): Storage {
     assert!(self.version == VERSION, EWrongVersion);
-    let initial_payment_value = payment.value();
+    if (self.subsidy_pool.value() == 0) {
+        return system.reserve_space(storage_amount, epochs_ahead, payment, ctx)
+    };
+    let (initial_payment_value, initial_pool_value) = self.pre_system_call(payment, ctx);
+
     let storage = system.reserve_space(storage_amount, epochs_ahead, payment, ctx);
-    self.apply_subsidies(
-        initial_payment_value - payment.value(),
-        epochs_ahead,
-        payment,
+
+    handle_subsidies(
+        self,
         system,
+        payment,
+        initial_payment_value,
+        initial_pool_value,
+        epochs_ahead,
         ctx,
     );
     storage
