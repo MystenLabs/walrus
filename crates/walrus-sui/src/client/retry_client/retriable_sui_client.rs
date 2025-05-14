@@ -6,7 +6,7 @@
 //! Wraps the [`SuiClient`] to introduce retries.
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap},
+    collections::{BTreeMap, BinaryHeap, HashSet},
     fmt,
     pin::pin,
     str::FromStr,
@@ -244,13 +244,11 @@ impl RetriableSuiClient {
         .await
     }
 
-    /// Returns a list of coins for the given address, or an error upon failure.
-    ///
-    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi::select_coins`] method, but
-    /// using `get_coins_stream_retry` to handle retriable failures.
-    ///
-    /// If the `max_num_coins` is reached, but the total balance of the selected coins is less than
-    /// the requested amount, the function will return an error.
+    /// Returns a list of coins for the given address, or an error upon failure. This method always
+    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise,
+    /// it will filter to the given coin type. If `amount` is present it will attempt to gather
+    /// coins to satisfy that amount. `exclude` is a list of coin object IDs to exclude from the
+    /// result. `max_num_coins` puts a hard cap on the number of coins returned.
     pub async fn select_coins_with_limit(
         &self,
         address: SuiAddress,
@@ -320,6 +318,15 @@ impl RetriableSuiClient {
 
             // If we're filtering on amount, and we've reached it, we can stop.
             if amount.is_some_and(|amount| total_selected >= amount) {
+                debug_assert!(
+                    selected_coins_heap
+                        .iter()
+                        .map(|coin| coin.0.0.coin_type.as_str())
+                        .collect::<HashSet<_>>()
+                        .len()
+                        <= 1,
+                    "selected coins should be of the same type",
+                );
                 return Ok(selected_coins_heap
                     .into_iter()
                     .map(|rev_coin| rev_coin.0.into())
@@ -327,6 +334,15 @@ impl RetriableSuiClient {
             }
         }
         let Some(amount) = amount else {
+            debug_assert!(
+                selected_coins_heap
+                    .iter()
+                    .map(|coin| coin.0.0.coin_type.as_str())
+                    .collect::<HashSet<_>>()
+                    .len()
+                    <= 1,
+                "selected coins should be of the same type",
+            );
             // We just want all the coins. We're done.
             return Ok(selected_coins_heap
                 .into_iter()
