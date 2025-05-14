@@ -31,4 +31,3 @@ workspace = true
 [dev-dependencies]
 rocksdb.workspace = true
 tempfile.workspace = true
-mockall = "0.13.1"

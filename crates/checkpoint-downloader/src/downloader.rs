@@ -265,7 +265,6 @@ impl ParallelCheckpointDownloaderInner {
         let mut last_scale = Instant::now();
         let mut consecutive_failures = 0;
         let average_workers = (downloader_config.min_workers + downloader_config.max_workers) / 2;
-        const MAX_CONSECUTIVE_POOL_MONITOR_FAILURES: u32 = 100;
 
         loop {
             tokio::select! {
@@ -287,10 +286,11 @@ impl ParallelCheckpointDownloaderInner {
                         tracing::warn!(
                             error = ?err,
                             consecutive_failures,
-                            max_failures = MAX_CONSECUTIVE_POOL_MONITOR_FAILURES,
+                            max_failures = downloader_config.max_consecutive_pool_monitor_failures,
                             "failed to fetch checkpoint lag from full node"
                         );
-                        if consecutive_failures >= MAX_CONSECUTIVE_POOL_MONITOR_FAILURES {
+                        if consecutive_failures >=
+                            downloader_config.max_consecutive_pool_monitor_failures {
                             tracing::error!(
                                 error = ?err,
                                 consecutive_failures,
@@ -435,7 +435,7 @@ impl ParallelCheckpointDownloaderInner {
         let mut backoff = ExponentialBackoff::new_with_seed(
             config.initial_delay,
             config.max_delay,
-            config.min_retries,
+            config.retries,
             rng.next_u64(),
         );
         loop {
@@ -511,7 +511,7 @@ mod tests {
         )
         .await?;
         let parallel_config = ParallelDownloaderConfig {
-            min_retries: Some(0),
+            retries: Some(0),
             initial_delay: Duration::from_millis(250),
             max_delay: Duration::from_secs(2),
         };
@@ -525,9 +525,10 @@ mod tests {
             initial_workers: 5,
             scale_up_lag_threshold: 100,
             scale_down_lag_threshold: 50,
-            scale_cooldown: Duration::from_secs(300),
+            scale_cooldown: Duration::from_secs(30),
             base_config: parallel_config,
             channel_config,
+            max_consecutive_pool_monitor_failures: 10,
         };
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();

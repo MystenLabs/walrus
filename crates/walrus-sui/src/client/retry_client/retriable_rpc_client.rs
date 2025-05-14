@@ -331,9 +331,10 @@ impl RetriableRpcClient {
         let _scope = monitored_scope("RetriableRpcClient::get_full_checkpoint");
         let start_time = Instant::now();
 
-        let skip_rpc = start_time < self.skip_rpc_node_until.load(Ordering::Relaxed);
+        // Check if we should directly skip RPC node due to previous failures, and use fallback.
+        let try_rpc_node = start_time > self.skip_rpc_node_until.load(Ordering::Relaxed);
 
-        if !skip_rpc {
+        if try_rpc_node {
             let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
                 Ok(checkpoint) => {
                     if let Some(metrics) = self.metrics.as_ref() {
@@ -356,8 +357,11 @@ impl RetriableRpcClient {
 
             self.num_failures.fetch_add(1, Ordering::Relaxed);
             tracing::debug!(?error, "primary client error while fetching checkpoint");
+
             let last_success = self.last_success.load(Ordering::Relaxed);
             let num_failures = self.num_failures.load(Ordering::Relaxed);
+
+            // If the fallback client is not set, or the error is not eligible for fallback,
             if self.fallback_client.is_none()
                 || !error.is_eligible_for_fallback(sequence_number, last_success, num_failures)
             {
@@ -382,9 +386,9 @@ impl RetriableRpcClient {
                 }
                 return Err(error);
             }
-        }
 
-        if !skip_rpc {
+            // RPC node failure is sustained, so we skip it for 5 minutes.
+            // Also, at this point, the fallback client must be set.
             self.skip_rpc_node_until
                 .store(Instant::now() + Duration::from_secs(300), Ordering::Relaxed);
         }
@@ -574,6 +578,7 @@ impl From<tonic::Status> for RetriableClientError {
 }
 
 impl RetriableClientError {
+    // TODO(zhewu): These should be configurable.
     /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(300);
     /// The maximum number of failures allowed.
