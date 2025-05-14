@@ -19,7 +19,8 @@ use crate::metrics::AdaptiveDownloaderMetrics;
 #[serde(default)]
 pub struct ParallelDownloaderConfig {
     /// Number of retries per checkpoint before giving up.
-    pub min_retries: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_retries: Option<u32>,
     /// Initial delay before the first retry.
     #[serde_as(as = "DurationMilliSeconds")]
     #[serde(rename = "initial_delay_millis")]
@@ -56,7 +57,7 @@ impl Default for ParallelDownloaderConfig {
         // - Not waiting too long (which would cause us to fall behind)
         // TODO: Use adaptive retry delay based on RTT and error type (#1123)
         Self {
-            min_retries: 10,
+            min_retries: None,
             initial_delay: Duration::from_millis(150),
             max_delay: Duration::from_secs(2),
         }

@@ -9,16 +9,14 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sui_rpc_api::client::ResponseExt;
 use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint};
 use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
-#[cfg(not(test))]
-use walrus_utils::backoff::ExponentialBackoff;
-use walrus_utils::{metrics::Registry, tracing_sampled};
+use walrus_utils::{backoff::ExponentialBackoff, metrics::Registry, tracing_sampled};
 
 use crate::{
     ParallelDownloaderConfig,
@@ -428,76 +426,42 @@ impl ParallelCheckpointDownloaderInner {
     }
 
     /// Downloads a checkpoint with retries.
-    #[cfg(not(test))]
     async fn download_with_retry(
         client: &RetriableRpcClient,
         sequence_number: CheckpointSequenceNumber,
         config: &ParallelDownloaderConfig,
         rng: &mut StdRng,
     ) -> CheckpointEntry {
-        let mut backoff = create_backoff(rng, config);
+        let mut backoff = ExponentialBackoff::new_with_seed(
+            config.initial_delay,
+            config.max_delay,
+            config.min_retries,
+            rng.next_u64(),
+        );
         loop {
             let result = client.get_full_checkpoint(sequence_number).await;
             let Ok(checkpoint) = result else {
-                let err = result.err();
-                handle_checkpoint_error(err.as_ref(), sequence_number);
+                let err = result.unwrap_err();
+                handle_checkpoint_error(&err, sequence_number);
 
-                let delay = backoff.next().expect("backoff should not be exhausted");
+                if let Some(delay) = backoff.next() {
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
 
-                tokio::time::sleep(delay).await;
-                continue;
+                return CheckpointEntry::new(sequence_number, Err(err.into()));
             };
 
             return CheckpointEntry::new(sequence_number, Ok(checkpoint));
         }
     }
 
-    #[cfg(test)]
-    async fn download_with_retry(
-        client: &RetriableRpcClient,
-        sequence_number: CheckpointSequenceNumber,
-        _config: &ParallelDownloaderConfig,
-        _rng: &mut StdRng,
-    ) -> CheckpointEntry {
-        let res = tokio::time::timeout(
-            Duration::from_secs(1),
-            client.get_full_checkpoint(sequence_number),
-        )
-        .await;
-        match res {
-            Ok(Ok(checkpoint)) => CheckpointEntry {
-                sequence_number,
-                result: Ok(checkpoint),
-            },
-            Ok(Err(e)) => {
-                handle_checkpoint_error(Some(&e), sequence_number);
-                CheckpointEntry::new(sequence_number, Err(e.into()))
-            }
-            Err(_) => {
-                let err = anyhow!("Timeout while downloading checkpoint");
-                handle_checkpoint_error(None, sequence_number);
-                CheckpointEntry::new(sequence_number, Err(err))
-            }
-        }
-    }
-}
-
-/// Helper function to create backoff with consistent settings.
-#[cfg(not(test))]
-fn create_backoff(
-    rng: &mut StdRng,
-    config: &ParallelDownloaderConfig,
-) -> ExponentialBackoff<StdRng> {
-    use rand::RngCore;
-    ExponentialBackoff::new_with_seed(config.initial_delay, config.max_delay, None, rng.next_u64())
-}
-
 /// Handles an error that occurred while reading the next checkpoint.
 /// If the error is due to a checkpoint that is already present on the server,
 /// it is logged as an error.
 /// Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
-    if let Some(RetriableClientError::RpcError(rpc_error)) = err {
+fn handle_checkpoint_error(err: &RetriableClientError, next_checkpoint: u64) {
+    if let RetriableClientError::RpcError(rpc_error) = err {
         if let Some(checkpoint_height) = rpc_error.status.checkpoint_height() {
             if next_checkpoint > checkpoint_height {
                 return tracing::trace!(
@@ -529,20 +493,25 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
+        telemetry_subscribers::init_for_testing();
         let rest_url = "http://localhost:9000";
         let retriable_client = RetriableRpcClient::new(
             vec![LazyFallibleRpcClientBuilder::Url {
                 rpc_url: rest_url.to_string(),
                 ensure_experimental_rest_endpoint: false,
             }],
-            Duration::from_secs(5),
-            ExponentialBackoffConfig::default(),
+            Duration::from_millis(100),
+            ExponentialBackoffConfig {
+                min_backoff: Duration::from_millis(100),
+                max_backoff: Duration::from_secs(1),
+                max_retries: Some(0),
+            },
             None,
             None,
         )
         .await?;
         let parallel_config = ParallelDownloaderConfig {
-            min_retries: 10,
+            min_retries: Some(0),
             initial_delay: Duration::from_millis(250),
             max_delay: Duration::from_secs(2),
         };
@@ -556,7 +525,7 @@ mod tests {
             initial_workers: 5,
             scale_up_lag_threshold: 100,
             scale_down_lag_threshold: 50,
-            scale_cooldown: Duration::from_secs(30),
+            scale_cooldown: Duration::from_secs(300),
             base_config: parallel_config,
             channel_config,
         };

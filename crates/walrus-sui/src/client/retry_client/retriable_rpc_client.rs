@@ -190,6 +190,7 @@ pub struct RetriableRpcClient {
     metrics: Option<Arc<SuiClientMetricSet>>,
     last_success: Arc<AtomicInstant>,
     num_failures: Arc<AtomicUsize>,
+    skip_rpc_node_until: Arc<AtomicInstant>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
@@ -228,6 +229,7 @@ impl RetriableRpcClient {
             metrics,
             last_success: Arc::new(AtomicInstant::new(Instant::now())),
             num_failures: Arc::new(AtomicUsize::new(0)),
+            skip_rpc_node_until: Arc::new(AtomicInstant::new(Instant::now())),
         })
     }
 
@@ -328,8 +330,44 @@ impl RetriableRpcClient {
     ) -> Result<CheckpointData, RetriableClientError> {
         let _scope = monitored_scope("RetriableRpcClient::get_full_checkpoint");
         let start_time = Instant::now();
-        let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
-            Ok(checkpoint) => {
+
+        let skip_rpc = start_time < self.skip_rpc_node_until.load(Ordering::Relaxed);
+
+        if !skip_rpc {
+            let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
+                Ok(checkpoint) => {
+                    if let Some(metrics) = self.metrics.as_ref() {
+                        metrics.record_rpc_latency(
+                            "get_full_checkpoint",
+                            &self
+                                .client
+                                .get_current_rpc_url()
+                                .await
+                                .unwrap_or_else(|_| "unknown_url".to_string()),
+                            "success",
+                            start_time.elapsed(),
+                        );
+                    }
+                    self.reset_fullnode_failure_metrics();
+                    return Ok(checkpoint);
+                }
+                Err(error) => error,
+            };
+
+            self.num_failures.fetch_add(1, Ordering::Relaxed);
+            tracing::debug!(?error, "primary client error while fetching checkpoint");
+            let last_success = self.last_success.load(Ordering::Relaxed);
+            let num_failures = self.num_failures.load(Ordering::Relaxed);
+            if self.fallback_client.is_none()
+                || !error.is_eligible_for_fallback(sequence_number, last_success, num_failures)
+            {
+                tracing::debug!(
+                    failback_client_set = ?self.fallback_client.is_some(),
+                    "primary client error while fetching checkpoint is not eligible for fallback, \
+                    since last_success: {:?}, num_failures: {:?}",
+                    last_success.elapsed(),
+                    num_failures
+                );
                 if let Some(metrics) = self.metrics.as_ref() {
                     metrics.record_rpc_latency(
                         "get_full_checkpoint",
@@ -338,61 +376,27 @@ impl RetriableRpcClient {
                             .get_current_rpc_url()
                             .await
                             .unwrap_or_else(|_| "unknown_url".to_string()),
-                        "success",
+                        "failure",
                         start_time.elapsed(),
                     );
                 }
-                self.reset_fullnode_failure_metrics();
-                return Ok(checkpoint);
+                return Err(error);
             }
-            Err(error) => error,
-        };
+        }
 
-        self.num_failures.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!(?error, "primary client error while fetching checkpoint");
-        let Some(ref fallback) = self.fallback_client else {
-            if let Some(metrics) = self.metrics.as_ref() {
-                metrics.record_rpc_latency(
-                    "get_full_checkpoint",
-                    &self
-                        .client
-                        .get_current_rpc_url()
-                        .await
-                        .unwrap_or_else(|_| "unknown_url".to_string()),
-                    "failure",
-                    start_time.elapsed(),
-                )
-            }
-            return Err(error);
-        };
-
-        let last_success = self.last_success.load(Ordering::Relaxed);
-        let num_failures = self.num_failures.load(Ordering::Relaxed);
-        if !error.is_eligible_for_fallback(sequence_number, last_success, num_failures) {
-            tracing::debug!(
-                "primary client error while fetching checkpoint is not eligible for fallback, \
-                since last_success: {:?}, num_failures: {:?}",
-                last_success.elapsed(),
-                num_failures
-            );
-            if let Some(metrics) = self.metrics.as_ref() {
-                metrics.record_rpc_latency(
-                    "get_full_checkpoint",
-                    &self
-                        .client
-                        .get_current_rpc_url()
-                        .await
-                        .unwrap_or_else(|_| "unknown_url".to_string()),
-                    "failure",
-                    start_time.elapsed(),
-                );
-            }
-            return Err(error);
+        if !skip_rpc {
+            self.skip_rpc_node_until
+                .store(Instant::now() + Duration::from_secs(300), Ordering::Relaxed);
         }
 
         let fallback_start_time = Instant::now();
         let result = self
-            .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
+            .get_full_checkpoint_from_fallback_with_retries(
+                self.fallback_client
+                    .as_ref()
+                    .expect("fallback client must set"),
+                sequence_number,
+            )
             .await;
 
         if let Some(metrics) = self.metrics.as_ref() {
@@ -573,7 +577,7 @@ impl RetriableClientError {
     /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(300);
     /// The maximum number of failures allowed.
-    const MAX_FAILURES: usize = 100;
+    const MAX_FAILURES: usize = 10;
 
     /// Returns `true` if the error is eligible for fallback.
     ///

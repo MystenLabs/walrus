@@ -1935,6 +1935,7 @@ version = "1.26.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "mockall 0.13.1",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
@@ -1944,6 +1945,7 @@ dependencies = [
  "sui-macros",
  "sui-rpc-api",
  "sui-types",
+ "telemetry-subscribers",
  "tempfile",
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5482,6 +5484,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mockall"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39a6bfcc6c8c7eed5ee98b9c3e33adc726054389233e201c95dab2d41a3839d2"
+dependencies = [
+ "cfg-if",
+ "downcast",
+ "fragile",
+ "mockall_derive 0.13.1",
+ "predicates 3.1.3",
+ "predicates-tree",
+]
+
+[[package]]
 name = "mockall_derive"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5498,6 +5514,18 @@ name = "mockall_derive"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af7cbce79ec385a1d4f54baa90a76401eb15d9cab93685f62e7e9f942aa00ae2"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "mockall_derive"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ca3004c2efe9011bd4e461bd8256445052b9615405b4f7ea43fc8ca5c20898"
 dependencies = [
  "cfg-if",
  "proc-macro2",
