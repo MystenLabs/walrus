@@ -107,7 +107,7 @@ impl QuiltIndexV1 {
     }
 
     /// Returns an iterator over the identifiers of the blobs in the quilt.
-    pub fn iter(&self) -> impl Iterator<Item = &str> {
+    pub fn identifiers(&self) -> impl Iterator<Item = &str> {
         self.quilt_patches
             .iter()
             .map(|patch| patch.identifier.as_str())
