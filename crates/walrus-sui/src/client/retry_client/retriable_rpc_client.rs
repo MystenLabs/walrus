@@ -332,7 +332,8 @@ impl RetriableRpcClient {
         let start_time = Instant::now();
 
         // Check if we should directly skip RPC node due to previous failures, and use fallback.
-        let try_rpc_node = start_time > self.skip_rpc_node_until.load(Ordering::Relaxed);
+        let skip_rpc_node_until = self.skip_rpc_node_until.load(Ordering::SeqCst);
+        let try_rpc_node = self.fallback_client.is_none() || start_time >= skip_rpc_node_until;
 
         if try_rpc_node {
             let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
@@ -390,7 +391,7 @@ impl RetriableRpcClient {
             // RPC node failure is sustained, so we skip it for 5 minutes.
             // Also, at this point, the fallback client must be set.
             self.skip_rpc_node_until
-                .store(Instant::now() + Duration::from_secs(300), Ordering::Relaxed);
+                .store(Instant::now() + Duration::from_secs(300), Ordering::SeqCst);
         }
 
         let fallback_start_time = Instant::now();
