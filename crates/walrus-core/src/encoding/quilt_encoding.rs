@@ -190,6 +190,9 @@ impl QuiltEnum {
 }
 
 /// A wrapper around a blob and its identifier.
+///
+/// A valid identifier is a string that contains only alphanumeric characters,
+/// underscores, hyphens, and periods.
 #[derive(Debug, Clone)]
 pub struct BlobWithIdentifier<'a> {
     blob: &'a [u8],
@@ -217,6 +220,9 @@ impl<'a> BlobWithIdentifier<'a> {
 }
 
 /// A wrapper around an owned blob and its identifier.
+///
+/// A valid identifier is a string that contains only alphanumeric characters,
+/// underscores, hyphens, and periods.
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub struct BlobWithIdentifierOwned {
@@ -530,10 +536,10 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         blob_pairs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
 
         // Create initial QuiltPatches.
-        let quilt_patches: Vec<QuiltPatchV1> = blob_pairs
+        let quilt_patches = blob_pairs
             .iter()
             .map(|blob| QuiltPatchV1::new(blob.blob.len() as u64, blob.identifier.clone()))
-            .collect();
+            .collect::<Result<Vec<QuiltPatchV1>, QuiltError>>()?;
 
         let mut quilt_index = QuiltIndexV1 { quilt_patches };
 
@@ -1127,15 +1133,15 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 1".to_string(),
+                        identifier: "test-blob-1".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
+                        identifier: "test-blob-2".to_string(),
                     },
                 ],
                 7
@@ -1144,15 +1150,15 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 1".to_string(),
+                        identifier: "test-blob-1".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 2".to_string(),
+                        identifier: "test-blob-2".to_string(),
                     },
                 ],
                 7
@@ -1161,15 +1167,15 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 1".to_string(),
+                        identifier: "test-blob-1".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
+                        identifier: "test-blob-2".to_string(),
                     },
                 ],
                 7
@@ -1178,15 +1184,15 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test blob 1".to_string(),
+                        identifier: "test-blob-1".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
-                        identifier: "test blob 2".to_string(),
+                        identifier: "test-blob-2".to_string(),
                     },
                 ],
                 7
@@ -1195,15 +1201,15 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[1, 3][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[255u8; 1024][..],
-                        identifier: "test blob 1".to_string(),
+                        identifier: "test-blob-1".to_string(),
                     },
                     BlobWithIdentifier {
                         blob: &[1, 2, 3][..],
-                        identifier: "test blob 2".to_string(),
+                        identifier: "test-blob-2".to_string(),
                     },
                 ],
                 12
@@ -1212,7 +1218,7 @@ mod tests {
                 &[
                     BlobWithIdentifier {
                         blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
-                        identifier: "test blob 0".to_string(),
+                        identifier: "test-blob-0".to_string(),
                     },
                 ],
                 7
@@ -1246,7 +1252,6 @@ mod tests {
         let encoder = QuiltConfigV1::get_encoder(config.clone(), blobs_with_identifiers);
 
         let quilt = encoder.construct_quilt().expect("Should construct quilt");
-        tracing::debug!("QuiltV1: {:?}", quilt);
 
         // Verify each blob and its description.
         for blob_with_identifier in blobs_with_identifiers {
@@ -1450,7 +1455,7 @@ mod tests {
             // Create and store the BlobWithIdentifier.
             result.push(BlobWithIdentifier::new(
                 static_data,
-                format!("test blob {}", i),
+                format!("test-blob-{}", i),
             ));
         }
 

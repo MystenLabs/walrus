@@ -66,13 +66,25 @@ pub struct QuiltPatchV1 {
 
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(unencoded_length: u64, identifier: String) -> Self {
-        Self {
+    pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
+        // Validate identifier
+        if !identifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+        {
+            return Err(QuiltError::Other(
+                "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
+                period characters"
+                    .to_string(),
+            ));
+        }
+
+        Ok(Self {
             unencoded_length,
+            identifier,
             start_index: 0,
             end_index: 0,
-            identifier,
-        }
+        })
     }
 }
 
