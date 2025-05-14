@@ -805,14 +805,13 @@ impl ClientCommandRunner {
                 for patch in quilt.quilt_index().quilt_patches.iter() {
                     println!(
                         "Blob {} stored in quilt at [{}, {}), size: {}",
-                        patch.identifier(),
+                        patch.identifier,
                         patch.start_index,
                         patch.end_index,
-                        patch.unencoded_length()
+                        patch.unencoded_length
                     );
                 }
             }
-            _ => anyhow::bail!("unsupported quilt version"),
         }
         Ok(())
     }
@@ -946,10 +945,10 @@ impl ClientCommandRunner {
                 for patch in &quilt_metadata_v1.index.quilt_patches {
                     println!(
                         "Blob {} stored in quilt at [{}, {}), size: {}",
-                        patch.identifier(),
+                        patch.identifier,
                         patch.start_index,
                         patch.end_index,
-                        patch.unencoded_length()
+                        patch.unencoded_length
                     );
                 }
             }

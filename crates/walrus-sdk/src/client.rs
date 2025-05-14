@@ -46,7 +46,6 @@ use walrus_core::{
         QuiltDecoderV1,
         QuiltEncoderApi,
         QuiltEnum,
-        QuiltError,
         QuiltV1,
         QuiltVersion,
         QuiltVersionEnum,
@@ -2313,18 +2312,17 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let first_sliver = slivers.first().expect("no sliver received");
 
-        let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data());
+        let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data())
+            .map_err(ClientError::other)?;
         match quilt_version {
             QuiltVersionEnum::V1 => {
                 let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
                 let mut decoder = QuiltDecoderV1::new(&sliver_refs);
-                let quilt_index = decoder.decode_quilt_index().map_err(ClientError::other)?;
+                let quilt_index = decoder
+                    .get_or_decode_quilt_index()
+                    .map_err(ClientError::other)?;
                 Ok(QuiltIndex::V1(quilt_index.clone()))
             }
-            other => Err(ClientError::other(QuiltError::Other(format!(
-                "unsupported quilt version: {:?}",
-                other
-            )))),
         }
     }
 
@@ -2409,7 +2407,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .client
             .read_blob_retry_committees::<Primary>(quilt_id)
             .await?;
-        let quilt_version_enum = get_quilt_version_enum(&quilt_blob);
+        let quilt_version_enum = get_quilt_version_enum(&quilt_blob).map_err(ClientError::other)?;
         let encoding_config_enum = self
             .client
             .encoding_config()
@@ -2420,10 +2418,6 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     .map_err(ClientError::other)?;
                 Ok(QuiltEnum::V1(quilt))
             }
-            other => Err(ClientError::other(QuiltError::Other(format!(
-                "unsupported quilt version: {:?}",
-                other
-            )))),
         }
     }
 }

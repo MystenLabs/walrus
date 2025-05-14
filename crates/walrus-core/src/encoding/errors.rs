@@ -152,15 +152,15 @@ pub enum SymbolVerificationError {
 /// Errors that may be encountered while interacting with quilt.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QuiltError {
-    /// The quilt version is not supported.
-    // #[error("invalid quilt version, expected {0:?}, got {1:?}")]
-    // InvalidQuiltVersion(QuiltVersion, QuiltVersion),
     /// The blob is not found in the quilt.
     #[error("the blob is not found in the quilt: {0}")]
     BlobNotFoundInQuilt(String),
+    /// The quilt version does not match the expected version.
+    #[error("the quilt version does not match the expected version: {0}, expected: {1}")]
+    QuiltVersionMismatch(u8, u8),
     /// The blob is not aligned with the quilt.
-    #[error("the blob is not aligned with the quilt")]
-    InvalidFormatNotAligned,
+    #[error("the blob is not aligned with the quilt: {0}")]
+    InvalidFormatNotAligned(String),
     /// Failed to extract the quilt index size.
     #[error("failed to extract the quilt index size")]
     FailedToExtractQuiltIndexSize,
