@@ -33,9 +33,9 @@ jobs:
         shell: bash
         run: |
           export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')
-          export major_version=$(echo $sui_main_version | cut -d. -f1)
-          export minor_version=$(echo $sui_main_version | cut -d. -f2)
-          export patch_version=$(echo $sui_main_version | cut -d. -f3)
+          export major_version=$(echo $walrus_main_version | cut -d. -f1)
+          export minor_version=$(echo $walrus_main_version | cut -d. -f2)
+          export patch_version=$(echo $walrus_main_version | cut -d. -f3)
           export current_minor_version=$(($minor_version - 1))
           export current_release_version=$major_version.$current_minor_version.$patch_version
           echo "current_release_version=${current_release_version}" >> $GITHUB_ENV
