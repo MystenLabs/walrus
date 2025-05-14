@@ -11,7 +11,8 @@ on:
         required: true
         type: choice
         options:
-          - testing-branch
+          - testnet
+          - mainnet
       announce:
         description: Announce the release?
         type: boolean
