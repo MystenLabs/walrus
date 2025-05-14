@@ -1027,8 +1027,14 @@ CLI configuration refers to the standard location for Sui configuration
     subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
-      path: ~/.sui/sui_config/client.yaml
+      # Sui environment to use.
       active_env: mainnet
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
+      # Optional override for the Sui address to use.
+      # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.mainnet.sui.io:443
   testnet:
     system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
     staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
@@ -1039,8 +1045,14 @@ CLI configuration refers to the standard location for Sui configuration
       - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
       - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
     wallet_config:
-      path: ~/.sui/sui_config/client.yaml
+      # Sui environment to use.
       active_env: testnet
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
+      # Optional override for the Sui address to use.
+      # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
+    rpc_urls:
+      - https://fullnode.testnet.sui.io:443
 default_context: mainnet
 </code></pre>
 <!-- markdownlint-disable code-fence-style -->
@@ -1105,6 +1117,8 @@ wallet_config:
 # The following parameters can be used to tune the networking behavior of the client. There is no
 # risk in playing around with these values. In the worst case, you may not be able to store/read
 # blob due to timeouts or other networking errors.
+rpc_urls:
+- https://fullnode.testnet.sui.io:443
 communication_config:
   max_concurrent_writes: null
   max_concurrent_sliver_reads: null
@@ -1165,6 +1179,8 @@ viewed with various tools like the <a href="https://walruscan.com/">Walruscan ex
 <pre><code class="language-yaml">system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
 subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+rpc_urls:
+  - https://fullnode.mainnet.sui.io:443
 </code></pre>
 <p>In case you wish to explore the Walrus contracts, their package IDs are the following:</p>
 <ul>
@@ -1264,6 +1280,8 @@ exchange_objects:
   - 0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862
   - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
   - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
+rpc_urls:
+  - https://fullnode.testnet.sui.io:443
 </code></pre>
 <p>The current Testnet package IDs can be
 found in the <code>Move.lock</code> files in the subdirectories of the <a href="https://github.com/MystenLabs/walrus/tree/main/testnet-contracts"><code>testnet-contracts</code> directory on
@@ -1789,6 +1807,7 @@ periodically, but each of them may still be temporarily unavailable:</p>
 <li><code>https://walrus.blockscope.net</code></li>
 <li><code>https://walrus.globalstake.io</code></li>
 <li><code>https://walrus.lakestake.io</code></li>
+<li><code>https://walrus.lionscraft.blockscape.network:9000</code></li>
 <li><code>https://walrus.prostaking.com:9443</code></li>
 <li><code>https://walrus.veera.com</code></li>
 <li><code>https://walrusagg.pops.one</code></li>
@@ -1850,6 +1869,7 @@ periodically, but each of them may still be temporarily unavailable:</p>
 <li><code>https://walrus-testnet-aggregator.talentum.id</code></li>
 <li><code>https://walrus-testnet-aggregator.trusted-point.com</code></li>
 <li><code>https://walrus-testnet.blockscope.net</code></li>
+<li><code>https://walrus-testnet.lionscraft.blockscape.network:9000</code></li>
 <li><code>https://walrus-testnet.validators.services.kyve.network/aggregate</code></li>
 <li><code>https://walrus-testnet.veera.com</code></li>
 <li><code>https://walrus-tn.juicystake.io:9443</code></li>
