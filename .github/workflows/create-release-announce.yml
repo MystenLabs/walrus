@@ -62,6 +62,8 @@ jobs:
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
 
+          export walrus_commit="748f3b623aa623ac9dacd4cc87ef0c4748505eb4"
+
           echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
           echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} --header "Accept: application/vnd.github+json" --input -
 
