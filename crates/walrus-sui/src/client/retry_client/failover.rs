@@ -4,7 +4,6 @@
 //! A failover client wrapper for Sui (HTTP and gRPC) clients.
 use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Duration};
 
-#[cfg(msim)]
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
@@ -275,34 +274,31 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         };
         loop {
             let result = {
-                #[cfg(msim)]
-                {
-                    let mut inject_error = false;
-                    fail_point_if!("fallback_client_inject_error", || {
-                        // Only inject an error if we have multiple clients and we have one valid
-                        // client in the tank.
-                        inject_error =
-                            self.client_count() < self.max_tries && rand::random::<bool>();
-                    });
-                    if inject_error {
-                        tracing::warn!(
-                            "Injecting an RPC error during failover loop [
+                #[allow(unused_mut)]
+                let mut inject_error = false;
+                fail_point_if!("fallback_client_inject_error", || {
+                    // Always inject error for the first client.
+                    // Do not inject error for the last client.
+                    // Inject error for other clients with a 50% chance.
+                    inject_error = self.client_count() > 1
+                        && (tried_client_indices.len() <= 1
+                            || tried_client_indices.len() < self.client_count()
+                                && rand::random::<bool>());
+                });
+                if inject_error {
+                    tracing::warn!(
+                        "injecting an RPC error during failover loop [
                                 method={method}, \
                                 client_count={client_count}, \
                                 try_count={try_count}, \
                                 max_tries={max_tries}\
                             ]",
-                            client_count = self.client_count(),
-                            try_count = tried_client_indices.len(),
-                            max_tries = self.max_tries,
-                        );
-                        Err(E::make_retriable_error())
-                    } else {
-                        operation(client, method).await
-                    }
-                }
-                #[cfg(not(msim))]
-                {
+                        client_count = self.client_count(),
+                        try_count = tried_client_indices.len(),
+                        max_tries = self.max_tries,
+                    );
+                    Err(E::make_retriable_error())
+                } else {
                     operation(client, method).await
                 }
             };
@@ -408,7 +404,8 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.should_fail {
                 Err(RetriableClientError::RpcError(CheckpointRpcError {
-                    status: tonic::Status::internal("mock error"),
+                    // Return a retryable error.
+                    status: tonic::Status::unavailable("mock error"),
                     checkpoint_seq_num: None,
                 }))
             } else {

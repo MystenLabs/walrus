@@ -12,7 +12,6 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use sui_macros::{clear_fail_point, register_fail_point_if};
     use sui_rpc_api::Client as RpcClient;
     use tokio::sync::RwLock;
     use walrus_core::test_utils;
@@ -236,7 +235,18 @@ mod tests {
             .unwrap();
 
         // Register a fail point that will fail the first attempt.
-        register_fail_point_if("fallback_client_inject_error", move || true);
+        sui_macros::register_fail_point_if("fallback_client_inject_error", move || true);
+        let primary_rpc_url = sui_cluster.lock().await.rpc_url();
+        let primary_rpc_url_clone = primary_rpc_url.clone();
+        sui_macros::register_fail_point_arg(
+            "failpoint_sui_client_build_client",
+            move || -> Option<String> { Some(primary_rpc_url.clone()) },
+        );
+        sui_macros::register_fail_point_arg(
+            "failpoint_rpc_client_build_client",
+            move || -> Option<String> { Some(primary_rpc_url_clone.clone()) },
+        );
+
         tracing::info!(
             "Additional fullnodes: {:?}",
             sui_cluster.lock().await.additional_rpc_urls()
@@ -276,6 +286,8 @@ mod tests {
         .await
         .expect("All nodes should have downloaded the checkpoint");
 
-        clear_fail_point("fallback_client_inject_error");
+        sui_macros::clear_fail_point("fallback_client_inject_error");
+        sui_macros::clear_fail_point("failpoint_sui_client_build_client");
+        sui_macros::clear_fail_point("failpoint_rpc_client_build_client");
     }
 }

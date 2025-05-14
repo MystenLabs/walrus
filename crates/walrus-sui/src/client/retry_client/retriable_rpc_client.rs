@@ -104,6 +104,30 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
     const DEFAULT_MAX_TRIES: usize = 3;
 
     async fn lazy_build_client(&self) -> Result<Arc<FallibleRpcClient>, FailoverError> {
+        #[allow(unused_mut)]
+        let mut fail_client_creation = false;
+        sui_macros::fail_point_arg!(
+            "failpoint_rpc_client_build_client",
+            |url_to_fail: String| {
+                match self {
+                    Self::Url { rpc_url, .. } => {
+                        if *rpc_url == url_to_fail {
+                            fail_client_creation = true;
+                        }
+                    }
+                    Self::Client(_) => {}
+                }
+            }
+        );
+
+        if fail_client_creation {
+            tracing::info!("injected rpc client build failure {:?}", self.get_rpc_url());
+            return Err(FailoverError::FailedToGetClient(format!(
+                "injected rpc client build failure {:?}",
+                self.get_rpc_url()
+            )));
+        }
+
         match self {
             Self::Url {
                 rpc_url,
