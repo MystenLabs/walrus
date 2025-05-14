@@ -11,8 +11,7 @@ on:
         required: true
         type: choice
         options:
-          - testnet
-          - mainnet
+          - testing-branch
 
 env:
   RELEASE_NOTES_FILE: "./release_notes.txt"
