@@ -125,7 +125,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             Some(state) => Ok(state.client.clone()),
             None => {
                 let client = self
-                    .fetch_next_client_locked(&mut BTreeSet::new(), &mut state)
+                    .fetch_next_client_inner(&mut BTreeSet::new(), &mut state)
                     .await?;
                 Ok(client)
             }
@@ -160,7 +160,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             ));
         }
         let mut state = self.state.lock().await;
-        self.fetch_next_client_locked(tried_client_indices, &mut state)
+        self.fetch_next_client_inner(tried_client_indices, &mut state)
             .await
     }
 
@@ -169,7 +169,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     ///
     /// This function is locked on the `state` mutex, and will update the state if a new client is
     /// fetched.
-    async fn fetch_next_client_locked(
+    async fn fetch_next_client_inner(
         &self,
         tried_client_indices: &mut BTreeSet<usize>,
         state: &mut Option<FailoverState<ClientT>>,
@@ -251,12 +251,16 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     where
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: MakeRetriableError,
-        E: RetriableRpcError + ToErrorType + std::fmt::Debug + From<FailoverError>,
+        E: MakeRetriableError
+            + RetriableRpcError
+            + ToErrorType
+            + std::fmt::Debug
+            + From<FailoverError>,
     {
         let mut retry_guard = metrics
             .as_ref()
             .map(|m| RetryCountGuard::new(m.clone(), format!("{method}_with_failover").as_str()));
+
         let (mut client, mut tried_client_indices) = {
             let mut state = self.state.lock().await;
 
@@ -267,11 +271,12 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 // First time using a new FailoverWrapper, fetch the first client.
                 let mut tried_client_indices = BTreeSet::new();
                 let client = self
-                    .fetch_next_client_locked(&mut tried_client_indices, &mut state)
+                    .fetch_next_client_inner(&mut tried_client_indices, &mut state)
                     .await?;
                 (client, tried_client_indices)
             }
         };
+
         loop {
             let result = {
                 #[allow(unused_mut)]
@@ -282,12 +287,12 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     // Inject error for other clients with a 50% chance.
                     inject_error = self.client_count() > 1
                         && (tried_client_indices.len() <= 1
-                            || tried_client_indices.len() < self.client_count()
-                                && rand::random::<bool>());
+                            || (tried_client_indices.len() < self.client_count() - 1
+                                && rand::random::<bool>()));
                 });
                 if inject_error {
                     tracing::warn!(
-                        "injecting an RPC error during failover loop [
+                        "injecting an RPC error during failover loop [ \
                                 method={method}, \
                                 client_count={client_count}, \
                                 try_count={try_count}, \

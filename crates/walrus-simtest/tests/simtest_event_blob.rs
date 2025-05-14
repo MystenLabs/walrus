@@ -217,13 +217,14 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_checkpoint_downloader_with_additional_fullnodes() {
-        let (sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        let checkpoints_per_event_blob = 20;
+        let (sui_cluster, mut walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(15))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![2, 2, 3, 3, 3],
                 ..Default::default()
             })
-            .with_num_checkpoints_per_blob(20)
+            .with_num_checkpoints_per_blob(checkpoints_per_event_blob)
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -238,10 +239,14 @@ mod tests {
         sui_macros::register_fail_point_if("fallback_client_inject_error", move || true);
         let primary_rpc_url = sui_cluster.lock().await.rpc_url();
         let primary_rpc_url_clone = primary_rpc_url.clone();
+
+        // Always fail sui client creation for the primary rpc node.
         sui_macros::register_fail_point_arg(
             "failpoint_sui_client_build_client",
             move || -> Option<String> { Some(primary_rpc_url.clone()) },
         );
+
+        // Always fail rpc client creation for the primary rpc node.
         sui_macros::register_fail_point_arg(
             "failpoint_rpc_client_build_client",
             move || -> Option<String> { Some(primary_rpc_url_clone.clone()) },
@@ -252,6 +257,9 @@ mod tests {
             sui_cluster.lock().await.additional_rpc_urls()
         );
         let client_arc = Arc::new(client);
+
+        // Restart all nodes, this should still form a cluster with all nodes running.
+        restart_nodes_with_checkpoints(&mut walrus_cluster, |_| checkpoints_per_event_blob).await;
 
         // Wait for the cluster to process some events.
         let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);

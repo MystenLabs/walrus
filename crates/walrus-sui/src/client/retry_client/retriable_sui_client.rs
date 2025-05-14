@@ -134,31 +134,34 @@ impl LazySuiClientBuilder {
 impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     // TODO: WAL-796 Out of concern for consistency, we are disabling the failover mechanism for
     // SuiClient for now.
-    const DEFAULT_MAX_TRIES: usize = 3;
+    const DEFAULT_MAX_TRIES: usize = 5;
 
     async fn lazy_build_client(&self) -> Result<Arc<SuiClient>, FailoverError> {
-        #[allow(unused_mut)]
-        let mut fail_client_creation = false;
-        sui_macros::fail_point_arg!(
-            "failpoint_sui_client_build_client",
-            |url_to_fail: String| {
-                match self {
-                    Self::Url { rpc_url, .. } => {
-                        if *rpc_url == url_to_fail {
-                            fail_client_creation = true;
+        // Inject sui client build failure for simtests.
+        #[cfg(msim)]
+        {
+            let mut fail_client_creation = false;
+            sui_macros::fail_point_arg!(
+                "failpoint_sui_client_build_client",
+                |url_to_fail: String| {
+                    match self {
+                        Self::Url { rpc_url, .. } => {
+                            if *rpc_url == url_to_fail {
+                                fail_client_creation = true;
+                            }
                         }
+                        Self::Client(_) => {}
                     }
-                    Self::Client(_) => {}
                 }
-            }
-        );
+            );
 
-        if fail_client_creation {
-            tracing::info!("injected sui client build failure {:?}", self.get_rpc_url());
-            return Err(FailoverError::FailedToGetClient(format!(
-                "injected sui client build failure {:?}",
-                self.get_rpc_url()
-            )));
+            if fail_client_creation {
+                tracing::info!("injected sui client build failure {:?}", self.get_rpc_url());
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "injected sui client build failure {:?}",
+                    self.get_rpc_url()
+                )));
+            }
         }
 
         match self {
