@@ -62,8 +62,8 @@ jobs:
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
 
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
           git push https://x-access-token:${{ secrets.WALRUS_CREATE_RELEASE }}@github.com/${{ github.repository }} ${walrus_commit}:${{ inputs.network }} --force
       - name: Create a release tag
         shell: bash
