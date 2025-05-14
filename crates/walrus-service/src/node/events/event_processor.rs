@@ -652,18 +652,36 @@ impl EventProcessor {
 
         event_processor.update_checkpoint_cache(current_checkpoint);
 
-        let latest_checkpoint = retry_client.get_latest_checkpoint_summary().await?;
-        if current_checkpoint > latest_checkpoint.sequence_number {
-            tracing::error!(
-                current_checkpoint,
-                ?latest_checkpoint,
-                "Current store has a checkpoint that is greater than latest network checkpoint! \
-                    This is especially likely when a node is restarted running against a newer \
-                    localnet, testnet or devnet network."
+        let latest_checkpoint = match retry_client.get_latest_checkpoint_summary().await {
+            Ok(summary) => Some(summary),
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    "Failed to get latest checkpoint summary, proceeding without lag check"
+                );
+                None
+            }
+        };
+
+        let current_lag = if let Some(latest_checkpoint) = latest_checkpoint {
+            if current_checkpoint > latest_checkpoint.sequence_number {
+                tracing::error!(
+                    current_checkpoint,
+                    ?latest_checkpoint,
+                    "Current store has a checkpoint that is greater than latest network \
+                    checkpoint! This is especially likely when a node is restarted running
+                    against a newer localnet, testnet or devnet network."
+                );
+                return Err(anyhow!("Invalid checkpoint state"));
+            }
+            let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
+            current_lag
+        } else {
+            tracing::info!(
+                "Using 0 as fallback for current_lag since latest checkpoint is unavailable"
             );
-            return Err(anyhow!("Invalid checkpoint state"));
-        }
-        let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
+            0
+        };
 
         let retriable_sui_client = RetriableSuiClient::new(
             runtime_config
@@ -676,6 +694,7 @@ impl EventProcessor {
             ExponentialBackoffConfig::default(),
         )
         .await?;
+
         if current_lag > config.event_stream_catchup_min_checkpoint_lag {
             let clients = SuiClientSet {
                 sui_client: retriable_sui_client.clone(),
