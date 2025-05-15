@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - releases/walrus-*-release
       - devnet
       - testnet
       - mainnet
