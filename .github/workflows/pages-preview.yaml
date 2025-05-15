@@ -12,6 +12,7 @@ on:
       - "docs/book/**"
       - "docs/theme/**"
       - "docs/mdbook-admonish.css"
+      - "setup/**"
       - ".github/actions/build-mdbook/action.yaml"
       - ".github/workflows/pages-preview.yaml"
 
