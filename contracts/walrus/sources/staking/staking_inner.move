@@ -52,7 +52,7 @@ const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 // parameter.
 // const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
 
-// Error Codes
+// Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 /// The system is in the wrong epoch state for the operation.
 const EWrongEpochState: u64 = 0;
