@@ -163,7 +163,7 @@ impl From<String> for QuiltVersionEnum {
     fn from(value: String) -> Self {
         match value.as_str() {
             "V1" | "v1" | "1" => QuiltVersionEnum::V1,
-            _ => QuiltVersionEnum::V1,
+            _ => QuiltVersionEnum::V1, // Default or consider error
         }
     }
 }
@@ -272,6 +272,7 @@ pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x00;
+    const BLOB_SIZE_PREFIX_SIZE: usize = 4;
 }
 
 impl QuiltVersion for QuiltVersionV1 {
@@ -284,6 +285,115 @@ impl QuiltVersion for QuiltVersionV1 {
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
+    }
+}
+
+/// An iterator over symbols within a specified column range of a Quilt.
+#[derive(Debug)]
+struct SymbolIter<'a> {
+    quilt_data: &'a [u8],
+    row_size: usize,
+    symbol_size: usize,
+    n_rows: usize,
+
+    // Track the iter position.
+    current_col: usize,
+    end_col: usize,
+    current_row: usize,
+    bytes_to_skip: usize,
+    bytes_remaining: usize,
+}
+
+impl<'a> SymbolIter<'a> {
+    /// Creates a new iterator for symbols within a defined columnar slice of the quilt.
+    fn new(
+        quilt_data: &'a [u8],
+        row_size: usize,
+        symbol_size: usize,
+        start_col: usize,
+        end_col: usize,
+        begin_position: usize,
+        limit: usize,
+    ) -> Result<Self, QuiltError> {
+        if symbol_size == 0 || row_size == 0 || quilt_data.is_empty() {
+            return Err(QuiltError::Other("empty quilt data".to_string()));
+        }
+
+        let total_cols_in_quilt = row_size / symbol_size;
+        if end_col > total_cols_in_quilt {
+            return Err(QuiltError::IndexOutOfBounds(end_col, total_cols_in_quilt));
+        }
+
+        let n_rows = quilt_data.len() / row_size;
+
+        Ok(Self {
+            quilt_data,
+            row_size,
+            symbol_size,
+            n_rows,
+            current_col: start_col,
+            end_col,
+            current_row: 0,
+            bytes_to_skip: begin_position,
+            bytes_remaining: limit,
+        })
+    }
+}
+
+impl<'a> Iterator for SymbolIter<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes_remaining == 0 {
+            return None;
+        }
+
+        while self.bytes_to_skip > 0 {
+            if let Some(symbol_slice) = self.next_internal() {
+                if symbol_slice.len() > self.bytes_to_skip {
+                    let start_index = self.bytes_to_skip;
+                    let end_index = symbol_slice.len().min(self.bytes_remaining + start_index);
+                    self.bytes_to_skip = 0;
+                    self.bytes_remaining -= end_index - start_index;
+                    return Some(&symbol_slice[start_index..end_index]);
+                }
+                self.bytes_to_skip -= symbol_slice.len();
+            } else {
+                return None;
+            }
+        }
+
+        if let Some(symbol_slice) = self.next_internal() {
+            let end_index = symbol_slice.len().min(self.bytes_remaining);
+            self.bytes_remaining -= end_index;
+            return Some(&symbol_slice[..end_index]);
+        }
+        None
+    }
+}
+
+impl<'a> SymbolIter<'a> {
+    fn next_internal(&mut self) -> Option<&'a [u8]> {
+        if self.current_col >= self.end_col
+            || self.current_row >= self.n_rows
+            || self.bytes_remaining == 0
+        {
+            return None;
+        }
+
+        let matrix_idx_start =
+            (self.current_row * self.row_size) + (self.current_col * self.symbol_size);
+        let matrix_idx_end = (matrix_idx_start + self.symbol_size).min(self.quilt_data.len());
+
+        let symbol_slice = &self.quilt_data[matrix_idx_start..matrix_idx_end];
+
+        self.current_row += 1;
+        if self.current_row == self.n_rows {
+            self.current_row = 0;
+            self.current_col += 1;
+        }
+
+        Some(symbol_slice)
     }
 }
 
@@ -326,6 +436,11 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             usize::from(encoding_config.n_source_symbols::<Secondary>().get());
         let n_source_symbols: usize = n_primary_source_symbols * n_secondary_source_symbols;
 
+        if n_source_symbols == 0 {
+            return Err(QuiltError::Other(
+                "n_source_symbols cannot be zero".to_string(),
+            ));
+        }
         if quilt_blob.len() % n_source_symbols != 0 {
             return Err(QuiltError::InvalidFormatNotAligned(format!(
                 "quilt_blob length {} is not a multiple of n_source_symbols {}",
@@ -349,7 +464,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
         self.quilt_index
             .get_quilt_patch_by_identifier(identifier)
-            .and_then(|quilt_patch| self.get_blob(quilt_patch))
+            .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
     }
 
     fn quilt_index(&self) -> &QuiltIndexV1 {
@@ -366,28 +481,64 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 }
 
 impl QuiltV1 {
+    /// Returns an iterator over the symbols for a given column range.
+    fn iter_symbols(
+        &self,
+        start_col: usize,
+        end_col: usize,
+        begin_position: usize,
+        limit: usize,
+    ) -> Result<SymbolIter<'_>, QuiltError> {
+        SymbolIter::new(
+            &self.data,
+            self.row_size,
+            self.symbol_size,
+            start_col,
+            end_col,
+            begin_position,
+            limit,
+        )
+    }
+
     /// Gets the blob represented by the given quilt patch.
-    fn get_blob(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
-        let start_idx = usize::from(quilt_patch.start_index);
-        let end_idx = usize::from(quilt_patch.end_index);
-        let mut blob = vec![0u8; quilt_patch.unencoded_length as usize];
+    fn get_blob_by_quilt_patch(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
+        let start_col = usize::from(quilt_patch.start_index);
+        let end_col = usize::from(quilt_patch.end_index);
 
-        let mut written = 0;
-        for col in start_idx..end_idx {
-            for row in 0..(self.data.len() / self.row_size) {
-                let remaining = blob.len() - written;
-                if remaining == 0 {
-                    break;
-                }
-                let chunk_size = cmp::min(self.symbol_size, remaining);
-                let start_idx = row * self.row_size + col * self.symbol_size;
-                let end_idx = start_idx + chunk_size;
-
-                blob[written..written + chunk_size].copy_from_slice(&self.data[start_idx..end_idx]);
-                written += chunk_size;
-            }
+        if start_col >= end_col {
+            return Err(QuiltError::Other(format!(
+                "Invalid column range in quilt patch: start_col {} >= end_col {}",
+                start_col, end_col
+            )));
         }
-        Ok(blob)
+
+        let size_iterator =
+            self.iter_symbols(start_col, end_col, 0, QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE)?;
+        let mut size_cache = Vec::with_capacity(QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
+        for symbol_slice in size_iterator {
+            size_cache.extend_from_slice(symbol_slice);
+        }
+        assert!(size_cache.len() == QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
+
+        let padding_size = u32::from_le_bytes(size_cache.try_into().unwrap());
+        let column_size = self.symbol_size * self.data.len() / self.row_size;
+        let unencoded_length = (end_col - start_col) * column_size
+            - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE
+            - padding_size as usize;
+
+        let mut blob_data = Vec::with_capacity(unencoded_length);
+        let symbol_iterator = self.iter_symbols(
+            start_col,
+            end_col,
+            QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+            unencoded_length,
+        )?;
+        for symbol_slice in symbol_iterator {
+            blob_data.extend_from_slice(symbol_slice);
+        }
+        assert!(blob_data.len() == unencoded_length);
+
+        Ok(blob_data)
     }
 }
 
@@ -510,6 +661,63 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     }
 }
 
+struct MergeIterator<'a> {
+    iterators: Vec<&'a [u8]>,
+    current_slice: usize,
+    current_index: usize,
+    symbol_size: usize,
+}
+
+impl<'a> MergeIterator<'a> {
+    fn new(iterators: Vec<&'a [u8]>, symbol_size: usize) -> Self {
+        Self {
+            iterators,
+            current_slice: 0,
+            current_index: 0,
+            symbol_size,
+        }
+    }
+
+    fn next_n_bytes(&mut self, limit: usize) -> Option<&'a [u8]> {
+        while self.current_slice < self.iterators.len()
+            && self.current_index >= self.iterators[self.current_slice].len()
+        {
+            self.current_slice += 1;
+            self.current_index = 0;
+        }
+        if self.current_slice >= self.iterators.len() {
+            return None;
+        }
+
+        let end_index = self.iterators[self.current_slice]
+            .len()
+            .min(self.current_index + limit);
+        let next_bytes = &self.iterators[self.current_slice][self.current_index..end_index];
+        self.current_index = end_index;
+        Some(next_bytes)
+    }
+}
+
+impl<'a> Iterator for MergeIterator<'a> {
+    type Item = Vec<&'a [u8]>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut total_size = 0;
+
+        let mut result = Vec::new();
+        while total_size < self.symbol_size {
+            if let Some(next_bytes) = self.next_n_bytes(self.symbol_size - total_size) {
+                total_size += next_bytes.len();
+                result.push(next_bytes);
+            } else {
+                break;
+            }
+        }
+
+        (total_size > 0).then_some(result)
+    }
+}
+
 /// EncoderV1.
 #[derive(Debug)]
 pub struct QuiltEncoderV1<'a> {
@@ -529,6 +737,36 @@ impl<'a> QuiltEncoderV1<'a> {
             config,
             span: tracing::span!(Level::ERROR, "QuiltEncoderV1"),
         }
+    }
+
+    /// Adds a blob to the quilt as consecutive columns.
+    fn add_blob_to_quilt(
+        data: &mut [u8],
+        data_slices: Vec<&[u8]>,
+        current_col: usize,
+        column_size: usize,
+        row_size: usize,
+        symbol_size: usize,
+    ) -> Result<(), QuiltError> {
+        assert!(column_size % symbol_size == 0);
+        let n_rows = column_size / symbol_size;
+        let mut row = 0;
+        let mut col = current_col;
+
+        let merge_iterator = MergeIterator::new(data_slices, symbol_size);
+        for data_slice in merge_iterator {
+            let mut dest_idx = row * row_size + col * symbol_size;
+            for chunk in data_slice {
+                data[dest_idx..dest_idx + chunk.len()].copy_from_slice(chunk);
+                dest_idx += chunk.len();
+            }
+            row = (row + 1) % n_rows;
+            if row == 0 {
+                col += 1;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -571,7 +809,11 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         // Collect blob sizes for symbol size computation.
         let all_sizes: Vec<usize> = core::iter::once(index_total_size)
-            .chain(blob_pairs.iter().map(|bwd| bwd.blob.len()))
+            .chain(
+                blob_pairs
+                    .iter()
+                    .map(|bwd| bwd.blob.len() + QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE),
+            )
             .collect();
 
         let required_alignment = self.config.encoding_type().required_alignment() as usize;
@@ -592,36 +834,35 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         assert!(index_cols_needed <= MAX_NUM_COLUMNS_FOR_QUILT_INDEX);
         let mut current_col = index_cols_needed;
 
-        // Adds a blob to the data as consecutive columns, starting at the given column.
-        let mut add_blob_to_data = |blob: &[u8], current_col: usize| {
-            let mut offset = 0;
-            let mut row = 0;
-            let mut col = current_col;
-            while offset < blob.len() {
-                let end = cmp::min(offset + symbol_size, blob.len());
-                let chunk = &blob[offset..end];
-                let dest_idx = row * row_size + col * symbol_size;
-                data[dest_idx..dest_idx + chunk.len()].copy_from_slice(chunk);
-                row = (row + 1) % n_rows;
-                if row == 0 {
-                    col += 1;
-                }
-                offset += chunk.len();
-            }
-        };
-
         // First pass: Fill data with actual blobs and populate quilt patches.
-        for (i, blob) in blob_pairs.iter().enumerate() {
-            let cols_needed = blob.blob.len().div_ceil(column_size);
+        for (i, blob_with_identifier) in blob_pairs.iter().enumerate() {
+            let original_blob_data = blob_with_identifier.blob;
+            let cols_needed = original_blob_data.len().div_ceil(column_size);
+
             tracing::debug!(
                 "Blob: {:?} needs {} columns, current_col: {}",
-                blob.identifier,
+                blob_with_identifier.identifier,
                 cols_needed,
                 current_col
             );
             assert!(current_col + cols_needed <= n_columns);
 
-            add_blob_to_data(blob.blob, current_col);
+            let padding_size = u32::try_from(
+                cols_needed * column_size
+                    - original_blob_data.len()
+                    - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+            )
+            .map_err(|e| QuiltError::Other(format!("padding_size too large: {}", e)))?;
+
+            let size_bytes = padding_size.to_le_bytes();
+            Self::add_blob_to_quilt(
+                &mut data,
+                vec![&size_bytes, original_blob_data],
+                current_col,
+                column_size,
+                row_size,
+                symbol_size,
+            )?;
 
             quilt_index.quilt_patches[i].start_index =
                 u16::try_from(current_col).expect("current_col should fit in u16");
@@ -638,7 +879,14 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
 
         // Add the index to the quilt.
-        add_blob_to_data(&final_index_data, 0);
+        Self::add_blob_to_quilt(
+            &mut data,
+            vec![&final_index_data],
+            0,
+            column_size,
+            row_size,
+            symbol_size,
+        )?;
 
         tracing::debug!("construct quilt success {}", data.len());
 
@@ -804,8 +1052,26 @@ impl<'a> QuiltDecoderV1<'a> {
 
         self.check_missing_slivers(start_idx, end_idx)?;
 
-        let unencoded_length = usize::try_from(quilt_patch.unencoded_length)
-            .expect("unencoded_length should fit in usize");
+        let first_sliver = self
+            .slivers
+            .get(&SliverIndex(start_idx as u16))
+            .expect("sliver should be present");
+        let size_prefix_bytes: &[u8; QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE] =
+            first_sliver.symbols.data()[0..QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE]
+                .try_into()
+                .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
+        let padding_size = u32::from_le_bytes(*size_prefix_bytes);
+        let column_size = first_sliver.symbols.data().len();
+        tracing::info!(
+            column_size = column_size,
+            padding_size = padding_size,
+            start_idx = start_idx,
+            end_idx = end_idx,
+            "get_blob_by_quilt_patch_size_info"
+        );
+        let unencoded_length = column_size * (end_idx - start_idx)
+            - padding_size as usize
+            - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE;
 
         // Extract and reconstruct the blob.
         let mut blob = Vec::with_capacity(unencoded_length);
@@ -819,9 +1085,13 @@ impl<'a> QuiltDecoderV1<'a> {
                 .expect("sliver should be present");
 
             let remaining_needed = unencoded_length - blob.len();
-            blob.extend_from_slice(
-                &sliver.symbols.data()[..remaining_needed.min(sliver.symbols.data().len())],
-            );
+            let begin = if i == start_idx {
+                QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE
+            } else {
+                0
+            };
+            let end = (begin + remaining_needed).min(sliver.symbols.data().len());
+            blob.extend_from_slice(&sliver.symbols.data()[begin..end]);
         }
 
         Ok(blob)
