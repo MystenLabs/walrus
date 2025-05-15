@@ -451,7 +451,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 
         let symbol_size = quilt_blob.len() / n_source_symbols;
         let row_size = symbol_size * n_secondary_source_symbols;
-        let quilt_index = utils::get_quilt_index_v1_from_data(&quilt_blob, row_size, symbol_size)?;
+        let quilt_index = Self::get_quilt_index(&quilt_blob, row_size, symbol_size)?;
 
         Ok(QuiltV1 {
             data: quilt_blob,
@@ -483,21 +483,79 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 impl QuiltV1 {
     /// Returns an iterator over the symbols for a given column range.
     fn iter_symbols(
-        &self,
+        data: &[u8],
+        row_size: usize,
+        symbol_size: usize,
         start_col: usize,
         end_col: usize,
         begin_position: usize,
         limit: usize,
     ) -> Result<SymbolIter<'_>, QuiltError> {
         SymbolIter::new(
-            &self.data,
-            self.row_size,
-            self.symbol_size,
+            data,
+            row_size,
+            symbol_size,
             start_col,
             end_col,
             begin_position,
             limit,
         )
+    }
+
+    fn get_quilt_index(
+        data: &[u8],
+        row_size: usize,
+        symbol_size: usize,
+    ) -> Result<QuiltIndexV1, QuiltError> {
+        assert!(data.len() % row_size == 0);
+
+        let size_iterator = Self::iter_symbols(
+            data,
+            row_size,
+            symbol_size,
+            0,
+            1,
+            QUILT_TYPE_SIZE,
+            QUILT_INDEX_SIZE_PREFIX_SIZE,
+        )?;
+        let mut size_cache = Vec::with_capacity(QUILT_INDEX_SIZE_PREFIX_SIZE);
+        for symbol_slice in size_iterator {
+            size_cache.extend_from_slice(symbol_slice);
+        }
+        assert!(size_cache.len() == QUILT_INDEX_SIZE_PREFIX_SIZE);
+
+        let index_size = usize::try_from(u64::from_le_bytes(
+            size_cache
+                .try_into()
+                .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
+        ))
+        .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?;
+        let total_size = index_size + QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
+        let columns_needed = total_size.div_ceil(data.len() / row_size * symbol_size);
+        let data_iter = Self::iter_symbols(
+            data,
+            row_size,
+            symbol_size,
+            0,
+            columns_needed,
+            QUILT_TYPE_SIZE + QUILT_INDEX_SIZE_PREFIX_SIZE,
+            index_size,
+        )?;
+
+        let mut collected_data = Vec::with_capacity(index_size);
+        for symbol_slice in data_iter {
+            collected_data.extend_from_slice(symbol_slice);
+        }
+        assert!(collected_data.len() == index_size);
+
+        // Decode the QuiltIndexV1.
+        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&collected_data)
+            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
+
+        quilt_index.populate_start_indices(
+            u16::try_from(columns_needed).expect("columns_needed should fit in u16"),
+        );
+        Ok(quilt_index)
     }
 
     /// Gets the blob represented by the given quilt patch.
@@ -512,8 +570,15 @@ impl QuiltV1 {
             )));
         }
 
-        let size_iterator =
-            self.iter_symbols(start_col, end_col, 0, QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE)?;
+        let size_iterator = Self::iter_symbols(
+            &self.data,
+            self.row_size,
+            self.symbol_size,
+            start_col,
+            end_col,
+            0,
+            QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+        )?;
         let mut size_cache = Vec::with_capacity(QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
         for symbol_slice in size_iterator {
             size_cache.extend_from_slice(symbol_slice);
@@ -527,7 +592,10 @@ impl QuiltV1 {
             - padding_size as usize;
 
         let mut blob_data = Vec::with_capacity(unencoded_length);
-        let symbol_iterator = self.iter_symbols(
+        let symbol_iterator = Self::iter_symbols(
+            &self.data,
+            self.row_size,
+            self.symbol_size,
             start_col,
             end_col,
             QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
@@ -874,17 +942,17 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
                 u16::try_from(current_col).expect("current_col should fit in u16");
         }
 
-        let mut final_index_data = Vec::with_capacity(index_total_size);
-        let index_size_u64 = index_total_size as u64;
-        final_index_data.push(QuiltVersionV1::quilt_version_byte());
-        final_index_data.extend_from_slice(&index_size_u64.to_le_bytes());
-        final_index_data
+        let mut meta_blob_data = Vec::with_capacity(index_total_size);
+        let index_size_u64 = serialized_index_size as u64;
+        meta_blob_data.push(QuiltVersionV1::quilt_version_byte());
+        meta_blob_data.extend_from_slice(&index_size_u64.to_le_bytes());
+        meta_blob_data
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
 
         // Add the index to the quilt.
         Self::add_blob_to_quilt(
             &mut data,
-            &final_index_data,
+            &meta_blob_data,
             false,
             0,
             column_size,
@@ -961,15 +1029,15 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 
         utils::check_quilt_version::<QuiltVersionV1>(first_sliver.symbols.data())?;
 
-        let data_size = utils::get_quilt_index_data_size(first_sliver.symbols.data())?;
+        let index_size = utils::get_quilt_index_data_size(first_sliver.symbols.data())?;
+        let total_size = index_size + QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
 
         // Calculate how many slivers we need based on the data size.
-        let num_slivers_needed = data_size.div_ceil(first_sliver.symbols.data().len());
-        let prefix_size = QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
-        let index_size = data_size - prefix_size;
+        let num_slivers_needed = total_size.div_ceil(first_sliver.symbols.data().len());
         let mut combined_data = Vec::with_capacity(index_size);
 
-        let end = data_size.min(first_sliver.symbols.data().len());
+        let end = total_size.min(first_sliver.symbols.data().len());
+        let prefix_size = QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
         combined_data.extend_from_slice(&first_sliver.symbols.data()[prefix_size..end]);
 
         self.check_missing_slivers(1, num_slivers_needed)?;
@@ -1242,100 +1310,6 @@ mod utils {
             ));
         }
         Ok(data[0])
-    }
-
-    /// Gets the ith column of data, as if `data` is a 2D matrix.
-    ///
-    /// # Arguments
-    /// * `i` - The column index.
-    /// * `data` - The data to extract the column from.
-    /// * `row_size` - The size of each row in bytes.
-    /// * `symbol_size` - The size of each symbol in bytes.
-    ///
-    /// # Returns
-    /// A vector containing the bytes from the ith column.
-    fn get_column(
-        i: usize,
-        data: &[u8],
-        row_size: usize,
-        symbol_size: usize,
-    ) -> Result<Vec<u8>, QuiltError> {
-        // Verify inputs make sense.
-        if row_size == 0
-            || data.is_empty()
-            || symbol_size == 0
-            || row_size % symbol_size != 0
-            || data.len() % row_size != 0
-        {
-            return Err(QuiltError::InvalidFormatNotAligned(format!(
-                "row_size: {}, symbol_size: {}, data.len(): {}",
-                row_size,
-                symbol_size,
-                data.len()
-            )));
-        }
-
-        let n_rows = data.len() / row_size;
-        if i >= (row_size / symbol_size) {
-            return Err(QuiltError::IndexOutOfBounds(i, row_size / symbol_size));
-        }
-
-        let mut column = Vec::with_capacity(n_rows * symbol_size);
-
-        for row in 0..n_rows {
-            let start_idx = row * row_size + i * symbol_size;
-            let end_idx = start_idx + symbol_size;
-
-            // Check if we have enough data for this chunk.
-            if end_idx > data.len() {
-                break;
-            }
-
-            column.extend_from_slice(&data[start_idx..end_idx]);
-        }
-
-        Ok(column)
-    }
-
-    /// Extracts the quilt index from the quilt blob data.
-    pub fn get_quilt_index_v1_from_data(
-        data: &[u8],
-        row_size: usize,
-        symbol_size: usize,
-    ) -> Result<QuiltIndexV1, QuiltError> {
-        // Get the first column and extract the size prefix.
-        let first_column = get_column(0, data, row_size, symbol_size).map_err(|_| {
-            QuiltError::QuiltIndexSerDerError("failed to extract first column".to_string())
-        })?;
-
-        utils::check_quilt_version::<QuiltVersionV1>(&first_column)?;
-
-        let data_size = get_quilt_index_data_size(&first_column)?;
-        let prefix_size = QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
-        let quilt_index_size = data_size - prefix_size;
-
-        let mut collected_data = Vec::with_capacity(quilt_index_size);
-        collected_data.extend_from_slice(&first_column[prefix_size..]);
-
-        // Keep collecting data from subsequent columns until we have enough bytes.
-        let mut current_column = 1;
-        while collected_data.len() < quilt_index_size {
-            let column_data = get_column(current_column, data, row_size, symbol_size)?;
-            collected_data.extend_from_slice(&column_data);
-            current_column += 1;
-        }
-
-        // Truncate to exact size needed.
-        collected_data.truncate(quilt_index_size);
-
-        // Decode the QuiltIndexV1.
-        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&collected_data)
-            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
-
-        quilt_index.populate_start_indices(
-            u16::try_from(current_column).expect("current_column should fit in u16"),
-        );
-        Ok(quilt_index)
     }
 
     /// Checks the quilt version.
