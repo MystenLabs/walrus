@@ -28,7 +28,7 @@ const MAX_NETWORK_ADDRESS_LENGTH: u64 = 259;
 // The number of basis points in 100%.
 const N_BASIS_POINTS: u16 = 100_00;
 
-// Error Codes
+// Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 /// The epoch of the pool has already been advanced.
 const EPoolAlreadyUpdated: u64 = 0;
