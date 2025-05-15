@@ -19,6 +19,7 @@ pub type ConfirmationCertificate = ProtocolMessageCertificate<Confirmation>;
 /// A certificate from storage nodes over a [`super::invalid_blob_id::InvalidBlobIdMsg`].
 pub type InvalidBlobCertificate = ProtocolMessageCertificate<InvalidBlobIdMsg>;
 
+/// A certificate from storage nodes over a protocol message.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct ProtocolMessageCertificate<T> {
     /// The indices of the signing nodes.
@@ -32,6 +33,8 @@ pub struct ProtocolMessageCertificate<T> {
 }
 
 impl<T> ProtocolMessageCertificate<T> {
+    /// Constructs a new certificate from a list of signer indices, a serialized message
+    /// and an aggregate signature over that message.
     pub fn new(
         signers: Vec<u16>,
         serialized_message: Vec<u8>,
@@ -45,6 +48,8 @@ impl<T> ProtocolMessageCertificate<T> {
         }
     }
 
+    /// Constructs a new certificate from a collection of signed messages and a list of signer
+    /// indices.
     pub fn from_signed_messages_and_indices<I>(
         signed_messages: I,
         signer_indices: Vec<u16>,

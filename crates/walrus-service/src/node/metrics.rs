@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGauge, GenericGaugeVec},
+    GaugeVec,
     Histogram,
     HistogramVec,
     IntCounter,
     IntCounterVec,
     IntGauge,
     IntGaugeVec,
+    core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
+use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
     BlobCertified,
     BlobEvent,
@@ -20,7 +22,6 @@ use walrus_sui::types::{
 };
 
 use crate::{
-    client::ClientErrorKind,
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
     node::events::EventStreamElement,
 };
@@ -75,10 +76,7 @@ walrus_utils::metrics::define_metric_set! {
         sync_shard_recover_sliver_error_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers skipped during shard sync"]
-        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type"],
-
-        #[help = "Total number of cancelled sliver recoveries during shard sync"]
-        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard", "sliver_type"],
+        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type", "reason"],
 
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
@@ -142,6 +140,28 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of certified blobs scanned during the blob info consistency check."]
         blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "The hash of the list of certified per-object blobs at the beginning of the \
+        epoch. Note that the label is the last two digits of the epoch number."]
+        per_object_blob_info_consistency_check: IntGaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the consistency of the per-object \
+        blob info table."]
+        per_object_blob_info_consistency_check_error: IntCounter[],
+
+        #[help = "The number of certified per-object blobs scanned during the per-object blob info \
+        consistency check."]
+        per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "The ratio of fully stored blobs during the blob info consistency check."]
+        node_blob_data_fully_stored_ratio: GaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the existence of the blobs during \
+        the blob info consistency check."]
+        node_blob_data_consistency_check_existence_error: IntCounterVec["epoch"],
+
+        #[help = "Status metric indicating the node's ID"]
+        node_id: IntGaugeVec["walrus_node_id"],
     }
 }
 
@@ -163,6 +183,23 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number shards currently owned by this node"]
         shards_owned: U64Gauge[],
+
+        #[help = "The total number of times recovery futures entered exponential backoff."]
+        recovery_future_backoff_total: IntCounter[],
+
+        #[help = "The number of times a recovery futures entered exponential backoff before
+        completing."]
+        recovery_future_backoffs: Histogram {
+            buckets: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        },
+
+        #[help = "The number of failed recovery symbol requests before completion"]
+        recovery_future_failed_requests: Histogram {
+            buckets: prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+        },
+
+        #[help = "The number of recovery futures in a given recovery state."]
+        recovery_future_state: IntGaugeVec["recovery_state", "tail_count"],
     }
 }
 
@@ -252,14 +289,16 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::InvalidConfig => "invalid-config",
             ClientErrorKind::BlobIdBlocked(_) => "blob-id-blocked",
             ClientErrorKind::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
-            ClientErrorKind::NoCompatibleGasCoins => "no-compatible-gas-coins",
+            ClientErrorKind::NoCompatibleGasCoins(_) => "no-compatible-gas-coins",
             ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
             ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
+            ClientErrorKind::EmptyCommittee => "empty-committee",
             ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
+            ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
         }
     }
 }

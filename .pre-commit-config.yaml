@@ -9,7 +9,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: "3.2.0"
+    rev: "3.2.1"
     hooks:
       - id: editorconfig-checker
         alias: ec
@@ -24,7 +24,7 @@ repos:
         args: []
         pass_filenames: false
   - repo: https://github.com/crate-ci/typos
-    rev: v1.30.0
+    rev: v1.31.1
     hooks:
       - id: typos
         pass_filenames: false
@@ -35,9 +35,10 @@ repos:
         args: ["--fix"]
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.17.0
+    rev: 0.18.2
     hooks:
       - id: cargo-deny
+        args: ["--all-features", "check", "--hide-inclusion-graph"]
   - repo: local
     hooks:
       - id: taplo-format
@@ -75,6 +76,13 @@ repos:
         language: rust
         files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
         pass_filenames: false
+        verbose: true
+      - id: cargo-doctests
+        name: cargo-doctests
+        entry: cargo test --doc
+        language: rust
+        files: (^crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
       - id: clippy-with-tests
         name: clippy-with-tests
         entry: cargo clippy
@@ -109,11 +117,11 @@ repos:
         language: node
         additional_dependencies:
           - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.2.2"
+          - "@mysten/prettier-plugin-move@0.3.0"
         files: "^contracts/.*\\.move"
       - id: mdBook
         name: Build docs if mdBook is installed
         language: system
         entry: bash -c 'which mdbook && mdbook build || ! which mdbook >> /dev/null'
-        files: 'book.toml|docs/.*'
+        files: "book.toml|docs/.*"
         pass_filenames: false

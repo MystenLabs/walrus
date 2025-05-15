@@ -3,8 +3,8 @@
 Published on: 2025-01-16
 
 ```admonish warning
-This blog post is shown in its original form. It may contain information that is no longer accurate
-and broken links.
+This blog post is shown in its original form and may contain information that is no longer accurate.
+Some broken links may have been updated or removed.
 ```
 
 We are today redeploying the Walrus Testnet to incorporate various improvements, including some

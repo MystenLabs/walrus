@@ -6,48 +6,58 @@
 use std::{collections::HashSet, fmt::Debug, net::SocketAddr, sync::Arc};
 
 use axum::{
+    BoxError,
+    Router,
     body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, put},
-    BoxError,
-    Router,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
-use prometheus::Registry;
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
-use routes::{BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{
+    BLOB_GET_ENDPOINT,
+    BLOB_OBJECT_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    STATUS_ENDPOINT,
+    daemon_cors_layer,
+};
 use sui_types::base_types::ObjectID;
 use tower::{
+    ServiceBuilder,
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
-    load_shed::{error::Overloaded, LoadShedLayer},
-    ServiceBuilder,
+    load_shed::{LoadShedLayer, error::Overloaded},
 };
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount, DEFAULT_ENCODING};
+use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::Primary};
+use walrus_sdk::{
+    client::{Client, responses::BlobStoreResult},
+    error::ClientResult,
+    store_when::StoreWhen,
+};
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
 };
+use walrus_utils::metrics::Registry;
 
-use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
         config::AuthConfig,
         daemon::auth::verify_jwt_claim,
     },
-    common::telemetry::{metrics_middleware, HttpServerMetrics, MakeHttpSpan},
+    common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
 };
 
 pub mod auth;
@@ -57,11 +67,14 @@ mod openapi;
 mod routes;
 
 pub trait WalrusReadClient {
+    /// Reads a blob from Walrus.
     fn read_blob(
         &self,
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
 
+    /// Returns the blob object and its associated attributes given the object ID of either
+    /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
@@ -118,6 +131,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
                 store_when,
                 persistence,
                 post_store,
+                None,
             )
             .await?;
 
@@ -140,7 +154,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
 pub struct ClientDaemon<T> {
     client: Arc<T>,
     network_address: SocketAddr,
-    metrics: HttpServerMetrics,
+    metrics: MetricsMiddlewareState,
     router: Router<Arc<T>>,
     allowed_headers: Arc<HashSet<String>>,
 }
@@ -166,7 +180,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         ClientDaemon {
             client: Arc::new(client),
             network_address,
-            metrics: HttpServerMetrics::new(registry),
+            metrics: MetricsMiddlewareState::new(registry),
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),
@@ -203,7 +217,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 TraceLayer::new_for_http()
                     .make_span_with(MakeHttpSpan::new())
                     .on_response(MakeHttpSpan::new()),
-            );
+            )
+            .layer(daemon_cors_layer());
 
         axum::serve(
             listener,
@@ -269,34 +284,30 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         );
 
         let base_layers = ServiceBuilder::new()
-            .layer(DefaultBodyLimit::max(max_body_limit))
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
             .layer(BufferLayer::new(max_request_buffer_size))
-            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
+            .layer(DefaultBodyLimit::max(max_body_limit));
 
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .route_layer(
-                        ServiceBuilder::new()
-                            .layer(axum::middleware::from_fn_with_state(
-                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                                auth_layer,
-                            ))
-                            .layer(base_layers),
-                    )
-                    .options(routes::store_blob_options),
+                put(routes::put_blob).route_layer(
+                    ServiceBuilder::new()
+                        .layer(axum::middleware::from_fn_with_state(
+                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                            auth_layer,
+                        ))
+                        .layer(base_layers),
+                ),
             );
         } else {
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .route_layer(base_layers)
-                    .options(routes::store_blob_options),
+                put(routes::put_blob).route_layer(base_layers),
             );
         }
         self

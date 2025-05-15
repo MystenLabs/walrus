@@ -1,0 +1,55 @@
+[package]
+name = "walrus-storage-node-client"
+publish = false
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+bcs.workspace = true
+bytes.workspace = true
+fastcrypto.workspace = true
+futures.workspace = true
+http = "1.3.1"
+mime.workspace = true
+opentelemetry.workspace = true
+p256 = { workspace = true, features = ["ecdsa"] }
+pin-project.workspace = true
+prometheus.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+sui-types.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower = { workspace = true, features = ["util"] }
+tracing.workspace = true
+tracing-opentelemetry.workspace = true
+utoipa.workspace = true
+walrus-core = { workspace = true, features = ["sui-types"] }
+walrus-utils = { workspace = true, features = ["http", "metrics"] }
+x509-cert.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+axum-server.workspace = true
+rcgen.workspace = true
+walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
+walrus-test-utils.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(msim)'.dependencies]
+sui-simulator.workspace = true

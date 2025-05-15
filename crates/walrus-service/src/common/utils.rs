@@ -9,16 +9,16 @@ use std::{
     fmt::Debug,
     future::Future,
     mem,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::Path,
     pin::Pin,
     str::FromStr,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use fastcrypto::{
     encoding::Base64,
     secp256r1::Secp256r1KeyPair,
@@ -26,40 +26,36 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{Encoder, HistogramVec, Registry};
-use serde::{
-    de::{DeserializeOwned, Error},
-    Deserialize,
-    Deserializer,
-    Serialize,
-};
+use prometheus::{Encoder, HistogramVec};
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 use serde_json;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
-    sync::{oneshot, Semaphore},
-    task::JoinHandle,
+    sync::oneshot,
+    task::{JoinError, JoinHandle},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::{
+    EnvFilter,
+    Layer,
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
-    EnvFilter,
-    Layer,
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
-    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
+use walrus_utils::metrics::Registry;
 
-use super::active_committees::ActiveCommittees;
 use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
@@ -96,38 +92,10 @@ pub use version;
 
 use crate::common::event_blob_downloader::EventBlobDownloader;
 
-/// Load the config from a YAML file located at the provided path.
-pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::Result<T> {
-    let path = path.as_ref();
-    tracing::debug!(path = %path.display(), "[load_from_yaml] reading from file");
-
-    let reader = std::fs::File::open(path).with_context(|| {
-        format!(
-            "[load_from_yaml] unable to load config from {}",
-            path.display()
-        )
-    })?;
-
-    Ok(serde_yaml::from_reader(reader)?)
-}
-
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
-    /// Limits the number of simultaneously executing futures.
-    async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
-    where
-        Self: Future,
-        Self: Sized,
-    {
-        let _permit = permits
-            .acquire_owned()
-            .await
-            .expect("semaphore never closed");
-        self.await
-    }
-
     /// Reports metrics for the future.
-    fn observe<F, const N: usize>(
+    fn observe_future<F, const N: usize>(
         self,
         histograms: HistogramVec,
         get_labels: F,
@@ -163,7 +131,7 @@ where
     Fut: Future,
     F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
 {
-    fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
+    pub fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
         Self {
             inner,
             histograms,
@@ -272,8 +240,7 @@ impl MetricsAndLoggingRuntime {
     }
 
     /// Create a new runtime for metrics and logging.
-    pub fn new(mut metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
-        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
 
@@ -289,7 +256,7 @@ impl MetricsAndLoggingRuntime {
 
         Ok(Self {
             runtime,
-            registry: walrus_registry,
+            registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
         })
@@ -345,7 +312,7 @@ impl MetricPushRuntime {
                             // clone because we serialize this with our metrics
                             mp_config.config.labels.clone(),
                         ).await {
-                            tracing::error!(?error, "unable to push metrics");
+                            tracing::warn!(?error, "unable to push metrics");
                             client = create_push_client();
                         }
                     }
@@ -419,12 +386,12 @@ async fn push_metrics(
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
     let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
-        tracing::error!(?error, "unable to serialize MetricPayload to JSON");
+        tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
     let mut s = snap::raw::Encoder::new();
     let compressed = s.compress_vec(&serialized).inspect_err(|error| {
-        tracing::error!(?error, "unable to snappy encode");
+        tracing::warn!(?error, "unable to snappy encode metrics");
     })?;
 
     let uid = Uuid::now_v7();
@@ -556,7 +523,7 @@ pub async fn generate_sui_wallet(
         "generating Sui wallet for {sui_network} at '{}'",
         path.display()
     );
-    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None)?;
+    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
@@ -754,16 +721,10 @@ pub async fn collect_event_blobs_for_catchup(
 
     let contract_config = ContractConfig::new(system_object_id, staking_object_id);
     let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::Config {
-        contract_config,
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: Default::default(),
-        refresh_config: Default::default(),
-    };
+    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
 
     let walrus_client =
-        crate::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
+        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
             .await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
@@ -867,6 +828,15 @@ where
 {
     let unready_clone = svc.clone();
     mem::replace(svc, unready_clone)
+}
+
+/// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
+/// or resumes a panic if the function had panicked.
+pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
 }
 
 #[cfg(test)]

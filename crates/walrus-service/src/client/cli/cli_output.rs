@@ -7,30 +7,34 @@ use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
 use itertools::Itertools as _;
-use prettytable::{format, row, Table};
+use prettytable::{Table, format, row};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
-use walrus_sdk::api::{BlobStatus, DeletableCounts, EventProgress};
+use walrus_sdk::{
+    client::{
+        resource::RegisterBlobOp,
+        responses::{BlobStoreResult, BlobStoreResultWithPath},
+    },
+    format_event_id,
+};
+use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sui::types::Blob;
 
-use super::warning;
 use crate::client::{
     cli::{
-        error,
-        format_event_id,
-        success,
-        thousands_separator,
         HumanReadableBytes,
         HumanReadableFrost,
         HumanReadableMist,
         WalrusColors,
+        error,
+        success,
+        thousands_separator,
+        warning,
     },
-    resource::RegisterBlobOp,
     responses::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
-        BlobStoreResultWithPath,
         DeleteOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
@@ -55,7 +59,6 @@ use crate::client::{
         StorageNodeInfo,
         WalletOutput,
     },
-    BlobStoreResult,
 };
 
 /// Trait to differentiate output depending on the output mode.
@@ -221,6 +224,15 @@ impl CliOutput for BlobStoreResultWithPath {
                     self.path.display(),
                     blob_id,
                     format_event_id(event),
+                )
+            }
+            BlobStoreResult::Error { blob_id, error_msg } => {
+                println!(
+                    "{} Error storing blob.\nPath: {}\nBlob ID: {:?}\nError: {}",
+                    error(),
+                    self.path.display(),
+                    blob_id,
+                    error_msg,
                 )
             }
         }
@@ -844,8 +856,8 @@ impl CliOutput for ExtendBlobOutput {
     }
 }
 
-impl CliOutput for NodeHealthOutput {
-    fn print_cli_output(&self) {
+impl NodeHealthOutput {
+    fn print_cli_output(&self, latest_seq: Option<u64>) {
         printdoc! {"
 
             {heading}
@@ -880,6 +892,9 @@ impl CliOutput for NodeHealthOutput {
                     Events persisted: {persisted}
                     Events pending: {pending}{highest_finished_event_index_output}
 
+                    {checkpoint_heading}
+                    {checkpoint_info}
+
                     {shard_heading}
                     Owned shards: {owned}
                     Read-only shards: {read_only}
@@ -902,6 +917,35 @@ impl CliOutput for NodeHealthOutput {
                         .map_or("".to_string(), |index| format!(
                             "\nHighest finished event index: {index}"
                         )),
+                    checkpoint_heading = "Checkpoint Downloading Progress".bold().walrus_teal(),
+                    checkpoint_info = match (
+                        latest_seq,
+                        health_info.latest_checkpoint_sequence_number,
+                    ) {
+                        (Some(latest_seq), Some(checkpoint_seq)) => {
+                            if latest_seq > checkpoint_seq {
+                                format!(
+                                    "Latest checkpoint sequence number: {}\
+                                    \nEstimated checkpoint lag: {}",
+                                    checkpoint_seq, latest_seq - checkpoint_seq
+                                )
+                            } else {
+                                format!("Latest checkpoint sequence number: {}\
+                                \nCheckpoint: up-to-date",
+                                    checkpoint_seq
+                                )
+                            }
+                        },
+                        _ => {
+                            format!("Latest checkpoint sequence number: {}\
+                            \nLatest sui checkpoint: {}",
+                                health_info
+                                    .latest_checkpoint_sequence_number
+                                    .map_or("N/A".to_string(), |seq| format!("{}", seq)),
+                                latest_seq.map_or("N/A".to_string(), |seq| format!("{}", seq))
+                            )
+                        },
+                    },
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
                     read_only = health_info.shard_summary.read_only,
@@ -956,7 +1000,7 @@ impl CliOutput for ServiceHealthInfoOutput {
                         .or_insert(0) += 1;
                 }
             }
-            node.print_cli_output();
+            node.print_cli_output(self.latest_seq);
             add_node_health_to_table(&mut table, node, idx);
         }
         if table.len() > 3 {

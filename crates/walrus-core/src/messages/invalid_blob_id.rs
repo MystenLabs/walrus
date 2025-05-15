@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, BlobId, Epoch, PublicKey};
+use crate::{BlobId, Epoch, PublicKey, messages::IntentType};
 
 /// A message stating that a Blob Id is invalid.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

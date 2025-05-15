@@ -16,6 +16,7 @@ pub mod test_utils;
 pub mod types;
 
 /// Schema for the [`sui_types::event::EventID`] type.
+#[cfg(feature = "utoipa")]
 #[allow(unused)]
 #[derive(Debug, utoipa::ToSchema)]
 #[schema(
@@ -34,6 +35,7 @@ pub struct EventIdSchema {
 }
 
 /// Schema for the `ObjectID` type.
+#[cfg(feature = "utoipa")]
 #[derive(Debug, utoipa::ToSchema)]
 #[schema(
     as = ObjectID,
@@ -45,6 +47,7 @@ pub struct EventIdSchema {
 pub struct ObjectIdSchema(());
 
 /// Schema for Sui addresses.
+#[cfg(feature = "utoipa")]
 #[derive(Debug, utoipa::ToSchema)]
 #[schema(
     as = SuiAddress,

@@ -4,16 +4,16 @@
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
-    extract::{rejection::BytesRejection, FromRequest, FromRequestParts, Request},
-    http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
+    extract::{FromRequest, FromRequestParts, Request, rejection::BytesRejection},
+    http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
 use fastcrypto::traits::EncodeDecodeBase64 as _;
 use reqwest::header::AUTHORIZATION;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use walrus_core::PublicKey;
 use walrus_proc_macros::RestApiError;
-use walrus_sdk::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
+use walrus_storage_node_client::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
 
 use crate::common::api::RestApiError;
 

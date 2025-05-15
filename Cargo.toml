@@ -1,6 +1,7 @@
 [workspace]
 default-members = [
   "crates/checkpoint-downloader",
+  "crates/typed-store",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
   "crates/walrus-proc-macros",
@@ -8,6 +9,7 @@ default-members = [
   "crates/walrus-sdk",
   "crates/walrus-service",
   "crates/walrus-simtest",
+  "crates/walrus-storage-node-client",
   "crates/walrus-stress",
   "crates/walrus-sui",
   "crates/walrus-test-utils",
@@ -18,14 +20,15 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Mysten Labs <build@mystenlabs.com>"]
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
-version = "1.19.0"
+version = "1.26.0"
 
 [workspace.dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 async-channel = "2.3.1"
 async-trait = "0.1.88"
+atomic-time = "0.1.5"
 axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
 axum-extra = { version = "0.10" }
 axum-server = { version = "0.7.2", default-features = false }
@@ -36,49 +39,61 @@ byteorder = "1.5.0"
 bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.38", features = ["deprecated", "derive"] }
+clap_complete = "4.5.50"
+collectable = "0.0.2"
 colored = "2.2.0"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
+eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
+fdlimit = "0.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.3" # required for MSIM
 futures-util = "0.3.30"
 git-version = "0.3.9"
+hdrhistogram = "7.5.4"
 home = "0.5.11"
-hostname = "0.4.0"
+hostname = "0.4.1"
 http-body-util = "0.1.1"
 humantime = "2.2.0"
 hyper = "1"
+indexmap = "2.9.0"
 indicatif = "0.17.11"
 indoc = "2.0.6"
 integer-encoding = "4.0.2"
 itertools = "0.13.0"
+jsonrpsee = "0.24.9"
+jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
+once_cell = { version = "1.21.3" }
 opentelemetry = { version = "=0.27.1", default-features = false, features = ["trace"] }
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
+proc-macro2 = "1.0.95"
 prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"
+rayon = "1.10.0"
 rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
-rocksdb = "0.21.0"
-rustls = { version = "0.23.23", default-features = false, features = ["logging", "ring", "tls12"] }
+rocksdb = "0.22.0"
+rstest = "0.25.0"
+rustls = { version = "0.23.27", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -86,37 +101,40 @@ serde_json = "1.0.140"
 serde_test = "1.0.177"
 serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 syn = "2.0"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-tempfile = "3.19.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
+tap = "1.0.1"
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+tempfile = "3.20.0"
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 thiserror = "2.0.12"
-tokio = { version = "=1.43.0", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
-tonic = { version = "0.12.3", default-features = false }
+tonic = { version = "0.13", default-features = false }
 tower = "0.5"
-tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
+tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.41"
 tracing-opentelemetry = { version = "=0.28.0", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }
 twox-hash = "2.1.0"
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
+typed-store = { path = "crates/typed-store" }
+uint = "0.10.0"
+# TODO (WAL-790): update typed-store to >= 1.47 or remove it.
 url = "2.5.4"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
@@ -125,6 +143,7 @@ walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
+walrus-storage-node-client = { path = "crates/walrus-storage-node-client" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-utils = { path = "crates/walrus-utils" }
@@ -140,6 +159,9 @@ panic = 'abort'
 
 [profile.dev]
 panic = 'abort'
+
+[profile.test]
+opt-level = 1
 
 [profile.simulator]
 debug = true

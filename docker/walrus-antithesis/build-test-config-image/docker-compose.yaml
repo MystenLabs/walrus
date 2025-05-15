@@ -21,7 +21,7 @@ services:
       - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet # Always use sui mainnet protocol config.
     command: >
       /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
-      sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
+      sui start --with-faucet --force-regenesis --committee-size 3 --epoch-duration-ms 86400000"
     healthcheck:
       test: ["CMD", "/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000"]
       interval: 10s
@@ -149,6 +149,28 @@ services:
       - ./files/run-stress.sh:/root/run-stress.sh
     command: >
       /bin/bash -c "sleep 15 && /root/run-stress.sh"
+
+  # Staking client for testing
+  walrus-staking-1:
+    depends_on:
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.31
+    image: ${WALRUS_IMAGE_NAME}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    hostname: walrus-staking-1
+    container_name: walrus-staking-0
+    environment:
+      - NODE_NAME=walrus-staking-0
+      - NO_COLOR=1
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/run-staking.sh:/root/run-staking.sh
+    command: >
+      /bin/bash -c "sleep 15 && /root/run-staking.sh"
 
 # Persistent volumes for sharing data between containers
 volumes:

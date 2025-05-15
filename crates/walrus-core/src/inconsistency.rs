@@ -49,6 +49,7 @@ use core::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    SliverIndex,
     encoding::{
         EncodingAxis,
         EncodingConfig,
@@ -61,7 +62,6 @@ use crate::{
     },
     merkle::MerkleAuth,
     metadata::BlobMetadata,
-    SliverIndex,
 };
 
 /// Failure cases when verifying an [`InconsistencyProof`].

@@ -1,5 +1,5 @@
 name: Attach Walrus binaries to a release
-run-name: Attach Walrus binaries to a ${{ inputs.walrus_tag }} release
+run-name: Attach Walrus binaries to a ${{ github.event.inputs.walrus_tag || github.ref_name }} release
 
 on:
   release:
@@ -11,13 +11,10 @@ on:
         type: string
         required: true
 
-permissions:
-  contents: write
-
 concurrency: ${{ github.workflow }}-${{ inputs.walrus_tag || github.ref }}
 
 env:
-  TAG_NAME: "${{ github.event.inputs.walrus_tag || github.ref }}"
+  TAG_NAME: "${{ github.event.inputs.walrus_tag || github.ref_name }}"
   BINARY_LIST_FILE: "./binary-build-list.json"
   CARGO_TERM_COLOR: always
   # Disable incremental compilation.
@@ -56,7 +53,7 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Clean up and validate ${{ env.TAG_NAME }} tag name
+      - name: Clean up and validate tag name
         shell: bash
         run: |
           export walrus_tag=$(echo ${{ env.TAG_NAME }} | sed s/'refs\/tags\/'//)
@@ -71,13 +68,13 @@ jobs:
           ref: ${{ env.walrus_tag }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@6189d56e4096ee891640bb02ac264be376592d6a # pin@v2
+        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # pin@v2
         with:
           version: ">= 363.0.0"
 
       - name: Configure GCP service user auth
         id: auth
-        uses: google-github-actions/auth@35b0e87d162680511bf346c299f71c9c5c379033 # pin@v1
+        uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193 # pin@v2
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
@@ -196,14 +193,14 @@ jobs:
         run: ls -al ./tmp
 
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
-        uses: google-github-actions/upload-cloud-storage@386ab77f37fdf51c0e38b3d229fad286861cc0d0 # pin@v2
+        uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
         with:
           path: "./tmp"
           destination: "mysten-walrus-releases"
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # pin@4.4.3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@4.6.2
         with:
           name: walrus-binaries-${{ matrix.os }}
           if-no-files-found: error
@@ -211,7 +208,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # pin@v1
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # pin@v2.2.2
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |

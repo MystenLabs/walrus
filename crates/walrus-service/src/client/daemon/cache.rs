@@ -16,7 +16,7 @@
 //! element is not inserted.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::{Debug, Display},
     hash::Hash,
     time::Duration,
@@ -24,7 +24,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
+use serde_with::{DurationSeconds, serde_as};
 use tokio::sync::{mpsc, oneshot};
 
 use super::auth::PublisherAuthError;
@@ -35,15 +35,15 @@ pub(crate) const DEFAULT_CACHE_CHANNEL_SIZE: usize = 100;
 #[serde_as]
 #[derive(Debug, Clone, clap::Parser, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
 pub struct CacheConfig {
     /// The maximum number of elements the cache can hold.
-    #[clap(long = "jwt-cache-size", default_value_t = default::max_size())]
+    #[arg(long = "jwt-cache-size", default_value_t = default::max_size())]
     max_size: usize,
     /// The interval at which the cache should check for expired elements.
     #[serde(rename = "refresh_interval_secs")]
-    #[clap(
+    #[arg(
         long = "jwt-cache-refresh-interval",
         value_parser = humantime::parse_duration,
         default_value = "5s"

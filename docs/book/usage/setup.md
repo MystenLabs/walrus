@@ -16,14 +16,12 @@ for an overview over all Walrus networks.
 ## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
 
 ```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can skip this section and use the
-`walrus generate-sui-wallet` command after [installing Walrus](#installation). In that case, make
-sure to set the `wallet_config` parameter in the [Walrus
-configuration](#advanced-configuration-optional) to the newly generated wallet. Also, make sure to
-obtain some SUI and WAL tokens.
+If you just want to set up a new Sui wallet for Walrus, you can generate one using the
+`walrus generate-sui-wallet --network mainnet` command after [installing Walrus](#installation).
+You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
 ```
 
-Interacting with Walrus requires a valid Sui wallet with some amount of SUI tokens. The
+Interacting with Walrus requires a valid Sui wallet with some amount of SUI and WAL tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
 documentation.
@@ -78,12 +76,6 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 | MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
 | Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
 
-```admonish title="Windows"
-We now offer a pre-built binary also for Windows. However, most of the remaining instructions assume
-a UNIX-based system for the directory structure, commands, etc. If you use Windows, you may need to
-adapt most of those.
-```
-
 ### Install via script {#nix-install}
 
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
@@ -91,11 +83,14 @@ commands in your terminal then follow on-screen instructions. See [Windows
 instructions](#windows-install) if you are on Windows.
 
 ```sh
-# Run a first-time install.
-curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/walrus-install.sh | sh
+# Run a first-time install using the latest Mainnet version.
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+
+# Install the latest Testnet version instead.
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/walrus-install.sh | sh -s -- -f
+curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
 ```
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
@@ -135,10 +130,26 @@ To download `walrus` to your Microsoft Windows computer, run the following in a 
 
 From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
 
+```admonish title="Windows"
+Note that most of the remaining instructions assume a UNIX-based system for the directory structure,
+commands, etc. If you use Windows, you may need to adapt most of those.
+```
+
 ### GitHub releases
 
 You can find all our releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases).
 Simply download the archive for your system and extract the `walrus` binary.
+
+### Install via Cargo
+
+You can also install Walrus via Cargo. For example, to install the latest Mainnet version:
+
+```sh
+cargo install --git https://github.com/MystenLabs/walrus --branch mainnet walrus-service --locked
+```
+
+In place of `--branch mainnet`, you can also specify specific tags (e.g., `--tag mainnet-v1.18.2`)
+or commits (e.g., `--rev b2009ac73388705f379ddad48515e1c1503fc8fc`).
 
 ### Build from source
 
@@ -166,14 +177,18 @@ CLI configuration refers to the standard location for Sui configuration
 
 <!-- markdownlint-disable code-fence-style -->
 ~~~admonish tip
-The easiest way to obtain the latest configuration is by downloading it from GitHub:
+The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/client_config_mainnet.yaml \
-    -o ~/.config/walrus/client_config.yaml
+curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 ~~~
 <!-- markdownlint-enable code-fence-style -->
+
+```admonish warning title="Walrus Testnet redeployment"
+The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
+here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
+```
 
 ### Custom path (optional) {#config-custom-path}
 

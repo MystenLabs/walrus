@@ -8,21 +8,20 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
-    time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
-use indicatif::{ProgressBar, ProgressStyle};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
-use sui_types::event::EventID;
 use walrus_core::BlobId;
-use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
-use walrus_utils::config::path_or_defaults_if_exist;
-
-use super::{default_configuration_paths, Blocklist, Client, Config};
+use walrus_sdk::{
+    blocklist::Blocklist,
+    client::Client,
+    config::ClientConfig,
+    sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
+};
 
 mod args;
 mod cli_output;
@@ -43,48 +42,19 @@ pub use args::{
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 
-/// Default URL of the testnet RPC node.
-pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
-/// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
-pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
-
-/// Loads the Walrus configuration from the given path and context.
+/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
 ///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Walrus configuration directory. If the context is not provided, the default
-/// context is used.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
-pub fn load_configuration(path: Option<impl AsRef<Path>>, context: Option<&str>) -> Result<Config> {
-    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
-        .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
-    let (config, context) = Config::load_from_multi_config(&path, context)?;
-    tracing::info!(
-        "using Walrus configuration from '{}' with {} context",
-        path.display(),
-        context.map_or("default".to_string(), |c| format!("'{}'", c))
-    );
-    Ok(config)
-}
-
-/// Creates a [`Client`] based on the provided [`Config`] with read-only access to Sui.
-///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
-/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
+/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
+/// successfully.
 pub async fn get_read_client(
-    config: Config,
+    config: ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
-    allow_fallback_to_default: bool,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiReadClient>> {
-    let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-        &config,
-        rpc_url,
-        wallet,
-        allow_fallback_to_default,
-    )
-    .await?;
+    let sui_read_client =
+        get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
 
     let refresh_handle = config
         .refresh_config
@@ -99,10 +69,10 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`Config`] with write access to
-/// Sui.
+/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with
+/// write access to Sui.
 pub async fn get_contract_client(
-    config: Config,
+    config: ClientConfig,
     wallet: Result<WalletContext>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
@@ -124,50 +94,63 @@ pub async fn get_contract_client(
 
 /// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
 ///
-/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
-/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
+/// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
+/// successfully.
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
-// the argument docs in `crates/walrus-service/bin/client.rs`.
+// the argument docs in `crates/walrus-service/client/cli/args.rs`.
 pub async fn get_sui_read_client_from_rpc_node_or_wallet(
-    config: &Config,
+    config: &ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
-    allow_fallback_to_default: bool,
 ) -> Result<SuiReadClient> {
     tracing::debug!(
         ?rpc_url,
-        %allow_fallback_to_default,
-        "attempting to create a read client from explicitly set RPC URL, wallet config, or default"
+        ?config.rpc_urls,
+        "attempting to create a read client from explicitly set RPC URL, RPC URLs in client \
+        config, or wallet config"
     );
     let backoff_config = config.backoff_config().clone();
-    let sui_client = match rpc_url {
-        Some(url) => {
-            tracing::info!("using explicitly set RPC URL {url}");
-            RetriableSuiClient::new_for_rpc(&url, backoff_config)
-                .await
-                .context(format!("cannot connect to Sui RPC node at {url}"))
+    let rpc_urls = match (rpc_url, &config.rpc_urls, wallet) {
+        (Some(url), _, _) => {
+            tracing::info!("using explicitly set RPC URL: {url}");
+            vec![url]
         }
-        None => match wallet {
-            Ok(wallet) => {
-                tracing::info!("using RPC URL set in wallet configuration");
-                RetriableSuiClient::new_from_wallet(&wallet, backoff_config)
-                    .await
-                    .context("cannot connect to Sui RPC node specified in the wallet configuration")
-            }
-            Err(e) => {
-                if allow_fallback_to_default {
-                    tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
-                    RetriableSuiClient::new_for_rpc(DEFAULT_RPC_URL, backoff_config)
-                        .await
-                        .context(format!(
-                            "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"
-                        ))
-                } else {
-                    Err(e)
-                }
-            }
-        },
-    }?;
+        (_, urls, _) if !urls.is_empty() => {
+            tracing::info!(
+                "using RPC URLs set in client configuration: {}",
+                urls.join(", ")
+            );
+            urls.clone()
+        }
+        (_, _, Ok(wallet)) => {
+            let url = wallet
+                .config
+                .get_active_env()
+                .context("unable to get the wallet's active environment")?
+                .rpc
+                .clone();
+            tracing::info!("using RPC URL set in wallet configuration: {url}");
+            vec![url]
+        }
+        (_, _, Err(e)) => {
+            anyhow::bail!(
+                "Sui RPC url is not specified as a CLI argument or in the client configuration, \
+                and no valid Sui wallet was provided ({e})"
+            );
+        }
+    };
+
+    let sui_client = RetriableSuiClient::new_for_rpc_urls(
+        &rpc_urls,
+        backoff_config,
+        config.communication_config.sui_client_request_timeout,
+    )
+    .await
+    .context(format!(
+        "cannot connect to Sui RPC nodes at {}",
+        rpc_urls.join(", ")
+    ))?;
 
     Ok(config.new_read_client(sui_client).await?)
 }
@@ -415,11 +398,6 @@ pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
     ))
 }
 
-/// Format the event ID as the transaction digest and the sequence number.
-pub fn format_event_id(event_id: &EventID) -> String {
-    format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
-}
-
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
 /// other parse error.
 #[derive(Debug, thiserror::Error)]
@@ -507,32 +485,6 @@ impl Display for BlobIdDecimal {
     }
 }
 
-/// Returns a progress bar with the given length and stlyle already applied
-pub(crate) fn styled_progress_bar(length: u64) -> ProgressBar {
-    let pb = ProgressBar::new(length);
-    pb.set_style(
-        ProgressStyle::with_template(
-            " {spinner:.122} {msg} [{elapsed_precise}] [{wide_bar:.122/177}] {pos}/{len} ({eta})",
-        )
-        .expect("the template is valid")
-        .tick_chars("•◉◎○◌○◎◉")
-        .progress_chars("#>-"),
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
-    pb
-}
-
-/// Returns a pre-configured spinner.
-pub(crate) fn styled_spinner() -> ProgressBar {
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::with_template(" {spinner:.122} {msg} [{elapsed_precise}]")
-            .expect("the template is valid")
-            .tick_chars("•◉◎○◌○◎◉"),
-    );
-    spinner.enable_steady_tick(Duration::from_millis(100));
-    spinner
-}
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;

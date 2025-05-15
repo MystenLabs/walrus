@@ -13,43 +13,43 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
-use retry_client::RetriableSuiClient;
+use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
-        get_new_package_obj_from_response,
         Coin,
         SuiExecutionStatus,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
+        get_new_package_obj_from_response,
     },
     types::base_types::{ObjectID, ObjectRef},
     wallet_context::WalletContext,
 };
 use sui_types::{
+    TypeTag,
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{Argument, ProgrammableTransaction, TransactionData, TransactionKind},
-    TypeTag,
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
-use transaction_builder::{WalrusPtbBuilder, MAX_BURNS_PER_PTB};
+use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
-    ensure,
-    merkle::Node as MerkleNode,
-    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
-    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    ensure,
+    merkle::Node as MerkleNode,
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
+    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -57,6 +57,14 @@ use crate::{
     contracts,
     system_setup::compile_package,
     types::{
+        BlobEvent,
+        Committee,
+        ContractEvent,
+        NodeRegistrationParams,
+        NodeUpdateParams,
+        StakedWal,
+        StorageNodeCap,
+        StorageResource,
         move_errors::{BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError},
         move_structs::{
             Authorized,
@@ -68,14 +76,6 @@ use crate::{
             SharedBlob,
             StorageNode,
         },
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        NodeRegistrationParams,
-        NodeUpdateParams,
-        StakedWal,
-        StorageNodeCap,
-        StorageResource,
     },
     utils::get_created_sui_object_ids_by_type,
 };
@@ -96,6 +96,9 @@ pub mod transaction_builder;
 use crate::types::move_structs::EventBlob;
 
 pub mod contract_config;
+
+mod metrics;
+pub use metrics::SuiClientMetricSet;
 
 // Keep in sync with the corresponding value in
 // `contracts/walrus/sources/staking/staked_wal.move`
@@ -124,8 +127,8 @@ pub enum SuiClientError {
     #[error("could not find WAL coins with sufficient balance")]
     NoCompatibleWalCoins,
     /// No matching gas coin found for the transaction.
-    #[error("could not find gas coins with sufficient balance")]
-    NoCompatibleGasCoins,
+    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
+    NoCompatibleGasCoins(Option<u128>),
     /// The Walrus system object does not exist.
     #[error(
         "the specified Walrus system object {0} does not exist
@@ -184,6 +187,13 @@ pub enum SuiClientError {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
+    /// The required coin balance cannot be achieved with the maximum number of coins allowed.
+    #[error(
+        "there is enough balance to cover the requested amount of type {0}, but cannot be achieved \
+        with less than the maximum number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider \
+        merging the coins in the wallet and retrying"
+    )]
+    InsufficientFundsWithMaxCoins(String),
 }
 
 impl SuiClientError {
@@ -224,6 +234,28 @@ pub struct CertifyAndExtendBlobParams<'a> {
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
     pub epochs_extended: Option<EpochCount>,
+}
+
+/// Result of certifying and extending a blob.
+#[derive(Debug, Clone)]
+pub struct CertifyAndExtendBlobResult {
+    /// The blob.
+    pub blob_object_id: ObjectID,
+    /// The result of the post store action.
+    pub post_store_action_result: PostStoreActionResult,
+}
+
+impl CertifyAndExtendBlobResult {
+    /// Returns the shared blob object ID if the post store action is [`PostStoreAction::Share`].
+    pub fn shared_blob_object(&self) -> Option<ObjectID> {
+        if let PostStoreActionResult::Shared(GetSharedBlobResult::Success(id)) =
+            &self.post_store_action_result
+        {
+            Some(*id)
+        } else {
+            None
+        }
+    }
 }
 
 /// Metadata for a blob object on Sui.
@@ -336,10 +368,46 @@ impl PostStoreAction {
     ///
     /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
     pub fn from_share(share: bool) -> Self {
-        if share {
-            Self::Share
-        } else {
-            Self::Keep
+        if share { Self::Share } else { Self::Keep }
+    }
+}
+
+/// Result of getting the shared blob object ID.
+#[derive(Debug, Clone)]
+pub enum GetSharedBlobResult {
+    /// The blob was found.
+    Success(ObjectID),
+    /// The blob was not found.
+    Failed(String),
+}
+
+/// Result of the post store action.
+#[derive(Debug, Clone)]
+pub enum PostStoreActionResult {
+    /// The blob was burned.
+    Burned,
+    /// The blob was transferred to the given address.
+    TransferredTo(SuiAddress),
+    /// The blob was kept in the wallet that created it.
+    Kept,
+    /// The blob was put into a shared blob object.
+    Shared(GetSharedBlobResult),
+}
+
+impl PostStoreActionResult {
+    /// Constructs a new [`PostStoreActionResult`] from the given [`PostStoreAction`] and
+    /// optional shared blob object ID.
+    pub fn new(
+        action: &PostStoreAction,
+        shared_blob_object_id: Option<GetSharedBlobResult>,
+    ) -> Self {
+        match action {
+            PostStoreAction::Burn => Self::Burned,
+            PostStoreAction::TransferTo(address) => Self::TransferredTo(*address),
+            PostStoreAction::Keep => Self::Kept,
+            PostStoreAction::Share => {
+                Self::Shared(shared_blob_object_id.expect("result should be present"))
+            }
         }
     }
 }
@@ -399,6 +467,29 @@ impl SuiContractClient {
         let read_client = Arc::new(
             SuiReadClient::new(
                 RetriableSuiClient::new_from_wallet(&wallet, backoff_config.clone()).await?,
+                contract_config,
+            )
+            .await?,
+        );
+        Self::new_with_read_client(wallet, gas_budget, read_client)
+    }
+
+    /// Constructor for [`SuiContractClient`] with metrics.
+    pub async fn new_from_wallet_with_metrics(
+        wallet: WalletContext,
+        contract_config: &ContractConfig,
+        backoff_config: ExponentialBackoffConfig,
+        gas_budget: Option<u64>,
+        metrics: Arc<SuiClientMetricSet>,
+    ) -> SuiClientResult<Self> {
+        let read_client = Arc::new(
+            SuiReadClient::new(
+                RetriableSuiClient::new_from_wallet_with_metrics(
+                    &wallet,
+                    backoff_config.clone(),
+                    metrics,
+                )
+                .await?,
                 contract_config,
             )
             .await?,
@@ -613,6 +704,26 @@ impl SuiContractClient {
         .await
     }
 
+    /// Call to request a withdrawal of staked WAL.
+    pub async fn request_withdraw_stake(&self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .request_withdraw_stake(staked_wal_id)
+                .await
+        })
+        .await
+    }
+
+    /// Withdraw staked WAL that has already been requested.
+    pub async fn withdraw_stake(&self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.withdraw_stake(staked_wal_id).await
+        })
+        .await
+    }
+
     /// Call to end voting and finalize the next epoch parameters.
     ///
     /// Can be called once the voting period is over.
@@ -816,35 +927,6 @@ impl SuiContractClient {
             .await?
             .filter(|storage| selection_policy.matches(storage.end_epoch, current_epoch))
             .collect())
-    }
-
-    /// Returns the closest-matching owned storage resources for given size and number of epochs.
-    ///
-    /// Among all the owned [`StorageResource`] objects, returns the one that:
-    /// - has the closest size to `storage_size`; and
-    /// - breaks ties by taking the one with the smallest end epoch that is greater or equal to the
-    ///   requested `end_epoch`.
-    /// - If object id is in the excluded list, do not select.
-    ///
-    /// Returns `None` if no matching storage resource is found.
-    pub async fn owned_storage_for_size_and_epoch(
-        &self,
-        storage_size: u64,
-        end_epoch: Epoch,
-        excluded: &[ObjectID],
-    ) -> SuiClientResult<Option<StorageResource>> {
-        Ok(self
-            .owned_storage(ExpirySelectionPolicy::Valid)
-            .await?
-            .into_iter()
-            .filter(|storage| {
-                storage.storage_size >= storage_size && storage.end_epoch >= end_epoch
-            })
-            .filter(|storage| !excluded.contains(&storage.id))
-            // Pick the smallest storage size. Break ties by comparing the end epoch, and take the
-            // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
-            // are above the minimum.
-            .min_by_key(|a| (a.storage_size, a.end_epoch)))
     }
 
     /// Deletes the specified blob from the wallet's storage.
@@ -1130,7 +1212,7 @@ impl SuiContractClient {
         &self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
-    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -1209,7 +1291,7 @@ impl SuiContractClientInner {
             .add_blob_attribute(blob_obj_id.into(), blob_attribute.clone())
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "add_blob_attribute").await?;
         Ok(())
     }
 
@@ -1218,7 +1300,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.remove_blob_attribute(blob_obj_id.into()).await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "remove_blob_attribute").await?;
         Ok(())
     }
 
@@ -1237,7 +1319,8 @@ impl SuiContractClientInner {
             .insert_or_update_blob_attribute_pairs(blob_obj_id.into(), pairs)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "insert_or_update_blob_attribute_pairs")
+            .await?;
         Ok(())
     }
 
@@ -1256,7 +1339,8 @@ impl SuiContractClientInner {
             .remove_blob_attribute_pairs(blob_obj_id.into(), keys)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "remove_blob_attribute_pairs")
+            .await?;
         Ok(())
     }
 
@@ -1318,7 +1402,9 @@ impl SuiContractClientInner {
             .reserve_space_with_subsidies(encoded_size, epochs_ahead, subsidies_package_id)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "reserve_space_with_subsidies")
+            .await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -1346,7 +1432,9 @@ impl SuiContractClientInner {
             .reserve_space_without_subsidies(encoded_size, epochs_ahead)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "reserve_space_without_subsidies")
+            .await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -1388,7 +1476,7 @@ impl SuiContractClientInner {
                 .await?;
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self.sign_and_send_ptb(ptb, "register_blobs").await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
@@ -1532,17 +1620,33 @@ impl SuiContractClientInner {
         );
 
         let mut pt_builder = self.transaction_builder()?;
-        for blob_metadata in blob_metadata_list.into_iter() {
-            let storage_arg =
-                reserve_space_fn(&mut pt_builder, blob_metadata.encoded_size, epochs_ahead).await?;
 
+        // Reserve enough space for all blobs
+        let mut main_storage_arg_size = blob_metadata_list
+            .iter()
+            .fold(0, |acc, metadata| acc + metadata.encoded_size);
+        let main_storage_arg =
+            reserve_space_fn(&mut pt_builder, main_storage_arg_size, epochs_ahead).await?;
+
+        for blob_metadata in blob_metadata_list.into_iter() {
+            // Split off a storage resource, unless the remainder is equal to the required size.
+            let storage_arg = if main_storage_arg_size != blob_metadata.encoded_size {
+                main_storage_arg_size -= blob_metadata.encoded_size;
+                pt_builder
+                    .split_storage_by_size(main_storage_arg.into(), main_storage_arg_size)
+                    .await?
+            } else {
+                main_storage_arg
+            };
             pt_builder
                 .register_blob(storage_arg.into(), blob_metadata, persistence)
                 .await?;
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "reserve_and_register_blobs_impl")
+            .await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
@@ -1580,7 +1684,7 @@ impl SuiContractClientInner {
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self.sign_and_send_ptb(ptb, "certify_blobs").await?;
 
         if !res.errors.is_empty() {
             tracing::warn!(errors = ?res.errors, "failed to certify blobs on Sui");
@@ -1626,7 +1730,7 @@ impl SuiContractClientInner {
             )
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "certify_event_blob").await?;
         Ok(())
     }
 
@@ -1639,7 +1743,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.invalidate_blob_id(certificate).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "invalidate_blob_id").await?;
         Ok(())
     }
 
@@ -1654,7 +1758,7 @@ impl SuiContractClientInner {
             .register_candidate(node_parameters, proof_of_possession)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self.sign_and_send_ptb(ptb, "register_candidate").await?;
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
@@ -1697,7 +1801,7 @@ impl SuiContractClientInner {
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
 
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self.sign_and_send_ptb(ptb, "register_candidates").await?;
 
         let cap_ids = get_created_sui_object_ids_by_type(
             &res,
@@ -1734,7 +1838,7 @@ impl SuiContractClientInner {
             pt_builder.stake_with_pool(amount, node_id).await?;
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self.sign_and_send_ptb(ptb, "stake_with_pools").await?;
 
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
@@ -1751,6 +1855,31 @@ impl SuiContractClientInner {
         self.sui_client().get_sui_objects(&staked_wal).await
     }
 
+    /// Call to request withdrawal of stake from StakedWal object.
+    ///
+    /// StakedWal is available after an epoch has passed.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.request_withdraw_stake(staked_wal_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb, "request_withdraw_stake")
+            .await?;
+        Ok(())
+    }
+
+    /// Call to request withdrawal of stake from StakedWal object.
+    ///
+    /// StakedWal is available after an epoch has passed.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.withdraw_stake(staked_wal_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb, "withdraw_stake").await?;
+        Ok(())
+    }
+
     /// Call to end voting and finalize the next epoch parameters.
     ///
     /// Can be called once the voting period is over.
@@ -1758,7 +1887,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.voting_end().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "voting_end").await?;
         Ok(())
     }
 
@@ -1769,7 +1898,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.initiate_epoch_change().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "initiate_epoch_change").await?;
         Ok(())
     }
 
@@ -1798,7 +1927,7 @@ impl SuiContractClientInner {
             .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "epoch_sync_done").await?;
         Ok(())
     }
 
@@ -1822,7 +1951,7 @@ impl SuiContractClientInner {
             .vote_for_upgrade(upgrade_manager, node_id, &digest)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "vote_for_upgrade").await?;
 
         Ok(digest)
     }
@@ -1881,7 +2010,7 @@ impl SuiContractClientInner {
             .await?;
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let response = self.sign_and_send_ptb(ptb).await?;
+        let response = self.sign_and_send_ptb(ptb, "upgrade").await?;
         self.post_upgrade_lock_file_update(&response, build_config)
             .await
     }
@@ -1894,7 +2023,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.migrate_contracts(new_package_id).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "migrate_contracts").await?;
         Ok(())
     }
 
@@ -1919,7 +2048,8 @@ impl SuiContractClientInner {
             }
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "set_authorized_for_pool")
+            .await?;
         Ok(())
     }
 
@@ -1937,7 +2067,9 @@ impl SuiContractClientInner {
             .create_and_fund_exchange(exchange_package, amount)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "create_and_fund_exchange")
+            .await?;
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
@@ -1973,7 +2105,9 @@ impl SuiContractClientInner {
             )
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "create_and_fund_subsidies")
+            .await?;
         let admin_cap = get_created_sui_object_ids_by_type(
             &res,
             &contracts::subsidies::AdminCap
@@ -2003,8 +2137,12 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
         let (ptb, sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb_with_additional_gas_coin_balance(ptb, sui_cost)
-            .await?;
+        self.sign_and_send_ptb_with_additional_gas_coin_balance(
+            ptb,
+            sui_cost,
+            "exchange_sui_for_wal",
+        )
+        .await?;
         Ok(())
     }
 
@@ -2013,7 +2151,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "delete_blob").await?;
         Ok(())
     }
 
@@ -2033,8 +2171,9 @@ impl SuiContractClientInner {
     pub async fn sign_and_send_ptb(
         &mut self,
         programmable_transaction: ProgrammableTransaction,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(programmable_transaction, 0, 0)
+        self.sign_and_send_ptb_inner(programmable_transaction, 0, 0, method)
             .await
     }
 
@@ -2047,9 +2186,15 @@ impl SuiContractClientInner {
         &mut self,
         programmable_transaction: ProgrammableTransaction,
         additional_gas_coin_balance: u64,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(programmable_transaction, additional_gas_coin_balance, 0)
-            .await
+        self.sign_and_send_ptb_inner(
+            programmable_transaction,
+            additional_gas_coin_balance,
+            0,
+            method,
+        )
+        .await
     }
 
     /// Signs and sends a programmable transaction with a minimum gas coin balance.
@@ -2060,9 +2205,15 @@ impl SuiContractClientInner {
         &mut self,
         programmable_transaction: ProgrammableTransaction,
         minimum_gas_coin_balance: u64,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(programmable_transaction, 0, minimum_gas_coin_balance)
-            .await
+        self.sign_and_send_ptb_inner(
+            programmable_transaction,
+            0,
+            minimum_gas_coin_balance,
+            method,
+        )
+        .await
     }
 
     async fn sign_and_send_ptb_inner(
@@ -2070,9 +2221,10 @@ impl SuiContractClientInner {
         programmable_transaction: ProgrammableTransaction,
         additional_gas_coin_balance: u64,
         minimum_gas_coin_balance: u64,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         // Get the current gas price from the network
-        let gas_price = self.wallet.get_reference_gas_price().await?;
+        let gas_price = self.read_client.get_reference_gas_price().await?;
         let wallet_address = self.wallet.active_address()?;
 
         tracing::debug!(?programmable_transaction, "sending PTB");
@@ -2107,7 +2259,7 @@ impl SuiContractClientInner {
         // Execute the transaction and wait for response
         let response = self
             .sui_client()
-            .execute_transaction(signed_transaction)
+            .execute_transaction(signed_transaction, method)
             .await?;
 
         // Check transaction execution status from effects
@@ -2168,6 +2320,7 @@ impl SuiContractClientInner {
             self.sign_and_send_ptb_with_min_gas_coin_balance(
                 tx_builder.finish().await?.0,
                 sui_balance.total_balance as u64,
+                "merge_coins",
             )
             .await?;
         }
@@ -2180,8 +2333,12 @@ impl SuiContractClientInner {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         pt_builder.pay_sui(vec![address], vec![amount])?;
-        self.sign_and_send_ptb_with_additional_gas_coin_balance(pt_builder.finish(), amount)
-            .await?;
+        self.sign_and_send_ptb_with_additional_gas_coin_balance(
+            pt_builder.finish(),
+            amount,
+            "send_sui",
+        )
+        .await?;
         Ok(())
     }
 
@@ -2192,7 +2349,7 @@ impl SuiContractClientInner {
 
         pt_builder.pay_wal(address, amount).await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "send_wal").await?;
         Ok(())
     }
 
@@ -2208,7 +2365,7 @@ impl SuiContractClientInner {
                 pt_builder.burn_blob(id.into()).await?;
             }
             let (ptb, _) = pt_builder.finish().await?;
-            self.sign_and_send_ptb(ptb).await?;
+            self.sign_and_send_ptb(ptb, "burn_blobs").await?;
         }
 
         Ok(())
@@ -2225,7 +2382,7 @@ impl SuiContractClientInner {
             .fund_shared_blob(shared_blob_obj_id, amount)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "fund_shared_blob").await?;
         Ok(())
     }
 
@@ -2240,7 +2397,7 @@ impl SuiContractClientInner {
             .extend_shared_blob(shared_blob_obj_id, epochs_extended)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "extend_shared_blob").await?;
         Ok(())
     }
 
@@ -2267,7 +2424,9 @@ impl SuiContractClientInner {
         }
 
         let (ptb, _) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "share_and_maybe_fund_blob")
+            .await?;
         let shared_blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::shared_blob::SharedBlob
@@ -2301,7 +2460,8 @@ impl SuiContractClientInner {
             )
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "extend_blob_without_subsidies")
+            .await?;
         Ok(())
     }
 
@@ -2327,7 +2487,8 @@ impl SuiContractClientInner {
             )
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "extend_blob_with_subsidies")
+            .await?;
         Ok(())
     }
 
@@ -2344,7 +2505,7 @@ impl SuiContractClientInner {
                     .extend_blob_with_subsidies(blob_obj_id, epochs_extended, pkg_id)
                     .await
                 {
-                    Ok(arg) => Ok(arg),
+                    Ok(_) => Ok(()),
                     Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
                         SystemError::EWrongVersion(_),
                     ))) => {
@@ -2353,14 +2514,16 @@ impl SuiContractClientInner {
                         call, falling back to direct contract call"
                         );
                         self.extend_blob_without_subsidies(blob_obj_id, epochs_extended)
-                            .await
+                            .await?;
+                        Ok(())
                     }
                     Err(e) => Err(e),
                 }
             }
             None => {
                 self.extend_blob_without_subsidies(blob_obj_id, epochs_extended)
-                    .await
+                    .await?;
+                Ok(())
             }
         }
     }
@@ -2384,7 +2547,7 @@ impl SuiContractClientInner {
             .update_node_params(node_capability_object_id.into(), node_parameters)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "update_node_params").await?;
         Ok(())
     }
 
@@ -2394,7 +2557,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.collect_commission(node_id).await?;
         let (ptb, _) = pt_builder.finish().await?;
-        let response = self.sign_and_send_ptb(ptb).await?;
+        let response = self.sign_and_send_ptb(ptb, "collect_commission").await?;
         let wal_type_tag = TypeTag::from_str(self.read_client.wal_coin_type())?;
         let sender_address = self.wallet.active_address()?;
         let Some(balance_change) = response
@@ -2432,7 +2595,7 @@ impl SuiContractClientInner {
             pt_builder.pay_wal(address, amount).await?;
         }
         let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb).await?;
+        self.sign_and_send_ptb(ptb, "multiple_pay_wal").await?;
         Ok(())
     }
 
@@ -2442,7 +2605,7 @@ impl SuiContractClientInner {
         &mut self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
-    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let subsidies_package_id = self.read_client.get_subsidies_package_id();
         match subsidies_package_id {
             Some(pkg_id) => {
@@ -2484,7 +2647,7 @@ impl SuiContractClientInner {
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
         subsidies_package_id: ObjectID,
-    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,
@@ -2508,7 +2671,7 @@ impl SuiContractClientInner {
         &mut self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
-    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,
@@ -2528,12 +2691,12 @@ impl SuiContractClientInner {
     }
 
     /// Common implementation for certifying and extending blobs with different extension strategies
-    async fn certify_and_extend_blobs_impl<F>(
+    async fn certify_and_extend_blobs_impl<'b, F>(
         &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'b>],
         post_store: PostStoreAction,
         extend_blob_fn: F,
-    ) -> SuiClientResult<HashMap<BlobId, ObjectID>>
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>>
     where
         F: for<'a> Fn(
                 &'a mut WalrusPtbBuilder,
@@ -2570,27 +2733,122 @@ impl SuiContractClientInner {
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb).await?;
+        let res = self
+            .sign_and_send_ptb(ptb, "certify_and_extend_blobs")
+            .await?;
 
         if !res.errors.is_empty() {
             tracing::warn!(errors = ?res.errors, "failed to certify/extend blobs on Sui");
             return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
         }
 
-        if post_store != PostStoreAction::Share {
-            return Ok(HashMap::new());
-        }
+        let post_store_action_results = self
+            .get_post_store_action_results(&res, blobs_with_certificates, &post_store)
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = ?e, "failed to get post store action results");
+                anyhow!(
+                    "Blobs have been stored, but could not get post store action results: {:?}",
+                    e
+                )
+            })?;
 
-        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        self.create_blob_id_to_shared_mapping(
-            &res,
-            blobs_with_certificates
+        let results = blobs_with_certificates
+            .iter()
+            .zip(post_store_action_results.into_iter())
+            .map(|(blob_params, r)| CertifyAndExtendBlobResult {
+                blob_object_id: blob_params.blob.id,
+                post_store_action_result: r,
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Helper function to create a mapping from blob IDs to shared blob object IDs.
+    async fn get_post_store_action_results(
+        &self,
+        res: &SuiTransactionBlockResponse,
+        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        post_store: &PostStoreAction,
+    ) -> SuiClientResult<Vec<PostStoreActionResult>> {
+        if *post_store == PostStoreAction::Share {
+            self.get_share_blob_result(cert_and_extend_params, res)
+                .await
+        } else {
+            Ok(cert_and_extend_params
                 .iter()
-                .map(|blob_params| blob_params.blob.blob_id)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-        .await
+                .map(|_| PostStoreActionResult::new(post_store, None))
+                .collect())
+        }
+    }
+
+    async fn get_share_blob_result(
+        &self,
+        cert_and_extend_params: &[CertifyAndExtendBlobParams<'_>],
+        res: &SuiTransactionBlockResponse,
+    ) -> SuiClientResult<Vec<PostStoreActionResult>> {
+        // Try to get the shared blob mapping
+        match self
+            .get_shared_blob_mapping(cert_and_extend_params, res)
+            .await
+        {
+            Ok(shared_mapping) => {
+                // Create results with successful ID mappings
+                let results = cert_and_extend_params
+                    .iter()
+                    .map(|param| {
+                        let shared_result = match shared_mapping.get(&param.blob.id) {
+                            Some(object_id) => GetSharedBlobResult::Success(*object_id),
+                            None => GetSharedBlobResult::Failed(
+                                "Object ID not found in mapping".to_string(),
+                            ),
+                        };
+                        PostStoreActionResult::Shared(shared_result)
+                    })
+                    .collect();
+                Ok(results)
+            }
+            Err(err) => {
+                // Create results with error for all params
+                let results = cert_and_extend_params
+                    .iter()
+                    .map(|_| {
+                        PostStoreActionResult::Shared(GetSharedBlobResult::Failed(err.to_string()))
+                    })
+                    .collect();
+                Ok(results)
+            }
+        }
+    }
+
+    async fn get_shared_blob_mapping(
+        &self,
+        params: &[CertifyAndExtendBlobParams<'_>],
+        res: &SuiTransactionBlockResponse,
+    ) -> SuiClientResult<HashMap<ObjectID, ObjectID>> {
+        let object_ids = get_created_sui_object_ids_by_type(
+            res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+
+        ensure!(
+            object_ids.len() == params.len(),
+            "unexpected number of shared blob objects created: {} (expected {})",
+            object_ids.len(),
+            params.len()
+        );
+
+        let shared_blobs = self
+            .sui_client()
+            .get_sui_objects::<SharedBlob>(&object_ids)
+            .await?;
+
+        Ok(shared_blobs
+            .into_iter()
+            .map(|shared_blob| (shared_blob.blob.id, shared_blob.id))
+            .collect())
     }
 
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
@@ -2615,8 +2873,8 @@ impl SuiContractClientInner {
         if object_ids.len() == 1 {
             Ok(HashMap::from([(blobs_ids[0], object_ids[0])]))
         } else {
-            // Fetch all SharedBlob objects and collect them as a mapping blob id
-            // to shared blob object id
+            // Fetch all SharedBlob objects and collect them as a mapping from blob object ID
+            // to shared blob object ID.
             let shared_blobs = self
                 .sui_client()
                 .get_sui_objects::<SharedBlob>(&object_ids)

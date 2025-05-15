@@ -14,12 +14,12 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
-use futures::{future::BoxFuture, FutureExt};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use futures::{FutureExt, future::BoxFuture};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use walrus_core::Epoch;
 use walrus_sui::{
     client::FixedSystemParameters,
-    types::{move_structs::EpochState, GENESIS_EPOCH},
+    types::{GENESIS_EPOCH, move_structs::EpochState},
 };
 use walrus_utils::backoff::ExponentialBackoffState;
 
@@ -389,7 +389,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
             contract_service,
             time_fn,
             max_jitter: std::cmp::min(MAX_SCHEDULE_JITTER, epoch_duration / 10),
-            rng: StdRng::seed_from_u64(rng.gen()),
+            rng: StdRng::seed_from_u64(rng.r#gen()),
         }
     }
 
@@ -603,7 +603,7 @@ mod tests {
     use std::num::{NonZero, NonZeroU16};
 
     use tokio::time::Instant;
-    use walrus_test_utils::{async_param_test, nonzero, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, async_param_test, nonzero};
 
     use super::*;
     use crate::node::contract_service::MockSystemContractService;

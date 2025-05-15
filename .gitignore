@@ -1,7 +1,10 @@
 # Editors/OS
 **/.history/
-**/.vscode/
 **/.idea/
+
+.vscode/*
+!.vscode/settings.json
+
 .nvimrc
 .DS_Store
 
@@ -36,3 +39,9 @@ working_dir/
 *.log
 venv/
 **/tmp
+out/
+
+# Deployment assets
+crates/walrus-orchestrator/assets/
+!crates/walrus-orchestrator/assets/dashboard-template.json
+!crates/walrus-orchestrator/assets/settings-template.yaml

@@ -36,7 +36,7 @@
 //! last resort and does not need to be as efficient as the storage nodes themselves.
 //!
 mod config;
-pub use config::{BackupConfig, BACKUP_BLOB_ARCHIVE_SUBDIR};
+pub use config::{BACKUP_BLOB_ARCHIVE_SUBDIR, BackupConfig};
 
 #[cfg(feature = "backup")]
 mod garbage_collector;
@@ -57,9 +57,9 @@ mod metrics;
 pub use self::{
     garbage_collector::start_backup_garbage_collector,
     service::{
+        VERSION,
         run_backup_database_migrations,
         start_backup_fetcher,
         start_backup_orchestrator,
-        VERSION,
     },
 };

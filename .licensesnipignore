@@ -6,3 +6,12 @@ docs/mdbook-admonish.css
 docs/theme/tabs.css
 docs/theme/tabs.js
 scripts/move_coverage.sh
+crates/typed-store/src/rocks/safe_iter.rs
+crates/typed-store/src/rocks/tests.rs
+crates/typed-store/src/rocks/mod.rs
+crates/typed-store/src/metrics.rs
+crates/typed-store/src/lib.rs
+crates/typed-store/src/traits.rs
+crates/typed-store/src/rocks/errors.rs
+crates/typed-store/src/rocks/safe_iter.rs
+crates/typed-store/src/rocks/tests.rs

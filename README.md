@@ -55,7 +55,8 @@ is contained in the following crates:
 <!-- markdownlint-disable proper-names -->
 - [walrus-core](crates/walrus-core/) contains core types and functionality, including encoding and
   authentication mechanisms.
-- [walrus-sdk](crates/walrus-sdk/) contains (client) interactions with storage nodes.
+- [walrus-storage-node-client](crates/walrus-storage-node-client/) contains (client) interactions
+  with storage nodes.
 - [walrus-service](crates/walrus-service/) contains client and server functionality including the
   storage backend. This crate also contains all main binaries, in particular `walrus` and
   `walrus-node`.
@@ -81,7 +82,7 @@ and more extensive tests:
 - [walrus-simtest](crates/walrus-simtest/) contains simulation tests to ensure that Walrus works
   correctly for all interleavings of concurrent operations and in the presence of crashes.
 - [walrus-stress](crates/walrus-stress/) contains a stress client, which is used to put load on
-  storage nodes.
+  storage nodes and perform randomized staking re-assignments.
 - [walrus-test-utils](crates/walrus-test-utils/) contains test macros and other utilities used in
   the other crates.
 <!-- markdownlint-enable proper-names -->

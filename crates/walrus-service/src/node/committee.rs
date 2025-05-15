@@ -7,11 +7,6 @@ use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use walrus_core::{
-    encoding::EncodingConfig,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
@@ -20,15 +15,20 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    encoding::EncodingConfig,
+    keys::ProtocolKeyPair,
+    merkle::MerkleProof,
+    messages::InvalidBlobCertificate,
+    metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_sdk::error::ClientBuildError;
+use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_storage_node_client::error::ClientBuildError;
 use walrus_sui::{
-    client::ReadClient,
+    client::{ReadClient, SuiReadClient},
     types::{Committee, StorageNode},
 };
 
 use self::node_service::NodeService;
-use crate::common::active_committees::ActiveCommittees;
 
 mod committee_service;
 mod node_service;
@@ -51,7 +51,7 @@ pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
 }
 
 #[async_trait]
-impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
+impl CommitteeLookupService for SuiReadClient {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
         let committees_and_state = self.get_committees_and_state().await?;
         ActiveCommittees::try_from(committees_and_state)

@@ -39,12 +39,6 @@ impl Ord for LogsAnalyzer {
 }
 
 impl LogsAnalyzer {
-    /// Deduce the number of nodes errors from the logs.
-    pub fn set_node_errors(&mut self, log: &str) {
-        self.node_errors = log.matches(" ERROR").count();
-        self.node_panic = log.contains("panic");
-    }
-
     /// Deduce the number of clients errors from the logs.
     pub fn set_client_errors(&mut self, log: &str) {
         self.client_errors = max(self.client_errors, log.matches(" ERROR").count());

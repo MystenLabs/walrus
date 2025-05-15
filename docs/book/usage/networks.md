@@ -4,6 +4,21 @@ Walrus Mainnet operates a production-quality storage network on the Sui Mainnet.
 operates on the Sui Testnet and is used to test new features of Walrus before they graduate to the
 Mainnet. Finally, developers can operate local Walrus and Sui networks for testing.
 
+## Network parameters
+
+Some important fixed system parameters for Mainnet and Testnet are summarized in the following table:
+
+| Parameter                                                | Mainnet | Testnet |
+|----------------------------------------------------------|---------|---------|
+| Sui network                                              | Mainnet | Testnet |
+| Number of shards                                         | 1000    | 1000    |
+| Epoch duration                                           | 2 weeks | 1 day   |
+| Maximum number of epochs for which storage can be bought | 53      | 53      |
+
+Many other parameters, including the system capacity and prices, are dynamic. Those are stored in
+the system object (see [here](../dev-guide/sui-struct.md#system-and-staking-information)) and can be
+viewed with various tools like the [Walruscan explorer](https://walruscan.com/).
+
 ## Mainnet configuration
 
 ### Mainnet parameters
@@ -31,6 +46,11 @@ and Testnet configuration. If you want *only* the Mainnet configuration, you can
 
 ## Testnet configuration
 
+```admonish warning title="Walrus Testnet redeployment"
+The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
+here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
+```
+
 ```admonish danger title="Disclaimer about the Walrus Testnet"
 All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
 value. The state of the store **can and will be wiped** at any point and possibly with no warning.
@@ -49,7 +69,8 @@ available.
 Interacting with Walrus requires a valid Sui Testnet wallet with some amount of SUI tokens. The
 normal way to set this up is via the Sui CLI; see the [installation
 instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
-documentation.
+documentation. If you do not want to install the Sui CLI, you can also generate a new Sui wallet for
+Testnet using `walrus generate-sui-wallet --network testnet`.
 
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the

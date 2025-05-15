@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use benchmark::BenchmarkParameters;
 use clap::Parser;
-use client::{aws::AwsClient, vultr::VultrClient, ServerProviderClient};
+use client::{ServerProviderClient, aws::AwsClient, vultr::VultrClient};
 use eyre::Context;
 use measurements::MeasurementsCollection;
 use orchestrator::Orchestrator;
 use protocol::{
-    target::{ProtocolClientParameters, ProtocolNodeParameters, TargetProtocol},
     ProtocolParameters,
+    target::{ProtocolClientParameters, TargetProtocol},
 };
 use settings::{CloudProvider, Settings};
 use ssh::SshConnectionManager;
@@ -23,7 +23,6 @@ mod benchmark;
 mod client;
 mod display;
 mod error;
-mod faults;
 mod logs;
 mod measurements;
 mod monitor;
@@ -35,17 +34,21 @@ mod testbed;
 
 /// NOTE: Link these types to the correct protocol.
 type Protocol = TargetProtocol;
-type NodeParameters = ProtocolNodeParameters;
 type ClientParameters = ProtocolClientParameters;
 
 /// The orchestrator command line options.
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Testbed orchestrator", long_about = None)]
-#[clap(rename_all = "kebab-case")]
+#[command(
+    author,
+    version,
+    about = "Testbed orchestrator",
+    long_about = None,
+    rename_all = "kebab-case"
+)]
 pub struct Opts {
     /// The path to the settings file. This file contains basic information to deploy testbeds
     /// and run benchmarks such as the url of the git repo, the commit to deploy, etc.
-    #[clap(
+    #[arg(
         long,
         value_name = "FILE",
         default_value = "crates/walrus-orchestrator/assets/settings.yaml",
@@ -54,55 +57,49 @@ pub struct Opts {
     settings_path: String,
 
     /// The type of operation to run.
-    #[clap(subcommand)]
+    #[command(subcommand)]
     operation: Operation,
 }
 
 /// The type of operation to run.
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum Operation {
     /// Read or modify the status of the testbed.
     Testbed {
         /// The action to perform on the testbed.
-        #[clap(subcommand)]
+        #[command(subcommand)]
         action: TestbedAction,
     },
-    /// Deploy nodes and run a benchmark on the specified testbed.
+    /// Deploy clients and run a benchmark using the specified testbed.
     Benchmark {
-        /// The committee size to deploy.
-        #[clap(long, value_name = "INT", default_value_t = 4, global = true)]
-        committee: usize,
-
-        /// The set of loads to submit to the system (reads/writes per minunte). Each load triggers
-        /// a separate benchmark run. Setting a load to zero will not deploy any benchmark clients
-        /// (useful to boot testbeds designed to run with external clients and load generators).
-        #[clap(long, value_name = "[INT]", default_value = "200", global = true)]
-        loads: Vec<usize>,
+        /// The number of clients to deploy.
+        #[arg(long, value_name = "INT", default_value_t = 4, global = true)]
+        clients: usize,
 
         /// Whether to skip testbed updates before running benchmarks. This is a dangerous
         /// operation as it may lead to running benchmarks on outdated nodes. It is however
         /// useful when debugging in some specific scenarios.
-        #[clap(long, action, default_value_t = false, global = true)]
+        #[arg(long, global = true)]
         skip_testbed_update: bool,
 
         /// Whether to skip testbed configuration before running benchmarks. This is a dangerous
         /// operation as it may lead to running benchmarks on misconfigured nodes. It is however
         /// useful when debugging in some specific scenarios.
-        #[clap(long, action, default_value_t = false, global = true)]
+        #[arg(long, global = true)]
         skip_testbed_configuration: bool,
     },
     /// Print a summary of the specified measurements collection.
     Summarize {
         /// The path to the settings file.
-        #[clap(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE")]
         path: PathBuf,
     },
 }
 
 /// The action to perform on the testbed.
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum TestbedAction {
     /// Display the testbed status.
     Status,
@@ -110,20 +107,20 @@ pub enum TestbedAction {
     /// Deploy the specified number of instances in all regions specified by in the setting file.
     Deploy {
         /// Number of instances to deploy.
-        #[clap(long)]
+        #[arg(long)]
         instances: usize,
 
         /// The region where to deploy the instances. If this parameter is not specified, the
         /// command deploys the specified number of instances in all regions listed in the
         /// setting file.
-        #[clap(long)]
+        #[arg(long)]
         region: Option<String>,
     },
 
     /// Start at most the specified number of instances per region on an existing testbed.
     Start {
         /// Number of instances to deploy.
-        #[clap(long, default_value_t = 10)]
+        #[arg(long, default_value_t = 10)]
         instances: usize,
     },
 
@@ -202,8 +199,7 @@ async fn run<C: ServerProviderClient>(
 
         // Run benchmarks.
         Operation::Benchmark {
-            committee,
-            loads,
+            clients,
             skip_testbed_update,
             skip_testbed_configuration,
         } => {
@@ -222,12 +218,6 @@ async fn run<C: ServerProviderClient>(
                 .wrap_err("Failed to load testbed setup commands")?;
 
             let protocol_commands = Protocol {};
-            let node_parameters = match &settings.node_parameters_path {
-                Some(path) => {
-                    NodeParameters::load(path).wrap_err("Failed to load node's parameters")?
-                }
-                None => NodeParameters::default(),
-            };
             let client_parameters = match &settings.client_parameters_path {
                 Some(path) => {
                     ClientParameters::load(path).wrap_err("Failed to load client's parameters")?
@@ -235,13 +225,8 @@ async fn run<C: ServerProviderClient>(
                 None => ClientParameters::default(),
             };
 
-            let set_of_benchmark_parameters = BenchmarkParameters::new_from_loads(
-                settings.clone(),
-                node_parameters,
-                client_parameters,
-                committee,
-                loads,
-            );
+            let benchmark_parameters =
+                BenchmarkParameters::new(settings.clone(), client_parameters, clients);
 
             Orchestrator::new(
                 settings,
@@ -252,7 +237,7 @@ async fn run<C: ServerProviderClient>(
             )
             .skip_testbed_update(skip_testbed_update)
             .skip_testbed_configuration(skip_testbed_configuration)
-            .run_benchmarks(set_of_benchmark_parameters)
+            .run_benchmarks(benchmark_parameters)
             .await
             .wrap_err("Failed to run benchmarks")?;
         }

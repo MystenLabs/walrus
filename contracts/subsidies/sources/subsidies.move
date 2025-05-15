@@ -15,8 +15,8 @@ use sui::{balance::{Self, Balance}, coin::Coin};
 use wal::wal::WAL;
 use walrus::{blob::Blob, storage_resource::Storage, system::System};
 
-/// Track the current version of the module.
-const VERSION: u64 = 1;
+/// Tracks the current version of the module.
+const VERSION: u64 = 2;
 
 /// Subsidy rate is in basis points (1/100 of a percent).
 const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%

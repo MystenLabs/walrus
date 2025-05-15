@@ -15,11 +15,8 @@ theme = "docs/theme"
 
 [output.linkcheck]
 exclude = [
-  'blob\.store',
+  'github\.com',
   'google\.com',
-  'suiscan\.xyz',
-  'wal\.app',
-  'walrus\.site',
   'x\.com',
 ]
 follow-web-links = true

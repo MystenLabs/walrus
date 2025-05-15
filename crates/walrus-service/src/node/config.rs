@@ -13,34 +13,34 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
+    DeserializeAs,
+    DurationSeconds,
+    SerializeAs,
     base64::Base64,
     de::DeserializeAsWrap,
     ser::SerializeAsWrap,
     serde_as,
-    DeserializeAs,
-    DurationSeconds,
-    SerializeAs,
 };
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
-    messages::ProofOfPossession,
     Epoch,
     NetworkPublicKey,
     PublicKey,
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
+    messages::ProofOfPossession,
 };
 use walrus_sui::types::{
-    move_structs::{NodeMetadata, VotingParams},
     NetworkAddress,
     NodeRegistrationParams,
     NodeUpdateParams,
+    move_structs::{NodeMetadata, VotingParams},
 };
 
-use super::storage::DatabaseConfig;
+use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
     node::events::EventProcessorConfig,
@@ -171,6 +171,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blocking thread pool.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub thread_pool: ThreadPoolConfig,
+    /// Configuration for the consistency check.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub consistency_check: StorageNodeConsistencyCheckConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -209,6 +212,7 @@ impl Default for StorageNodeConfig {
             num_uncertified_blob_threshold: None,
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            consistency_check: Default::default(),
         }
     }
 }
@@ -580,9 +584,9 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
-    /// Use the experimental batch recovery service endpoint.
-    // TODO: Remove (WAL-594).
-    pub experimental_batch_symbol_recovery: bool,
+    /// The number of additional symbols to request from the remote storage node for sliver
+    /// recovery.
+    pub experimental_sliver_recovery_additional_symbols: usize,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -595,7 +599,7 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
-            experimental_batch_symbol_recovery: true,
+            experimental_sliver_recovery_additional_symbols: 0,
         }
     }
 }
@@ -629,19 +633,25 @@ pub struct ShardSyncConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_switch_to_recovery_interval_secs")]
     pub shard_sync_retry_switch_to_recovery_interval: Duration,
+    /// Whether to restart shard sync always retry shard transfer first. This is a fallback
+    /// mechanism in case a shard recovery is initiated, restarting the node can resume shard
+    /// transfer. This is the preferred option since it's always cheaper to scan the blob info
+    /// table without transferring the shards.
+    pub restart_shard_sync_always_retry_transfer_first: bool,
 }
 
 impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
-            sliver_count_per_sync_request: 10,
+            sliver_count_per_sync_request: 1000,
             shard_sync_retry_min_backoff: Duration::from_secs(60),
             shard_sync_retry_max_backoff: Duration::from_secs(600),
-            max_concurrent_blob_recovery_during_shard_recovery: 5,
+            max_concurrent_blob_recovery_during_shard_recovery: 100,
             blob_certified_check_interval: Duration::from_secs(60),
-            max_concurrent_metadata_fetch: 10,
+            max_concurrent_metadata_fetch: 100,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
+            restart_shard_sync_always_retry_transfer_first: true,
         }
     }
 }
@@ -667,6 +677,8 @@ pub mod defaults {
     pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
     /// SUI MIST threshold under which balance checks log a warning.
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
+    /// The default number of max concurrent streams for the rest API.
+    pub const REST_HTTP2_MAX_CONCURRENT_STREAMS: u32 = 1000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -971,8 +983,10 @@ pub struct Http2Config {
 impl Default for Http2Config {
     fn default() -> Self {
         Self {
-            http2_max_concurrent_streams: 1000,
-            http2_max_pending_accept_reset_streams: 100,
+            http2_max_concurrent_streams: defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS,
+            http2_max_pending_accept_reset_streams: u32::MAX
+                .try_into()
+                .expect("assuming at least 32-bit architecture"),
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
             http2_adaptive_window: true,
@@ -1002,7 +1016,7 @@ impl Default for BalanceCheckConfig {
 }
 
 /// Configuration for the blocking thread pool.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
     /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
@@ -1010,6 +1024,17 @@ pub struct ThreadPoolConfig {
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub max_concurrent_tasks: Option<usize>,
+    /// Specify the maximum number of blocking threads to use for I/O.
+    pub max_blocking_io_threads: usize,
+}
+
+impl Default for ThreadPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_tasks: None,
+            max_blocking_io_threads: 1024,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1018,7 +1043,7 @@ mod tests {
 
     use indoc::indoc;
     use p256::{pkcs8, pkcs8::EncodePrivateKey};
-    use rand::{rngs::StdRng, SeedableRng as _};
+    use rand::{SeedableRng as _, rngs::StdRng};
     use sui_types::base_types::ObjectID;
     use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
@@ -1032,7 +1057,7 @@ mod tests {
     /// This test ensures that the `node_config_example.yaml` is kept in sync with the config struct
     /// in this file.
     #[test]
-    fn check_and_update_example_config() -> TestResult {
+    fn check_and_update_example_storage_node_config() -> TestResult {
         const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
@@ -1052,6 +1077,8 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: None,
                 rpc_fallback_config: None,
+                additional_rpc_endpoints: Default::default(),
+                request_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),

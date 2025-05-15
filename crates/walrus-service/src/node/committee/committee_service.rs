@@ -11,17 +11,10 @@ use std::{
 };
 
 use futures::TryFutureExt;
-use prometheus::Registry;
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use tokio::sync::{watch, Mutex as TokioMutex};
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use tokio::sync::{Mutex as TokioMutex, watch};
 use tower::ServiceExt as _;
 use walrus_core::{
-    encoding::EncodingConfig,
-    ensure,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
@@ -30,36 +23,36 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    encoding::EncodingConfig,
+    ensure,
+    keys::ProtocolKeyPair,
+    merkle::MerkleProof,
+    messages::InvalidBlobCertificate,
+    metadata::VerifiedBlobMetadataWithId,
+};
+use walrus_sdk::active_committees::{
+    ActiveCommittees,
+    ChangeNotInProgress,
+    CommitteeTracker,
+    StartChangeError,
 };
 use walrus_sui::types::Committee;
+use walrus_utils::metrics::Registry;
 
 use super::{
-    node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
-    request_futures::{
-        GetAndVerifyMetadata,
-        GetInvalidBlobCertificate,
-        LegacyRecoverSliver,
-        RecoverSliver,
-    },
     BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
     DefaultNodeServiceFactory,
     EndCommitteeChangeError,
     NodeServiceFactory,
+    node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
+    request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
 };
-use crate::{
-    common::active_committees::{
-        ActiveCommittees,
-        ChangeNotInProgress,
-        CommitteeTracker,
-        StartChangeError,
-    },
-    node::{
-        config::CommitteeServiceConfig,
-        errors::SyncShardClientError,
-        metrics::CommitteeServiceMetricSet,
-    },
+use crate::node::{
+    config::CommitteeServiceConfig,
+    errors::SyncShardClientError,
+    metrics::CommitteeServiceMetricSet,
 };
 
 pub(crate) struct NodeCommitteeServiceBuilder {
@@ -73,7 +66,7 @@ impl Default for NodeCommitteeServiceBuilder {
     fn default() -> Self {
         Self {
             local_identity: None,
-            rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
+            rng: StdRng::seed_from_u64(rand::thread_rng().r#gen()),
             config: CommitteeServiceConfig::default(),
             registry: None,
         }
@@ -147,8 +140,7 @@ impl NodeCommitteeServiceBuilder {
             self.config,
             encoding_config,
             self.local_identity,
-            self.registry
-                .map(|registry| CommitteeServiceMetricSet::new(&registry)),
+            CommitteeServiceMetricSet::new(&self.registry.unwrap_or_default()),
             self.rng,
         )
         .await?;
@@ -393,7 +385,7 @@ pub(super) struct NodeCommitteeServiceInner<T> {
     /// Function used to construct new services.
     service_factory: TokioMutex<Box<dyn NodeServiceFactory<Service = T>>>,
     /// Exported metrics.
-    metrics: Option<CommitteeServiceMetricSet>,
+    pub metrics: Arc<CommitteeServiceMetricSet>,
 }
 
 impl<T> NodeCommitteeServiceInner<T>
@@ -406,7 +398,7 @@ where
         config: CommitteeServiceConfig,
         encoding_config: Arc<EncodingConfig>,
         local_identity: Option<PublicKey>,
-        metrics: Option<CommitteeServiceMetricSet>,
+        metrics: CommitteeServiceMetricSet,
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
         let committees = committee_tracker.committees();
@@ -425,7 +417,7 @@ where
             config,
             rng: SyncMutex::new(rng),
             encoding_config,
-            metrics,
+            metrics: metrics.into(),
         };
 
         Ok(this)
@@ -451,15 +443,13 @@ where
     }
 
     fn record_epoch_change_metrics(&self, committees: &ActiveCommittees) {
-        let Some(metrics) = self.metrics.as_ref() else {
-            return;
-        };
-
-        metrics.current_epoch.set(committees.epoch());
-        metrics.current_epoch_state.set_from_committees(committees);
+        self.metrics.current_epoch.set(committees.epoch());
+        self.metrics
+            .current_epoch_state
+            .set_from_committees(committees);
 
         if let Some(local_identity) = self.local_identity.as_ref() {
-            metrics.shards_owned.set(
+            self.metrics.shards_owned.set(
                 committees
                     .current_committee()
                     .n_shards_for_node_public_key(local_identity),
@@ -517,27 +507,15 @@ where
         sliver_type: SliverType,
         certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
-        if self.inner.config.experimental_batch_symbol_recovery {
-            RecoverSliver::new(
-                metadata,
-                sliver_id,
-                sliver_type,
-                certified_epoch,
-                &self.inner,
-            )
-            .run()
-            .await
-        } else {
-            LegacyRecoverSliver::new(
-                metadata,
-                sliver_id,
-                sliver_type,
-                certified_epoch,
-                &self.inner,
-            )
-            .run()
-            .await
-        }
+        RecoverSliver::new(
+            metadata,
+            sliver_id,
+            sliver_type,
+            certified_epoch,
+            &self.inner,
+        )
+        .run()
+        .await
     }
 
     #[tracing::instrument(name = "get_invalid_blob_certificate committee", skip_all)]
@@ -731,9 +709,7 @@ async fn add_members_from_committee<T: NodeService>(
     encoding_config: &Arc<EncodingConfig>,
 ) -> Result<(), anyhow::Error> {
     if committee.epoch == 0 {
-        tracing::info!(
-            "we are in the genesis epoch, not creating any services for committee members"
-        );
+        tracing::debug!("not creating any services for committee members in the genesis epoch");
         return Ok(());
     }
 

@@ -1,232 +1,206 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Errors that may be encountered while interacting with a storage node.
+//! The errors for the storage client and the communication with storage nodes.
 
-use reqwest::StatusCode;
-use walrus_core::Epoch;
+use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
+use walrus_storage_node_client::error::{ClientBuildError, NodeError};
+use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
-use crate::{
-    api::errors::{Status, STORAGE_NODE_ERROR_DOMAIN},
-    tls::VerifierBuildError,
-};
-
-/// Error raised during communication with a node.
+/// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
+/// storage confirmation, failed.
 #[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct NodeError {
-    #[from]
-    kind: Kind,
+pub enum StoreError {
+    /// The metadata could not be stored on the node.
+    #[error("the metadata could not be stored")]
+    Metadata(NodeError),
+    /// One or more slivers could not be stored on the node.
+    #[error(transparent)]
+    SliverStore(#[from] SliverStoreError),
+    /// A valid storage confirmation could not retrieved from the node.
+    #[error("the storage confirmation could not be retrieved")]
+    Confirmation(NodeError),
 }
 
-impl NodeError {
-    /// Returns true if the error is related to connecting to the server.
-    pub fn is_connect(&self) -> bool {
-        let Kind::Reqwest(ref err) = self.kind else {
-            return false;
-        };
-        err.is_connect()
+/// The JWT secret could not be decoded from the provided string.
+#[derive(Debug, thiserror::Error, PartialEq)]
+#[error("the JWT secret could not be decoded from the provided string")]
+pub struct JwtDecodeError;
+
+/// The sliver could not be stored on the node.
+#[derive(Debug, thiserror::Error)]
+#[error("the sliver could not be stored")]
+pub struct SliverStoreError {
+    /// The sliver's pair index.
+    pub pair_index: SliverPairIndex,
+    /// The sliver's type.
+    pub sliver_type: SliverType,
+    /// The error raised by the node.
+    pub error: NodeError,
+}
+
+/// A helper type for the client to handle errors.
+pub type ClientResult<T> = Result<T, ClientError>;
+
+/// Error raised by a client interacting with the storage system.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ClientError {
+    /// The inner kind of the error.
+    #[from]
+    kind: ClientErrorKind,
+}
+
+impl ClientError {
+    /// Returns the corresponding [`ClientErrorKind`] for this object.
+    pub fn kind(&self) -> &ClientErrorKind {
+        &self.kind
     }
 
-    /// Returns true if the error is related to the request.
-    ///
-    /// This includes all networking related errors.
-    pub fn is_reqwest(&self) -> bool {
-        matches!(self.kind, Kind::Reqwest(_))
-    }
-
-    /// Returns the HTTP error status code associated with the error, if any.
-    pub fn http_status_code(&self) -> Option<StatusCode> {
-        if let Kind::Reqwest(inner) | Kind::Status { inner, .. } = &self.kind {
-            inner.status()
-        } else {
-            None
-        }
-    }
-
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::NOT_FOUND`].
-    pub fn is_status_not_found(&self) -> bool {
-        Some(StatusCode::NOT_FOUND) == self.http_status_code()
-    }
-
-    /// Returns true if the error is due to the blob being blocked.
-    pub fn is_blob_blocked(&self) -> bool {
-        // TODO(jsmith): use a constant shared between client and server.
-        self.status()
-            .map(|status| status.is_for_reason("FORBIDDEN_BLOB", STORAGE_NODE_ERROR_DOMAIN))
-            .unwrap_or(false)
-    }
-
-    /// Returns true if the error is due to the shard not being assigned to the storage node.
-    pub fn is_shard_not_assigned(&self) -> bool {
-        // TODO(jsmith): use a constant shared between client and server.
-        self.status()
-            .map(|status| status.is_for_reason("SHARD_NOT_ASSIGNED", STORAGE_NODE_ERROR_DOMAIN))
-            .unwrap_or(false)
-    }
-
-    /// Returns true if the HTTP error status code associated with number 499
-    pub fn is_expired(&self) -> bool {
-        Some(StatusCode::from_u16(499).expect("status code is in a valid range"))
-            == self.http_status_code()
-    }
-
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::UNAUTHORIZED`].
-    pub fn is_unauthorized(&self) -> bool {
-        Some(StatusCode::UNAUTHORIZED) == self.http_status_code()
-    }
-
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::BAD_REQUEST`].
-    pub fn is_user_error(&self) -> bool {
-        Some(StatusCode::BAD_REQUEST) == self.http_status_code()
-    }
-
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::SERVICE_UNAVAILABLE`].
-    pub fn is_crypto_error(&self) -> bool {
-        Some(StatusCode::SERVICE_UNAVAILABLE) == self.http_status_code()
-    }
-
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::INTERNAL_SERVER_ERROR`].
-    pub fn is_unknown_issue(&self) -> bool {
-        Some(StatusCode::INTERNAL_SERVER_ERROR) == self.http_status_code()
-    }
-
-    /// Wrap a standard error as a Node error.
+    /// Converts an error to a [`ClientError`] with `kind` [`ClientErrorKind::Other`].
     pub fn other<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
     {
-        Kind::Other(err.into()).into()
-    }
-
-    pub(crate) fn reqwest(err: reqwest::Error) -> Self {
-        Kind::Reqwest(err).into()
-    }
-
-    /// Returns the reason for the error, if any.
-    pub fn service_error(&self) -> Option<ServiceError> {
-        if let Kind::Status { ref status, .. } = self.kind {
-            ServiceError::try_from(status).ok()
-        } else {
-            None
+        ClientError {
+            kind: ClientErrorKind::Other(err.into()),
         }
     }
 
-    /// Returns the error status provided by the server.
-    ///
-    /// If the server responded to the request with an error, the response should
-    /// contain an error status.
-    // TODO(jsmith): Make this always true by formatting all axum errors correctly at the server.
-    pub fn status(&self) -> Option<&Status> {
-        if let Kind::Status { ref status, .. } = self.kind {
-            Some(status)
-        } else {
-            None
+    /// Constructs a [`ClientError`] with `kind` [`ClientErrorKind::StoreBlobInternal`].
+    pub fn store_blob_internal(err: String) -> Self {
+        ClientError {
+            kind: ClientErrorKind::StoreBlobInternal(err),
         }
+    }
+
+    /// Whether the error is an out-of-gas error.
+    pub fn is_out_of_coin_error(&self) -> bool {
+        matches!(
+            &self.kind,
+            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
+        )
+    }
+
+    /// Returns `true` if the error is a `NoValidStatusReceived` error.
+    pub fn is_no_valid_status_received(&self) -> bool {
+        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
+    }
+
+    /// Returns `true` if the error may have been caused by epoch change.
+    pub fn may_be_caused_by_epoch_change(&self) -> bool {
+        matches!(
+            &self.kind,
+            // Cannot get confirmations.
+            ClientErrorKind::NotEnoughConfirmations(_, _)
+                // Cannot certify the blob on chain.
+                | ClientErrorKind::CertificationFailed(_)
+                // Cannot get the correct read epoch during epoch change.
+                | ClientErrorKind::BehindCurrentEpoch { .. }
+                // Cannot get metadata because we are behind by several epochs.
+                | ClientErrorKind::NoMetadataReceived
+                // Cannot get slivers because we are behind by several epochs.
+                | ClientErrorKind::NotEnoughSlivers
+                // The client was notified that the committee has changed.
+                | ClientErrorKind::CommitteeChangeNotified
+        )
     }
 }
 
-/// Errors returned during the communication with a storage node.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum Kind {
-    #[error("failed to decode the response body as BCS")]
-    Bcs(#[from] bcs::Error),
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
-    #[error("{inner}: {status}")]
-    Status {
-        inner: reqwest::Error,
-        status: Status,
-    },
-    #[error("node returned an error in a non-error response {0}")]
-    ErrorInNonErrorMessage(Status),
-    #[error("invalid content type in response")]
-    InvalidContentType,
-    #[error(transparent)]
-    Other(Box<dyn std::error::Error + Send + Sync>),
+impl From<SuiClientError> for ClientError {
+    fn from(value: SuiClientError) -> Self {
+        let kind = match value {
+            SuiClientError::NoCompatibleWalCoins => ClientErrorKind::NoCompatiblePaymentCoin,
+            SuiClientError::NoCompatibleGasCoins(desired_amount) => {
+                ClientErrorKind::NoCompatibleGasCoins(desired_amount)
+            }
+            SuiClientError::StakeBelowThreshold(amount) => {
+                ClientErrorKind::StakeBelowThreshold(amount)
+            }
+            error => ClientErrorKind::Other(error.into()),
+        };
+        Self { kind }
+    }
 }
 
-/// An error returned when building the client with a
-/// [`ClientBuilder`][crate::client::ClientBuilder] has failed.
+/// Inner error type, raised when the client operation fails.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct ClientBuildError {
-    #[from]
-    kind: BuildErrorKind,
-}
-
-impl ClientBuildError {
-    pub(crate) fn reqwest(err: reqwest::Error) -> Self {
-        BuildErrorKind::Reqwest(err).into()
-    }
-}
-
-/// Errors returned during the communication with a storage node.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum BuildErrorKind {
-    #[error("unable to secure the client with TLS: {0}")]
-    Tls(#[from] VerifierBuildError),
-    #[error("invalid storage node authority")]
-    InvalidHostOrPort,
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
+pub enum ClientErrorKind {
+    /// The certification of the blob failed.
+    #[error("blob certification failed: {0}")]
+    CertificationFailed(SuiClientError),
+    /// The client could not retrieve sufficient confirmations to certify the blob.
+    #[error("could not retrieve enough confirmations to certify the blob: {0} / {1} required;")]
+    NotEnoughConfirmations(usize, usize),
+    /// The client could not retrieve enough slivers to reconstruct the blob.
+    #[error("could not retrieve enough slivers to reconstruct the blob")]
+    NotEnoughSlivers,
+    /// The blob ID is not certified on Walrus.
+    ///
+    /// This is deduced because either:
+    ///   - the client received enough "not found" messages to confirm that the blob ID does not
+    ///     exist; or
+    ///   - the client could not obtain the certification epoch of the blob by reading the events.
+    #[error("the blob ID does not exist")]
+    BlobIdDoesNotExist,
+    /// The client could not retrieve the metadata from the storage nodes.
+    ///
+    /// This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that
+    /// other errors occurred, and the client cannot confirm that the blob does not exist.
+    #[error("could not retrieve the metadata from the storage nodes")]
+    NoMetadataReceived,
+    /// The client not receive a valid blob status from the quorum of nodes.
+    #[error("did not receive a valid blob status from the quorum of nodes")]
+    NoValidStatusReceived,
+    /// The config provided to the client was invalid.
+    #[error("the client config provided was invalid")]
+    InvalidConfig,
+    /// The blob ID is blocked.
+    #[error("the blob ID {0} is blocked")]
+    BlobIdBlocked(BlobId),
+    /// No matching payment coin found for the transaction.
+    #[error("could not find WAL coins with sufficient balance")]
+    NoCompatiblePaymentCoin,
+    /// No gas coins with sufficient balance found for the transaction.
+    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
+    NoCompatibleGasCoins(Option<u128>),
+    /// The client was unable to open connections to any storage node.
+    #[error("connecting to all storage nodes failed: {0}")]
+    AllConnectionsFailed(ClientBuildError),
+    /// The client seems to be behind the current epoch.
+    #[error(
+        "the client's current epoch is {client_epoch}, \
+        but received a certification for epoch {certified_epoch}"
+    )]
+    BehindCurrentEpoch {
+        /// The client's current epoch.
+        client_epoch: Epoch,
+        /// The epoch the blob was certified in.
+        certified_epoch: Epoch,
+    },
+    /// The encoding type is not supported.
+    #[error("unsupported encoding type: {0}")]
+    UnsupportedEncodingType(EncodingType),
+    /// The client was notified that the committee has changed.
+    #[error("the client was notified that the committee has changed")]
+    CommitteeChangeNotified,
+    /// The committee has no members.
+    #[error("the committee has no members; most likely, the system is in the genesis epoch")]
+    EmptyCommittee,
+    /// The amount of stake is below the threshold for staking.
+    #[error(
+        "the stake amount {0} FROST is below the minimum threshold of {MIN_STAKING_THRESHOLD} \
+        FROST for staking"
+    )]
+    StakeBelowThreshold(u64),
+    /// Unable to load trusted certificates from the OS.
     #[error("unable to load trusted certificates from the OS: {0:?}")]
     FailedToLoadCerts(Vec<rustls_native_certs::Error>),
-}
-
-/// Defines a more detailed server side error that can be returned to the client.
-#[derive(Debug, Clone)]
-pub enum ServiceError {
-    /// The requested epoch is invalid.
-    InvalidEpoch {
-        /// The epoch client is in.
-        request_epoch: Epoch,
-        /// The epoch server is in.
-        server_epoch: Epoch,
-    },
-    /// The request is unauthorized.
-    RequestUnauthorized,
-}
-
-/// Returning the status as a service error is unsupported.
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("the status does not represent an implemented service error")]
-pub struct UnsupportedErrorStatus;
-
-impl TryFrom<&Status> for ServiceError {
-    type Error = UnsupportedErrorStatus;
-
-    fn try_from(status: &Status) -> Result<Self, Self::Error> {
-        let info = status.error_info().ok_or(UnsupportedErrorStatus)?;
-
-        match (info.reason(), info.domain()) {
-            ("INVALID_EPOCH", STORAGE_NODE_ERROR_DOMAIN) => info
-                .field::<Epoch>("request_epoch")
-                .zip(info.field::<Epoch>("server_epoch"))
-                .map(|(request_epoch, server_epoch)| ServiceError::InvalidEpoch {
-                    request_epoch,
-                    server_epoch,
-                })
-                .ok_or(UnsupportedErrorStatus),
-            ("REQUEST_UNAUTHORIZED", STORAGE_NODE_ERROR_DOMAIN) => {
-                Ok(ServiceError::RequestUnauthorized)
-            }
-            _ => Err(UnsupportedErrorStatus),
-        }
-    }
-}
-
-/// Private errors for the `list_and_verify_recovery_symbols` endpoint that may lead to a
-/// `NodeError`.
-#[derive(Debug, Clone, thiserror::Error)]
-pub(crate) enum ListAndVerifyRecoverySymbolsError {
-    #[error("the server returned an empty list of symbols")]
-    EmptyResponse,
-    #[error("the background task verifying symbols failed")]
-    BackgroundWorkerFailed,
+    /// A failure internal to the node.
+    #[error("client internal error: {0}")]
+    Other(Box<dyn std::error::Error + Send + Sync + 'static>),
+    /// An internal error occurred while storing a blob, usually indicating a bug.
+    #[error("store blob internal error: {0}")]
+    StoreBlobInternal(String),
 }

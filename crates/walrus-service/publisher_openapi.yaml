@@ -25,9 +25,8 @@ paths:
         description: The encoding type to use for the blob.
         required: false
         schema:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/EncodingType'
+          $ref: '#/components/schemas/EncodingType'
+        style: form
       - name: epochs
         in: query
         description: |-
@@ -37,22 +36,48 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/u32'
+        style: form
       - name: deletable
         in: query
         description: If true, the publisher creates a deletable blob instead of a permanent one.
         required: false
         schema:
           type: boolean
-      - name: send_object_to
+        style: form
+      - name: force
         in: query
         description: |-
-          If specified, the publisher will send the Blob object resulting from the store operation to
-          this Sui address.
+          If true, the publisher will always store the blob, creating a new Blob object.
+
+          The blob will be stored even if the blob is already certified on Walrus for the specified
+          number of epochs.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: send_or_share
+        in: query
         required: false
         schema:
           oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/SuiAddress'
+          - type: object
+            description: Send the blob to the specified Sui address.
+            required:
+            - send_object_to
+            properties:
+              send_object_to:
+                $ref: '#/components/schemas/SuiAddress'
+                description: Send the blob to the specified Sui address.
+          - type: object
+            description: Turn the created blob into a shared blob.
+            required:
+            - share
+            properties:
+              share:
+                type: boolean
+                description: Turn the created blob into a shared blob.
+          description: The exclusive option to share the blob or to send it to an address.
+        style: form
       requestBody:
         description: Binary data of the unencoded blob to be stored.
         content:
@@ -231,6 +256,25 @@ components:
               event:
                 $ref: '#/components/schemas/EventID'
                 description: The event where the blob was marked as invalid.
+      - type: object
+        description: Operation failed.
+        required:
+        - error
+        properties:
+          error:
+            type: object
+            description: Operation failed.
+            required:
+            - error_msg
+            properties:
+              blob_id:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
+              error_msg:
+                type: string
+                description: The error message.
       description: Result when attempting to store a blob.
     EncodingType:
       type: string
@@ -304,10 +348,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_ahead:
                 type: integer
                 format: int32
+                description: The number of epochs ahead for which the blob is registered.
                 minimum: 0
       - type: object
         description: The storage is reused, but the blob was not registered.
@@ -323,6 +369,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: A registration was already present.
@@ -338,6 +385,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: The blob was already certified, but its lifetime is too short.
@@ -354,10 +402,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       - type: object
         description: |-
@@ -378,10 +428,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:

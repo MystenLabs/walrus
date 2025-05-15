@@ -11,19 +11,19 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::{
-        encoded_blob_length_for_n_shards,
-        source_symbols_for_n_shards,
-        DataTooLargeError,
-        EncodingAxis,
-        EncodingConfig,
-        EncodingConfigTrait as _,
-    },
-    merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
     SliverPairIndex,
     SliverType,
+    encoding::{
+        DataTooLargeError,
+        EncodingAxis,
+        EncodingConfig,
+        EncodingConfigTrait as _,
+        encoded_blob_length_for_n_shards,
+        source_symbols_for_n_shards,
+    },
+    merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode},
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.

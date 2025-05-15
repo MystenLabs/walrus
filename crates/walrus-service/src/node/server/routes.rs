@@ -10,10 +10,18 @@ use axum::{
 };
 use axum_extra::extract::Query as ExtraQuery;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr, OneOrMany};
+use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use sui_types::base_types::ObjectID;
 use tracing::Level;
 use walrus_core::{
+    BlobId,
+    InconsistencyProof,
+    RecoverySymbol,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
         BlobPersistenceType,
@@ -23,18 +31,10 @@ use walrus_core::{
         StorageConfirmation,
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-    BlobId,
-    InconsistencyProof,
-    RecoverySymbol,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
 };
-use walrus_sdk::{
+use walrus_storage_node_client::{
+    RecoverySymbolsFilter,
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
-    client::RecoverySymbolsFilter,
 };
 use walrus_sui::ObjectIdSchema;
 
@@ -46,7 +46,6 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
-        errors::{IndexOutOfRange, ListSymbolsError},
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -57,6 +56,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
+        errors::{IndexOutOfRange, ListSymbolsError},
     },
 };
 
@@ -165,12 +165,14 @@ pub async fn put_metadata<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) =
-        if state.store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))? {
-            (StatusCode::CREATED, "metadata successfully stored")
-        } else {
-            (StatusCode::OK, "metadata already stored")
-        };
+    let (code, message) = if state
+        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
+        .await?
+    {
+        (StatusCode::CREATED, "metadata successfully stored")
+    } else {
+        (StatusCode::OK, "metadata already stored")
+    };
 
     Ok(ApiSuccess::new(code, message))
 }
@@ -258,7 +260,7 @@ pub async fn put_sliver<S: SyncServiceState>(
     };
 
     state
-        .store_sliver(&blob_id, sliver_pair_index, &sliver)
+        .store_sliver(blob_id, sliver_pair_index, sliver)
         .await?;
 
     // TODO(WAL-253): Change to CREATED.
@@ -662,7 +664,7 @@ pub async fn health_info<S: SyncServiceState>(
     Query(query): Query<HealthInfoQuery>,
     State(state): State<Arc<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
-    ApiSuccess::ok(state.health_info(query.detailed))
+    ApiSuccess::ok(state.health_info(query.detailed).await)
 }
 
 #[tracing::instrument(skip_all)]

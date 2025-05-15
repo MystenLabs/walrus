@@ -3,7 +3,8 @@
 
 //! Metrics for the checkpoint downloader.
 
-use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use prometheus::{IntGauge, register_int_gauge_with_registry};
+use walrus_utils::metrics::Registry;
 
 #[derive(Clone, Debug)]
 pub(crate) struct AdaptiveDownloaderMetrics {

@@ -6,9 +6,15 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU16;
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 
 use crate::{
+    BlobId,
+    DEFAULT_ENCODING,
+    RecoverySymbol,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
     encoding::{
         self,
         EncodingConfig,
@@ -26,12 +32,6 @@ use crate::{
         UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
     },
-    BlobId,
-    RecoverySymbol,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    DEFAULT_ENCODING,
 };
 
 /// Returns a deterministic fixed protocol key pair for testing.
@@ -178,8 +178,8 @@ pub type RecoverySymbolsWithConfigAndMetadata = (
 
 /// Generates an [`EncodingConfig`], [`VerifiedBlobMetadataWithId`], a [`SliverIndex`]
 /// and a valid vector of [`PrimaryRecoverySymbol`]s for that index.
-pub fn generate_config_metadata_and_valid_recovery_symbols(
-) -> walrus_test_utils::Result<RecoverySymbolsWithConfigAndMetadata> {
+pub fn generate_config_metadata_and_valid_recovery_symbols()
+-> walrus_test_utils::Result<RecoverySymbolsWithConfigAndMetadata> {
     let blob = walrus_test_utils::random_data(314);
     let encoding_config = encoding_config();
     let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);

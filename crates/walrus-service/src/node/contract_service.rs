@@ -11,15 +11,12 @@ use std::{
 
 use anyhow::Context as _;
 use async_trait::async_trait;
-use prometheus::{
-    core::{AtomicU64, GenericGaugeVec},
-    Registry,
-};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use prometheus::core::{AtomicU64, GenericGaugeVec};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Mutex as TokioMutex, task::JoinSet, time::MissedTickBehavior};
 use tracing::Instrument as _;
-use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
+use walrus_core::{Epoch, PublicKey, messages::InvalidBlobCertificate};
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
@@ -27,20 +24,24 @@ use walrus_sui::{
         FixedSystemParameters,
         ReadClient as _,
         SuiClientError,
+        SuiClientMetricSet,
         SuiContractClient,
         SuiReadClient,
     },
     types::{
-        move_structs::{EpochState, EventBlob},
         StorageNodeCap,
         UpdatePublicKeyParams,
+        move_structs::{EpochState, EventBlob},
     },
 };
-use walrus_utils::backoff::{self, ExponentialBackoff};
+use walrus_utils::{
+    backoff::{self, ExponentialBackoff},
+    metrics::Registry,
+};
 
 use super::{
     committee::CommitteeService,
-    config::{defaults, CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet},
+    config::{CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet, defaults},
     errors::SyncNodeConfigError,
 };
 use crate::common::config::SuiConfig;
@@ -144,7 +145,7 @@ pub struct SuiSystemContractServiceBuilder {
 impl Default for SuiSystemContractServiceBuilder {
     fn default() -> Self {
         Self {
-            seed: rand::thread_rng().gen(),
+            seed: rand::thread_rng().r#gen(),
             balance_check_frequency: defaults::BALANCE_CHECK_FREQUENCY,
             balance_check_warning_threshold: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
             metrics_registry: None,
@@ -195,7 +196,16 @@ impl SuiSystemContractServiceBuilder {
         config: &SuiConfig,
         committee_service: Arc<dyn CommitteeService>,
     ) -> Result<SuiSystemContractService, anyhow::Error> {
-        Ok(self.build(config.new_contract_client().await?, committee_service))
+        Ok(self.build(
+            config
+                .new_contract_client(
+                    self.metrics_registry
+                        .as_ref()
+                        .map(|r| Arc::new(SuiClientMetricSet::new(r))),
+                )
+                .await?,
+            committee_service,
+        ))
     }
 
     /// Creates a new [`SuiSystemContractService`] with the provided [`SuiContractClient`].
@@ -215,9 +225,7 @@ impl SuiSystemContractServiceBuilder {
         service.start_balance_monitor(
             self.balance_check_frequency,
             self.balance_check_warning_threshold,
-            self.metrics_registry
-                .as_ref()
-                .unwrap_or_else(|| prometheus::default_registry()),
+            &self.metrics_registry.clone().unwrap_or_default(),
         );
 
         service
@@ -448,7 +456,7 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().gen(),
+            self.rng.lock().unwrap().r#gen(),
         );
         backoff::retry(backoff, || async {
             self.contract_tx_client
@@ -472,7 +480,7 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().gen(),
+            self.rng.lock().unwrap().r#gen(),
         );
 
         backoff::retry(backoff, || async {

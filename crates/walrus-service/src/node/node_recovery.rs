@@ -8,8 +8,8 @@ use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
-use super::{blob_sync::BlobSyncHandler, StorageNodeInner};
-use crate::node::{storage::blob_info::BlobInfoApi, NodeStatus};
+use super::{StorageNodeInner, blob_sync::BlobSyncHandler};
+use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -74,7 +74,11 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id).await {
+                    // The node will only enter recovery mode if it has caught up to the latest
+                    // epoch. So we only need to check the latest epoch for the shard assignment.
+                    if let Ok(stored_at_all_shards) =
+                        node.is_stored_at_all_shards_at_latest_epoch(&blob_id).await
+                    {
                         if stored_at_all_shards {
                             tracing::debug!(
                                 walrus.blob_certified_before_epoch = certified_before_epoch,

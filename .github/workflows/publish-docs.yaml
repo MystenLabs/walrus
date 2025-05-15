@@ -9,6 +9,7 @@ on:
       - "docs/book/**"
       - "docs/theme/**"
       - "docs/mdbook-admonish.css"
+      - "setup/**"
       - ".github/actions/build-mdbook/action.yaml"
       - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
@@ -76,17 +77,9 @@ jobs:
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
 
-      # TODO: Remove this step once the site-builder supports supports storing multiple blobs
-      # simultaneously.
-      - name: Store blobs on Walrus
-        run: >
-          walrus store
-          $(find ${{ env.BUILD_DIR }} -type f -exec echo -n ' {}' \;)
-          --deletable --epochs ${{ env.EPOCHS }}
-
       - name: Update Walrus Site
         run: >
           site-builder
           update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
           --epochs ${{ env.EPOCHS }}
-          --force
+          --check-extend

@@ -3,12 +3,12 @@
 Published on: 2024-09-17
 
 ```admonish warning
-This blog post is shown in its original form. It may contain information that is no longer accurate
-and broken links.
+This blog post is shown in its original form and may contain information that is no longer accurate.
+Some broken links may have been updated or removed.
 ```
 
 In June, Mysten Labs announced Walrus, a new decentralized secure blob store design, and introduced
-a developer preview that currently stores over [12TiB](https://capacity.walrus.site/) of data.
+a developer preview that currently stores over 12TiB of data.
 [Breaking the Ice](https://info.breakingtheice.sui.io/) gathered over 200 developers to build apps
 leveraging decentralized storage.
 

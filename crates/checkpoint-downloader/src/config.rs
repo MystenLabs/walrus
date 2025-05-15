@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
+use serde_with::{DurationMilliSeconds, DurationSeconds, serde_as};
 use sui_types::messages_checkpoint::TrustedCheckpoint;
 use typed_store::rocks::DBMap;
 use walrus_sui::client::retry_client::RetriableRpcClient;

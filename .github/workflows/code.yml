@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.45.2
+  SUI_TAG: testnet-v1.48.0
 
 jobs:
   diff:
@@ -47,7 +47,9 @@ jobs:
       isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
+      isMainnetContracts: ${{ steps.diff.outputs.isMainnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
+      isCLI: ${{ steps.diff.outputs.isCLI }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Detect Changes
@@ -74,7 +76,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # pin@v2.7.7
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
 
@@ -93,12 +95,20 @@ jobs:
     name: Build Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
+    env:
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
+
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # pin@v2.7.7
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Build Rust code
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
@@ -109,17 +119,25 @@ jobs:
     runs-on: ubuntu-ghcloud
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # pin@v2.7.7
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
         run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
+      - name: Run doctests
+        run: cargo test --doc
 
   test-coverage:
     name: Run all Rust tests and report coverage
@@ -134,7 +152,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/run_tarpaulin
       - name: Add coverage PR comment
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
         with:
           path: code-coverage-results.md
@@ -183,7 +201,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Restore cached sui binary
         id: cache-sui-restore
-        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf # pin@v4
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
@@ -192,12 +210,13 @@ jobs:
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+          sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_coverage.sh
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf # pin@v4
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
@@ -213,11 +232,30 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches the testnet-contracts directory
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
             done if the Testnet contracts are updated.
+
+            cc @karlwuest @mlegner
+
+  mainnet-contracts-warning:
+    name: Check if the PR touches the mainnet-contracts directory
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isMainnetContracts == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Post a warning if the PR touches the mainnet-contracts directory
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
+        with:
+          message: >
+            **Warning:** This PR touches the `mainnet-contracts` directory. This should only be
+            done if the Mainnet contracts are updated.
 
             cc @karlwuest @mlegner
 
@@ -232,7 +270,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an example config file
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: |
             **Warning:** This PR modifies one of the example config files. Please consider the
@@ -247,6 +285,30 @@ jobs:
               `#[serde(default)]` on it, see `BlobRecoveryConfig` as an example.
             - You may need to update the documentation to reflect the changes.
 
+  cli-warning:
+    name: Check if the PR touches any of the CLI files
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isCLI == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Post a warning if the PR modifies the Walrus CLI
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
+        with:
+          message: |
+            **Warning:** This PR modifies the Walrus CLI. Please consider the following:
+
+            - Make sure the changes are backwards compatible. Consider deprecating options before
+              removing them.
+            - Generally only use `long` CLI options, not `short` ones to avoid conflicts in the
+              future.
+            - If you added new options or features, or modified the behavior, please document the
+              changes in the release notes of the PR and update the documentation in the `docs/book`
+              directory.
+
   openapi-warning:
     name: Check if the PR touches any of the OpenAPI files
     runs-on: ubuntu-latest
@@ -258,7 +320,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an OpenAPI file
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        uses: marocchino/sticky-pull-request-comment@67d0dec7b07ed060a405f9b2a64b8ab319fdd7db # pin@v2
         with:
           message: |
             **Warning:** This PR modifies one of the OpenAPI files. Please consider the

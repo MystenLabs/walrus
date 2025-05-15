@@ -84,9 +84,16 @@ To do so, we give each Walrus Site a specific *subdomain* of the portal's domain
 Flatland mint dApp is hosted at <https://flatland.wal.app>, where the subdomain `flatland` is
 uniquely associated to the object ID of the Walrus Site through SuiNS.
 
-Walrus Sites also work without SuiNS: a site can *always* be browsed by using as subdomain the
-Base36 encoding of the Sui object ID of the site. For the Flatland dApp, this URL is:
-<https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app>.
+Walrus Sites also work *without* SuiNS: when a site is accessed through a self-hosted portal, or
+through a portal that supports Base36 domain resolution, a site can be browsed by using as
+subdomain the Base36 encoding of the Sui object ID of the site.
+
+``` admonish danger
+The `wal.app` portal does not support Base36 domain resolution; therefore,
+<https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app> is not a valid URL. If you
+want to access such a site, you should either use another portal or
+[host your own](./portal.md#running-a-local-portal).
+```
 
 Base36 was chosen for two reasons, forced by the subdomain standards:
 
@@ -100,7 +107,8 @@ Base36 was chosen for two reasons, forced by the subdomain standards:
 As mentioned before, we provide two types of portals to browse Walrus Sites:
 
 - The server-side portal, which is a server that resolves a Walrus Site, returning it to the
-  browser. The server-side portal is hosted at <https://wal.app>.
+  browser. The server-side portal is hosted at <https://wal.app>. This portal only supports sites
+  that are associated with a SuiNS name.
 - The service-worker portal, which is a service worker that is installed in the browser and
   resolves a Walrus Site. The service-worker portal is no longer hosted at a specific domain, but
   the code is still maintained so that it can be used by anyone.

@@ -10,8 +10,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr as _,
     sync::{
-        atomic::{AtomicU64 as StdAtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64 as StdAtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -21,30 +21,34 @@ use axum::{
     extract::{ConnectInfo, MatchedPath, State},
     http::{
         self,
-        header::{self, AsHeaderName},
-        uri::Scheme,
         Request,
         Version,
+        header::{self, AsHeaderName},
+        uri::Scheme,
     },
     middleware,
 };
 use opentelemetry::propagation::Extractor;
 use prometheus::{
-    core::{AtomicU64, Collector, GenericGauge},
     Histogram,
     HistogramVec,
     IntGauge,
     IntGaugeVec,
     Opts,
+    core::{AtomicU64, Collector, GenericGauge},
 };
+use reqwest::Method;
 use tokio::time::Instant;
+use tokio_metrics::TaskMonitor;
 use tower_http::trace::{MakeSpan, OnResponse};
-use tracing::{field, Span};
+use tracing::{Span, field};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
-use walrus_utils::http::{http_body::Frame, BodyVisitor, VisitBody};
-
-use super::active_committees::ActiveCommittees;
+use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_utils::{
+    http::{BodyVisitor, VisitBody, http_body::Frame},
+    metrics::{Registry, TaskMonitorFamily},
+};
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
@@ -64,7 +68,7 @@ walrus_utils::metrics::define_metric_set! {
         active_requests: IntGaugeVec["http_request_method", "url_scheme", "http_route"],
 
         #[help = "Time (in seconds) spent processing requests and serving the response."]
-        request_duration: HistogramVec {
+        request_duration_seconds: HistogramVec {
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -78,12 +82,13 @@ walrus_utils::metrics::define_metric_set! {
                 "http_response_part"
             ],
             buckets: vec![
-                0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0
+                0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+                60.0, 120.0, 180.0, 240.0
             ],
         },
 
         #[help = "The size in bytes of the (compressed) request body."]
-        request_body_size: HistogramVec{
+        request_body_size_bytes: HistogramVec{
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -96,7 +101,7 @@ walrus_utils::metrics::define_metric_set! {
         },
 
         #[help = "The size in bytes of the (compressed) response body."]
-        response_body_size: HistogramVec{
+        response_body_size_bytes: HistogramVec{
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -321,12 +326,49 @@ fn http_version(request: &axum::extract::Request) -> &'static str {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct MetricsMiddlewareState {
+    inner: Arc<MetricsMiddlewareStateInner>,
+}
+
+impl MetricsMiddlewareState {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            inner: Arc::new(MetricsMiddlewareStateInner {
+                metrics: HttpServerMetrics::new(registry),
+                task_monitors: TaskMonitorFamily::new(registry.clone()),
+            }),
+        }
+    }
+
+    /// Returns the task monitor for the route and request, where `http_route` should be a
+    /// known route or `UNMATCHED_ROUTE`.
+    fn task_monitor(&self, method: Method, http_route: &str) -> TaskMonitor {
+        self.inner
+            .task_monitors
+            .get_or_insert_with_task_name(&(method.clone(), http_route.to_owned()), || {
+                format!("{} {}", method, http_route)
+            })
+    }
+
+    fn metrics(&self) -> &HttpServerMetrics {
+        &self.inner.metrics
+    }
+}
+
+#[derive(Debug)]
+struct MetricsMiddlewareStateInner {
+    metrics: HttpServerMetrics,
+    task_monitors: TaskMonitorFamily<(Method, String)>,
+}
+
 /// Middleware that records the elapsed time, HTTP method, and status of requests.
 pub(crate) async fn metrics_middleware(
-    State(metrics): State<HttpServerMetrics>,
+    State(state): State<MetricsMiddlewareState>,
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
+    let metrics = state.metrics();
     // Manually record the time in seconds, since we do not yet know the status code which is
     // required to get the concrete histogram.
     let start = Instant::now();
@@ -365,7 +407,9 @@ pub(crate) async fn metrics_middleware(
         ))
     });
 
-    let response = next.run(request).await;
+    let monitor = state.task_monitor(http_request_method.clone(), &http_route);
+    let response = monitor.instrument(next.run(request)).await;
+
     let response_available_at = Instant::now();
     let http_response_status_code = response.status();
     let error_type = if http_response_status_code.is_client_error()
@@ -377,7 +421,7 @@ pub(crate) async fn metrics_middleware(
     };
 
     metrics
-        .request_body_size
+        .request_body_size_bytes
         .with_label_values(&[
             http_request_method.as_str(),
             url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
@@ -388,7 +432,7 @@ pub(crate) async fn metrics_middleware(
         ])
         .observe(body_size_total.load(Ordering::Relaxed) as f64);
 
-    let request_duration = metrics.request_duration.with_label_values(&[
+    let request_duration = metrics.request_duration_seconds.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,
@@ -400,7 +444,7 @@ pub(crate) async fn metrics_middleware(
     request_duration.observe(response_available_at.duration_since(start).as_secs_f64());
 
     let exact_response_body_size = response.body().size_hint().exact();
-    let request_duration = metrics.request_duration.with_label_values(&[
+    let request_duration = metrics.request_duration_seconds.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,
@@ -409,7 +453,7 @@ pub(crate) async fn metrics_middleware(
         http_response_status_code.as_str(),
         HTTP_RESPONSE_PART_PAYLOAD,
     ]);
-    let response_body_size = metrics.response_body_size.with_label_values(&[
+    let response_body_size = metrics.response_body_size_bytes.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,

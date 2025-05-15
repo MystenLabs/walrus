@@ -13,32 +13,36 @@ use fastcrypto::traits::EncodeDecodeBase64;
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 
-use super::query::{get_walrus_nodes, NodeInfo};
-use crate::{register_metric, Allower, NetworkPublicKey};
+use super::query::{NodeInfo, get_walrus_nodes};
+use crate::{Allower, NetworkPublicKey, register_metric};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "json_rpc_state",
-            "Number of successful/failed requests made.",
-        ),
-        &["rpc_method", "status"]
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "json_rpc_state",
+                "Number of successful/failed requests made.",
+            ),
+            &["rpc_method", "status"]
+        )
+        .unwrap()
     )
-    .unwrap())
 });
 static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    register_metric!(HistogramVec::new(
-        HistogramOpts::new(
-            "json_rpc_duration_seconds",
-            "The json-rpc latencies in seconds.",
+    register_metric!(
+        HistogramVec::new(
+            HistogramOpts::new(
+                "json_rpc_duration_seconds",
+                "The json-rpc latencies in seconds.",
+            )
+            .buckets(vec![
+                0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096,
+                0.8192, 1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0
+            ],),
+            &["rpc_method"]
         )
-        .buckets(vec![
-            0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
-            1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0
-        ],),
-        &["rpc_method"]
+        .unwrap()
     )
-    .unwrap())
 });
 
 /// AllowedPeers is a mapping of public key to AllowedPeer data

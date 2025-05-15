@@ -6,12 +6,11 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
-use prometheus::Registry;
 use sui_sdk::{
     sui_client_config::SuiEnv,
     types::base_types::SuiAddress,
@@ -19,30 +18,37 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_sdk::{
+    client::{
+        Client,
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
+        responses::BlobStoreResult,
+    },
+    config::ClientConfig,
+    error::ClientResult,
+    store_when::StoreWhen,
+};
 use walrus_sui::{
     client::{
-        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         SuiContractClient,
         SuiReadClient,
+        retry_client::RetriableSuiClient,
     },
     config::load_wallet_context_from_path,
     types::move_structs::BlobWithAttribute,
     utils::create_wallet,
 };
+use walrus_utils::metrics::Registry;
 
 use super::{
     cli::PublisherArgs,
     daemon::{WalrusReadClient, WalrusWriteClient},
-    metrics::ClientMetrics,
     refill::{RefillHandles, Refiller},
-    responses::BlobStoreResult,
-    Client,
-    ClientResult,
-    StoreWhen,
 };
-use crate::client::{refill::should_refill, CommitteesRefresherHandle, Config};
+use crate::client::refill::should_refill;
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -54,7 +60,7 @@ pub struct ClientMultiplexer {
 impl ClientMultiplexer {
     pub async fn new(
         wallet: WalletContext,
-        config: &Config,
+        config: &ClientConfig,
         gas_budget: Option<u64>,
         prometheus_registry: &Registry,
         args: &PublisherArgs,
@@ -229,7 +235,7 @@ pub struct WriteClientPool {
 impl WriteClientPool {
     /// Creates a new client pool with `n_client`, based on the given `config` and `sui_env`.
     pub async fn new(
-        config: &Config,
+        config: &ClientConfig,
         pool_config: WriteClientPoolConfig,
         refiller: &Refiller,
         refresh_handle: CommitteesRefresherHandle,
@@ -277,7 +283,7 @@ impl WriteClientPool {
 
 /// Helper struct to build or load sub clients for the client multiplexer.
 struct SubClientLoader<'a> {
-    config: &'a Config,
+    config: &'a ClientConfig,
     sub_wallets_dir: &'a Path,
     sui_env: SuiEnv,
     gas_budget: Option<u64>,
@@ -288,7 +294,7 @@ struct SubClientLoader<'a> {
 
 impl<'a> SubClientLoader<'a> {
     fn new(
-        config: &'a Config,
+        config: &'a ClientConfig,
         sub_wallets_dir: &'a Path,
         sui_env: SuiEnv,
         gas_budget: Option<u64>,
@@ -359,13 +365,17 @@ impl<'a> SubClientLoader<'a> {
 
         if wallet_config_path.exists() {
             tracing::debug!(?wallet_config_path, "loading sub-wallet from file");
-            load_wallet_context_from_path(Some(&wallet_config_path))
+            load_wallet_context_from_path(
+                Some(&wallet_config_path),
+                self.config.communication_config.sui_client_request_timeout,
+            )
         } else {
             tracing::debug!(?wallet_config_path, "creating new sub-wallet");
             create_wallet(
                 &wallet_config_path,
                 self.sui_env.clone(),
                 Some(&keystore_filename),
+                self.config.communication_config.sui_client_request_timeout,
             )
         }
     }

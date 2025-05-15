@@ -7,68 +7,70 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::{rngs::StdRng, thread_rng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng, thread_rng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EpochCount,
+    SliverPairIndex,
     encoding::EncodingConfigTrait as _,
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    EpochCount,
-    SliverPairIndex,
-    DEFAULT_ENCODING,
 };
-use walrus_service::client::{
-    Client,
-    ClientError,
-    CommitteesRefresherHandle,
-    Config,
-    Refiller,
-    StoreWhen,
+use walrus_sdk::{
+    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    error::ClientError,
+    store_when::StoreWhen,
 };
+use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{
-        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         ReadClient,
         SuiContractClient,
+        retry_client::RetriableSuiClient,
     },
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
 };
 use walrus_test_utils::WithTempDir;
 
-use super::blob::BlobData;
+use super::blob::{BlobData, WriteBlobConfig};
 
-/// Client for writing test blobs to storage nodes
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
     blob: BlobData,
+    metrics: Arc<ClientMetrics>,
 }
 
 impl WriteClient {
     /// Creates a new WriteClient with the given configuration
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn new(
-        config: &Config,
+        config: &ClientConfig,
         network: &SuiNetwork,
         gas_budget: Option<u64>,
-        min_size_log2: u8,
-        max_size_log2: u8,
+        blob_config: WriteBlobConfig,
         refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
+        metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
             StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
-            min_size_log2,
-            max_size_log2,
+            blob_config,
         )
         .await;
         let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
-        Ok(Self { client, blob })
+        Ok(Self {
+            client,
+            blob,
+            metrics,
+        })
     }
 
     /// Returns the active address of the client.
@@ -78,16 +80,23 @@ impl WriteClient {
 
     /// Stores a fresh consistent blob and returns the blob id and elapsed time.
     pub async fn write_fresh_blob(&mut self) -> Result<(BlobId, Duration), ClientError> {
-        self.write_fresh_blob_with_epochs(1).await
+        self.write_fresh_blob_with_epochs(None).await
     }
 
-    /// Stores a fresh blob with the given number of epochs ahead, and returns the blob id and
-    /// elapsed time.
+    /// Stores a fresh blob and returns the blob id and elapsed time.
+    ///
+    /// If `epochs_to_store` is not provided, the blob will be stored for the number of epochs
+    /// randomly chosen between `min_epochs_to_store` and `max_epochs_to_store` specified in the
+    /// blob config.
     pub async fn write_fresh_blob_with_epochs(
         &mut self,
-        epochs_to_store: EpochCount,
+        epochs_to_store: Option<EpochCount>,
     ) -> Result<(BlobId, Duration), ClientError> {
-        let blob = self.blob.refresh_and_get_random_slice();
+        // Refresh the blob data, and get a new random number of epochs to store.
+        self.blob.refresh();
+        let blob = self.blob.random_size_slice();
+        let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epochs_to_store());
+
         let now = Instant::now();
         let blob_id = self
             .client
@@ -97,15 +106,23 @@ impl WriteClient {
                 &[blob],
                 DEFAULT_ENCODING,
                 epochs_to_store,
-                StoreWhen::Always,
+                StoreWhen::AlwaysIgnoreResources,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
+                Some(&self.metrics),
             )
             .await?
             .first()
             .expect("should have one blob store result")
             .blob_id()
-            .to_owned();
+            .expect("blob id should be present");
+
+        tracing::info!(
+            duration = now.elapsed().as_secs(),
+            ?blob_id,
+            epochs_to_store,
+            "wrote blob to store",
+        );
         Ok((blob_id, now.elapsed()))
     }
 
@@ -117,7 +134,9 @@ impl WriteClient {
         self.blob.refresh();
         let blob = self.blob.random_size_slice();
         let now = Instant::now();
-        let blob_id = self.reserve_and_store_inconsistent_blob(blob).await?;
+        let blob_id = self
+            .reserve_and_store_inconsistent_blob(blob, self.blob.epochs_to_store())
+            .await?;
         Ok((blob_id, now.elapsed()))
     }
 
@@ -129,8 +148,8 @@ impl WriteClient {
     async fn reserve_and_store_inconsistent_blob(
         &self,
         blob: &[u8],
+        epochs_to_store: EpochCount,
     ) -> Result<BlobId, ClientError> {
-        let epochs_to_store = 1;
         // Encode the blob with false metadata for one shard.
         let (pairs, metadata) = self
             .client
@@ -164,6 +183,8 @@ impl WriteClient {
 
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
         let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+
+        tracing::info!("writing inconsistent blob {blob_id} to store {epochs_to_store} epochs",);
 
         // Output the shard index storing the inconsistent sliver.
         tracing::debug!(
@@ -216,14 +237,14 @@ impl WriteClient {
 
 /// Creates a new client with a separate wallet.
 async fn new_client(
-    config: &Config,
+    config: &ClientConfig,
     network: &SuiNetwork,
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
-    let wallet = wallet_for_testing_from_refill(network, refiller).await?;
+    let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
     let sui_client =
         RetriableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
     let sui_read_client = config.new_read_client(sui_client).await?;
@@ -241,10 +262,14 @@ async fn new_client(
 
 /// Creates a new wallet for testing and fills it with gas and WAL tokens
 pub async fn wallet_for_testing_from_refill(
+    config: &ClientConfig,
     network: &SuiNetwork,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
-    let mut wallet = temp_dir_wallet(network.env())?;
+    let mut wallet = temp_dir_wallet(
+        config.communication_config.sui_client_request_timeout,
+        network.env(),
+    )?;
     let address = wallet.as_mut().active_address()?;
     refiller.send_gas_request(address).await?;
     refiller.send_wal_request(address).await?;

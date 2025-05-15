@@ -13,45 +13,49 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, ensure, Context};
+use anyhow::{Context, anyhow, ensure};
 use futures::future::join_all;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
     ShardIndex,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
 };
+use walrus_sdk::config::ClientCommunicationConfig;
 use walrus_sui::{
-    client::{rpc_config::RpcFallbackConfig, SuiContractClient},
-    config::{load_wallet_context_from_path, WalletConfig},
+    client::{SuiContractClient, rpc_config::RpcFallbackConfig},
+    config::{WalletConfig, load_wallet_context_from_path},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
+        SystemContext,
         create_and_init_system,
         end_epoch_zero,
         register_committee_and_stake,
-        SystemContext,
     },
     types::{
-        move_structs::{NodeMetadata, VotingParams},
         NetworkAddress,
         NodeRegistrationParams,
+        move_structs::{NodeMetadata, VotingParams},
     },
-    utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
+    utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     backup::BackupConfig,
     client::{self},
-    common::config::SuiConfig,
-    node::config::{
-        defaults::{self, REST_API_PORT},
-        PathOrInPlace,
-        StorageNodeConfig,
+    common::config::{SuiConfig, SuiReaderConfig},
+    node::{
+        config::{
+            PathOrInPlace,
+            StorageNodeConfig,
+            defaults::{self, REST_API_PORT},
+        },
+        consistency_check::StorageNodeConsistencyCheckConfig,
     },
 };
 
@@ -279,12 +283,12 @@ pub async fn deploy_walrus_contract(
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
-    // 1000 WAL for subsidies that will be used to fund the subsidy pool
-    const SUBSIDIES_AMOUNT: u64 = 1000 * 1_000_000_000;
-    // 5% buyer subsidy rate
-    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 500;
-    // 10% system subsidy rate
-    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 1000;
+    // 10M WAL for subsidies that will be used to fund the subsidy pool
+    const SUBSIDIES_AMOUNT: u64 = 10_000_000 * 1_000_000_000;
+    // 80% buyer subsidy rate
+    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 8000;
+    // 80% system subsidy rate
+    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 8000;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
@@ -364,13 +368,14 @@ pub async fn deploy_walrus_contract(
             "Loading existing admin wallet from path: {}",
             admin_wallet_path.display()
         );
-        load_wallet_context_from_path(Some(&admin_wallet_path))?
+        load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
         tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
             Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
+            None,
         )?;
 
         // Print the wallet address.
@@ -503,6 +508,7 @@ pub async fn deploy_walrus_contract(
 }
 
 /// Create client configurations for the testbed and fund the client wallet with SUI and WAL.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_client_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
@@ -511,19 +517,22 @@ pub async fn create_client_config(
     admin_contract_client: &mut SuiContractClient,
     exchange_objects: Vec<ObjectID>,
     sui_amount: u64,
-) -> anyhow::Result<client::Config> {
+    wallet_name: &str,
+    sui_client_request_timeout: Option<Duration>,
+) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
 
     // Create wallet for the client
-    let client_wallet_path = working_dir.join("sui_client.yaml");
-    let mut client_wallet = create_wallet(
-        &client_wallet_path,
+    let sui_client_wallet_path = working_dir.join(format!("{}.yaml", wallet_name));
+    let mut sui_client_wallet_context = create_wallet(
+        &sui_client_wallet_path,
         sui_network.env(),
-        Some("sui_client.keystore"),
+        Some(&format!("{}.keystore", wallet_name)),
+        sui_client_request_timeout,
     )?;
 
-    let client_address = client_wallet.active_address()?;
+    let client_address = sui_client_wallet_context.active_address()?;
 
     // Get Sui coins from faucet or the admin wallet.
     get_sui_from_wallet_or_faucet(
@@ -542,25 +551,29 @@ pub async fn create_client_config(
         .await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
-        replace_keystore_path(&client_wallet_path, final_directory)
+        replace_keystore_path(&sui_client_wallet_path, final_directory)
             .context("replacing the keystore path failed")?;
         final_directory.join(
-            client_wallet_path
+            sui_client_wallet_path
                 .file_name()
                 .expect("file name should exist"),
         )
     } else {
-        client_wallet_path
+        sui_client_wallet_path
     };
 
     let contract_config = system_ctx.contract_config();
 
     // Create the client config.
-    let client_config = client::Config {
+    let client_config = client::ClientConfig {
         contract_config,
         exchange_objects,
         wallet_config: Some(WalletConfig::from_path(wallet_path)),
-        communication_config: Default::default(),
+        rpc_urls: vec![],
+        communication_config: ClientCommunicationConfig {
+            sui_client_request_timeout,
+            ..Default::default()
+        },
         refresh_config: Default::default(),
     };
 
@@ -572,17 +585,22 @@ pub async fn create_backup_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     database_url: &str,
-    rpc: String,
+    mut rpc_urls: Vec<String>,
     rpc_fallback_config: Option<RpcFallbackConfig>,
 ) -> anyhow::Result<BackupConfig> {
+    if rpc_urls.is_empty() {
+        return Err(anyhow!("No RPC URLs provided"));
+    }
     Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
-        crate::common::config::SuiReaderConfig {
-            rpc,
+        SuiReaderConfig {
+            rpc: rpc_urls.remove(0),
+            additional_rpc_endpoints: rpc_urls,
             contract_config: system_ctx.contract_config(),
             backoff_config: ExponentialBackoffConfig::default(),
             event_polling_interval: defaults::polling_interval(),
             rpc_fallback_config,
+            request_timeout: None,
         },
         database_url.to_string(),
     ))
@@ -604,6 +622,7 @@ pub async fn create_storage_node_configs(
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
     sui_amount: u64,
+    sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
@@ -709,6 +728,8 @@ pub async fn create_storage_node_configs(
             backoff_config: ExponentialBackoffConfig::default(),
             gas_budget: None,
             rpc_fallback_config: rpc_fallback_config.clone(),
+            additional_rpc_endpoints: vec![],
+            request_timeout: sui_client_request_timeout,
         });
 
         let storage_path = set_db_path
@@ -719,7 +740,13 @@ pub async fn create_storage_node_configs(
         let protocol_key_pair = if let Some(path) = &node.protocol_key_pair_path {
             fs::write(path, node.keypair.to_base64().as_bytes())
                 .context("Failed to write protocol key pair")?;
-            PathOrInPlace::from_path(path)
+            if let Some(set_config_dir) = set_config_dir {
+                PathOrInPlace::from_path(
+                    set_config_dir.join(path.file_name().expect("file name should exist")),
+                )
+            } else {
+                PathOrInPlace::from_path(path)
+            }
         } else {
             node.keypair.into()
         };
@@ -760,6 +787,11 @@ pub async fn create_storage_node_configs(
             num_uncertified_blob_threshold: Some(10),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_consistency_check: true,
+                enable_sliver_data_existence_check: true,
+                sliver_data_existence_check_sample_rate_percentage: 100,
+            },
         });
     }
 
@@ -781,6 +813,7 @@ pub async fn create_storage_node_configs(
         &protocol_keypairs,
         &contract_clients.iter().collect::<Vec<_>>(),
         &amounts_to_stake,
+        Some(10),
     )
     .await?;
 
@@ -845,6 +878,7 @@ async fn create_storage_node_wallets(
                 &wallet_path,
                 sui_network.env(),
                 Some(&format!("{}.keystore", name)),
+                None,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;

@@ -4,52 +4,54 @@
 //! Backup service implementation.
 use std::{panic::Location, pin::Pin, sync::Arc, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use diesel::{
-    result::{DatabaseErrorKind, Error},
-    sql_types::{Bytea, Int4, Int8, Text},
     Connection as _,
     QueryableByName,
+    result::{DatabaseErrorKind, Error},
+    sql_types::{Bytea, Int4, Int8, Text},
 };
 use diesel_async::{
-    scoped_futures::ScopedFutureExt,
     AsyncConnection as _,
     AsyncPgConnection,
     RunQueryDsl as _,
+    scoped_futures::ScopedFutureExt,
 };
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use futures::{stream, StreamExt};
-use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
-use prometheus::{
-    core::{AtomicU64, GenericCounter},
-    Registry,
-};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use futures::{StreamExt, stream};
+use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
+use prometheus::core::{AtomicU64, GenericCounter};
 use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
-use walrus_core::{encoding::Primary, BlobId};
+use walrus_core::{BlobId, encoding::Primary};
+use walrus_sdk::{client::Client, config::ClientConfig};
 use walrus_sui::{
-    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    client::{SuiReadClient, retry_client::RetriableSuiClient},
     types::{BlobEvent, ContractEvent, EpochChangeEvent, EpochChangeStart},
 };
+use walrus_utils::metrics::Registry;
 
 use super::{
+    BACKUP_BLOB_ARCHIVE_SUBDIR,
     config::{BackupConfig, BackupDbConfig},
     models::{self, BlobIdRow, StreamEvent},
     schema,
-    BACKUP_BLOB_ARCHIVE_SUBDIR,
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    client::{config::Config as ClientConfig, Client, ClientCommunicationConfig},
-    common::utils::{self, version, MetricsAndLoggingRuntime},
+    common::{
+        config::combine_rpc_urls,
+        utils::{self, MetricsAndLoggingRuntime, version},
+    },
     node::{
+        DatabaseConfig,
         events::{
-            event_processor::EventProcessor,
-            event_processor_runtime::EventProcessorRuntime,
             CheckpointEventPosition,
             EventStreamElement,
             PositionedStreamEvent,
+            event_processor::EventProcessor,
+            event_processor_runtime::EventProcessorRuntime,
         },
         metrics::TelemetryLabel as _,
         system_events::SystemEventProvider as _,
@@ -90,7 +92,7 @@ async fn stream_events(
     {
         backup_orchestrator_metric_set.sui_events_seen.inc();
         match &element {
-            EventStreamElement::ContractEvent(ref contract_event) => {
+            EventStreamElement::ContractEvent(contract_event) => {
                 record_event(
                     &mut pg_connection,
                     &element,
@@ -330,6 +332,7 @@ pub async fn start_backup_orchestrator(
         &config.backup_storage_path,
         &metrics_runtime.registry,
         cancel_token.child_token(),
+        &DatabaseConfig::default(),
     )
     .await?;
 
@@ -583,9 +586,13 @@ async fn backup_fetcher(
             .await
             .context("[backup_fetcher] connecting to postgres")?;
     let sui_read_client = SuiReadClient::new(
-        RetriableSuiClient::new_for_rpc(
-            &backup_config.sui.rpc,
+        RetriableSuiClient::new_for_rpc_urls(
+            &combine_rpc_urls(
+                &backup_config.sui.rpc,
+                &backup_config.sui.additional_rpc_endpoints,
+            ),
             backup_config.sui.backoff_config.clone(),
+            None,
         )
         .await
         .context("[backup_fetcher] cannot create RetriableSuiClient")?,
@@ -594,13 +601,8 @@ async fn backup_fetcher(
     .await
     .context("[backup_fetcher] cannot create SuiReadClient")?;
 
-    let walrus_client_config = ClientConfig {
-        contract_config: backup_config.sui.contract_config.clone(),
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: ClientCommunicationConfig::default(),
-        refresh_config: Default::default(),
-    };
+    let walrus_client_config =
+        ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
     let read_client =
         Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())
