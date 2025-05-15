@@ -118,7 +118,7 @@ pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = SUPPORTED_AND_DEFAULT_ENCO
 pub const DEFAULT_ENCODING: EncodingType = SUPPORTED_AND_DEFAULT_ENCODING.1;
 
 /// Walrus epoch.
-/// Schema definition for the type alias used in OpenAPI schemas.
+// Schema definition for the type alias used in OpenAPI schemas.
 #[derive(Debug)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema), schema(as = Epoch))]
 pub struct EpochSchema(pub u32);
