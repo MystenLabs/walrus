@@ -333,7 +333,11 @@ impl RetriableRpcClient {
                 if let Some(metrics) = self.metrics.as_ref() {
                     metrics.record_rpc_latency(
                         "get_full_checkpoint",
-                        &self.client.get_current_rpc_url().await,
+                        &self
+                            .client
+                            .get_current_rpc_url()
+                            .await
+                            .unwrap_or_else(|_| "unknown_url".to_string()),
                         "success",
                         start_time.elapsed(),
                     );
@@ -350,7 +354,11 @@ impl RetriableRpcClient {
             if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    &self.client.get_current_rpc_url().await,
+                    &self
+                        .client
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|_| "unknown_url".to_string()),
                     "failure",
                     start_time.elapsed(),
                 )
@@ -370,7 +378,11 @@ impl RetriableRpcClient {
             if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    &self.client.get_current_rpc_url().await,
+                    &self
+                        .client
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|_| "unknown_url".to_string()),
                     "failure",
                     start_time.elapsed(),
                 );
@@ -561,7 +573,7 @@ impl RetriableClientError {
     /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(300);
     /// The maximum number of failures allowed.
-    const MAX_FAILURES: usize = 20;
+    const MAX_FAILURES: usize = 100;
 
     /// Returns `true` if the error is eligible for fallback.
     ///

@@ -7,12 +7,7 @@ use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Du
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
-use super::{
-    RetriableClientError,
-    RetriableRpcError,
-    ToErrorType,
-    retry_count_guard::RetryCountGuard,
-};
+use super::{RetriableClientError, ToErrorType, retry_count_guard::RetryCountGuard};
 use crate::client::{SuiClientError, SuiClientMetricSet};
 
 /// A trait that defines the implementation of a thunk to build (or re-use) a client lazily.
@@ -134,13 +129,13 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
 
     /// Returns the current client's RPC URL.
     // This is a helper function is mainly used for logging.
-    pub async fn get_current_rpc_url(&self) -> String {
+    pub async fn get_current_rpc_url(&self) -> anyhow::Result<String> {
         match self.state.lock().await.as_ref() {
             Some(state) => state
                 .rpc_url
                 .clone()
-                .unwrap_or_else(|| "unknown_url".to_string()),
-            None => "uninitialized_client".to_string(),
+                .ok_or_else(|| anyhow::anyhow!("no rpc url specified in failover state")),
+            None => Err(anyhow::anyhow!("no client initialized in failover wrapper")),
         }
     }
 
@@ -174,21 +169,20 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         tried_client_indices: &mut BTreeSet<usize>,
         state: &mut Option<FailoverState<ClientT>>,
     ) -> Result<Arc<ClientT>, FailoverError> {
-        // Check if the state of the FailoverWrapper has already advanced to a client we haven't
-        // tried yet. If so, go ahead and use that one. Note that this condition is subtle as it
-        // mutates the `tried_client_indices`.
-        if let Some(state) = state.as_mut() {
+        // Compute the next wrapped index.
+        let mut next_index = if let Some(state) = state.as_ref() {
+            // Check if the state of the FailoverWrapper has already advanced to a client we haven't
+            // tried yet. If so, go ahead and use that one. Note that this condition is subtle as it
+            // mutates the `tried_client_indices`.
             if tried_client_indices.len() < self.max_tries
                 && tried_client_indices.insert(state.current_index)
             {
                 return Ok(state.client.clone());
             }
-        };
 
-        // Compute the next wrapped index.
-        let mut next_index = if let Some(state) = state.as_ref() {
             (state.current_index + 1) % self.client_count()
         } else {
+            // If the FailoverWrapper is not initialized, start from the first client.
             0
         };
 
@@ -198,7 +192,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             // PLAN phase.
             if tried_client_indices.len() >= self.max_tries {
                 return Err(FailoverError::FailedToGetClient(format!(
-                    "max failovers {} exceeded",
+                    "max failovers exceeded [max_tries={}]",
                     self.max_tries
                 )));
             }
@@ -251,11 +245,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     where
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: MakeRetriableError
-            + RetriableRpcError
-            + ToErrorType
-            + std::fmt::Debug
-            + From<FailoverError>,
+        E: MakeRetriableError + ToErrorType + std::fmt::Debug + From<FailoverError>,
     {
         let mut retry_guard = metrics
             .as_ref()
@@ -317,20 +307,28 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     return Ok(result);
                 }
                 Err(error) => {
-                    // If the error is not eligible for failover, return it immediately.
-                    if !error.is_retriable_rpc_error() {
-                        tracing::debug!(
-                            ?error,
-                            "error is not eligible for failover, returning the last failed error",
-                        );
-                        return Err(error);
-                    }
+                    // Note that currently, for any kind of errors, we will failover to the next
+                    // client, event including application level errors. Although this is not
+                    // desirable, it is also hard to compose an extensive list of errors that we
+                    // should or should not failover on.
+                    // For any error that is not supposed to failover, we should return the error
+                    // here immediately. This process can be based on experience and add any error
+                    // that is not supposed to failover to the list.
+                    //
+                    // TODO(zhewu): we should add a new trait for this, and implement it for all
+                    // errors that are not supposed to failover.
 
-                    let failed_rpc_url = self.get_current_rpc_url().await;
+                    let failed_rpc_url = self
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|error| error.to_string());
                     match self.fetch_next_client(&mut tried_client_indices).await {
                         Ok(next_client) => {
                             client = next_client;
-                            let next_rpc_url = self.get_current_rpc_url().await;
+                            let next_rpc_url = self
+                                .get_current_rpc_url()
+                                .await
+                                .unwrap_or_else(|error| error.to_string());
                             tracing::event!(
                                 // A custom target for filtering.
                                 target: "walrus_sui::client::retry_client::failover",
