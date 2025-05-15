@@ -742,7 +742,8 @@ impl<'a> QuiltEncoderV1<'a> {
     /// Adds a blob to the quilt as consecutive columns.
     fn add_blob_to_quilt(
         data: &mut [u8],
-        data_slices: Vec<&[u8]>,
+        blob: &[u8],
+        include_padding_size: bool,
         current_col: usize,
         column_size: usize,
         row_size: usize,
@@ -753,7 +754,23 @@ impl<'a> QuiltEncoderV1<'a> {
         let mut row = 0;
         let mut col = current_col;
 
-        let merge_iterator = MergeIterator::new(data_slices, symbol_size);
+        let size_bytes = if include_padding_size {
+            let cols_needed = blob.len().div_ceil(column_size);
+            let padding_size = u32::try_from(
+                cols_needed * column_size - blob.len() - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+            )
+            .map_err(|e| QuiltError::Other(format!("padding_size too large: {}", e)))?;
+
+            padding_size.to_le_bytes()
+        } else {
+            [0u8; 4]
+        };
+
+        let merge_iterator = if include_padding_size {
+            MergeIterator::new(vec![&size_bytes, blob], symbol_size)
+        } else {
+            MergeIterator::new(vec![blob], symbol_size)
+        };
         for data_slice in merge_iterator {
             let mut dest_idx = row * row_size + col * symbol_size;
             for chunk in data_slice {
@@ -838,26 +855,12 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         for (i, blob_with_identifier) in blob_pairs.iter().enumerate() {
             let original_blob_data = blob_with_identifier.blob;
             let cols_needed = original_blob_data.len().div_ceil(column_size);
-
-            tracing::debug!(
-                "Blob: {:?} needs {} columns, current_col: {}",
-                blob_with_identifier.identifier,
-                cols_needed,
-                current_col
-            );
             assert!(current_col + cols_needed <= n_columns);
 
-            let padding_size = u32::try_from(
-                cols_needed * column_size
-                    - original_blob_data.len()
-                    - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
-            )
-            .map_err(|e| QuiltError::Other(format!("padding_size too large: {}", e)))?;
-
-            let size_bytes = padding_size.to_le_bytes();
             Self::add_blob_to_quilt(
                 &mut data,
-                vec![&size_bytes, original_blob_data],
+                original_blob_data,
+                true,
                 current_col,
                 column_size,
                 row_size,
@@ -881,7 +884,8 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // Add the index to the quilt.
         Self::add_blob_to_quilt(
             &mut data,
-            vec![&final_index_data],
+            &final_index_data,
+            false,
             0,
             column_size,
             row_size,
