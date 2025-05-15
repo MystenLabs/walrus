@@ -54,7 +54,7 @@ public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u32) 
     self.end_epoch = self.end_epoch + extension_epochs;
 }
 
-/// Split the storage object into two based on `split_epoch`.
+/// Splits the storage object into two based on `split_epoch`.
 ///
 /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`
 /// and a new storage object covering `split_epoch` to `end_epoch` is returned.
@@ -70,7 +70,7 @@ public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxC
     }
 }
 
-/// Split the storage object into two based on `split_size`.
+/// Splits the storage object into two based on `split_size`.
 ///
 /// `storage` is modified to cover `split_size` and a new object covering
 /// `storage.storage_size - split_size` is created.
