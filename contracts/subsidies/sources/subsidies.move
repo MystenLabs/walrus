@@ -158,64 +158,63 @@ fun allocate_subsidies(self: &Subsidies, cost: u64, initial_pool_value: u64): (u
     }
 }
 
-/// Combine payment and subsidy pool
-fun pre_system_call(
+#[allow(lint(coin_field))]
+public struct CombinedPayment {
+    payment: Coin<WAL>,
+    initial_payment_value: u64,
+    initial_pool_value: u64,
+}
+
+/// Combine buyer payment with subsidy pool to form a CombinedPayment
+fun combine_payment_with_pool(
     self: &mut Subsidies,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): (u64, u64) {
+): CombinedPayment {
     let initial_payment_value = payment.value();
-    let pool_coin = self.subsidy_pool.withdraw_all().into_coin(ctx);
+    let mut pool_coin = self.subsidy_pool.withdraw_all().into_coin(ctx);
     let initial_pool_value = pool_coin.value();
+    let buyer_balance = payment.balance_mut().split(initial_payment_value);
 
-    payment.join(pool_coin);
-    (initial_payment_value, initial_pool_value)
+    pool_coin.balance_mut().join(buyer_balance);
+
+    CombinedPayment {
+        payment: pool_coin,
+        initial_payment_value,
+        initial_pool_value,
+    }
 }
 
 /// Applies subsidies and sends rewards to the system.
 ///
 /// This will send WAL back to the buyer coin from the subsidy pool,
 /// and send the storage node subsidy to the system.
-fun handle_subsidies(
+fun handle_subsidies_and_payment(
     self: &mut Subsidies,
     system: &mut System,
-    payment: &mut Coin<WAL>,
-    initial_payment_value: u64,
-    initial_pool_value: u64,
+    combined_payment_after: CombinedPayment,
+    buyer_payment: &mut Coin<WAL>,
     epochs_ahead: u32,
     ctx: &mut TxContext,
 ) {
+    let CombinedPayment { payment: remaining_coin, initial_payment_value, initial_pool_value } =
+        combined_payment_after;
     // Calculate cost
     let initial_combined_value = initial_pool_value + initial_payment_value;
-    let remaining_value = payment.value();
-    let cost = initial_combined_value - payment.value();
+    let cost = initial_combined_value - remaining_coin.value();
 
     // Refund buyer
-    self.subsidy_pool.join(payment.split(remaining_value, ctx).into_balance());
+    self.subsidy_pool.join(remaining_coin.into_balance());
     let (buyer_subsidy, system_subsidy) = self.allocate_subsidies(cost, initial_pool_value);
     let buyer_coin_value = initial_payment_value + buyer_subsidy - cost;
-    let buyer_refund = self.subsidy_pool.split(buyer_coin_value).into_coin(ctx);
-    payment.join(buyer_refund);
+    let buyer_refund = self.subsidy_pool.split(buyer_coin_value);
+    buyer_payment.balance_mut().join(buyer_refund);
 
     // Subsidize system
     let system_subsidy_coin = self.subsidy_pool.split(system_subsidy).into_coin(ctx);
     system.add_subsidy(system_subsidy_coin, epochs_ahead);
-    assert!(payment.value() <= initial_payment_value);
+    assert!(buyer_payment.value() <= initial_payment_value);
 }
-
-/// (Deprecated) Applies subsidies and sends rewards to the system.
-///
-/// This will deduct funds from the subsidy pool,
-/// and send the storage node subsidy to the system.
-#[allow(unused_function, unused_variable, unused_mut_parameter)]
-fun apply_subsidies(
-    self: &mut Subsidies,
-    cost: u64,
-    epochs_ahead: u32,
-    payment: &mut Coin<WAL>,
-    system: &mut System,
-    ctx: &mut TxContext,
-) {}
 
 /// Extends a blob's lifetime and applies the buyer and storage node subsidies.
 ///
@@ -233,16 +232,15 @@ public fun extend_blob(
     if (self.subsidy_pool.value() == 0) {
         return system.extend_blob(blob, epochs_ahead, payment)
     };
-    let (initial_payment_value, initial_pool_value) = self.pre_system_call(payment, ctx);
+    let mut combined_payment = self.combine_payment_with_pool(payment, ctx);
 
-    system.extend_blob(blob, epochs_ahead, payment);
+    system.extend_blob(blob, epochs_ahead, &mut combined_payment.payment);
 
-    handle_subsidies(
+    handle_subsidies_and_payment(
         self,
         system,
+        combined_payment,
         payment,
-        initial_payment_value,
-        initial_pool_value,
         epochs_ahead,
         ctx,
     );
@@ -264,16 +262,20 @@ public fun reserve_space(
     if (self.subsidy_pool.value() == 0) {
         return system.reserve_space(storage_amount, epochs_ahead, payment, ctx)
     };
-    let (initial_payment_value, initial_pool_value) = self.pre_system_call(payment, ctx);
+    let mut combined_payment = self.combine_payment_with_pool(payment, ctx);
 
-    let storage = system.reserve_space(storage_amount, epochs_ahead, payment, ctx);
+    let storage = system.reserve_space(
+        storage_amount,
+        epochs_ahead,
+        &mut combined_payment.payment,
+        ctx,
+    );
 
-    handle_subsidies(
+    handle_subsidies_and_payment(
         self,
         system,
+        combined_payment,
         payment,
-        initial_payment_value,
-        initial_pool_value,
         epochs_ahead,
         ctx,
     );
