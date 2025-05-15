@@ -203,31 +203,9 @@ impl ClientConfig {
     }
 }
 
-/// Helper trait to make combining RPC URLs easier.
-pub trait IterUrlHelper<'a> {
-    /// Converts the implementing type to a string representation of a URL.
-    fn iter_url(self) -> impl Iterator<Item = &'a str>;
-}
-
-impl<'a> IterUrlHelper<'a> for &'a String {
-    fn iter_url(self) -> impl Iterator<Item = &'a str> {
-        once(self.as_str())
-    }
-}
-
-impl<'a> IterUrlHelper<'a> for &'a str {
-    fn iter_url(self) -> impl Iterator<Item = &'a str> {
-        once(self)
-    }
-}
-
 /// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
-pub fn combine_rpc_urls<'a, R: IterUrlHelper<'a>>(
-    rpc: R,
-    additional_rpc_endpoints: &[String],
-) -> Vec<String> {
-    rpc.iter_url()
-        .map(|url| url.to_string())
+pub fn combine_rpc_urls(rpc: impl AsRef<str>, additional_rpc_endpoints: &[String]) -> Vec<String> {
+    once(rpc.as_ref().to_string())
         .chain(additional_rpc_endpoints.iter().cloned())
         .collect::<IndexSet<String>>()
         .into_iter()
