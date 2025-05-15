@@ -47,7 +47,7 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_sdk::{active_committees::ActiveCommittees, config::combine_rpc_urls};
 use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
@@ -72,7 +72,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
-use crate::common::config::{SuiConfig, combine_rpc_urls};
+use crate::common::config::SuiConfig;
 #[cfg(msim)]
 use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
 use crate::node::{
