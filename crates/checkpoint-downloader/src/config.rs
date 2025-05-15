@@ -73,6 +73,7 @@ pub struct ChannelConfig {
     /// in draining the checkpoint queue.
     pub work_queue_buffer_factor: usize,
     /// Buffer factor for result queue.
+    ///
     /// Helps handle delays in processing the results.
     pub result_queue_buffer_factor: usize,
 }
