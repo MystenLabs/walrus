@@ -8,16 +8,26 @@ on:
     inputs:
       network:
         description: Network to generate release for
-        type: string
+        required: true
+        type: choice
+        options:
+          - testnet
+          - mainnet
+      announce:
+        description: Announce the release?
+        type: boolean
+        default: true
         required: true
 
 env:
   RELEASE_NOTES_FILE: "./release_notes.txt"
 
 jobs:
-  generate-tag-release:
-    name: Create a release tag and release in Git
+  create-release:
+    name: Create Release for ${{ inputs.network }}
     runs-on: ubuntu-latest
+    outputs:
+      walrus_commit: ${{ steps.release-commit.outputs.walrus_commit }}
 
     steps:
       - name: Checkout walrus main branch
@@ -29,10 +39,10 @@ jobs:
       - name: Get current and previous release branches
         shell: bash
         run: |
-          export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')"
-          export major_version=$(echo $sui_main_version | cut -d. -f1)
-          export minor_version=$(echo $sui_main_version | cut -d. -f2)
-          export patch_version=$(echo $sui_main_version | cut -d. -f3)
+          export walrus_main_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')
+          export major_version=$(echo $walrus_main_version | cut -d. -f1)
+          export minor_version=$(echo $walrus_main_version | cut -d. -f2)
+          export patch_version=$(echo $walrus_main_version | cut -d. -f3)
           export current_minor_version=$(($minor_version - 1))
           export current_release_version=$major_version.$current_minor_version.$patch_version
           echo "current_release_version=${current_release_version}" >> $GITHUB_ENV
@@ -55,10 +65,15 @@ jobs:
 
       - name: Update ${{ inputs.network }} branch
         shell: bash
+        id: release-commit
         run: |
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
-          git push --force origin ${walrus_commit}:${{ inputs.network }}
+          echo "walrus_commit=${walrus_commit}" >> "$GITHUB_OUTPUT"
+
+          echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
+          echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} \
+            --header "Accept: application/vnd.github+json" --input -
 
       - name: Create a release tag
         shell: bash
@@ -72,10 +87,10 @@ jobs:
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/MystenLabs/walrus/git/refs \
-            -d '{
-              "ref": "refs/tags/${release_tag}",
-              "sha": "${{ env.WALRUS_COMMIT }}"
-            }'
+            -d "{
+              \"ref\": \"refs/tags/${release_tag}\",
+              \"sha\": \"${{ env.WALRUS_COMMIT }}\"
+            }"
 
       - name: Get commits for branches
         shell: bash
@@ -133,3 +148,17 @@ jobs:
           body_path: ${{ env.RELEASE_NOTES_FILE }}
           draft: false
           prerelease: ${{ env.PRE_RELEASE }}
+
+  announce-release:
+    name: Announce Release in Discord
+    if: ${{ inputs.announce == true }}
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Release Announce in MystenLabs/sui-operations
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
+        with:
+          repository: MystenLabs/sui-operations
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          event-type: walrus-release-announce
+          client-payload: '{"walrus_commit": "${{ needs.create-release.outputs.walrus_commit }}", "environment": "${{ inputs.network }}"}'
