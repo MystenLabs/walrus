@@ -47,7 +47,9 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_sdk::{active_committees::ActiveCommittees, config::combine_rpc_urls};
+use walrus_sdk::active_committees::ActiveCommittees;
+#[cfg(msim)]
+use walrus_sdk::config::combine_rpc_urls;
 use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
