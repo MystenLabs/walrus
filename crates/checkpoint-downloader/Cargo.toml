@@ -22,7 +22,7 @@ tokio-util.workspace = true
 tracing.workspace = true
 typed-store.workspace = true
 walrus-sui.workspace = true
-walrus-utils.workspace = true
+walrus-utils = { workspace = true, features = ["backoff", "log"] }
 
 [lints]
 workspace = true

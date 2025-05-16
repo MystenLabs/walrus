@@ -223,6 +223,7 @@ pub mod simtest_utils {
     pub struct BlobInfoConsistencyCheck {
         certified_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         per_object_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        blob_existence_check_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>,
         checked: Arc<AtomicBool>,
     }
 
@@ -233,6 +234,8 @@ pub mod simtest_utils {
             let certified_blob_digest_map_clone = certified_blob_digest_map.clone();
             let per_object_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let per_object_blob_digest_map_clone = per_object_blob_digest_map.clone();
+            let blob_existence_check_map = Arc::new(Mutex::new(HashMap::new()));
+            let blob_existence_check_map_clone = blob_existence_check_map.clone();
 
             sui_macros::register_fail_point_arg(
                 "storage_node_certified_blob_digest",
@@ -247,9 +250,18 @@ pub mod simtest_utils {
                     Some(per_object_blob_digest_map_clone.clone())
                 },
             );
+
+            sui_macros::register_fail_point_arg(
+                "storage_node_certified_blob_existence_check",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>> {
+                    Some(blob_existence_check_map_clone.clone())
+                },
+            );
+
             Self {
                 certified_blob_digest_map,
                 per_object_blob_digest_map,
+                blob_existence_check_map,
                 checked: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -292,6 +304,19 @@ pub mod simtest_utils {
                     } else {
                         assert_eq!(epoch_digest, Some(digest));
                     }
+                }
+            }
+
+            let existence_check_map = self.blob_existence_check_map.lock().unwrap();
+            for (epoch, node_existence_check_map) in existence_check_map.iter() {
+                // 100% of blobs are fully stored all the time.
+                for (node_id, existence_check) in node_existence_check_map.iter() {
+                    tracing::info!(
+                        "blob sliver data existence check: node {node_id} has existence check \
+                        {existence_check} in epoch {epoch}",
+                    );
+
+                    assert_eq!(*existence_check, 1.0);
                 }
             }
         }

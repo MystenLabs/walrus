@@ -17,6 +17,12 @@ pub mod metrics;
 #[cfg(feature = "http")]
 pub mod http;
 
+#[cfg(feature = "log")]
+pub mod tracing_sampled;
+
+#[cfg(feature = "log")]
+pub use tracing_sampled::*;
+
 #[cfg(feature = "test-utils")]
 pub mod tests {
     use std::sync::OnceLock;

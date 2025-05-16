@@ -1647,7 +1647,7 @@ mod tests {
         const NUM_BLOBS: u64 = 10;
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 2;
 
-        let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let dir: PathBuf = tempfile::tempdir()?.keep();
         let registry = Registry::default();
         let node = create_test_node().await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
@@ -1699,7 +1699,7 @@ mod tests {
         const NUM_BLOBS: u64 = 10;
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
 
-        let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let dir: PathBuf = tempfile::tempdir()?.keep();
         let node = create_test_node().await?;
         let registry = Registry::default();
 
@@ -1783,7 +1783,7 @@ mod tests {
         const NUM_BLOBS: u64 = 10;
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
 
-        let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let dir: PathBuf = tempfile::tempdir()?.keep();
         let node = create_test_node().await?;
         let registry = Registry::default();
         let blob_writer_factory = EventBlobWriterFactory::new(

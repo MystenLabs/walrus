@@ -68,11 +68,12 @@ impl Default for ParallelDownloaderConfig {
 /// This is used to configure the size of the channel buffers for the worker pool.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ChannelConfig {
-    /// Additional buffer factor for work queue
-    /// Helps keep the worker busy in case of delays
-    /// in draining the checkpoint queue.
+    /// Additional buffer factor for work queue.
+    ///
+    /// Helps keep the worker busy in case of delays in draining the checkpoint queue.
     pub work_queue_buffer_factor: usize,
-    /// Buffer factor for result queue
+    /// Buffer factor for result queue.
+    ///
     /// Helps handle delays in processing the results.
     pub result_queue_buffer_factor: usize,
 }

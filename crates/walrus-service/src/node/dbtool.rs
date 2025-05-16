@@ -203,7 +203,7 @@ pub enum DbToolCommands {
     /// Read event processor metadata from the RocksDB database.
     EventProcessor {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Commands to read event processor metadata.
         #[command(subcommand)]
@@ -239,7 +239,7 @@ pub enum EventBlobWriterCommands {
 /// Commands for reading event processor metadata.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[serde_as]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum EventProcessorCommands {
     /// Read event processor metadata.
     ReadInitState,

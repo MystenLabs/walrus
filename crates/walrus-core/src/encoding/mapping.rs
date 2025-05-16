@@ -13,10 +13,10 @@ use crate::{BlobId, ShardIndex, SliverPairIndex, encoding::SliverPair};
 /// inconsistent with the provided blob id.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SliverAssignmentError {
-    /// The rotation is inconsistent with respect to the blob id
+    /// The rotation is inconsistent with respect to the blob id.
     #[error("the sliver pairs are already rotated, but not according to the blob id")]
     InconsistentRotation,
-    /// The input slice of pairs is not a valid rotation
+    /// The input slice of pairs is not a valid rotation.
     #[error("the sliver pairs have been incorrectly shuffled")]
     InvalidInputOrder,
 }

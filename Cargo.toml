@@ -1,6 +1,7 @@
 [workspace]
 default-members = [
   "crates/checkpoint-downloader",
+  "crates/typed-store",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
   "crates/walrus-proc-macros",
@@ -21,7 +22,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.25.0"
+version = "1.26.0"
 
 [workspace.dependencies]
 anyhow = "1.0.98"
@@ -38,19 +39,23 @@ byteorder = "1.5.0"
 bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.37", features = ["derive"] }
-clap_complete = "4.5.48"
+clap = { version = "4.5.38", features = ["deprecated", "derive"] }
+clap_complete = "4.5.50"
+collectable = "0.0.2"
 colored = "2.2.0"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
+eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
+fdlimit = "0.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.3" # required for MSIM
 futures-util = "0.3.30"
 git-version = "0.3.9"
+hdrhistogram = "7.5.4"
 hex = "0.4.3"
 home = "0.5.11"
 hostname = "0.4.1"
@@ -67,15 +72,17 @@ jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
+once_cell = { version = "1.21.3" }
 opentelemetry = { version = "=0.27.1", default-features = false, features = ["trace"] }
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
+proc-macro2 = "1.0.95"
 prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
@@ -85,8 +92,9 @@ rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
-rocksdb = "0.21.0"
-rustls = { version = "0.23.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rocksdb = "0.22.0"
+rstest = "0.25.0"
+rustls = { version = "0.23.27", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -96,23 +104,24 @@ serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 syn = "2.0"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
-tempfile = "3.19.1"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.47.0" }
+tap = "1.0.1"
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+tempfile = "3.20.0"
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 thiserror = "2.0.12"
 tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
@@ -124,8 +133,9 @@ tracing = "0.1.41"
 tracing-opentelemetry = { version = "=0.28.0", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }
 twox-hash = "2.1.0"
+typed-store = { path = "crates/typed-store" }
+uint = "0.10.0"
 # TODO (WAL-790): update typed-store to >= 1.47 or remove it.
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.46.0" }
 url = "2.5.4"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }

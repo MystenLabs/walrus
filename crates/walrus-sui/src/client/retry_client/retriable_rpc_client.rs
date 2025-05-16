@@ -101,9 +101,36 @@ pub enum LazyFallibleRpcClientBuilder {
 }
 
 impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
-    const DEFAULT_MAX_TRIES: usize = 3;
+    const DEFAULT_MAX_TRIES: usize = 5;
 
     async fn lazy_build_client(&self) -> Result<Arc<FallibleRpcClient>, FailoverError> {
+        // Inject rpc client build failure for simtests.
+        #[cfg(msim)]
+        {
+            let mut fail_client_creation = false;
+            sui_macros::fail_point_arg!(
+                "failpoint_rpc_client_build_client",
+                |url_to_fail: String| {
+                    match self {
+                        Self::Url { rpc_url, .. } => {
+                            if *rpc_url == url_to_fail {
+                                fail_client_creation = true;
+                            }
+                        }
+                        Self::Client(_) => {}
+                    }
+                }
+            );
+
+            if fail_client_creation {
+                tracing::info!("injected rpc client build failure {:?}", self.get_rpc_url());
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "injected rpc client build failure {:?}",
+                    self.get_rpc_url()
+                )));
+            }
+        }
+
         match self {
             Self::Url {
                 rpc_url,
@@ -113,14 +140,23 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                     .map(Arc::new)
                     .map_err(|e| FailoverError::FailedToGetClient(e.to_string()))?;
                 if *ensure_experimental_rest_endpoint {
-                    ensure_experimental_rest_endpoint_exists(client.inner().await)
-                        .await
-                        .map_err(|e| {
-                            FailoverError::FailedToGetClient(format!(
-                                "Client validation failed for {:?}: {:?}",
-                                rpc_url, e
-                            ))
-                        })?;
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        ensure_experimental_rest_endpoint_exists(client.inner().await),
+                    )
+                    .await
+                    .map_err(|_| {
+                        FailoverError::FailedToGetClient(format!(
+                            "Client validation timed out for {:?}",
+                            rpc_url
+                        ))
+                    })?
+                    .map_err(|e| {
+                        FailoverError::FailedToGetClient(format!(
+                            "Client validation failed for {:?}: {:?}",
+                            rpc_url, e
+                        ))
+                    })?;
                 }
                 Ok(client)
             }
@@ -251,11 +287,19 @@ impl RetriableRpcClient {
             sequence_number: u64,
             request_timeout: Duration,
         ) -> Result<CheckpointData, RetriableClientError> {
-            client.call(|rpc_client| {
-                async move { rpc_client.get_full_checkpoint(sequence_number).await }
-            }, request_timeout)
-            .await
-            .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
+            client
+                .call(
+                    |rpc_client| {
+                        async move {
+                            rpc_client
+                                .get_full_checkpoint(sequence_number)
+                                .await
+                        }
+                    },
+                    request_timeout,
+                )
+                .await
+                .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
@@ -289,7 +333,11 @@ impl RetriableRpcClient {
                 if let Some(metrics) = self.metrics.as_ref() {
                     metrics.record_rpc_latency(
                         "get_full_checkpoint",
-                        &self.client.get_current_rpc_url().await,
+                        &self
+                            .client
+                            .get_current_rpc_url()
+                            .await
+                            .unwrap_or_else(|_| "unknown_url".to_string()),
                         "success",
                         start_time.elapsed(),
                     );
@@ -306,7 +354,11 @@ impl RetriableRpcClient {
             if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    &self.client.get_current_rpc_url().await,
+                    &self
+                        .client
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|_| "unknown_url".to_string()),
                     "failure",
                     start_time.elapsed(),
                 )
@@ -314,18 +366,23 @@ impl RetriableRpcClient {
             return Err(error);
         };
 
-        if !error.is_eligible_for_fallback(
-            sequence_number,
-            self.last_success.load(Ordering::Relaxed),
-            self.num_failures.load(Ordering::Relaxed),
-        ) {
+        let last_success = self.last_success.load(Ordering::Relaxed);
+        let num_failures = self.num_failures.load(Ordering::Relaxed);
+        if !error.is_eligible_for_fallback(sequence_number, last_success, num_failures) {
             tracing::debug!(
-                "primary client error while fetching checkpoint is not eligible for fallback"
+                "primary client error while fetching checkpoint is not eligible for fallback, \
+                since last_success: {:?}, num_failures: {:?}",
+                last_success.elapsed(),
+                num_failures
             );
             if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    &self.client.get_current_rpc_url().await,
+                    &self
+                        .client
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|_| "unknown_url".to_string()),
                     "failure",
                     start_time.elapsed(),
                 );
@@ -592,5 +649,15 @@ impl From<tonic::Status> for CheckpointRpcError {
             status,
             checkpoint_seq_num: None,
         }
+    }
+}
+
+impl CheckpointRpcError {
+    pub(crate) fn is_checkpoint_not_produced(&self) -> bool {
+        self.status.code() == tonic::Code::NotFound
+            && self
+                .status
+                .checkpoint_height()
+                .is_some_and(|height| self.checkpoint_seq_num.unwrap_or(0) > height)
     }
 }

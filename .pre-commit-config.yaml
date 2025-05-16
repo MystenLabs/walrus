@@ -76,6 +76,7 @@ repos:
         language: rust
         files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
         pass_filenames: false
+        verbose: true
       - id: cargo-doctests
         name: cargo-doctests
         entry: cargo test --doc
@@ -122,5 +123,5 @@ repos:
         name: Build docs if mdBook is installed
         language: system
         entry: bash -c 'which mdbook && mdbook build || ! which mdbook >> /dev/null'
-        files: 'book.toml|docs/.*'
+        files: "book.toml|docs/.*"
         pass_filenames: false

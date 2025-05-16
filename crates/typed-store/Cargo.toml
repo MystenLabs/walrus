@@ -1,0 +1,40 @@
+[package]
+name = "typed-store"
+publish = false
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bcs.workspace = true
+bincode.workspace = true
+collectable.workspace = true
+eyre.workspace = true
+fdlimit.workspace = true
+hdrhistogram.workspace = true
+itertools.workspace = true
+once_cell.workspace = true
+prometheus.workspace = true
+rand.workspace = true
+rocksdb = { version = "0.22.0", default-features = false, features = ["lz4", "multi-threaded-cf", "snappy", "zlib", "zstd"] }
+serde.workspace = true
+sui-macros.workspace = true
+tap.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full", "test-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+once_cell.workspace = true
+rand.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+uint.workspace = true
+
+[target.'cfg(msim)'.dependencies]
+sui-simulator.workspace = true
+
+[lints]
+workspace = true

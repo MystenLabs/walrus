@@ -87,6 +87,9 @@ pub struct ClientConfig {
     /// Path to the wallet configuration.
     #[serde(default)]
     pub wallet_config: Option<WalletConfig>,
+    /// RPC URLs to use for reads.
+    #[serde(default)]
+    pub rpc_urls: Vec<String>,
     /// Configuration for the client's network communication.
     #[serde(default)]
     pub communication_config: ClientCommunicationConfig,
@@ -96,6 +99,19 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
+    /// Creates a new client config from a contract config, using default values for the other
+    /// fields.
+    pub fn new_from_contract_config(contract_config: ContractConfig) -> Self {
+        Self {
+            contract_config,
+            exchange_objects: Default::default(),
+            wallet_config: Default::default(),
+            rpc_urls: Default::default(),
+            communication_config: Default::default(),
+            refresh_config: Default::default(),
+        }
+    }
+
     /// Loads the Walrus client configuration from the given path along with a context. If the file
     /// is a multi-config file, the context argument can be used to override the default context.
     pub fn load_from_multi_config(
@@ -204,7 +220,7 @@ mod tests {
     use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
     use walrus_sui::client::contract_config::ContractConfig;
-    use walrus_test_utils::Result as TestResult;
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 
@@ -229,6 +245,7 @@ mod tests {
                 ObjectID::random_from_rng(&mut rng),
             ],
             wallet_config: None,
+            rpc_urls: vec!["https://fullnode.testnet.sui.io:443".into()],
             communication_config: Default::default(),
             refresh_config: Default::default(),
         };
@@ -239,6 +256,34 @@ mod tests {
         )
         .expect("overwrite failed");
 
+        Ok(())
+    }
+
+    param_test! {
+        check_client_config -> TestResult: [
+            testnet: ("../../setup/client_config_testnet.yaml", None, None),
+            mainnet: ("../../setup/client_config_mainnet.yaml", None, None),
+            multi_config: ("../../setup/client_config.yaml", None, Some("mainnet")),
+            multi_config_with_testnet_context: (
+                "../../setup/client_config.yaml",
+                Some("testnet"),
+                Some("testnet"),
+            ),
+            multi_config_with_mainnet_context: (
+                "../../setup/client_config.yaml",
+                Some("mainnet"),
+                Some("mainnet"),
+            ),
+        ]
+    }
+    /// This test ensures that the client configurations contained in our documentation are valid.
+    fn check_client_config(
+        path: &str,
+        input_context: Option<&str>,
+        expected_context: Option<&str>,
+    ) -> TestResult {
+        let (_config, context) = ClientConfig::load_from_multi_config(path, input_context)?;
+        assert_eq!(context.as_deref(), expected_context);
         Ok(())
     }
 

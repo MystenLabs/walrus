@@ -22,7 +22,13 @@ use walrus_core::{
     merkle::Node,
 };
 use walrus_sui::{
-    client::{BlobObjectMetadata, BlobPersistence, PostStoreAction, SuiContractClient},
+    client::{
+        BlobObjectMetadata,
+        BlobPersistence,
+        CertifyAndExtendBlobParams,
+        PostStoreAction,
+        SuiContractClient,
+    },
     test_utils::system_setup::initialize_contract_and_wallet_for_testing,
 };
 
@@ -92,11 +98,15 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     non_signers: u16,
     /// Benchmark the calls to `certify`. Otherwise, only `reserve_and_register` is benchmarked.
-    #[arg(long, action)]
+    #[arg(long)]
     with_certify: bool,
     /// Call the system contract directly, excluding the subsidies contract.
-    #[arg(long, action)]
+    #[arg(long)]
     no_subsidies: bool,
+    /// Benchmark the calls to `extend`. This uses the epoch range for the extension instead of
+    /// the initial reservation (for which one epoch will be used and no output is produced).
+    #[arg(long)]
+    extend: bool,
     /// The range to use for the number of blobs per call.
     #[arg(long, default_value = "1:8:1:exp")]
     n_blobs_range: InputRange,
@@ -104,13 +114,13 @@ struct Args {
     #[arg(long, default_value = "1:54:8:lin")]
     n_epochs_range: InputRange,
     /// Argument passed when running `cargo bench`, is ignored.
-    #[arg(long, action, default_value_t = true)]
+    #[arg(long, default_value_t = true)]
     bench: bool,
 }
 
 async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     let mut out_file = std::fs::File::create(args.out)?;
-    out_file.write(
+    out_file.write_all(
         format!(
             "{},{},{},{},{},{},{},{},{}\n",
             "label",
@@ -165,21 +175,29 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
         let blob_metadata_vec =
             std::iter::repeat_n(blob_metadata.clone(), blobs_per_call as usize).collect();
 
+        let reserve_epochs = if args.extend { 1 } else { epochs_ahead };
+
         let blob_objs = walrus_client
             .as_ref()
-            .reserve_and_register_blobs(epochs_ahead, blob_metadata_vec, BlobPersistence::Permanent)
+            .reserve_and_register_blobs(
+                reserve_epochs,
+                blob_metadata_vec,
+                BlobPersistence::Permanent,
+            )
             .await?;
 
-        write_data_entry(
-            &mut out_file,
-            "reserve_and_register",
-            epochs_ahead,
-            blobs_per_call,
-            gas_cost_summary_for_last_tx(walrus_client.as_ref()).await?,
-        )?;
+        if !args.extend {
+            write_data_entry(
+                &mut out_file,
+                "reserve_and_register",
+                reserve_epochs,
+                blobs_per_call,
+                gas_cost_summary_for_last_tx(walrus_client.as_ref()).await?,
+            )?;
+        }
 
         // The number of epochs are irrelevant for `certify`, only benchmark for the lowest number.
-        if args.with_certify && epochs_ahead == min_epochs_ahead {
+        if (args.with_certify && epochs_ahead == min_epochs_ahead) || args.extend {
             let certificate =
                 test_node_keys.blob_certificate_for_signers(&signers, blob_metadata.blob_id, 1)?;
             let blob_objs_with_certs: Vec<_> = blob_objs
@@ -191,13 +209,38 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
                 .as_ref()
                 .certify_blobs(&blob_objs_with_certs, PostStoreAction::Keep)
                 .await?;
-            write_data_entry(
-                &mut out_file,
-                "certify",
-                epochs_ahead,
-                blobs_per_call,
-                gas_cost_summary_for_last_tx(walrus_client.as_ref()).await?,
-            )?;
+            if args.with_certify {
+                write_data_entry(
+                    &mut out_file,
+                    "certify",
+                    epochs_ahead,
+                    blobs_per_call,
+                    gas_cost_summary_for_last_tx(walrus_client.as_ref()).await?,
+                )?;
+            }
+
+            if args.extend {
+                let epochs_extended = Some(epochs_ahead);
+                let certify_and_extend_params: Vec<CertifyAndExtendBlobParams> = blob_objs
+                    .iter()
+                    .map(|blob| CertifyAndExtendBlobParams {
+                        blob,
+                        certificate: None,
+                        epochs_extended,
+                    })
+                    .collect();
+                walrus_client
+                    .as_ref()
+                    .certify_and_extend_blobs(&certify_and_extend_params, PostStoreAction::Keep)
+                    .await?;
+                write_data_entry(
+                    &mut out_file,
+                    "extend",
+                    epochs_ahead,
+                    blobs_per_call,
+                    gas_cost_summary_for_last_tx(walrus_client.as_ref()).await?,
+                )?;
+            }
         }
     }
 

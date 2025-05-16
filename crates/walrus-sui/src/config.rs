@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sui_keys::keystore::AccountKeystore;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
-use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir};
+use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir, resolve_home_dir_option};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(untagged)]
@@ -28,10 +28,10 @@ pub enum WalletConfig {
     /// if it is non-null. Loading of the `WalletContext` will fail if an invalid `active_...`
     /// parameter is used. Specifying a null `active_..` parameter will use its prespecified value
     /// from the related configuration file.
-    PathWithOverride {
+    OptionalPathWithOverride {
         /// The path to the wallet configuration file.
-        #[serde(default, deserialize_with = "resolve_home_dir")]
-        path: PathBuf,
+        #[serde(default, deserialize_with = "resolve_home_dir_option")]
+        path: Option<PathBuf>,
         /// The optional `active_env` to use to override whatever `active_env` is listed in the
         /// configuration file.
         #[serde(default)]
@@ -65,10 +65,10 @@ impl WalletConfig {
     }
 
     /// Retrieves the path to the wallet configuration file.
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> Option<&Path> {
         match self {
-            WalletConfig::Path(path) => path,
-            WalletConfig::PathWithOverride { path, .. } => path,
+            WalletConfig::Path(path) => Some(path.as_ref()),
+            WalletConfig::OptionalPathWithOverride { path, .. } => path.as_deref(),
         }
     }
 
@@ -76,7 +76,7 @@ impl WalletConfig {
     pub fn active_env(&self) -> Option<&str> {
         match self {
             WalletConfig::Path(_) => None,
-            WalletConfig::PathWithOverride { active_env, .. } => active_env.as_deref(),
+            WalletConfig::OptionalPathWithOverride { active_env, .. } => active_env.as_deref(),
         }
     }
 
@@ -84,7 +84,7 @@ impl WalletConfig {
     pub fn active_address(&self) -> Option<SuiAddress> {
         match self {
             WalletConfig::Path(_) => None,
-            WalletConfig::PathWithOverride { active_address, .. } => *active_address,
+            WalletConfig::OptionalPathWithOverride { active_address, .. } => *active_address,
         }
     }
 
@@ -105,7 +105,7 @@ impl WalletConfig {
             default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
         }
 
-        let path = path_or_defaults_if_exist(wallet_config.map(|c| c.path()), &default_paths)
+        let path = path_or_defaults_if_exist(wallet_config.and_then(|c| c.path()), &default_paths)
             .ok_or(anyhow!("could not find a valid wallet config file"))?;
         tracing::info!("using Sui wallet configuration from '{}'", path.display());
         let mut wallet_context: WalletContext = WalletContext::new(&path, request_timeout, None)?;
@@ -145,5 +145,67 @@ impl WalletConfig {
             wallet_context.config.active_address = Some(active_address);
         }
         Ok(wallet_context)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+    use walrus_test_utils::Result as TestResult;
+
+    use super::*;
+
+    #[test]
+    fn parses_path_config() -> TestResult {
+        let yaml = indoc! {"
+            some/path/to/wallet.yaml
+        "};
+
+        let config: WalletConfig = serde_yaml::from_str(yaml)?;
+        assert_eq!(
+            config,
+            WalletConfig::Path("some/path/to/wallet.yaml".into())
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_path_with_override_config() -> TestResult {
+        let yaml = indoc! {"
+            path: some/path/to/wallet.yaml
+            active_env: mainnet
+        "};
+
+        let config: WalletConfig = serde_yaml::from_str(yaml)?;
+        assert_eq!(
+            config,
+            WalletConfig::OptionalPathWithOverride {
+                path: Some("some/path/to/wallet.yaml".into()),
+                active_env: Some("mainnet".to_string()),
+                active_address: None,
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_override_config_without_path() -> TestResult {
+        let yaml = indoc! {"
+            active_env: mainnet
+        "};
+
+        let config: WalletConfig = serde_yaml::from_str(yaml)?;
+        assert_eq!(
+            config,
+            WalletConfig::OptionalPathWithOverride {
+                path: None,
+                active_env: Some("mainnet".to_string()),
+                active_address: None,
+            }
+        );
+
+        Ok(())
     }
 }

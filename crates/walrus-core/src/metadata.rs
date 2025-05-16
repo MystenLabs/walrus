@@ -67,6 +67,17 @@ pub struct QuiltPatchV1 {
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
     pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
+        Self::validate_identifier(&identifier)?;
+
+        Ok(Self {
+            unencoded_length,
+            identifier,
+            start_index: 0,
+            end_index: 0,
+        })
+    }
+
+    fn validate_identifier(identifier: &str) -> Result<(), QuiltError> {
         // Validate identifier
         if !identifier
             .chars()
@@ -78,13 +89,7 @@ impl QuiltPatchV1 {
                     .to_string(),
             ));
         }
-
-        Ok(Self {
-            unencoded_length,
-            identifier,
-            start_index: 0,
-            end_index: 0,
-        })
+        Ok(())
     }
 }
 
@@ -448,7 +453,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
     /// This infers the number of shards from the length of the `hashes` vector.
     ///
     /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the
-    /// `unencoded_length` cannot be encoded
+    /// `unencoded_length` cannot be encoded.
     fn encoded_size(&self) -> Option<u64> {
         encoded_blob_length_for_n_shards(
             NonZeroU16::new(self.hashes.len().try_into().ok()?)?,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Contains an active set of storage nodes. The active set is a smart collection
-/// that only stores up to a 1000 nodes. The active set tracks the total amount of staked
+/// that only stores up to 1000 nodes. The active set tracks the total amount of staked
 /// WAL to make the calculation of the rewards and voting power distribution easier.
 module walrus::active_set;
 

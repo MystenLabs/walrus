@@ -4,7 +4,6 @@
 //! A failover client wrapper for Sui (HTTP and gRPC) clients.
 use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Duration};
 
-#[cfg(msim)]
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
@@ -74,7 +73,7 @@ impl MakeRetriableError for RetriableClientError {
 #[derive(Clone)]
 pub struct FailoverWrapper<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug> {
     lazy_client_builders: Vec<BuilderT>,
-    state: Arc<Mutex<FailoverState<ClientT>>>,
+    state: Arc<Mutex<Option<FailoverState<ClientT>>>>,
     max_tries: usize,
 }
 
@@ -108,29 +107,36 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         assert!(lazy_client_builders.len() >= max_tries);
 
         Ok(Self {
-            max_tries,
-            state: Arc::new(Mutex::new(FailoverState {
-                client: lazy_client_builders[0].lazy_build_client().await?,
-                rpc_url: lazy_client_builders[0].get_rpc_url().map(|s| s.to_string()),
-                current_index: 0,
-            })),
             lazy_client_builders,
+            state: Arc::new(Mutex::new(None)),
+            max_tries,
         })
     }
 
-    /// Returns the name of the current client.
-    pub async fn get_current_client(&self) -> Arc<ClientT> {
-        self.state.lock().await.client.clone()
+    /// Returns the current client.
+    pub async fn get_current_client(&self) -> Result<Arc<ClientT>, FailoverError> {
+        let mut state = self.state.lock().await;
+        match state.as_ref() {
+            Some(state) => Ok(state.client.clone()),
+            None => {
+                let client = self
+                    .fetch_next_client_inner(&mut BTreeSet::new(), &mut state)
+                    .await?;
+                Ok(client)
+            }
+        }
     }
 
-    /// Returns the name of the current client.
-    pub async fn get_current_rpc_url(&self) -> String {
-        self.state
-            .lock()
-            .await
-            .rpc_url
-            .clone()
-            .unwrap_or("unknown_url".to_string())
+    /// Returns the current client's RPC URL.
+    // This is a helper function is mainly used for logging.
+    pub async fn get_current_rpc_url(&self) -> anyhow::Result<String> {
+        match self.state.lock().await.as_ref() {
+            Some(state) => state
+                .rpc_url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("no rpc url specified in failover state")),
+            None => Err(anyhow::anyhow!("no client initialized in failover wrapper")),
+        }
     }
 
     fn client_count(&self) -> usize {
@@ -148,29 +154,47 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 "only one client available, try adding rpc urls".to_string(),
             ));
         }
-
         let mut state = self.state.lock().await;
+        self.fetch_next_client_inner(tried_client_indices, &mut state)
+            .await
+    }
 
-        // Check if the state of the FailoverWrapper has already advanced to a client we haven't
-        // tried yet. If so, go ahead and use that one. Note that this condition is subtle as it
-        // mutates the `tried_client_indices`.
-        if tried_client_indices.len() < self.max_tries
-            && tried_client_indices.insert(state.current_index)
-        {
-            return Ok(state.client.clone());
-        }
-
+    /// Fetches the next client set in the FailoverWrapper. Excluding the clients that have already
+    /// been tried in the `tried_client_indices` set.
+    ///
+    /// This function is locked on the `state` mutex, and will update the state if a new client is
+    /// fetched.
+    async fn fetch_next_client_inner(
+        &self,
+        tried_client_indices: &mut BTreeSet<usize>,
+        state: &mut Option<FailoverState<ClientT>>,
+    ) -> Result<Arc<ClientT>, FailoverError> {
         // Compute the next wrapped index.
-        let mut next_index = (state.current_index + 1) % self.client_count();
+        let mut next_index = if let Some(state) = state.as_ref() {
+            // Check if the state of the FailoverWrapper has already advanced to a client we haven't
+            // tried yet. If so, go ahead and use that one. Note that this condition is subtle as it
+            // mutates the `tried_client_indices`.
+            if tried_client_indices.len() < self.max_tries
+                && tried_client_indices.insert(state.current_index)
+            {
+                return Ok(state.client.clone());
+            }
+
+            (state.current_index + 1) % self.client_count()
+        } else {
+            // If the FailoverWrapper is not initialized, start from the first client.
+            0
+        };
 
         // It may be the case that the LazyClientBuilder fails to connect to a client, but let's not
         // let that stop us from trying the next one.
         loop {
             // PLAN phase.
             if tried_client_indices.len() >= self.max_tries {
-                return Err(FailoverError::FailedToGetClient(
-                    "max failovers exceeded".to_string(),
-                ));
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "max failovers exceeded [max_tries={}]",
+                    self.max_tries
+                )));
             }
 
             if !tried_client_indices.insert(next_index) {
@@ -187,17 +211,23 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 Ok(client) => client,
                 Err(error) => {
                     // Log the error and failover to the next client.
-                    tracing::warn!("Failed to get client from url: {}", error);
+                    tracing::warn!(
+                        "Failed to get client from url: {}, failover to next client",
+                        error
+                    );
+                    next_index = (next_index + 1) % self.client_count();
                     continue;
                 }
             };
 
             // COMMIT phase. NB: never fail during this phase.
-            state.current_index = next_index;
-            state.client = client.clone();
-            state.rpc_url = self.lazy_client_builders[next_index]
-                .get_rpc_url()
-                .map(|s| s.to_string());
+            *state = Some(FailoverState {
+                client: client.clone(),
+                rpc_url: self.lazy_client_builders[next_index]
+                    .get_rpc_url()
+                    .map(|s| s.to_string()),
+                current_index: next_index,
+            });
 
             // We're done, return the client.
             return Ok(client);
@@ -215,47 +245,55 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     where
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: MakeRetriableError,
-        E: ToErrorType + std::fmt::Debug + From<FailoverError>,
+        E: MakeRetriableError + ToErrorType + std::fmt::Debug + From<FailoverError>,
     {
         let mut retry_guard = metrics
             .as_ref()
             .map(|m| RetryCountGuard::new(m.clone(), format!("{method}_with_failover").as_str()));
+
         let (mut client, mut tried_client_indices) = {
-            let state = self.state.lock().await;
-            let tried_client_indices = once(state.current_index).collect::<BTreeSet<_>>();
-            (state.client.clone(), tried_client_indices)
+            let mut state = self.state.lock().await;
+
+            if let Some(state) = state.as_ref() {
+                let tried_client_indices = once(state.current_index).collect::<BTreeSet<_>>();
+                (state.client.clone(), tried_client_indices)
+            } else {
+                // First time using a new FailoverWrapper, fetch the first client.
+                let mut tried_client_indices = BTreeSet::new();
+                let client = self
+                    .fetch_next_client_inner(&mut tried_client_indices, &mut state)
+                    .await?;
+                (client, tried_client_indices)
+            }
         };
+
         loop {
             let result = {
-                #[cfg(msim)]
-                {
-                    let mut inject_error = false;
-                    fail_point_if!("fallback_client_inject_error", || {
-                        // Only inject an error if we have multiple clients and we have one valid
-                        // client in the tank.
-                        inject_error =
-                            self.client_count() < self.max_tries && rand::random::<bool>();
-                    });
-                    if inject_error {
-                        tracing::warn!(
-                            "Injecting an RPC error during failover loop [
+                #[allow(unused_mut)]
+                let mut inject_error = false;
+                fail_point_if!("fallback_client_inject_error", || {
+                    // Always inject error for the first client.
+                    // Do not inject error for the last client.
+                    // Inject error for other clients with a 50% chance.
+                    inject_error = self.client_count() > 1
+                        && (tried_client_indices.len() <= 1
+                            || (tried_client_indices.len() < self.client_count() - 1
+                                && rand::random::<bool>()));
+                });
+                if inject_error {
+                    tracing::warn!(
+                        "injecting an RPC error during failover loop [ \
                                 method={method}, \
                                 client_count={client_count}, \
                                 try_count={try_count}, \
                                 max_tries={max_tries}\
                             ]",
-                            client_count = self.client_count(),
-                            try_count = tried_client_indices.len(),
-                            max_tries = self.max_tries,
-                        );
-                        Err(E::make_retriable_error())
-                    } else {
-                        operation(client, method).await
-                    }
-                }
-                #[cfg(not(msim))]
-                {
+                        client_count = self.client_count(),
+                        try_count = tried_client_indices.len(),
+                        max_tries = self.max_tries,
+                    );
+                    Err(E::make_retriable_error())
+                } else {
                     operation(client, method).await
                 }
             };
@@ -269,11 +307,28 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     return Ok(result);
                 }
                 Err(error) => {
-                    let failed_rpc_url = self.get_current_rpc_url().await;
+                    // Note that currently, for any kind of errors, we will failover to the next
+                    // client, event including application level errors. Although this is not
+                    // desirable, it is also hard to compose an extensive list of errors that we
+                    // should or should not failover on.
+                    // For any error that is not supposed to failover, we should return the error
+                    // here immediately. This process can be based on experience and add any error
+                    // that is not supposed to failover to the list.
+                    //
+                    // TODO(zhewu): we should add a new trait for this, and implement it for all
+                    // errors that are not supposed to failover.
+
+                    let failed_rpc_url = self
+                        .get_current_rpc_url()
+                        .await
+                        .unwrap_or_else(|error| error.to_string());
                     match self.fetch_next_client(&mut tried_client_indices).await {
                         Ok(next_client) => {
                             client = next_client;
-                            let next_rpc_url = self.get_current_rpc_url().await;
+                            let next_rpc_url = self
+                                .get_current_rpc_url()
+                                .await
+                                .unwrap_or_else(|error| error.to_string());
                             tracing::event!(
                                 // A custom target for filtering.
                                 target: "walrus_sui::client::retry_client::failover",
@@ -281,7 +336,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                                 last_error = ?error,
                                 failed_rpc_url,
                                 next_rpc_url,
-                                "Failed to execute operation on client, retrying with next client"
+                                "failed to execute operation on client, retrying with next client"
                             );
                         }
                         Err(fetch_client_error) => {
@@ -292,7 +347,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                                 last_error = ?error,
                                 failed_rpc_url,
                                 ?fetch_client_error,
-                                "Failed to fetch_next_client, failing rpc"
+                                "failed to fetch_next_client, failing rpc"
                             );
                             return Err(error);
                         }
@@ -352,7 +407,8 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.should_fail {
                 Err(RetriableClientError::RpcError(CheckpointRpcError {
-                    status: tonic::Status::internal("mock error"),
+                    // Return a retryable error.
+                    status: tonic::Status::unavailable("mock error"),
                     checkpoint_seq_num: None,
                 }))
             } else {
@@ -389,14 +445,19 @@ mod tests {
                 "operation",
             )
             .await;
-
         assert!(matches!(result, Ok(ref s) if s == "success"));
         assert_eq!(failing_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(
             succeeding_calls.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
-        assert!(!failover_wrapper.get_current_client().await.should_fail,);
+        assert!(
+            !failover_wrapper
+                .get_current_client()
+                .await
+                .expect("client must have been created")
+                .should_fail,
+        );
     }
 
     #[tokio::test]
