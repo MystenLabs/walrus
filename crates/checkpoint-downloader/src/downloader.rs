@@ -433,6 +433,7 @@ impl ParallelCheckpointDownloaderInner {
         rng: &mut StdRng,
     ) -> CheckpointEntry {
         let mut backoff = if cfg!(test) {
+            // Note that we only return error in test mode.
             ExponentialBackoff::new_with_seed(
                 config.initial_delay,
                 config.max_delay,
@@ -440,6 +441,8 @@ impl ParallelCheckpointDownloaderInner {
                 rng.next_u64(),
             )
         } else {
+            // In production, we should never stop trying to fetch the checkpoint. This is critical
+            // for the node to make progress.
             ExponentialBackoff::new_with_seed(
                 config.initial_delay,
                 config.max_delay,
@@ -467,6 +470,7 @@ impl ParallelCheckpointDownloaderInner {
             return CheckpointEntry::new(sequence_number, Ok(checkpoint));
         }
     }
+}
 
 /// Handles an error that occurred while reading the next checkpoint.
 /// If the error is due to a checkpoint that is already present on the server,
