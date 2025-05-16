@@ -289,19 +289,101 @@ impl BlobWithIdentifierOwned {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlobHeader {
+    data: [u8; 6],
+}
+
+impl BlobHeader {
+    pub const SIZE: usize = 6;
+    const LENGTH_MAX: u64 = (1u64 << 34) - 1; // Max value for 34 bits
+    const MASK_MAX: u16 = (1u16 << 14) - 1;   // Max value for 14 bits
+
+    /// Creates a new header with all bytes zeroed.
+    pub fn new() -> Self {
+        Self { data: [0u8; Self::SIZE] }
+    }
+
+    /// Creates a header from a 6-byte array.
+    pub fn from_bytes(bytes: [u8; Self::SIZE]) -> Self {
+        Self { data: bytes }
+    }
+
+    /// Returns a reference to the internal 6-byte array.
+    pub fn as_bytes(&self) -> &[u8; Self::SIZE] {
+        &self.data
+    }
+
+    /// Gets the length value (first 34 bits).
+    /// Bits 0-31 are from data[0-3], bits 32-33 are from lower 2 bits of data[4].
+    pub fn get_length(&self) -> u64 {
+        let mut length: u64 = 0;
+        length |= u64::from(self.data[0]);
+        length |= u64::from(self.data[1]) << 8;
+        length |= u64::from(self.data[2]) << 16;
+        length |= u64::from(self.data[3]) << 24;
+        length |= (u64::from(self.data[4]) & 0x03) << 32;
+        length
+    }
+
+    /// Sets the length value (first 34 bits).
+    /// Panics in debug mode if length exceeds 34 bits.
+    pub fn set_length(&mut self, length: u64) {
+        debug_assert!(length <= Self::LENGTH_MAX, "Length value exceeds 34 bits");
+        let effective_length = length & Self::LENGTH_MAX;
+
+        self.data[0] = (effective_length & 0xFF) as u8;
+        self.data[1] = ((effective_length >> 8) & 0xFF) as u8;
+        self.data[2] = ((effective_length >> 16) & 0xFF) as u8;
+        self.data[3] = ((effective_length >> 24) & 0xFF) as u8;
+        // Preserve upper 6 bits of data[4] (which belong to the mask)
+        self.data[4] = (self.data[4] & 0xFC) | ((effective_length >> 32) & 0x03) as u8;
+    }
+
+    /// Gets the mask value (last 14 bits).
+    /// Bits 0-5 are from upper 6 bits of data[4], bits 6-13 are from data[5].
+    pub fn get_mask(&self) -> u16 {
+        let mut mask: u16 = 0;
+        mask |= (u16::from(self.data[4]) >> 2);    // Upper 6 bits from data[4]
+        mask |= u16::from(self.data[5]) << 6;   // All 8 bits from data[5]
+        mask
+    }
+
+    /// Sets the mask value (last 14 bits).
+    /// Panics in debug mode if mask exceeds 14 bits.
+    pub fn set_mask(&mut self, mask: u16) {
+        debug_assert!(mask <= Self::MASK_MAX, "Mask value exceeds 14 bits");
+        let effective_mask = mask & Self::MASK_MAX;
+
+        // Preserve lower 2 bits of data[4] (which belong to the length)
+        // Lower 6 bits of mask (0-5) go to upper 6 bits of data[4]
+        self.data[4] = (self.data[4] & 0x03) | ((effective_mask & 0x3F) << 2) as u8;
+        // Upper 8 bits of mask (6-13) go to data[5]
+        self.data[5] = ((effective_mask >> 6) & 0xFF) as u8;
+    }
+
+    /// Creates a new header with specified length and mask values.
+    pub fn new_with_values(length: u64, mask: u16) -> Self {
+        let mut header = Self::new();
+        header.set_length(length);
+        header.set_mask(mask);
+        header
+    }
+}
+
 /// Quilt version 1.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x00;
-    const BLOB_SIZE_PREFIX_SIZE: usize = 8;
+    const BLOB_HEADER_SIZE: usize = 6;
 
     /// Returns the total storage size of a blob given its unencoded length.
     fn blob_total_size<L: Into<usize>>(unencoded_length: L) -> Result<usize, QuiltError> {
         let blob_size = usize::try_from(unencoded_length)
             .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-        Ok(blob_size + QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE)
+        Ok(blob_size + QuiltVersionV1::BLOB_HEADER_SIZE)
     }
 }
 
@@ -613,13 +695,13 @@ impl QuiltV1 {
             start_col,
             end_col,
             0,
-            QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+            QuiltVersionV1::BLOB_HEADER_SIZE,
         )?;
-        let mut size_cache = Vec::with_capacity(QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
+        let mut size_cache = Vec::with_capacity(QuiltVersionV1::BLOB_HEADER_SIZE);
         for symbol_slice in size_iterator {
             size_cache.extend_from_slice(symbol_slice);
         }
-        assert!(size_cache.len() == QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
+        assert!(size_cache.len() == QuiltVersionV1::BLOB_HEADER_SIZE);
 
         let unencoded_length =
             usize::try_from(u64::from_le_bytes(size_cache.try_into().map_err(|_| {
@@ -644,7 +726,7 @@ impl QuiltV1 {
             self.symbol_size,
             start_col,
             end_col,
-            QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
+            QuiltVersionV1::BLOB_HEADER_SIZE,
             unencoded_length,
         )?;
         for symbol_slice in symbol_iterator {
@@ -1194,8 +1276,8 @@ impl<'a> QuiltDecoderV1<'a> {
             .slivers
             .get(&SliverIndex(start_idx as u16))
             .expect("sliver should be present");
-        let size_prefix_bytes: &[u8; QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE] =
-            first_sliver.symbols.data()[0..QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE]
+        let size_prefix_bytes: &[u8; QuiltVersionV1::BLOB_HEADER_SIZE] =
+            first_sliver.symbols.data()[0..QuiltVersionV1::BLOB_HEADER_SIZE]
                 .try_into()
                 .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
         let unencoded_length = usize::try_from(u64::from_le_bytes(*size_prefix_bytes))
@@ -1218,7 +1300,7 @@ impl<'a> QuiltDecoderV1<'a> {
 
             let remaining_needed = unencoded_length - blob.len();
             let begin = if i == start_idx {
-                QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE
+                QuiltVersionV1::BLOB_HEADER_SIZE
             } else {
                 0
             };
@@ -1386,7 +1468,6 @@ mod utils {
         Ok(())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use alloc::boxed::Box;
@@ -1821,3 +1902,4 @@ mod tests {
         result
     }
 }
+
