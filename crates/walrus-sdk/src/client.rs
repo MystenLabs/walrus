@@ -631,6 +631,9 @@ impl Client<SuiContractClient> {
 
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
+        // REVIEW: why does this debug_assert exist if the doc comments for `Client<T>::encode_blobs`
+        // indicate that certain blobs can fail to encode? If `Client<T>::encode_blobs` can fail to
+        // encode certain blobs, then it should simply remove them from the returned list.
         debug_assert_eq!(
             encoded_blobs.len(),
             blobs.len(),
@@ -659,8 +662,8 @@ impl Client<SuiContractClient> {
     ///
     /// Returns a list of WalrusStoreBlob as the encoded result. The return list
     /// is in the same order as the input list.
-    /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
-    /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
+    /// A [`WalrusStoreBlob::Encoded`] is returned if the blob is encoded successfully.
+    /// A [`WalrusStoreBlob::Error`] is returned if the blob fails to encode.
     pub fn encode_blobs<'a, T: Debug + Clone + Send + Sync>(
         &self,
         blobs_with_identifiers: Vec<WalrusStoreBlob<'a, T>>,
@@ -956,26 +959,22 @@ impl Client<SuiContractClient> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        #[cfg(debug_assertion)]
-        encoded_blobs.iter().for_each(|blob| {
-            assert!(blob.is_encoded());
-        });
-
         let results =
-            futures::future::join_all(encoded_blobs.into_iter().map(|encode_blob| async move {
-                let blob_id = encode_blob
-                    .get_blob_id()
-                    .ok_or(ClientError::store_blob_internal(format!(
-                        "missing blob ID from {:?}",
-                        encode_blob
-                    )))?;
+            futures::future::join_all(encoded_blobs.into_iter().map(|encoded_blob| async move {
+                let blob_id =
+                    encoded_blob
+                        .get_blob_id()
+                        .ok_or(ClientError::store_blob_internal(format!(
+                            "missing blob ID from {:?}",
+                            encoded_blob
+                        )))?;
                 if let Err(e) = self.check_blob_id(&blob_id) {
-                    return encode_blob.with_error(e);
+                    return encoded_blob.with_error(e);
                 }
                 let result = self
                     .get_blob_status_with_retries(&blob_id, &self.sui_client)
                     .await;
-                encode_blob.with_status(result)
+                encoded_blob.with_status(result)
             }))
             .await;
 
