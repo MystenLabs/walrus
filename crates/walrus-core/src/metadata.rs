@@ -69,16 +69,16 @@ impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
     pub fn new(identifier: String) -> Result<Self, QuiltError> {
         // Validate identifier
-        if !identifier
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-        {
-            return Err(QuiltError::Other(
-                "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
-                period characters"
-                    .to_string(),
-            ));
-        }
+        // if !identifier
+        //     .chars()
+        //     .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+        // {
+        //     return Err(QuiltError::Other(
+        //         "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
+        //         period characters"
+        //             .to_string(),
+        //     ));
+        // }
 
         Ok(Self {
             identifier,

@@ -2473,7 +2473,7 @@ impl QuiltClient<'_, SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult<V>> {
         // Read files from the folder.
-        let blobs_with_paths = read_blobs_from_path(path).map_err(|e| {
+        let blobs_with_paths = read_blobs_from_path(path.clone()).map_err(|e| {
             ClientError::from(ClientErrorKind::Other(
                 format!("Failed to read directory: {}", e).into(),
             ))
@@ -2497,15 +2497,18 @@ impl QuiltClient<'_, SuiContractClient> {
             })
             .collect();
 
-        self.reserve_and_store_quilt(
-            &blobs_with_identifiers,
-            encoding_type,
-            epochs_ahead,
-            store_when,
-            persistence,
-            post_store,
-        )
-        .await
+        let mut result = self
+            .reserve_and_store_quilt(
+                &blobs_with_identifiers,
+                encoding_type,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
+            .await?;
+        result.path = Some(path);
+        Ok(result)
     }
 
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the

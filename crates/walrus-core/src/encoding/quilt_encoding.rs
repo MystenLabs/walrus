@@ -133,6 +133,9 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     /// Gets a blob by its identifier from the quilt.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
 
+    /// Gets a blob by its patch ID from the quilt.
+    fn get_blob_by_patch_id(&self, patch_id: V::QuiltPatchId) -> Result<Vec<u8>, QuiltError>;
+
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
 }
@@ -1127,6 +1130,13 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
+    }
+
+    fn get_blob_by_patch_id(&self, patch_id: QuiltPatchIdV1) -> Result<Vec<u8>, QuiltError> {
+        self.get_blob_by_range(
+            patch_id.start_index() as usize,
+            patch_id.end_index() as usize,
+        )
     }
 
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]) {
