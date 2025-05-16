@@ -335,3 +335,8 @@ public(package) fun new_package_id(system: &System): Option<ID> {
 public(package) fun destroy_for_testing(self: System) {
     sui::test_utils::destroy(self);
 }
+
+#[test_only]
+public fun get_system_rewards_balance(self: &mut System, epoch_in_future: u32): &mut Balance<WAL> {
+    self.inner_mut().future_accounting_mut().ring_lookup_mut(epoch_in_future).rewards_balance()
+}

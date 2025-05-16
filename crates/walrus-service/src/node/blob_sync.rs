@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     ops::Not,
     sync::{Arc, Mutex},
     time::Duration,
@@ -377,6 +377,16 @@ impl BlobSyncHandler {
         try_join_all(join_handles).await?.into_iter().for_each(drop);
 
         Ok(count)
+    }
+
+    /// Returns the list of blob ids that are currently being synced.
+    pub fn blob_sync_in_progress(&self) -> HashSet<BlobId> {
+        self.blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock")
+            .keys()
+            .cloned()
+            .collect()
     }
 }
 

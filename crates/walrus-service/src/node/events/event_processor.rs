@@ -72,7 +72,7 @@ use walrus_sui::{
     },
     types::ContractEvent,
 };
-use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry, tracing_sampled};
 
 use crate::{
     node::{
@@ -472,6 +472,7 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
+            tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);
@@ -1263,7 +1264,7 @@ mod tests {
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
             .expect("Failed to open temporary directory")
-            .into_path();
+            .keep();
         let database = {
             let _lock = global_test_lock().lock().await;
             rocks::open_cf_opts(

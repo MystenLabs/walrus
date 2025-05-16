@@ -40,7 +40,7 @@ use walrus_sui::types::{
     move_structs::{NodeMetadata, VotingParams},
 };
 
-use super::storage::DatabaseConfig;
+use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
     node::events::EventProcessorConfig,
@@ -171,6 +171,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blocking thread pool.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub thread_pool: ThreadPoolConfig,
+    /// Configuration for the consistency check.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub consistency_check: StorageNodeConsistencyCheckConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -209,6 +212,7 @@ impl Default for StorageNodeConfig {
             num_uncertified_blob_threshold: None,
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            consistency_check: Default::default(),
         }
     }
 }
@@ -673,6 +677,8 @@ pub mod defaults {
     pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
     /// SUI MIST threshold under which balance checks log a warning.
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
+    /// The default number of max concurrent streams for the rest API.
+    pub const REST_HTTP2_MAX_CONCURRENT_STREAMS: u32 = 1000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -977,8 +983,10 @@ pub struct Http2Config {
 impl Default for Http2Config {
     fn default() -> Self {
         Self {
-            http2_max_concurrent_streams: 1000,
-            http2_max_pending_accept_reset_streams: 100,
+            http2_max_concurrent_streams: defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS,
+            http2_max_pending_accept_reset_streams: u32::MAX
+                .try_into()
+                .expect("assuming at least 32-bit architecture"),
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
             http2_adaptive_window: true,

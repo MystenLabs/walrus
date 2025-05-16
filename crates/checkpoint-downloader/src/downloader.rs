@@ -18,7 +18,7 @@ use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
 #[cfg(not(test))]
 use walrus_utils::backoff::ExponentialBackoff;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, tracing_sampled};
 
 use crate::{
     ParallelDownloaderConfig,
@@ -160,7 +160,9 @@ impl ParallelCheckpointDownloaderInner {
     }
 
     /// Returns the current checkpoint lag between the local store and the full node
-    /// in terms of sequence numbers. This works by downloading the latest checkpoint
+    /// in terms of sequence numbers.
+    ///
+    /// This works by downloading the latest checkpoint
     /// summary from the full node and comparing it with the current checkpoint in the store.
     async fn current_checkpoint_lag(
         checkpoint_store: &DBMap<(), TrustedCheckpoint>,
@@ -202,6 +204,7 @@ impl ParallelCheckpointDownloaderInner {
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
+            tracing_sampled::info!("30s", "Downloaded checkpoint {}", sequence_number);
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!(worker_id, "checkpoint download worker shutting down");
@@ -383,6 +386,11 @@ impl ParallelCheckpointDownloaderInner {
                         tracing::error!("failed to send job to workers; channel closed");
                         return;
                     }
+                    tracing_sampled::info!(
+                        "30s",
+                        "Adding checkpoint to worker queue {}",
+                        sequence_number
+                    );
                     in_flight.insert(sequence_number);
                     sequence_number += 1;
                 }
@@ -474,7 +482,7 @@ impl ParallelCheckpointDownloaderInner {
     }
 }
 
-/// Helper function to create backoff with consistent settings
+/// Helper function to create backoff with consistent settings.
 #[cfg(not(test))]
 fn create_backoff(
     rng: &mut StdRng,
@@ -485,8 +493,9 @@ fn create_backoff(
 }
 
 /// Handles an error that occurred while reading the next checkpoint.
-/// If the error is due to a checkpoint that is already present on the server, it is logged as an
-/// error. Otherwise, it is logged as a debug.
+/// If the error is due to a checkpoint that is already present on the server,
+/// it is logged as an error.
+/// Otherwise, it is logged as a debug.
 fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
     if let Some(RetriableClientError::RpcError(rpc_error)) = err {
         if let Some(checkpoint_height) = rpc_error.status.checkpoint_height() {
@@ -557,7 +566,7 @@ mod tests {
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
             .expect("Failed to open temporary directory")
-            .into_path();
+            .keep();
         let database = {
             let _lock = global_test_lock().lock().await;
             rocks::open_cf_opts(

@@ -89,7 +89,7 @@ impl ConfigSynchronizer {
             tokio::time::sleep(self.check_interval).await;
 
             if let Err(error) = self.committee_service.sync_committee_members().await {
-                tracing::error!(%error, "failed to sync committee");
+                tracing::warn!(%error, "failed to sync committee");
             }
 
             let Some(config_loader) = &self.config_loader else {
@@ -112,7 +112,7 @@ impl ConfigSynchronizer {
                     tracing::warn!(%error, "going to reboot node");
                     return Err(error);
                 }
-                tracing::error!(%error, "failed to sync node params");
+                tracing::warn!(%error, "failed to sync node params");
             }
 
             let new_cert_hash = self.load_tls_cert_hash(&config.tls).await?;

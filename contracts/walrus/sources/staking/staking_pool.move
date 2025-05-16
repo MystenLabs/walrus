@@ -462,7 +462,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 
     // Process withdrawals.
 
-    // each value in pending withdrawals contains the principal which became
+    // Each value in pending withdrawals contains the principal which became
     // active in the previous epoch. so unlike other pending values, we need to
     // flush it one by one, recalculating the exchange rate and pool share amount
     // for each early withdrawal epoch.

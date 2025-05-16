@@ -107,7 +107,7 @@ public(package) fun n_members(self: &BlsCommittee): u64 {
     self.members.length()
 }
 
-/// Returns the member at given index
+/// Returns the member at given index.
 public(package) fun get_idx(self: &BlsCommittee, idx: u64): &BlsCommitteeMember {
     &self.members[idx]
 }

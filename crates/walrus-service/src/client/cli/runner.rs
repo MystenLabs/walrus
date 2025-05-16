@@ -135,8 +135,6 @@ pub struct ClientCommandRunner {
     json: bool,
     /// The gas budget for the client commands.
     gas_budget: Option<u64>,
-    /// Whether the wallet was set explicitly as a CLI argument or in the config.
-    wallet_set_explicitly: bool,
 }
 
 impl ClientCommandRunner {
@@ -169,7 +167,6 @@ impl ClientCommandRunner {
             config,
             gas_budget,
             json,
-            wallet_set_explicitly: wallet_config.is_some(),
         }
     }
 
@@ -383,13 +380,9 @@ impl ClientCommandRunner {
             }
 
             CliCommands::GetBlobAttribute { blob_obj_id } => {
-                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-                    &self.config?,
-                    None,
-                    self.wallet,
-                    !self.wallet_set_explicitly,
-                )
-                .await?;
+                let sui_read_client =
+                    get_sui_read_client_from_rpc_node_or_wallet(&self.config?, None, self.wallet)
+                        .await?;
                 let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
@@ -535,14 +528,7 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let client = get_read_client(
-            self.config?,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-            &None,
-        )
-        .await?;
+        let client = get_read_client(self.config?, rpc_url, self.wallet, &None).await?;
 
         let start_timer = std::time::Instant::now();
         let blob = client.read_blob::<Primary>(&blob_id).await?;
@@ -825,13 +811,8 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         tracing::debug!(?file_or_blob_id, "getting blob status");
         let config = self.config?;
-        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-            &config,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-        )
-        .await?;
+        let sui_read_client =
+            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
@@ -886,13 +867,8 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
     ) -> Result<()> {
         let config = self.config?;
-        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-            &config,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-        )
-        .await?;
+        let sui_read_client =
+            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
@@ -928,13 +904,8 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
     ) -> Result<()> {
         let config = self.config?;
-        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-            &config,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-        )
-        .await?;
+        let sui_read_client =
+            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
@@ -955,13 +926,8 @@ impl ClientCommandRunner {
         command: Option<InfoCommands>,
     ) -> Result<()> {
         let config = self.config?;
-        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-            &config,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-        )
-        .await?;
+        let sui_read_client =
+            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
 
         match command {
             None => InfoOutput::get_system_info(
@@ -1015,13 +981,9 @@ impl ClientCommandRunner {
             get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await;
 
         let config = self.config?;
-        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-            &config,
-            rpc_url.clone(),
-            self.wallet,
-            !self.wallet_set_explicitly,
-        )
-        .await?;
+        let sui_read_client =
+            get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url.clone(), self.wallet)
+                .await?;
         let communication_factory = NodeCommunicationFactory::new(
             config.communication_config.clone(),
             Arc::new(EncodingConfig::new(
@@ -1048,27 +1010,23 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        let (n_shards, encoding_type) =
-            if let (Some(n_shards), Some(encoding_type)) = (n_shards, encoding_type) {
-                (n_shards, encoding_type)
+        let (n_shards, encoding_type) = if let (Some(n_shards), Some(encoding_type)) =
+            (n_shards, encoding_type)
+        {
+            (n_shards, encoding_type)
+        } else {
+            let config = self.config?;
+            let sui_read_client =
+                get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
+            let n_shards = if let Some(n_shards) = n_shards {
+                n_shards
             } else {
-                let config = self.config?;
-                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-                    &config,
-                    rpc_url,
-                    self.wallet,
-                    !self.wallet_set_explicitly,
-                )
-                .await?;
-                let n_shards = if let Some(n_shards) = n_shards {
-                    n_shards
-                } else {
-                    tracing::debug!("reading `n_shards` from chain");
-                    sui_read_client.current_committee().await?.n_shards()
-                };
-                let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-                (n_shards, encoding_type)
+                tracing::debug!("reading `n_shards` from chain");
+                sui_read_client.current_committee().await?.n_shards()
             };
+            let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+            (n_shards, encoding_type)
+        };
 
         tracing::debug!(%n_shards, "encoding the blob");
         let spinner = styled_spinner();
@@ -1129,14 +1087,8 @@ impl ClientCommandRunner {
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-        let client = get_read_client(
-            self.config?,
-            rpc_url,
-            self.wallet,
-            !self.wallet_set_explicitly,
-            &daemon_args.blocklist,
-        )
-        .await?;
+        let client =
+            get_read_client(self.config?, rpc_url, self.wallet, &daemon_args.blocklist).await?;
         ClientDaemon::new_aggregator(
             client,
             daemon_args.bind_address,

@@ -20,8 +20,9 @@ public struct ProtectedTreasury has key {
     id: UID,
 }
 
-/// The dynamic object field key for the `TreasuryCap`.
-/// Storing the `TreasuryCap` as a dynamic object field allows us to easily look-up the
+/// Key for the dynamic object field of the `TreasuryCap`.
+///
+/// Storing the `TreasuryCap` as a dynamic object field allows us to easily look up the
 /// `TreasuryCap` from the `ProtectedTreasury` off-chain.
 public struct TreasuryCapKey has copy, drop, store {}
 

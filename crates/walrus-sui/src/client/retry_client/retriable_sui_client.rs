@@ -134,9 +134,36 @@ impl LazySuiClientBuilder {
 impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     // TODO: WAL-796 Out of concern for consistency, we are disabling the failover mechanism for
     // SuiClient for now.
-    const DEFAULT_MAX_TRIES: usize = 1;
+    const DEFAULT_MAX_TRIES: usize = 5;
 
     async fn lazy_build_client(&self) -> Result<Arc<SuiClient>, FailoverError> {
+        // Inject sui client build failure for simtests.
+        #[cfg(msim)]
+        {
+            let mut fail_client_creation = false;
+            sui_macros::fail_point_arg!(
+                "failpoint_sui_client_build_client",
+                |url_to_fail: String| {
+                    match self {
+                        Self::Url { rpc_url, .. } => {
+                            if *rpc_url == url_to_fail {
+                                fail_client_creation = true;
+                            }
+                        }
+                        Self::Client(_) => {}
+                    }
+                }
+            );
+
+            if fail_client_creation {
+                tracing::info!("injected sui client build failure {:?}", self.get_rpc_url());
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "injected sui client build failure {:?}",
+                    self.get_rpc_url()
+                )));
+            }
+        }
+
         match self {
             Self::Client(client) => Ok(client.clone()),
             Self::Url {
@@ -778,12 +805,13 @@ impl RetriableSuiClient {
         note = "please implement a full treatment in RetriableSuiClient for your use case"
     )]
     pub async fn get_current_client(&self) -> Arc<SuiClient> {
-        self.failover_sui_client.get_current_client().await
+        self.failover_sui_client
+            .get_current_client()
+            .await
+            .expect("client must have been created")
     }
 
-    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    /// Returns the Sui Object of type `U` with the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
@@ -796,6 +824,29 @@ impl RetriableSuiClient {
             )
             .await?;
         get_sui_object_from_object_response(&sui_object_response)
+    }
+
+    /// Returns the Sui Objects of type `U` with the provided [`ObjectID`]s.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_sui_objects<U>(&self, object_ids: &[ObjectID]) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let mut responses = vec![];
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(
+                    obj_id_batch.to_vec(),
+                    SuiObjectDataOptions::new().with_bcs().with_type(),
+                )
+                .await?,
+            );
+        }
+
+        responses
+            .iter()
+            .map(|r| get_sui_object_from_object_response(r))
+            .collect::<Result<Vec<_>, _>>()
     }
 
     /// Returns the chain identifier.
@@ -819,31 +870,6 @@ impl RetriableSuiClient {
     }
 
     // Other wrapper methods.
-
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_objects<U>(
-        &self,
-        object_ids: &[ObjectID],
-    ) -> SuiClientResult<Vec<U>>
-    where
-        U: AssociatedContractStruct,
-    {
-        let mut responses = vec![];
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(
-                    obj_id_batch.to_vec(),
-                    SuiObjectDataOptions::new().with_bcs().with_type(),
-                )
-                .await?,
-            );
-        }
-
-        responses
-            .iter()
-            .map(|r| get_sui_object_from_object_response(r))
-            .collect::<Result<Vec<_>, _>>()
-    }
 
     pub(crate) async fn get_extended_field<V>(
         &self,
@@ -1040,6 +1066,7 @@ impl RetriableSuiClient {
             .failover_sui_client
             .get_current_client()
             .await
+            .expect("client must have been created")
             .transaction_builder()
             .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
             .await;

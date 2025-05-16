@@ -68,17 +68,7 @@ pub struct QuiltPatchV1 {
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
     pub fn new(identifier: String) -> Result<Self, QuiltError> {
-        // Validate identifier
-        // if !identifier
-        //     .chars()
-        //     .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-        // {
-        //     return Err(QuiltError::Other(
-        //         "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
-        //         period characters"
-        //             .to_string(),
-        //     ));
-        // }
+        Self::validate_identifier(&identifier)?;
 
         Ok(Self {
             identifier,
@@ -86,6 +76,21 @@ impl QuiltPatchV1 {
             end_index: 0,
             quilt_patch_id: QuiltPatchIdV1::new(0, 0),
         })
+    }
+
+    fn validate_identifier(identifier: &str) -> Result<(), QuiltError> {
+        // Validate identifier
+        if !identifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+        {
+            return Err(QuiltError::Other(
+                "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
+                period characters"
+                    .to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// The internal ID of the quilt patch.
@@ -174,6 +179,7 @@ pub struct QuiltIndexV1 {
 
 impl QuiltIndexV1 {
     /// Returns the quilt patch with the given blob identifier.
+    // TODO(WAL-829): Consider storing the quilt patch in a hashmap for O(1) lookup.
     pub fn get_quilt_patch_by_identifier(
         &self,
         identifier: &str,
@@ -511,7 +517,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
     /// This infers the number of shards from the length of the `hashes` vector.
     ///
     /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the
-    /// `unencoded_length` cannot be encoded
+    /// `unencoded_length` cannot be encoded.
     fn encoded_size(&self) -> Option<u64> {
         encoded_blob_length_for_n_shards(
             NonZeroU16::new(self.hashes.len().try_into().ok()?)?,

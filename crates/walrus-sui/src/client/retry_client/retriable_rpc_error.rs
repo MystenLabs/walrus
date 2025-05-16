@@ -76,6 +76,11 @@ impl RetriableRpcError for CheckpointRpcError {
             return !self.status.message().contains("missing event");
         }
 
+        // If the checkpoint is not produced, this is retryable.
+        if self.is_checkpoint_not_produced() {
+            return true;
+        }
+
         self.status.is_retriable_rpc_error()
     }
 }

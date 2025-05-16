@@ -9,7 +9,7 @@ use std::{
     fmt::Debug,
     future::Future,
     mem,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::Path,
     pin::Pin,
     str::FromStr,
@@ -240,13 +240,9 @@ impl MetricsAndLoggingRuntime {
     }
 
     /// Create a new runtime for metrics and logging.
-    pub fn new(mut metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
-        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
-
-        // Initialize mysten metrics used to track all metrics under `mysten_metrics` namespace.
-        mysten_metrics::init_metrics(&walrus_registry);
 
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
@@ -316,7 +312,7 @@ impl MetricPushRuntime {
                             // clone because we serialize this with our metrics
                             mp_config.config.labels.clone(),
                         ).await {
-                            tracing::error!(?error, "unable to push metrics");
+                            tracing::warn!(?error, "unable to push metrics");
                             client = create_push_client();
                         }
                     }
@@ -390,12 +386,12 @@ async fn push_metrics(
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
     let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
-        tracing::error!(?error, "unable to serialize MetricPayload to JSON");
+        tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
     let mut s = snap::raw::Encoder::new();
     let compressed = s.compress_vec(&serialized).inspect_err(|error| {
-        tracing::error!(?error, "unable to snappy encode");
+        tracing::warn!(?error, "unable to snappy encode metrics");
     })?;
 
     let uid = Uuid::now_v7();
@@ -725,13 +721,7 @@ pub async fn collect_event_blobs_for_catchup(
 
     let contract_config = ContractConfig::new(system_object_id, staking_object_id);
     let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::ClientConfig {
-        contract_config,
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: Default::default(),
-        refresh_config: Default::default(),
-    };
+    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
 
     let walrus_client =
         walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())

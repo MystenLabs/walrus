@@ -36,12 +36,13 @@ The file is JSON-formatted, and looks like the following:
       "description": "This is a walrus site.",
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
-  }
+  },
+  "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 ```
 
-We now describe in details the two sections of the configuration file, `headers`, `routes` and
-`metadata`.
+We now describe in detail four sections of the configuration file: `headers`, `routes`,
+`metadata`, and the `ignore` section.
 
 ## Specifying HTTP response headers
 
@@ -158,3 +159,28 @@ example you can place a link to your sites favicon.
 - `description`: Add a brief description of your site.
 - `project_url`: If your site is open-source, add a link to your site's GitHub repository.
 - `creator`: Add the name of your company, group, or individual creator of your site.
+
+## Ignoring files from being uploaded
+
+You can use the optional `ignore` field to exclude certain files or folders from being published.
+This is useful when you want to keep development files, secrets, or temporary assets out of
+the final build.
+
+The `ignore` field is a list of resource paths to skip. Each pattern must start with a `/`,
+and may end with a `*` to indicate a wildcard match.
+
+For example:
+
+```json
+"ignore": [
+  "/private/*",
+  "/secret.txt",
+  "/images/tmp/*"
+]
+```
+
+This configuration will skip all files inside the `/private/` and `/images/tmp/` directories,
+as well as a specific file `/secret.txt`.
+
+> Wildcards are only supported in the **last position** of the path (e.g., `/foo/*` is valid,
+but `/foo/*/bar` is not).

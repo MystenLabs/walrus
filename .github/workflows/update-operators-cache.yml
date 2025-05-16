@@ -1,0 +1,57 @@
+name: Update Aggregator Cache Info
+
+on:
+  workflow_dispatch:
+    inputs:
+      mainnet-blob-id:
+        description: 'Mainnet blob ID'
+        required: true
+        type: string
+        default: 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo'
+      testnet-blob-id:
+        description: 'Testnet blob ID'
+        required: true
+        type: string
+        default: 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo'
+  schedule:
+    - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
+
+env:
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo' }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo' }}
+
+jobs:
+  update-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./scripts/cache-inference
+        run: npm install
+
+      - name: Run cache inference
+        run: |
+          npx ts-node scripts/cache-inference/cache-inference.ts $MAINNET_BLOB_ID $TESTNET_BLOB_ID > docs/book/assets/new-operators.json
+          mv docs/book/assets/new-operators.json docs/book/assets/operators.json
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update aggregator cache info"
+          title: "chore: update aggregator cache info"
+          body: |
+            This PR updates the operators.json file with new cache measurements.
+
+            Mainnet blob ID: ${{ env.MAINNET_BLOB_ID }}
+            Testnet blob ID: ${{ env.TESTNET_BLOB_ID }}
+          branch: "ci/update-operators-cache"
+          base: "main"
