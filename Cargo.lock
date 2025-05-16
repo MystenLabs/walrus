@@ -12660,6 +12660,7 @@ dependencies = [
  "fastcrypto",
  "futures",
  "home",
+ "indexmap 2.9.0",
  "indicatif",
  "indoc",
  "itertools 0.13.0",

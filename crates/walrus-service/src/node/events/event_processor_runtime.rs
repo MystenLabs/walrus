@@ -11,10 +11,11 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use walrus_sdk::config::combine_rpc_urls;
 use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::config::{SuiReaderConfig, combine_rpc_urls},
+    common::config::SuiReaderConfig,
     node::{
         DatabaseConfig,
         EventProcessorConfig,

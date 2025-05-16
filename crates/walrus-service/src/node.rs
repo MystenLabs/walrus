@@ -89,6 +89,7 @@ use walrus_core::{
 use walrus_sdk::{
     active_committees::ActiveCommittees,
     blocklist::Blocklist,
+    config::combine_rpc_urls,
     sui::{
         client::SuiReadClient,
         types::{
@@ -158,10 +159,7 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{
-        config::{SuiConfig, combine_rpc_urls},
-        utils::should_reposition_cursor,
-    },
+    common::{config::SuiConfig, utils::should_reposition_cursor},
     utils::ShardDiffCalculator,
 };
 

@@ -48,6 +48,8 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::active_committees::ActiveCommittees;
+#[cfg(msim)]
+use walrus_sdk::config::combine_rpc_urls;
 use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
@@ -72,7 +74,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
-use crate::common::config::{SuiConfig, combine_rpc_urls};
+use crate::common::config::SuiConfig;
 #[cfg(msim)]
 use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
 use crate::node::{
@@ -2403,8 +2405,12 @@ pub mod test_cluster {
                     .enumerate()
             {
                 let client = wallet
-                    .and_then_async(|wallet| {
-                        system_ctx.new_contract_client(wallet, Default::default(), None)
+                    .and_then_async(async |wallet| {
+                        #[allow(deprecated)]
+                        let rpc_urls = &[wallet.get_rpc_url()?];
+                        system_ctx
+                            .new_contract_client(wallet, rpc_urls, Default::default(), None)
+                            .await
                     })
                     .await?;
                 let temp_dir = client.temp_dir.path().to_owned();
@@ -2423,13 +2429,18 @@ pub mod test_cluster {
             let contract_config = system_ctx.contract_config();
 
             let admin_contract_client = admin_wallet
-                .and_then_async(|wallet| {
+                .and_then_async(async |wallet| {
+                    #[allow(deprecated)]
+                    let rpc_urls = &[wallet.get_rpc_url()?];
+
                     SuiContractClient::new(
                         wallet,
+                        rpc_urls,
                         &contract_config,
                         ExponentialBackoffConfig::default(),
                         None,
                     )
+                    .await
                 })
                 .await?;
 
