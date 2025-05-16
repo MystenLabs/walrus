@@ -2342,7 +2342,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     match metadata.index.get_quilt_patch_by_identifier(identifier) {
                         Ok(patch) => {
                             // Add all indices in the range [start_index, end_index)
-                            for idx in patch.start_index..patch.end_index {
+                            for idx in patch.start_index()..patch.end_index() {
                                 sliver_indices.push(SliverIndex::new(idx));
                             }
                         }

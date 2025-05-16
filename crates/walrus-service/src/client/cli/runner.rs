@@ -804,11 +804,11 @@ impl ClientCommandRunner {
                 println!("Quilt constructed and saved to {}", out.display());
                 for patch in quilt.quilt_index().quilt_patches.iter() {
                     println!(
-                        "Blob {} stored in quilt at [{}, {}), size: {}",
-                        patch.identifier,
-                        patch.start_index,
-                        patch.end_index,
-                        patch.unencoded_length
+                        "Blob {}, {} stored in quilt at [{}, {})",
+                        patch.quilt_patch_id(),
+                        patch.identifier(),
+                        patch.start_index(),
+                        patch.end_index(),
                     );
                 }
             }
@@ -942,15 +942,7 @@ impl ClientCommandRunner {
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
         match quilt_metadata {
             QuiltMetadata::V1(quilt_metadata_v1) => {
-                for patch in &quilt_metadata_v1.index.quilt_patches {
-                    println!(
-                        "Blob {} stored in quilt at [{}, {}), size: {}",
-                        patch.identifier,
-                        patch.start_index,
-                        patch.end_index,
-                        patch.unencoded_length
-                    );
-                }
+                quilt_metadata_v1.index.print_cli_output();
             }
         }
 

@@ -338,11 +338,11 @@ impl CliOutput for QuiltIndexV1 {
         );
         for patch in &self.quilt_patches {
             println!(
-                "{} is stored at [{}, {}), size: {}",
-                patch.identifier.bold().walrus_purple(),
-                patch.start_index,
-                patch.end_index,
-                HumanReadableBytes(patch.unencoded_length)
+                "{}, {} is stored at [{}, {})",
+                patch.quilt_patch_id(),
+                patch.identifier().bold().walrus_purple(),
+                patch.start_index(),
+                patch.end_index(),
             );
         }
     }
