@@ -182,6 +182,9 @@ pub enum QuiltError {
     /// Index is out of bounds.
     #[error("index is out of bounds: {0} > max index: {1}")]
     IndexOutOfBounds(usize, usize),
+    /// Empty input.
+    #[error("{0} is empty")]
+    EmptyInput(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

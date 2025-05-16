@@ -108,7 +108,7 @@ pub struct QuiltIndexV1 {
 
 impl QuiltIndexV1 {
     /// Returns the quilt patch with the given blob identifier.
-    /// TODO(WAL-829): Consider storing the quilt patch in a hashmap for O(1) lookup.
+    // TODO(WAL-829): Consider storing the quilt patch in a hashmap for O(1) lookup.
     pub fn get_quilt_patch_by_identifier(
         &self,
         identifier: &str,
