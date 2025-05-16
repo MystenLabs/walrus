@@ -103,7 +103,7 @@ impl FallbackClient {
     /// the number of failures exceeds `self.min_failures_to_start_fallback` and if the last
     /// successful RPC call was more than `self.failure_window_to_start_fallback_duration` minutes
     /// ago.
-    fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
+    pub fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
         last_success.elapsed() > self.failure_window_to_start_fallback_duration
             && num_failures > self.min_failures_to_start_fallback
     }
