@@ -432,12 +432,22 @@ impl ParallelCheckpointDownloaderInner {
         config: &ParallelDownloaderConfig,
         rng: &mut StdRng,
     ) -> CheckpointEntry {
-        let mut backoff = ExponentialBackoff::new_with_seed(
-            config.initial_delay,
-            config.max_delay,
-            config.retries,
-            rng.next_u64(),
-        );
+        let mut backoff = if cfg!(test) {
+            ExponentialBackoff::new_with_seed(
+                config.initial_delay,
+                config.max_delay,
+                config.retries,
+                rng.next_u64(),
+            )
+        } else {
+            ExponentialBackoff::new_with_seed(
+                config.initial_delay,
+                config.max_delay,
+                None,
+                rng.next_u64(),
+            )
+        };
+
         loop {
             let result = client.get_full_checkpoint(sequence_number).await;
             let Ok(checkpoint) = result else {
@@ -449,6 +459,8 @@ impl ParallelCheckpointDownloaderInner {
                     continue;
                 }
 
+                // Note that we only return error in test mode.
+                assert!(cfg!(test));
                 return CheckpointEntry::new(sequence_number, Err(err.into()));
             };
 

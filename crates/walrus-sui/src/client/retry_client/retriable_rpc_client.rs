@@ -373,7 +373,7 @@ impl RetriableRpcClient {
                 || !self
                     .fallback_client
                     .as_ref()
-                    .unwrap()
+                    .expect("fallback client must set")
                     .is_eligible_for_fallback(sequence_number, &error, last_success, num_failures)
             {
                 tracing::debug!(
