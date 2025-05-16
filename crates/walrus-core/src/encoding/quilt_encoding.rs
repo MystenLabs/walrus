@@ -55,6 +55,8 @@ pub trait QuiltVersion: Sized {
     type QuiltIndex: Clone;
     /// The type of the quilt metadata.
     type QuiltMetadata;
+    /// The type of the quilt patch ID.
+    type QuiltPatchId: Clone + fmt::Debug + Copy;
 
     /// The serialized bytes of the quilt type.
     fn quilt_version_byte() -> u8;
@@ -72,6 +74,9 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Gets a blob by its identifier from the quilt.
     #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
+
+    /// Gets a blob by its patch ID from the quilt.
+    fn get_blob_by_patch_id(&self, patch_id: V::QuiltPatchId) -> Result<Vec<u8>, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> &V::QuiltIndex;
@@ -272,7 +277,14 @@ pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x00;
-    const BLOB_SIZE_PREFIX_SIZE: usize = 4;
+    const BLOB_SIZE_PREFIX_SIZE: usize = 8;
+
+    /// Returns the total storage size of a blob given its unencoded length.
+    fn blob_total_size<L: Into<usize>>(unencoded_length: L) -> Result<usize, QuiltError> {
+        let blob_size = usize::try_from(unencoded_length)
+            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
+        Ok(blob_size + QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE)
+    }
 }
 
 impl QuiltVersion for QuiltVersionV1 {
@@ -282,6 +294,7 @@ impl QuiltVersion for QuiltVersionV1 {
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
     type QuiltMetadata = QuiltMetadataV1;
+    type QuiltPatchId = QuiltPatchIdV1;
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
@@ -467,6 +480,13 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
     }
 
+    fn get_blob_by_patch_id(&self, patch_id: QuiltPatchIdV1) -> Result<Vec<u8>, QuiltError> {
+        self.get_blob_by_range(
+            patch_id.start_index() as usize,
+            patch_id.end_index() as usize,
+        )
+    }
+
     fn quilt_index(&self) -> &QuiltIndexV1 {
         &self.quilt_index
     }
@@ -555,14 +575,12 @@ impl QuiltV1 {
         quilt_index.populate_start_indices(
             u16::try_from(columns_needed).expect("columns_needed should fit in u16"),
         );
+
         Ok(quilt_index)
     }
 
-    /// Gets the blob represented by the given quilt patch.
-    fn get_blob_by_quilt_patch(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
-        let start_col = usize::from(quilt_patch.start_index);
-        let end_col = usize::from(quilt_patch.end_index);
-
+    /// Gets a blob by its start and end indices.
+    fn get_blob_by_range(&self, start_col: usize, end_col: usize) -> Result<Vec<u8>, QuiltError> {
         if start_col >= end_col {
             return Err(QuiltError::Other(format!(
                 "Invalid column range in quilt patch: start_col {} >= end_col {}",
@@ -585,11 +603,21 @@ impl QuiltV1 {
         }
         assert!(size_cache.len() == QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE);
 
-        let padding_size = u32::from_le_bytes(size_cache.try_into().unwrap());
-        let column_size = self.symbol_size * self.data.len() / self.row_size;
-        let unencoded_length = (end_col - start_col) * column_size
-            - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE
-            - padding_size as usize;
+        let unencoded_length =
+            usize::try_from(u64::from_le_bytes(size_cache.try_into().map_err(|_| {
+                QuiltError::Other("Failed to extract blob size bytes".into())
+            })?))
+            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
+
+        let column_size = self.data.len() / self.row_size * self.symbol_size;
+        let columns_needed =
+            QuiltVersionV1::blob_total_size(unencoded_length)?.div_ceil(column_size);
+        if columns_needed != end_col - start_col {
+            return Err(QuiltError::Other(format!(
+                "Invalid column range in quilt patch: start_col {} end_col {}",
+                start_col, end_col
+            )));
+        }
 
         let mut blob_data = Vec::with_capacity(unencoded_length);
         let symbol_iterator = Self::iter_symbols(
@@ -607,6 +635,14 @@ impl QuiltV1 {
         assert!(blob_data.len() == unencoded_length);
 
         Ok(blob_data)
+    }
+
+    /// Gets the blob represented by the given quilt patch.
+    fn get_blob_by_quilt_patch(&self, quilt_patch: &QuiltPatchV1) -> Result<Vec<u8>, QuiltError> {
+        let start_col = usize::from(quilt_patch.start_index);
+        let end_col = usize::from(quilt_patch.end_index);
+
+        self.get_blob_by_range(start_col, end_col)
     }
 }
 
@@ -712,6 +748,38 @@ impl fmt::Debug for DebugQuiltIndex<'_> {
     }
 }
 
+/// The type of the quilt internal ID;
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+pub struct QuiltPatchIdV1(u32);
+
+impl QuiltPatchIdV1 {
+    /// Creates a new quilt patch ID from a start and end index.
+    pub fn new(start_index: u16, end_index: u16) -> Self {
+        Self((start_index as u32) << 16 | end_index as u32)
+    }
+
+    /// Returns the start index of the quilt patch.
+    pub fn start_index(&self) -> u16 {
+        (self.0 >> 16) as u16
+    }
+
+    /// Returns the end index of the quilt patch.
+    pub fn end_index(&self) -> u16 {
+        self.0 as u16
+    }
+}
+
+impl fmt::Debug for QuiltPatchIdV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "QuiltPatchIdV1({}..{})",
+            self.start_index(),
+            self.end_index()
+        )
+    }
+}
+
 /// Configuration for the quilt version 1.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct QuiltConfigV1;
@@ -811,7 +879,7 @@ impl<'a> QuiltEncoderV1<'a> {
     fn add_blob_to_quilt(
         data: &mut [u8],
         blob: &[u8],
-        include_padding_size: bool,
+        include_blob_size: bool,
         current_col: usize,
         column_size: usize,
         row_size: usize,
@@ -822,19 +890,16 @@ impl<'a> QuiltEncoderV1<'a> {
         let mut row = 0;
         let mut col = current_col;
 
-        let size_bytes = if include_padding_size {
-            let cols_needed = blob.len().div_ceil(column_size);
-            let padding_size = u32::try_from(
-                cols_needed * column_size - blob.len() - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE,
-            )
-            .map_err(|e| QuiltError::Other(format!("padding_size too large: {}", e)))?;
+        let size_bytes = if include_blob_size {
+            let blob_size = u64::try_from(blob.len())
+                .map_err(|e| QuiltError::Other(format!("blob_size too large: {}", e)))?;
 
-            padding_size.to_le_bytes()
+            blob_size.to_le_bytes()
         } else {
-            [0u8; 4]
+            [0u8; 8]
         };
 
-        let merge_iterator = if include_padding_size {
+        let merge_iterator = if include_blob_size {
             MergeIterator::new(vec![&size_bytes, blob], symbol_size)
         } else {
             MergeIterator::new(vec![blob], symbol_size)
@@ -893,13 +958,13 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
                 .expect("serialized_index_size should fit in usize");
 
         // Collect blob sizes for symbol size computation.
-        let all_sizes: Vec<usize> = core::iter::once(index_total_size)
+        let all_sizes: Vec<usize> = core::iter::once(Ok(index_total_size))
             .chain(
                 blob_pairs
                     .iter()
-                    .map(|bwd| bwd.blob.len() + QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE),
+                    .map(|blob| QuiltVersionV1::blob_total_size(blob.blob.len())),
             )
-            .collect();
+            .collect::<Result<Vec<usize>, QuiltError>>()?;
 
         let required_alignment = self.config.encoding_type().required_alignment() as usize;
         let symbol_size = utils::compute_symbol_size(
@@ -922,7 +987,8 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // First pass: Fill data with actual blobs and populate quilt patches.
         for (i, blob_with_identifier) in blob_pairs.iter().enumerate() {
             let original_blob_data = blob_with_identifier.blob;
-            let cols_needed = original_blob_data.len().div_ceil(column_size);
+            let cols_needed =
+                QuiltVersionV1::blob_total_size(original_blob_data.len())?.div_ceil(column_size);
             assert!(current_col + cols_needed <= n_columns);
 
             Self::add_blob_to_quilt(
@@ -1132,18 +1198,12 @@ impl<'a> QuiltDecoderV1<'a> {
             first_sliver.symbols.data()[0..QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE]
                 .try_into()
                 .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-        let padding_size = u32::from_le_bytes(*size_prefix_bytes);
+        let unencoded_length = usize::try_from(u64::from_le_bytes(*size_prefix_bytes))
+            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
         let column_size = first_sliver.symbols.data().len();
-        tracing::info!(
-            column_size = column_size,
-            padding_size = padding_size,
-            start_idx = start_idx,
-            end_idx = end_idx,
-            "get_blob_by_quilt_patch_size_info"
-        );
-        let unencoded_length = column_size * (end_idx - start_idx)
-            - padding_size as usize
-            - QuiltVersionV1::BLOB_SIZE_PREFIX_SIZE;
+        let columns_needed =
+            QuiltVersionV1::blob_total_size(unencoded_length)?.div_ceil(column_size);
+        assert_eq!(columns_needed, end_idx - start_idx);
 
         // Extract and reconstruct the blob.
         let mut blob = Vec::with_capacity(unencoded_length);
@@ -1165,6 +1225,8 @@ impl<'a> QuiltDecoderV1<'a> {
             let end = (begin + remaining_needed).min(sliver.symbols.data().len());
             blob.extend_from_slice(&sliver.symbols.data()[begin..end]);
         }
+
+        assert_eq!(blob.len(), unencoded_length);
 
         Ok(blob)
     }
@@ -1330,6 +1392,7 @@ mod tests {
     use alloc::boxed::Box;
     use core::num::NonZeroU16;
 
+    use rand::Rng;
     use walrus_test_utils::{param_test, random_data};
 
     use super::*;
@@ -1549,6 +1612,25 @@ mod tests {
         assert_eq!(quilt.quilt_index().len(), blobs_with_identifiers.len());
     }
 
+    #[test]
+    fn test_quilt_with_random_blobs() {
+        for _ in 0..1000 {
+            let mut rng = rand::thread_rng();
+            let num_blobs = rng.gen_range(1..50) as usize;
+            let n_shards = rng.gen_range(((num_blobs + 5) * 3).div_ceil(2)..100) as u16;
+            let min_blob_size = rng.gen_range(1..100);
+            let max_blob_size = rng.gen_range(min_blob_size..1000);
+            std::println!(
+                "test_quilt_with_random_blobs: {}, {}, {}, {}",
+                num_blobs,
+                min_blob_size,
+                max_blob_size,
+                n_shards
+            );
+            test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
+        }
+    }
+
     param_test! {
         test_quilt_encoder_and_decoder: [
             case_0: (3, 5, 16, 7),
@@ -1648,7 +1730,7 @@ mod tests {
         quilt_decoder.add_slivers(&slivers);
 
         for blob_with_identifier in blobs_with_identifiers {
-            tracing::info!("decoding blob {}", blob_with_identifier.identifier);
+            tracing::debug!("decoding blob {}", blob_with_identifier.identifier);
             let blob =
                 quilt_decoder.get_blob_by_identifier(blob_with_identifier.identifier.as_str());
             assert_eq!(blob, Ok(blob_with_identifier.blob.to_vec()));
