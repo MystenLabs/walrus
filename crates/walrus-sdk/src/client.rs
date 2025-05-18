@@ -799,10 +799,10 @@ impl Client<SuiContractClient> {
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let blobs_with_identifiers =
+        let quilt_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
         if let Some(metrics) = metrics {
             metrics.observe_encoding_latency(start.elapsed());
         }
@@ -849,10 +849,10 @@ impl Client<SuiContractClient> {
             .iter()
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
-        let blobs_with_identifiers =
+        let quilt_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
 
-        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
@@ -902,10 +902,10 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let blobs_with_identifiers =
+        let quilt_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
 
         let mut results = self
             .reserve_and_store_encoded_blobs(
@@ -938,10 +938,10 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let blobs_with_identifiers =
+        let quilt_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
 
         debug_assert_eq!(
             encoded_blobs.len(),
@@ -975,15 +975,15 @@ impl Client<SuiContractClient> {
     /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
     pub fn encode_blobs<'a, T: Debug + Clone + Send + Sync>(
         &self,
-        blobs_with_identifiers: Vec<WalrusStoreBlob<'a, T>>,
+        quilt_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        if blobs_with_identifiers.is_empty() {
+        if quilt_store_blobs.is_empty() {
             return Ok(Vec::new());
         }
 
-        if blobs_with_identifiers.len() > 1 {
-            let total_blob_size = blobs_with_identifiers
+        if quilt_store_blobs.len() > 1 {
+            let total_blob_size = quilt_store_blobs
                 .iter()
                 .map(|blob| blob.unencoded_length())
                 .sum::<usize>();
@@ -1002,7 +1002,7 @@ impl Client<SuiContractClient> {
         let multi_pb = Arc::new(MultiProgress::new());
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        let results = blobs_with_identifiers
+        let results = quilt_store_blobs
             .into_par_iter()
             .map(|blob| {
                 let multi_pb_clone = multi_pb.clone();
@@ -2374,10 +2374,9 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     identifiers
                         .iter()
                         .map(|identifier| {
-                            let blob = decoder.get_blob_by_identifier(identifier).map_err(|e| {
-                                ClientError::from(ClientErrorKind::Other(Box::new(e)))
-                            })?;
-                            Ok(QuiltStoreBlobOwned::new(blob, *identifier))
+                            decoder
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
                         })
                         .collect::<Result<Vec<_>, _>>()
                 } else {
@@ -2385,10 +2384,9 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     identifiers
                         .iter()
                         .map(|identifier| {
-                            let blob = quilt.get_blob_by_identifier(identifier).map_err(|e| {
-                                ClientError::from(ClientErrorKind::Other(Box::new(e)))
-                            })?;
-                            Ok(QuiltStoreBlobOwned::new(blob, *identifier))
+                            quilt
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
                         })
                         .collect::<Result<Vec<_>, _>>()
                 }
@@ -2440,7 +2438,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let blobs_with_identifiers: Vec<_> = blobs_with_paths
+        let quilt_store_blobs: Vec<_> = blobs_with_paths
             .iter()
             .map(|(path, blob)| {
                 QuiltStoreBlob::new(
@@ -2455,7 +2453,7 @@ impl QuiltClient<'_, SuiContractClient> {
 
         let encoder = V::QuiltConfig::get_encoder(
             self.client.encoding_config().get_for_type(encoding_type),
-            &blobs_with_identifiers,
+            &quilt_store_blobs,
         );
 
         encoder.construct_quilt().map_err(ClientError::other)
@@ -2484,7 +2482,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let blobs_with_identifiers: Vec<_> = blobs_with_paths
+        let quilt_store_blobs: Vec<_> = blobs_with_paths
             .iter()
             .map(|(path, blob)| {
                 QuiltStoreBlob::new(
@@ -2499,7 +2497,7 @@ impl QuiltClient<'_, SuiContractClient> {
 
         let mut result = self
             .reserve_and_store_quilt(
-                &blobs_with_identifiers,
+                &quilt_store_blobs,
                 encoding_type,
                 epochs_ahead,
                 store_when,
@@ -2517,14 +2515,14 @@ impl QuiltClient<'_, SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
-        blobs_with_identifiers: &[QuiltStoreBlob<'_>],
+        quilt_store_blobs: &[QuiltStoreBlob<'_>],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult<V>> {
-        if blobs_with_identifiers.is_empty() {
+        if quilt_store_blobs.is_empty() {
             return Err(ClientError::from(ClientErrorKind::StoreBlobInternal(
                 "no blobs to store".to_string(),
             )));
@@ -2532,7 +2530,7 @@ impl QuiltClient<'_, SuiContractClient> {
 
         let encoder = V::QuiltConfig::get_encoder(
             self.client.encoding_config().get_for_type(encoding_type),
-            blobs_with_identifiers,
+            quilt_store_blobs,
         );
         let quilt = encoder
             .construct_quilt()

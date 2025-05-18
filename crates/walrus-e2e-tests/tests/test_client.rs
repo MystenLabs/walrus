@@ -1004,7 +1004,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let client = client.as_ref();
     let blobs = walrus_test_utils::random_data_list(314, blobs_to_create as usize);
     let encoding_type = DEFAULT_ENCODING;
-    let blobs_with_identifiers = blobs
+    let quilt_store_blobs = blobs
         .iter()
         .enumerate()
         .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
@@ -1014,7 +1014,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_write_client = client.quilt_client();
     let store_operation_result = quilt_write_client
         .reserve_and_store_quilt::<QuiltVersionV1>(
-            &blobs_with_identifiers,
+            &quilt_store_blobs,
             encoding_type,
             2,
             StoreWhen::Always,
@@ -1066,7 +1066,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .map(|b| (b.identifier(), b.data()))
         .collect();
 
-    for original_bwi in blobs_with_identifiers.iter() {
+    for original_bwi in quilt_store_blobs.iter() {
         let original_id = original_bwi.identifier();
         let original_data = original_bwi.data();
 
@@ -1081,7 +1081,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         );
     }
 
-    for bwi in blobs_with_identifiers.iter() {
+    for bwi in quilt_store_blobs.iter() {
         let retrieved_blob = quilt_read_client
             .get_blobs(&blob_id, &[bwi.identifier()])
             .await?;
