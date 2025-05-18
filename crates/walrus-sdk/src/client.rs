@@ -34,8 +34,6 @@ use walrus_core::{
     bft,
     encoding::{
         BlobDecoderEnum,
-        BlobWithIdentifier,
-        BlobWithIdentifierOwned,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
@@ -46,6 +44,8 @@ use walrus_core::{
         QuiltDecoderV1,
         QuiltEncoderApi,
         QuiltEnum,
+        QuiltStoreBlob,
+        QuiltStoreBlobOwned,
         QuiltV1,
         QuiltVersion,
         QuiltVersionEnum,
@@ -2331,7 +2331,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         &self,
         quilt_id: &BlobId,
         identifiers: &[&str],
-    ) -> ClientResult<Vec<BlobWithIdentifierOwned>> {
+    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
         let metadata = self.get_quilt_metadata(quilt_id).await?;
 
         match metadata {
@@ -2377,7 +2377,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             let blob = decoder.get_blob_by_identifier(identifier).map_err(|e| {
                                 ClientError::from(ClientErrorKind::Other(Box::new(e)))
                             })?;
-                            Ok(BlobWithIdentifierOwned::new(blob, *identifier))
+                            Ok(QuiltStoreBlobOwned::new(blob, *identifier))
                         })
                         .collect::<Result<Vec<_>, _>>()
                 } else {
@@ -2388,7 +2388,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             let blob = quilt.get_blob_by_identifier(identifier).map_err(|e| {
                                 ClientError::from(ClientErrorKind::Other(Box::new(e)))
                             })?;
-                            Ok(BlobWithIdentifierOwned::new(blob, *identifier))
+                            Ok(QuiltStoreBlobOwned::new(blob, *identifier))
                         })
                         .collect::<Result<Vec<_>, _>>()
                 }
@@ -2443,7 +2443,7 @@ impl QuiltClient<'_, SuiContractClient> {
         let blobs_with_identifiers: Vec<_> = blobs_with_paths
             .iter()
             .map(|(path, blob)| {
-                BlobWithIdentifier::new(
+                QuiltStoreBlob::new(
                     blob,
                     path.file_name()
                         .unwrap_or_default()
@@ -2487,7 +2487,7 @@ impl QuiltClient<'_, SuiContractClient> {
         let blobs_with_identifiers: Vec<_> = blobs_with_paths
             .iter()
             .map(|(path, blob)| {
-                BlobWithIdentifier::new(
+                QuiltStoreBlob::new(
                     blob,
                     path.file_name()
                         .unwrap_or_default()
@@ -2517,7 +2517,7 @@ impl QuiltClient<'_, SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
-        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
+        blobs_with_identifiers: &[QuiltStoreBlob<'_>],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,

@@ -30,10 +30,10 @@ use walrus_core::{
     ShardIndex,
     SliverPairIndex,
     encoding::{
-        BlobWithIdentifier,
-        BlobWithIdentifierOwned,
         EncodingConfigTrait as _,
         Primary,
+        QuiltStoreBlob,
+        QuiltStoreBlobOwned,
         QuiltVersionV1,
     },
     merkle::Node,
@@ -1007,7 +1007,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let blobs_with_identifiers = blobs
         .iter()
         .enumerate()
-        .map(|(i, blob)| BlobWithIdentifier::new(blob, format!("test-blob-{}", i + 1)))
+        .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
         .collect::<Vec<_>>();
 
     // Add a blob that is not deletable.
@@ -1051,7 +1051,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let identifiers_refs: Vec<&str> = identifiers_owned.iter().map(AsRef::as_ref).collect();
 
     // Fetch all blobs from the quilt once.
-    let retrieved_quilt_blobs: Vec<BlobWithIdentifierOwned> = quilt_read_client
+    let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
         .get_blobs(&blob_id, &identifiers_refs)
         .await?;
 

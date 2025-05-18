@@ -6,6 +6,8 @@
 // Please use with caution as it is subject to change without prior notice.
 // *******************************************************************************
 
+#![allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+
 use alloc::{
     format,
     string::{String, ToString},
@@ -39,19 +41,18 @@ use crate::{
 };
 
 /// The number of bytes to store the size of the quilt index.
-const QUILT_INDEX_SIZE_PREFIX_SIZE: usize = 4;
+const QUILT_INDEX_SIZE_BYTES_LENGTH: usize = 4;
 
-/// The number of bytes used to store the type of the quilt.
-const QUILT_TYPE_SIZE: usize = 1;
+/// The number of bytes used to store the version of the quilt.
+const QUILT_VERSION_BYTES_LENGTH: usize = 1;
 
 /// The number of bytes stored before the quilt index data.
-const QUILT_INDEX_PREFIX_SIZE: usize = QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
+const QUILT_INDEX_PREFIX_SIZE: usize = QUILT_INDEX_SIZE_BYTES_LENGTH + QUILT_VERSION_BYTES_LENGTH;
 
 /// The maximum number of columns a quilt index can have.
 const MAX_NUM_COLUMNS_FOR_QUILT_INDEX: usize = 1;
 
 /// Gets the quilt version enum from the data.
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
     QuiltVersionEnum::try_from(utils::get_quilt_version_byte(data)?)
 }
@@ -78,7 +79,6 @@ pub trait QuiltVersion: Sized {
 }
 
 /// API to access a quilt.
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltApi<V: QuiltVersion> {
     /// Returns a new quilt from a quilt blob.
     fn new_from_quilt_blob(
@@ -87,7 +87,6 @@ pub trait QuiltApi<V: QuiltVersion> {
     ) -> Result<V::Quilt, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError>;
 
     /// Gets a blob by its patch ID from the quilt.
@@ -104,12 +103,11 @@ pub trait QuiltApi<V: QuiltVersion> {
 }
 
 /// The configuration of the quilt.
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     /// Returns a new encoder for the given configuration and blobs.
     fn get_encoder(
         encoding_config: EncodingConfigEnum<'a>,
-        blobs: &'a [BlobWithIdentifier<'a>],
+        blobs: &'a [QuiltStoreBlob<'a>],
     ) -> V::QuiltEncoder<'a>;
 
     /// Returns a new decoder for the given slivers.
@@ -117,7 +115,6 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
 }
 
 /// Encoder to construct a quilt and encode the blobs into slivers.
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltEncoderApi<V: QuiltVersion> {
     /// Constructs a quilt by encoding the blobs.
     fn construct_quilt(&self) -> Result<V::Quilt, QuiltError>;
@@ -130,7 +127,6 @@ pub trait QuiltEncoderApi<V: QuiltVersion> {
 }
 
 /// Decoder to decode a quilt from slivers.
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     /// Decodes the quilt index from received slivers.
     ///
@@ -148,254 +144,28 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
 }
 
-/// The version of the quilt.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[repr(u8)]
-pub enum QuiltVersionEnum {
-    /// QuiltVersionV1.
-    V1,
-}
+/// A unified trait for iterating over column-based quilt data from different sources.
+pub trait QuiltColumnDataIterator {
+    type RangeIter<'a>: Iterator<Item = &'a [u8]> + 'a
+    where
+        Self: 'a;
 
-impl From<QuiltVersionEnum> for u8 {
-    fn from(value: QuiltVersionEnum) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for QuiltVersionEnum {
-    type Error = QuiltError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(QuiltVersionEnum::V1),
-            _ => Err(QuiltError::Other(format!(
-                "Invalid quilt version byte: {}",
-                value
-            ))),
-        }
-    }
-}
-
-impl fmt::Display for QuiltVersionEnum {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl From<String> for QuiltVersionEnum {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "V1" | "v1" | "1" => QuiltVersionEnum::V1,
-            _ => QuiltVersionEnum::V1, // Default or consider error
-        }
-    }
-}
-
-impl QuiltVersionEnum {
-    /// Creates a new `QuiltVersionEnum` from a sliver.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn new_from_sliver(sliver: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
-        if sliver.is_empty() {
-            return Err(QuiltError::EmptyInput("Sliver".to_string()));
-        }
-        QuiltVersionEnum::try_from(sliver[0])
-    }
-}
-
-/// The quilt enum.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum QuiltEnum {
-    /// The quilt version 1.
-    V1(QuiltV1),
-}
-
-impl QuiltEnum {
-    /// Returns the blob identified by the given identifier.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
-        match self {
-            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
-        }
-    }
-
-    /// Returns the quilt index.
-    #[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-    pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
-        match self {
-            QuiltEnum::V1(quilt_v1) => Ok(QuiltIndex::V1(quilt_v1.quilt_index.clone())),
-        }
-    }
-}
-
-/// A wrapper around a blob and its identifier.
-///
-/// A valid identifier is a string that contains only alphanumeric characters,
-/// underscores, hyphens, and periods.
-#[derive(Debug, Clone)]
-pub struct BlobWithIdentifier<'a> {
-    blob: &'a [u8],
-    identifier: String,
-}
-
-impl<'a> BlobWithIdentifier<'a> {
-    /// Creates a new `BlobWithIdentifier` from a blob and an identifier.
-    pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Self {
-        Self {
-            blob,
-            identifier: identifier.into(),
-        }
-    }
-
-    /// Returns a reference to the blob data.
-    pub fn data(&self) -> &'a [u8] {
-        self.blob
-    }
-
-    /// Returns a reference to the identifier.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
-    }
-}
-
-/// A wrapper around an owned blob and its identifier.
-///
-/// A valid identifier is a string that contains only alphanumeric characters,
-/// underscores, hyphens, and periods.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-pub struct BlobWithIdentifierOwned {
-    blob: Vec<u8>,
-    identifier: String,
-}
-
-#[allow(dead_code)] // TODO: remove this once follow up PRs are merged.
-impl BlobWithIdentifierOwned {
-    /// Creates a new `BlobWithIdentifierOwned` from an owned blob and an identifier.
-    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
-        Self {
-            blob,
-            identifier: identifier.into(),
-        }
-    }
-
-    /// Returns a reference to the blob data.
-    pub fn data(&self) -> &[u8] {
-        &self.blob
-    }
-
-    /// Returns a reference to the identifier.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct BlobHeader {
-    pub length: u64,
-    pub mask: u16,
-}
-
-impl BlobHeader {
-    pub const BYTE_SIZE: usize = QuiltVersionV1::BLOB_HEADER_SIZE;
-
-    const LENGTH_BITS: u32 = 34;
-    const MASK_BITS: u32 = 14;
-
-    const LENGTH_MAX: u64 = (1u64 << Self::LENGTH_BITS) - 1;
-    const MASK_MAX: u16 = (1u16 << Self::MASK_BITS) - 1;
-
-    /// Creates a new header with length and mask initialized to 0.
-    pub fn new(length: u64, mask: u16) -> Result<Self, QuiltError> {
-        if length > Self::LENGTH_MAX {
-            return Err(QuiltError::Other(
-                "Length exceeds maximum allowed value".to_string(),
-            ));
-        }
-        if mask > Self::MASK_MAX {
-            return Err(QuiltError::Other(
-                "Mask exceeds maximum allowed value".to_string(),
-            ));
-        }
-        Ok(Self { length, mask })
-    }
-
-    /// Creates a BlobHeader from a 6-byte array.
-    /// The layout is: first 34 bits for length, next 14 bits for mask.
-    pub fn from_bytes(bytes: [u8; Self::BYTE_SIZE]) -> Self {
-        let mut length: u64 = 0;
-        length |= u64::from(bytes[0]);
-        length |= u64::from(bytes[1]) << 8;
-        length |= u64::from(bytes[2]) << 16;
-        length |= u64::from(bytes[3]) << 24;
-        // Lower 2 bits of bytes[4].
-        length |= (u64::from(bytes[4]) & 0x03) << 32;
-        // Upper 6 bits from bytes[4] for the lower 6 bits of the mask.
-        let mut mask: u16 = 0;
-        // Upper 6 bits from bytes[4] for the lower 6 bits of the mask.
-        mask |= (u16::from(bytes[4]) >> 2) & 0x3F;
-        // All 8 bits from bytes[5] for the upper 8 bits of the mask.
-        mask |= u16::from(bytes[5]) << 6;
-
-        Self {
-            length: length & Self::LENGTH_MAX,
-            mask: mask & Self::MASK_MAX,
-        }
-    }
-
-    /// Converts the BlobHeader to a 6-byte array.
-    pub fn as_bytes(&self) -> [u8; Self::BYTE_SIZE] {
-        let mut data = [0u8; Self::BYTE_SIZE];
-
-        data[0] = (self.length & 0xFF) as u8;
-        data[1] = ((self.length >> 8) & 0xFF) as u8;
-        data[2] = ((self.length >> 16) & 0xFF) as u8;
-        data[3] = ((self.length >> 24) & 0xFF) as u8;
-
-        // data[4] contains the two highest bits of length (32,33) in its lowest 2 bits (0,1).
-        // and the lowest 6 bits of mask (0-5) in its highest 6 bits (2-7).
-        data[4] = ((self.length >> 32) & 0x03) as u8;
-        data[4] |= ((self.mask & 0x3F) << 2) as u8;
-
-        // data[5] contains the highest 8 bits of mask (6-13).
-        data[5] = ((self.mask >> 6) & 0xFF) as u8;
-
-        data
-    }
-}
-
-/// Quilt version 1.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QuiltVersionV1;
-
-impl QuiltVersionV1 {
-    const QUILT_VERSION_BYTE: u8 = 0x00;
-    const BLOB_HEADER_SIZE: usize = 6;
-
-    /// Returns the total storage size of a blob given its unencoded length.
-    fn blob_total_size<L: Into<usize>>(unencoded_length: L) -> Result<usize, QuiltError> {
-        let blob_size = usize::try_from(unencoded_length)
-            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-        Ok(blob_size + QuiltVersionV1::BLOB_HEADER_SIZE)
-    }
-}
-
-impl QuiltVersion for QuiltVersionV1 {
-    type QuiltConfig = QuiltConfigV1;
-    type QuiltEncoder<'a> = QuiltEncoderV1<'a>;
-    type QuiltDecoder<'a> = QuiltDecoderV1<'a>;
-    type Quilt = QuiltV1;
-    type QuiltIndex = QuiltIndexV1;
-    type QuiltMetadata = QuiltMetadataV1;
-    type QuiltPatchId = QuiltPatchIdV1;
-
-    fn quilt_version_byte() -> u8 {
-        QuiltVersionV1::QUILT_VERSION_BYTE
-    }
+    /// Returns an iterator over byte in the columns identified by the given start and end indices.
+    ///
+    /// Assuming a 0-indexed bytes, the iterator will return the bytes in the range
+    /// `[start_byte, start_byte + limit_bytes)`.
+    fn iter_column_bytes(
+        &self,
+        start_col: usize,
+        end_col: usize,
+        start_byte: usize,
+        limit_bytes: usize,
+    ) -> Result<Self::RangeIter<'_>, QuiltError>;
 }
 
 /// An iterator over symbols within a specified column range of a Quilt.
 #[derive(Debug)]
-struct SymbolIter<'a> {
+pub struct SymbolIter<'a> {
     quilt_data: &'a [u8],
     row_size: usize,
     symbol_size: usize,
@@ -502,14 +272,445 @@ impl<'a> SymbolIter<'a> {
     }
 }
 
+/// Iterator over bytes from slivers.
+#[derive(Debug)]
+pub struct SliverBytesIterator<'a> {
+    slivers: Vec<&'a SliverData<Secondary>>,
+    current_sliver_idx: usize,
+    current_offset: usize,
+    bytes_to_skip: usize,
+    bytes_remaining: usize,
+}
+
+impl<'a> SliverBytesIterator<'a> {
+    fn new(
+        slivers: Vec<&'a SliverData<Secondary>>,
+        skip_bytes: usize,
+        limit_bytes: usize,
+    ) -> Result<Self, QuiltError> {
+        Ok(Self {
+            slivers,
+            current_sliver_idx: 0,
+            current_offset: 0,
+            bytes_to_skip: skip_bytes,
+            bytes_remaining: limit_bytes,
+        })
+    }
+
+    fn next_n_bytes(&mut self, n_bytes: usize) -> Option<&'a [u8]> {
+        while self.current_sliver_idx < self.slivers.len()
+            && self.current_offset >= self.slivers[self.current_sliver_idx].symbols.data().len()
+        {
+            self.current_sliver_idx += 1;
+            self.current_offset = 0;
+        }
+
+        let sliver = self.slivers.get(self.current_sliver_idx)?;
+        let sliver_data = sliver.symbols.data();
+
+        let end_index = sliver_data.len().min(self.current_offset + n_bytes);
+        let result = &sliver_data[self.current_offset..end_index];
+        self.current_offset = end_index;
+
+        Some(result)
+    }
+}
+
+impl<'a> Iterator for SliverBytesIterator<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes_remaining == 0 {
+            return None;
+        }
+
+        // Handle skipping
+        while self.bytes_to_skip > 0 {
+            match self.next_n_bytes(self.bytes_to_skip) {
+                Some(slice) => {
+                    if slice.len() > self.bytes_to_skip {
+                        // Partially skip this slice.
+                        let start = self.bytes_to_skip;
+                        let result = &slice[start..];
+                        self.bytes_to_skip = 0;
+
+                        let yield_len = result.len().min(self.bytes_remaining);
+                        self.bytes_remaining -= yield_len;
+                        return Some(&result[..yield_len]);
+                    } else {
+                        // Skip entire slice
+                        self.bytes_to_skip -= slice.len();
+                    }
+                }
+                None => return None,
+            }
+        }
+
+        // Regular iteration after skipping
+        match self.next_n_bytes(self.bytes_remaining) {
+            Some(slice) => {
+                let yield_len = slice.len().min(self.bytes_remaining);
+                self.bytes_remaining -= yield_len;
+                Some(&slice[..yield_len])
+            }
+            None => None,
+        }
+    }
+}
+
+/// The version of the quilt.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(u8)]
+pub enum QuiltVersionEnum {
+    /// QuiltVersionV1.
+    V1,
+}
+
+impl From<QuiltVersionEnum> for u8 {
+    fn from(value: QuiltVersionEnum) -> Self {
+        value as u8
+    }
+}
+
+impl TryFrom<u8> for QuiltVersionEnum {
+    type Error = QuiltError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(QuiltVersionEnum::V1),
+            _ => Err(QuiltError::Other(format!(
+                "Invalid quilt version byte: {}",
+                value
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for QuiltVersionEnum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl From<String> for QuiltVersionEnum {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "V1" | "v1" | "1" => QuiltVersionEnum::V1,
+            _ => QuiltVersionEnum::V1, // Default or consider error
+        }
+    }
+}
+
+impl QuiltVersionEnum {
+    /// Creates a new `QuiltVersionEnum` from a sliver.
+    pub fn new_from_sliver(sliver: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
+        if sliver.is_empty() {
+            return Err(QuiltError::EmptyInput("Sliver".to_string()));
+        }
+        QuiltVersionEnum::try_from(sliver[0])
+    }
+}
+
+/// The quilt enum.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum QuiltEnum {
+    /// The quilt version 1.
+    V1(QuiltV1),
+}
+
+impl QuiltEnum {
+    /// Returns the blob identified by the given identifier.
+    pub fn get_blob_by_identifier(&self, identifier: &str) -> Result<Vec<u8>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
+        }
+    }
+
+    /// Returns the quilt index.
+    pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => Ok(QuiltIndex::V1(quilt_v1.quilt_index.clone())),
+        }
+    }
+}
+
+/// A wrapper around a blob and its identifier.
+///
+/// A valid identifier is a string that contains only alphanumeric characters,
+/// underscores, hyphens, and periods.
+#[derive(Debug, Clone)]
+pub struct QuiltStoreBlob<'a> {
+    blob: &'a [u8],
+    identifier: String,
+    /// The attributes of the blob.
+    pub attributes: HashMap<String, String>,
+}
+
+impl<'a> QuiltStoreBlob<'a> {
+    /// Creates a new `QuiltStoreBlob` from a blob and an identifier.
+    pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &'a [u8] {
+        self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// A wrapper around an owned blob and its identifier.
+///
+/// A valid identifier is a string that contains only alphanumeric characters,
+/// underscores, hyphens, and periods.
+#[derive(Debug, Clone)]
+pub struct QuiltStoreBlobOwned {
+    /// The blob data.
+    pub blob: Vec<u8>,
+    /// The identifier of the blob.
+    pub identifier: String,
+    /// The attributes of the blob.
+    pub attributes: HashMap<String, String>,
+}
+
+impl QuiltStoreBlobOwned {
+    /// Creates a new `QuiltStoreBlobOwned` from an owned blob and an identifier.
+    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Returns a reference to the blob data.
+    pub fn data(&self) -> &[u8] {
+        &self.blob
+    }
+
+    /// Returns a reference to the identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// Quilt version 1.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuiltVersionV1;
+
+impl QuiltVersionV1 {
+    const QUILT_VERSION_BYTE: u8 = 0x00;
+    const BLOB_HEADER_SIZE: usize = 7;
+    const EXTENSION_SIZE_BYTES_LENGTH: usize = 4;
+
+    /// Returns the total size of the encoded blob.
+    pub fn compute_encoded_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
+        let mut extension_size = 0;
+
+        if !blob.attributes.is_empty() {
+            let attributes_size = bcs::serialized_size(&blob.attributes).map_err(|e| {
+                QuiltError::Other(format!("Failed to compute attributes size: {}", e))
+            })?;
+            extension_size += attributes_size + QuiltVersionV1::EXTENSION_SIZE_BYTES_LENGTH;
+        }
+
+        let total_size = extension_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE;
+        Ok(total_size)
+    }
+
+    /// Decodes a blob from a column data source.
+    pub fn decode_blob<T>(
+        data_source: &T,
+        start_col: usize,
+        end_col: usize,
+    ) -> Result<QuiltStoreBlobOwned, QuiltError>
+    where
+        T: QuiltColumnDataIterator,
+    {
+        let mut blob = QuiltStoreBlobOwned::new(Vec::new(), "".to_string());
+
+        let mut header_bytes = Vec::new();
+        {
+            let iter =
+                data_source.iter_column_bytes(start_col, end_col, 0, Self::BLOB_HEADER_SIZE)?;
+            for symbol in iter {
+                header_bytes.extend_from_slice(symbol);
+            }
+        }
+        assert!(header_bytes.len() == Self::BLOB_HEADER_SIZE);
+        let blob_header = BlobHeaderV1::from_bytes(
+            header_bytes
+                .try_into()
+                .expect("header_bytes should be 7 bytes"),
+        );
+
+        let mut total_attributes_size = 0;
+        let mut offset = Self::BLOB_HEADER_SIZE;
+        if blob_header.has_attributes() {
+            let mut size_bytes = Vec::new();
+            let iter = data_source.iter_column_bytes(
+                start_col,
+                end_col,
+                offset,
+                Self::EXTENSION_SIZE_BYTES_LENGTH,
+            )?;
+            for symbol in iter {
+                size_bytes.extend_from_slice(symbol);
+            }
+            let attributes_size =
+                u32::from_le_bytes(size_bytes.try_into().expect("size_bytes should be 4 bytes"));
+            offset += Self::EXTENSION_SIZE_BYTES_LENGTH;
+            let attribute_iter = data_source.iter_column_bytes(
+                start_col,
+                end_col,
+                offset,
+                attributes_size as usize,
+            )?;
+            let mut attributes_bytes = Vec::new();
+            for symbol in attribute_iter {
+                attributes_bytes.extend_from_slice(symbol);
+            }
+            assert!(attributes_bytes.len() == attributes_size as usize);
+            blob.attributes = bcs::from_bytes(&attributes_bytes)
+                .map_err(|_| QuiltError::Other("Failed to deserialize attributes".into()))?;
+            offset += attributes_size as usize;
+            total_attributes_size += attributes_size as usize;
+        }
+
+        let mut data_bytes = Vec::new();
+        let length = blob_header.length - total_attributes_size as u64;
+        let iter = data_source.iter_column_bytes(start_col, end_col, offset, length as usize)?;
+        for symbol in iter {
+            data_bytes.extend_from_slice(symbol);
+        }
+        assert!(data_bytes.len() == length as usize);
+        blob.blob = data_bytes;
+
+        Ok(blob)
+    }
+}
+
+impl QuiltVersion for QuiltVersionV1 {
+    type QuiltConfig = QuiltConfigV1;
+    type QuiltEncoder<'a> = QuiltEncoderV1<'a>;
+    type QuiltDecoder<'a> = QuiltDecoderV1<'a>;
+    type Quilt = QuiltV1;
+    type QuiltIndex = QuiltIndexV1;
+    type QuiltMetadata = QuiltMetadataV1;
+    type QuiltPatchId = QuiltPatchIdV1;
+
+    fn quilt_version_byte() -> u8 {
+        QuiltVersionV1::QUILT_VERSION_BYTE
+    }
+}
+
+/// The header of a encoded blob in QuiltVersionV1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BlobHeaderV1 {
+    pub length: u64, // the lower 34 bits are used for the length.
+    pub mask: u16,   // the lower 14 bits are used for the mask.
+}
+
+impl BlobHeaderV1 {
+    const LENGTH_BITS: u32 = 34;
+    const MASK_BITS: u32 = 14;
+    const METADATA_ENABLED: u16 = 1;
+
+    const LENGTH_MAX: u64 = (1u64 << Self::LENGTH_BITS) - 1;
+    const MASK_MAX: u16 = (1u16 << Self::MASK_BITS) - 1;
+
+    /// Creates a new header with length and mask initialized to 0.
+    pub fn new(length: u64, mask: u16) -> Result<Self, QuiltError> {
+        if length > Self::LENGTH_MAX {
+            return Err(QuiltError::Other(
+                "Length exceeds maximum allowed value".to_string(),
+            ));
+        }
+        if mask > Self::MASK_MAX {
+            return Err(QuiltError::Other(
+                "Mask exceeds maximum allowed value".to_string(),
+            ));
+        }
+        Ok(Self { length, mask })
+    }
+
+    /// Creates a `BlobHeaderV1` from a 7-byte array.
+    /// The layout is: version (1 byte), length (next 34 bits), mask (next 14 bits).
+    pub fn from_bytes(bytes: [u8; QuiltVersionV1::BLOB_HEADER_SIZE]) -> Self {
+        let version = bytes[0];
+        assert_eq!(version, QuiltVersionV1::QUILT_VERSION_BYTE);
+        let mut length: u64 = 0;
+        length |= u64::from(bytes[1]);
+        length |= u64::from(bytes[2]) << 8;
+        length |= u64::from(bytes[3]) << 16;
+        length |= u64::from(bytes[4]) << 24;
+        // Lower 2 bits of bytes[5] for length.
+        length |= (u64::from(bytes[5]) & 0x03) << 32;
+
+        let mut mask: u16 = 0;
+        // Upper 6 bits from bytes[5] for the lower 6 bits of the mask.
+        mask |= (u16::from(bytes[5]) >> 2) & 0x3F;
+        // All 8 bits from bytes[6] for the upper 8 bits of the mask.
+        mask |= u16::from(bytes[6]) << 6;
+
+        Self {
+            length: length & Self::LENGTH_MAX,
+            mask: mask & Self::MASK_MAX,
+        }
+    }
+
+    /// Converts the `BlobHeaderV1` to a 7-byte array.
+    pub fn as_bytes(&self) -> [u8; QuiltVersionV1::BLOB_HEADER_SIZE] {
+        let mut data = [0u8; QuiltVersionV1::BLOB_HEADER_SIZE];
+
+        data[0] = QuiltVersionV1::QUILT_VERSION_BYTE;
+
+        data[1] = (self.length & 0xFF) as u8;
+        data[2] = ((self.length >> 8) & 0xFF) as u8;
+        data[3] = ((self.length >> 16) & 0xFF) as u8;
+        data[4] = ((self.length >> 24) & 0xFF) as u8;
+
+        // data[5] contains the two highest bits of length (32,33) in its lowest 2 bits (0,1).
+        // and the lowest 6 bits of mask (0-5) in its highest 6 bits (2-7).
+        data[5] = ((self.length >> 32) & 0x03) as u8;
+        data[5] |= ((self.mask & 0x3F) << 2) as u8;
+
+        // data[6] contains the highest 8 bits of mask (6-13).
+        data[6] = ((self.mask >> 6) & 0xFF) as u8;
+
+        data
+    }
+
+    /// Returns true if the blob has attributes.
+    pub fn has_attributes(&self) -> bool {
+        self.mask & Self::METADATA_ENABLED != 0
+    }
+
+    /// Set the attributes flag to true.
+    pub fn set_has_attributes(&mut self, has_attributes: bool) {
+        if has_attributes {
+            self.mask |= Self::METADATA_ENABLED;
+        } else {
+            self.mask &= !Self::METADATA_ENABLED;
+        }
+    }
+}
 /// A quilt is a collection of blobs encoded into a single blob.
 ///
 /// For QuiltVersionV1:
 /// The data is organized as a 2D matrix where:
 /// - Each blob occupies a consecutive range of columns (secondary slivers).
-/// - The first column's initial `QUILT_INDEX_SIZE_PREFIX_SIZE` bytes contain the unencoded
+/// - The first column's initial `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded
 ///   length of the [`QuiltIndexV1`]. It is guaranteed the column size is more than
-///   `QUILT_INDEX_SIZE_PREFIX_SIZE`.
+///   `QUILT_INDEX_SIZE_BYTES_LENGTH`.
 /// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, up to
 ///   `MAX_NUM_COLUMNS_FOR_QUILT_INDEX`.
 /// - The blob layout is defined by the [`QuiltIndexV1`].
@@ -592,6 +793,32 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     }
 }
 
+// Implementation of QuiltColumnDataIterator for QuiltV1
+impl QuiltColumnDataIterator for QuiltV1 {
+    type RangeIter<'a>
+        = SymbolIter<'a>
+    where
+        Self: 'a;
+
+    fn iter_column_bytes(
+        &self,
+        start_col: usize,
+        end_col: usize,
+        start_byte: usize,
+        limit_bytes: usize,
+    ) -> Result<Self::RangeIter<'_>, QuiltError> {
+        SymbolIter::new(
+            &self.data,
+            self.row_size,
+            self.symbol_size,
+            start_col,
+            end_col,
+            start_byte,
+            limit_bytes,
+        )
+    }
+}
+
 impl QuiltV1 {
     /// Returns an iterator over the symbols for a given column range.
     fn iter_symbols(
@@ -627,14 +854,14 @@ impl QuiltV1 {
             symbol_size,
             0,
             1,
-            QUILT_TYPE_SIZE,
-            QUILT_INDEX_SIZE_PREFIX_SIZE,
+            QUILT_VERSION_BYTES_LENGTH,
+            QUILT_INDEX_SIZE_BYTES_LENGTH,
         )?;
-        let mut size_cache = Vec::with_capacity(QUILT_INDEX_SIZE_PREFIX_SIZE);
+        let mut size_cache = Vec::with_capacity(QUILT_INDEX_SIZE_BYTES_LENGTH);
         for symbol_slice in size_iterator {
             size_cache.extend_from_slice(symbol_slice);
         }
-        assert!(size_cache.len() == QUILT_INDEX_SIZE_PREFIX_SIZE);
+        assert!(size_cache.len() == QUILT_INDEX_SIZE_BYTES_LENGTH);
 
         let index_size = usize::try_from(u32::from_le_bytes(
             size_cache
@@ -642,7 +869,7 @@ impl QuiltV1 {
                 .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
         ))
         .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?;
-        let total_size = index_size + QUILT_INDEX_SIZE_PREFIX_SIZE + QUILT_TYPE_SIZE;
+        let total_size = index_size + QUILT_INDEX_SIZE_BYTES_LENGTH + QUILT_VERSION_BYTES_LENGTH;
         let columns_needed = total_size.div_ceil(data.len() / row_size * symbol_size);
         let data_iter = Self::iter_symbols(
             data,
@@ -650,7 +877,7 @@ impl QuiltV1 {
             symbol_size,
             0,
             columns_needed,
-            QUILT_TYPE_SIZE + QUILT_INDEX_SIZE_PREFIX_SIZE,
+            QUILT_VERSION_BYTES_LENGTH + QUILT_INDEX_SIZE_BYTES_LENGTH,
             index_size,
         )?;
 
@@ -680,55 +907,9 @@ impl QuiltV1 {
             )));
         }
 
-        let size_iterator = Self::iter_symbols(
-            &self.data,
-            self.row_size,
-            self.symbol_size,
-            start_col,
-            end_col,
-            0,
-            QuiltVersionV1::BLOB_HEADER_SIZE,
-        )?;
-        let mut header_bytes = Vec::with_capacity(QuiltVersionV1::BLOB_HEADER_SIZE);
-        for symbol_slice in size_iterator {
-            header_bytes.extend_from_slice(symbol_slice);
-        }
-        assert!(header_bytes.len() == QuiltVersionV1::BLOB_HEADER_SIZE);
+        let blob: QuiltStoreBlobOwned = QuiltVersionV1::decode_blob(self, start_col, end_col)?;
 
-        let blob_header = BlobHeader::from_bytes(
-            header_bytes
-                .try_into()
-                .map_err(|_| QuiltError::Other("Failed to extract blob header bytes".into()))?,
-        );
-        let unencoded_length = usize::try_from(blob_header.length)
-            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-
-        let column_size = self.data.len() / self.row_size * self.symbol_size;
-        let columns_needed =
-            QuiltVersionV1::blob_total_size(unencoded_length)?.div_ceil(column_size);
-        if columns_needed != end_col - start_col {
-            return Err(QuiltError::Other(format!(
-                "Invalid column range in quilt patch: start_col {} end_col {}",
-                start_col, end_col
-            )));
-        }
-
-        let mut blob_data = Vec::with_capacity(unencoded_length);
-        let symbol_iterator = Self::iter_symbols(
-            &self.data,
-            self.row_size,
-            self.symbol_size,
-            start_col,
-            end_col,
-            QuiltVersionV1::BLOB_HEADER_SIZE,
-            unencoded_length,
-        )?;
-        for symbol_slice in symbol_iterator {
-            blob_data.extend_from_slice(symbol_slice);
-        }
-        assert!(blob_data.len() == unencoded_length);
-
-        Ok(blob_data)
+        Ok(blob.blob)
     }
 
     /// Gets the blob represented by the given quilt patch.
@@ -816,7 +997,7 @@ impl fmt::Debug for DebugRow<'_> {
                 write!(f, ", ")?;
             }
 
-            if i == 5 && self.entries.len() > QUILT_INDEX_SIZE_PREFIX_SIZE {
+            if i == 5 && self.entries.len() > QUILT_INDEX_SIZE_BYTES_LENGTH {
                 write!(f, "... (+{} more)", self.entries.len() - i - 1)?;
                 break;
             }
@@ -849,7 +1030,7 @@ pub struct QuiltConfigV1;
 impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     fn get_encoder(
         encoding_config: EncodingConfigEnum<'a>,
-        blobs: &'a [BlobWithIdentifier<'a>],
+        blobs: &'a [QuiltStoreBlob<'a>],
     ) -> QuiltEncoderV1<'a> {
         QuiltEncoderV1::new(encoding_config, blobs)
     }
@@ -920,7 +1101,7 @@ impl<'a> Iterator for MergeIterator<'a> {
 #[derive(Debug)]
 pub struct QuiltEncoderV1<'a> {
     /// The blobs to encode.
-    blobs: &'a [BlobWithIdentifier<'a>],
+    blobs: &'a [QuiltStoreBlob<'a>],
     /// The encoding configuration.
     config: EncodingConfigEnum<'a>,
     /// A tracing span associated with this quilt encoder.
@@ -929,7 +1110,7 @@ pub struct QuiltEncoderV1<'a> {
 
 impl<'a> QuiltEncoderV1<'a> {
     /// Creates a new [`QuiltEncoderV1`] from a encoding config and a set of blobs.
-    pub fn new(config: EncodingConfigEnum<'a>, blobs: &'a [BlobWithIdentifier<'a>]) -> Self {
+    pub fn new(config: EncodingConfigEnum<'a>, blobs: &'a [QuiltStoreBlob<'a>]) -> Self {
         Self {
             blobs,
             config,
@@ -937,49 +1118,77 @@ impl<'a> QuiltEncoderV1<'a> {
         }
     }
 
+    /// Returns the extension bytes of the blob.
+    pub fn get_header_and_extension_bytes(blob: &QuiltStoreBlob) -> Result<Vec<u8>, QuiltError> {
+        let mut extension_bytes = Vec::new();
+        let mut header = BlobHeaderV1::default();
+
+        if !blob.attributes.is_empty() {
+            header.set_has_attributes(true);
+            let mut serialized_attributes = bcs::to_bytes(&blob.attributes)
+                .map_err(|e| QuiltError::Other(format!("Failed to serialize attributes: {}", e)))?;
+
+            let attributes_size = u32::try_from(serialized_attributes.len()).map_err(|e| {
+                QuiltError::Other(format!(
+                    "Failed to convert attributes payload length to u32: {}",
+                    e
+                ))
+            })?;
+
+            let mut result_bytes = Vec::new();
+            result_bytes.extend_from_slice(&attributes_size.to_le_bytes());
+            result_bytes.append(&mut serialized_attributes);
+            extension_bytes.push(result_bytes);
+        }
+
+        let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
+        header.length = total_size as u64;
+        let header_bytes = header.as_bytes();
+        let mut result_bytes = Vec::with_capacity(header_bytes.len() + total_size);
+        result_bytes.extend_from_slice(&header_bytes);
+        for mut inner_extension_vec in extension_bytes {
+            result_bytes.append(&mut inner_extension_vec);
+        }
+
+        Ok(result_bytes)
+    }
+
     /// Adds a blob to the quilt as consecutive columns.
     fn add_blob_to_quilt(
         data: &mut [u8],
-        blob: &[u8],
+        blob: &QuiltStoreBlob,
         include_blob_size: bool,
         current_col: usize,
         column_size: usize,
         row_size: usize,
         symbol_size: usize,
-    ) -> Result<(), QuiltError> {
+    ) -> Result<usize, QuiltError> {
         assert!(column_size % symbol_size == 0);
         let n_rows = column_size / symbol_size;
         let mut row = 0;
         let mut col = current_col;
+        let mut max_col = current_col;
 
-        let size_bytes = if include_blob_size {
-            let blob_size = u64::try_from(blob.len())
-                .map_err(|e| QuiltError::Other(format!("blob_size too large: {}", e)))?;
-
-            let blob_header = BlobHeader::new(blob_size, 0)?;
-            blob_header.as_bytes()
-        } else {
-            [0u8; QuiltVersionV1::BLOB_HEADER_SIZE]
+        let mut prefix_bytes = Vec::new();
+        if include_blob_size {
+            prefix_bytes = Self::get_header_and_extension_bytes(blob)?;
         };
 
-        let merge_iterator = if include_blob_size {
-            MergeIterator::new(vec![&size_bytes, blob], symbol_size)
-        } else {
-            MergeIterator::new(vec![blob], symbol_size)
-        };
+        let merge_iterator = MergeIterator::new(vec![&prefix_bytes, blob.data()], symbol_size);
         for data_slice in merge_iterator {
             let mut dest_idx = row * row_size + col * symbol_size;
             for chunk in data_slice {
                 data[dest_idx..dest_idx + chunk.len()].copy_from_slice(chunk);
                 dest_idx += chunk.len();
             }
+            max_col = max_col.max(col);
             row = (row + 1) % n_rows;
             if row == 0 {
                 col += 1;
             }
         }
 
-        Ok(())
+        Ok(max_col - current_col + 1)
     }
 }
 
@@ -1029,7 +1238,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             .chain(
                 blob_pairs
                     .iter()
-                    .map(|blob| QuiltVersionV1::blob_total_size(blob.blob.len())),
+                    .map(|blob| QuiltVersionV1::compute_encoded_blob_size(blob)),
             )
             .collect::<Result<Vec<usize>, QuiltError>>()?;
 
@@ -1053,14 +1262,9 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         // First pass: Fill data with actual blobs and populate quilt patches.
         for (i, blob_with_identifier) in blob_pairs.iter().enumerate() {
-            let original_blob_data = blob_with_identifier.blob;
-            let cols_needed =
-                QuiltVersionV1::blob_total_size(original_blob_data.len())?.div_ceil(column_size);
-            assert!(current_col + cols_needed <= n_columns);
-
-            Self::add_blob_to_quilt(
+            let cols_needed = Self::add_blob_to_quilt(
                 &mut data,
-                original_blob_data,
+                blob_with_identifier,
                 true,
                 current_col,
                 column_size,
@@ -1081,18 +1285,20 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         meta_blob_data.extend_from_slice(&serialized_index_size.to_le_bytes());
         meta_blob_data
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
+        assert_eq!(meta_blob_data.len(), index_total_size);
 
+        let meta_blob = QuiltStoreBlob::new(&meta_blob_data, "quilt_index");
         // Add the index to the quilt.
-        Self::add_blob_to_quilt(
+        let index_cols_used = Self::add_blob_to_quilt(
             &mut data,
-            &meta_blob_data,
+            &meta_blob,
             false,
             0,
             column_size,
             row_size,
             symbol_size,
         )?;
-
+        debug_assert_eq!(index_cols_used, index_cols_needed);
         tracing::debug!("construct quilt success {}", data.len());
 
         Ok(QuiltV1 {
@@ -1153,42 +1359,45 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         if self.quilt_index.is_some() {
             return Ok(self.quilt_index.as_ref().expect("quilt index should exist"));
         }
-
-        let first_sliver_index = SliverIndex(0);
+        self.check_missing_slivers(0, 1)?;
         let first_sliver = self
             .slivers
-            .get(&first_sliver_index)
-            .ok_or(QuiltError::MissingSlivers(vec![first_sliver_index]))?;
-
+            .get(&SliverIndex(0))
+            .expect("first sliver should exist");
         utils::check_quilt_version::<QuiltVersionV1>(first_sliver.symbols.data())?;
 
-        let index_size = utils::get_quilt_index_data_size(first_sliver.symbols.data())?;
+        let first_sliver_iter = self.iter_column_bytes(
+            0,
+            1,
+            QUILT_VERSION_BYTES_LENGTH,
+            QUILT_INDEX_SIZE_BYTES_LENGTH,
+        )?;
+
+        let mut index_size_bytes = Vec::new();
+        for next_bytes in first_sliver_iter {
+            index_size_bytes.extend_from_slice(next_bytes);
+        }
+        assert_eq!(index_size_bytes.len(), QUILT_INDEX_SIZE_BYTES_LENGTH);
+        let index_size = usize::try_from(u32::from_le_bytes(
+            index_size_bytes
+                .try_into()
+                .expect("index size prefix should be 8 bytes"),
+        ))
+        .expect("index size should fit in usize");
+
         let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
 
         // Calculate how many slivers we need based on the data size.
         let num_slivers_needed = total_size.div_ceil(first_sliver.symbols.data().len());
         let mut combined_data = Vec::with_capacity(index_size);
-
-        let end = total_size.min(first_sliver.symbols.data().len());
-        combined_data.extend_from_slice(&first_sliver.symbols.data()[QUILT_INDEX_PREFIX_SIZE..end]);
-
         self.check_missing_slivers(1, num_slivers_needed)?;
 
-        // Collect data from subsequent slivers if needed.
-        for i in 1..num_slivers_needed {
-            let next_index = SliverIndex(i as u16);
-            let next_sliver = self
-                .slivers
-                .get(&next_index)
-                .expect("we know this exists because we ran check_missing_slivers above");
-
-            let remaining_needed = index_size - combined_data.len();
-            let sliver_data = next_sliver.symbols.data();
-            let to_take = remaining_needed.min(sliver_data.len());
-            combined_data.extend_from_slice(&sliver_data[..to_take]);
+        let index_data_iter =
+            self.iter_column_bytes(0, num_slivers_needed, QUILT_INDEX_PREFIX_SIZE, index_size)?;
+        for next_bytes in index_data_iter {
+            combined_data.extend_from_slice(next_bytes);
         }
-
-        debug_assert_eq!(combined_data.len(), index_size);
+        assert_eq!(combined_data.len(), index_size);
 
         // Decode the QuiltIndexV1 from the collected data.
         let mut index: QuiltIndexV1 = bcs::from_bytes(&combined_data)
@@ -1233,6 +1442,34 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     }
 }
 
+// Implementation of QuiltColumnDataIterator for QuiltDecoderV1
+impl QuiltColumnDataIterator for QuiltDecoderV1<'_> {
+    type RangeIter<'a>
+        = SliverBytesIterator<'a>
+    where
+        Self: 'a;
+
+    fn iter_column_bytes(
+        &self,
+        start_col: usize,
+        end_col: usize,
+        start_byte: usize,
+        limit_bytes: usize,
+    ) -> Result<Self::RangeIter<'_>, QuiltError> {
+        self.check_missing_slivers(start_col, end_col)?;
+        let mut slivers: Vec<&SliverData<Secondary>> = Vec::new();
+        for col in start_col..end_col {
+            let sliver = self
+                .slivers
+                .get(&SliverIndex::new(col as u16))
+                .expect("Sliver should exist");
+            slivers.push(sliver);
+        }
+
+        SliverBytesIterator::new(slivers, start_byte, limit_bytes)
+    }
+}
+
 impl<'a> QuiltDecoderV1<'a> {
     /// Creates a new QuiltDecoderV1 with the given slivers.
     pub fn new(slivers: &'a [&'a SliverData<Secondary>]) -> Self {
@@ -1267,46 +1504,9 @@ impl<'a> QuiltDecoderV1<'a> {
     fn get_blob_by_range(&self, start_idx: usize, end_idx: usize) -> Result<Vec<u8>, QuiltError> {
         self.check_missing_slivers(start_idx, end_idx)?;
 
-        let first_sliver = self
-            .slivers
-            .get(&SliverIndex(start_idx as u16))
-            .expect("sliver should be present");
-        let header_bytes: &[u8; QuiltVersionV1::BLOB_HEADER_SIZE] = first_sliver.symbols.data()
-            [0..QuiltVersionV1::BLOB_HEADER_SIZE]
-            .try_into()
-            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-        let blob_header = BlobHeader::from_bytes(*header_bytes);
-        let unencoded_length = usize::try_from(blob_header.length)
-            .map_err(|_| QuiltError::Other("Failed to extract blob size bytes".into()))?;
-        let column_size = first_sliver.symbols.data().len();
-        let columns_needed =
-            QuiltVersionV1::blob_total_size(unencoded_length)?.div_ceil(column_size);
-        assert_eq!(columns_needed, end_idx - start_idx);
+        let blob: QuiltStoreBlobOwned = QuiltVersionV1::decode_blob(self, start_idx, end_idx)?;
 
-        // Extract and reconstruct the blob.
-        let mut blob = Vec::with_capacity(unencoded_length);
-
-        // Collect data from the appropriate slivers.
-        for i in start_idx..end_idx {
-            let sliver_idx = SliverIndex(i as u16);
-            let sliver = self
-                .slivers
-                .get(&sliver_idx)
-                .expect("sliver should be present");
-
-            let remaining_needed = unencoded_length - blob.len();
-            let begin = if i == start_idx {
-                QuiltVersionV1::BLOB_HEADER_SIZE
-            } else {
-                0
-            };
-            let end = (begin + remaining_needed).min(sliver.symbols.data().len());
-            blob.extend_from_slice(&sliver.symbols.data()[begin..end]);
-        }
-
-        assert_eq!(blob.len(), unencoded_length);
-
-        Ok(blob)
+        Ok(blob.blob)
     }
 
     /// Checks if the desired slivers are missing.
@@ -1430,22 +1630,6 @@ mod utils {
         n_columns >= required_columns
     }
 
-    /// Get the data size of the quilt index.
-    pub fn get_quilt_index_data_size(combined_data: &[u8]) -> Result<usize, QuiltError> {
-        if combined_data.len() < QUILT_INDEX_PREFIX_SIZE {
-            return Err(QuiltError::FailedToExtractQuiltIndexSize);
-        }
-
-        let data_size = u32::from_le_bytes(
-            combined_data[QUILT_TYPE_SIZE..QUILT_INDEX_PREFIX_SIZE]
-                .try_into()
-                .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
-        );
-        let data_size = usize::try_from(data_size).expect("data_size should fit in usize");
-
-        Ok(data_size)
-    }
-
     pub fn get_quilt_version_byte(data: &[u8]) -> Result<u8, QuiltError> {
         data.first()
             .copied()
@@ -1464,6 +1648,7 @@ mod utils {
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use alloc::boxed::Box;
@@ -1546,104 +1731,117 @@ mod tests {
         test_quilt_construct_quilt: [
             case_0: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 7
             ),
             case_0_random_order: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-2".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 7
             ),
             case_1: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-1".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 7
             ),
             case_1_random_order: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-1".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 7
             ),
             case_2: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 3][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[255u8; 1024][..],
                         identifier: "test-blob-1".to_string(),
+                        attributes: HashMap::new(),
                     },
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[1, 2, 3][..],
                         identifier: "test-blob-2".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 12
             ),
             case_3: (
                 &[
-                    BlobWithIdentifier {
+                    QuiltStoreBlob {
                         blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
                         identifier: "test-blob-0".to_string(),
+                        attributes: HashMap::new(),
                     },
                 ],
                 7
             ),
         ]
     }
-    fn test_quilt_construct_quilt(
-        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
-        n_shards: u16,
-    ) {
+    fn test_quilt_construct_quilt(blobs_with_identifiers: &[QuiltStoreBlob<'_>], n_shards: u16) {
         let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -1658,10 +1856,7 @@ mod tests {
         );
     }
 
-    fn construct_quilt(
-        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
-        config: EncodingConfigEnum,
-    ) {
+    fn construct_quilt(blobs_with_identifiers: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
         let _guard = tracing_subscriber::fmt().try_init();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), blobs_with_identifiers);
@@ -1750,7 +1945,7 @@ mod tests {
     }
 
     fn encode_decode_quilt(
-        blobs_with_identifiers: &[BlobWithIdentifier<'_>],
+        blobs_with_identifiers: &[QuiltStoreBlob<'_>],
         config: EncodingConfigEnum,
     ) {
         let _guard = tracing_subscriber::fmt().try_init();
@@ -1857,15 +2052,15 @@ mod tests {
             case_2: (125, 10),
             case_3: (1, 1),
             case_4: (0, 0), // Zero all
-            case_5: (BlobHeader::LENGTH_MAX, 0), // Max length, zero mask
-            case_6: (0, BlobHeader::MASK_MAX), // Zero length, max mask
-            case_7: (BlobHeader::LENGTH_MAX, BlobHeader::MASK_MAX), // Max all
-            case_8: (1, BlobHeader::MASK_MAX), // Min length, max mask
-            case_9: (BlobHeader::LENGTH_MAX, 1), // Max length, min mask
+            case_5: (BlobHeaderV1::LENGTH_MAX, 0), // Max length, zero mask
+            case_6: (0, BlobHeaderV1::MASK_MAX), // Zero length, max mask
+            case_7: (BlobHeaderV1::LENGTH_MAX, BlobHeaderV1::MASK_MAX), // Max all
+            case_8: (1, BlobHeaderV1::MASK_MAX), // Min length, max mask
+            case_9: (BlobHeaderV1::LENGTH_MAX, 1), // Max length, min mask
         ]
     }
     fn test_quilt_blob_header(length: u64, mask: u16) {
-        let header = BlobHeader::new(length, mask).expect("Should create header");
+        let header = BlobHeaderV1::new(length, mask).expect("Should create header");
 
         assert_eq!(
             header.length, length,
@@ -1879,12 +2074,12 @@ mod tests {
         let bytes = header.as_bytes();
         assert_eq!(
             bytes.len(),
-            BlobHeader::BYTE_SIZE,
+            QuiltVersionV1::BLOB_HEADER_SIZE,
             "Byte array size is incorrect"
         );
 
-        // BlobHeader::from_bytes takes [u8; N], not a reference, and does not return Result.
-        let reconstructed_header = BlobHeader::from_bytes(bytes);
+        // BlobHeaderV1::from_bytes takes [u8; N], not a reference, and does not return Result.
+        let reconstructed_header = BlobHeaderV1::from_bytes(bytes);
         assert_eq!(
             reconstructed_header, header,
             "Reconstructed header does not match original"
@@ -1901,18 +2096,18 @@ mod tests {
     ///
     /// # Returns
     ///
-    /// A vector of BlobWithIdentifier objects with random content.
+    /// A vector of QuiltStoreBlob objects with random content.
     fn generate_random_blobs(
         num_blobs: usize,
         max_blob_size: usize,
         min_blob_size: usize,
-    ) -> Vec<BlobWithIdentifier<'static>> {
+    ) -> Vec<QuiltStoreBlob<'static>> {
         use rand::{Rng, SeedableRng, rngs::StdRng};
 
         // Create a deterministic RNG with a fixed seed for reproducibility.
         let mut rng = StdRng::seed_from_u64(42);
 
-        // Store both blobs and their BlobWithIdentifier wrappers.
+        // Store both blobs and their QuiltStoreBlob wrappers.
         let mut result = Vec::with_capacity(num_blobs);
 
         // Generate random blobs with sizes in the specified range.
@@ -1929,11 +2124,8 @@ mod tests {
             // Convert to static lifetime using Box::leak.
             let static_data = Box::leak(blob_data.into_boxed_slice());
 
-            // Create and store the BlobWithIdentifier.
-            result.push(BlobWithIdentifier::new(
-                static_data,
-                format!("test-blob-{}", i),
-            ));
+            // Create and store the QuiltStoreBlob.
+            result.push(QuiltStoreBlob::new(static_data, format!("test-blob-{}", i)));
         }
 
         result
