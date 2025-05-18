@@ -74,27 +74,35 @@ impl Default for NodeCommitteeServiceBuilder {
 }
 
 impl NodeCommitteeServiceBuilder {
+    /// Sets the local public identity key for the node.
     pub fn local_identity(mut self, id: PublicKey) -> Self {
         self.local_identity = Some(id);
         self
     }
 
+    /// Sets the configuration to be used for the committee service.
     pub fn config(mut self, config: CommitteeServiceConfig) -> Self {
         self.config = config;
         self
     }
 
+    /// Registers a Prometheus metrics registry to enable metrics tracking.
     pub fn metrics_registry(mut self, registry: &Registry) -> Self {
         self.registry = Some(registry.clone());
         self
     }
 
+    /// Sets a custom RNG instance for testing purposes.
     #[cfg(test)]
     pub fn randomness(mut self, rng: StdRng) -> Self {
         self.rng = rng;
         self
     }
 
+    /// Builds a `NodeCommitteeService` using the provided committee lookup service.
+    ///
+    /// Automatically creates a default node service factory (with or without metrics),
+    /// and passes it to `build_with_factory`.
     pub async fn build<S>(
         self,
         lookup_service: S,
@@ -112,6 +120,9 @@ impl NodeCommitteeServiceBuilder {
             .await
     }
 
+    /// Builds a `NodeCommitteeService` using a custom node service factory and lookup service.
+    ///
+    /// This method provides fine-grained control over the service instantiation process.
     pub async fn build_with_factory<T, S, F>(
         self,
         lookup_service: S,
@@ -158,6 +169,7 @@ pub(crate) struct NodeCommitteeService<T = RemoteStorageNode> {
 }
 
 impl NodeCommitteeService<RemoteStorageNode> {
+    /// Creates a new [`NodeCommitteeServiceBuilder`] with default settings.
     pub fn builder() -> NodeCommitteeServiceBuilder {
         Default::default()
     }

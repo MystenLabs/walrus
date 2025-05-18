@@ -289,6 +289,7 @@ struct SimStorageNodeConfigLoader {
 
 #[cfg(msim)]
 impl SimStorageNodeConfigLoader {
+    /// Creates a new [`SimStorageNodeConfigLoader`] with the given shared configuration.
     pub fn new(config: Arc<RwLock<StorageNodeConfig>>) -> Self {
         Self { config }
     }
