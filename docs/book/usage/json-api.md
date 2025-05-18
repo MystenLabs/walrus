@@ -369,7 +369,7 @@ Exchange SUI (MIST) for WAL:
 }
 ```
 
-Exchange ID belirterek:
+Specify an exchange ID:
 
 ```sh
 {
