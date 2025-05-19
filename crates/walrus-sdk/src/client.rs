@@ -254,25 +254,38 @@ impl<T: ReadClient> Client<T> {
         SliverData<U>: TryFrom<Sliver>,
     {
         tracing::debug!("starting to read blob");
+
         self.check_blob_id(blob_id)?;
+
         let committees = self.get_committees().await?;
 
-        let status = match blob_status {
-            Some(status) => status,
-            None => {
-                // The status check will return `ClientErrorKind::BlobIdDoesNotExist` if the blob
-                // is not registered or expired.
+        let get_status_fn = |status: Option<BlobStatus>| async move {
+            if let Some(status) = status {
+                Ok(status)
+            } else {
                 self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                    .await?
+                    .await
             }
         };
 
-        let Some(certified_epoch) = status.initial_certified_epoch() else {
-            // The blob ID has not been certified yet. No need to read it.
-            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
+        let (certified_epoch, blob_status) = if committees.is_change_in_progress() {
+            let blob_status = get_status_fn(blob_status).await?;
+            (blob_status.initial_certified_epoch(), Some(blob_status))
+        } else {
+            // We are not during epoch change, we can read from the current epoch directly if we do
+            // not have a blob status.
+            (
+                blob_status
+                    .map(|status| status.initial_certified_epoch())
+                    .unwrap_or_else(|| Some(committees.epoch())),
+                blob_status,
+            )
         };
 
-        // Return early if the committee is behind.
+        // Return early if the blob is not certified, or if the committee is behind.
+        let Some(certified_epoch) = certified_epoch else {
+            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
+        };
         let current_epoch = committees.epoch();
         if certified_epoch > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
@@ -281,8 +294,15 @@ impl<T: ReadClient> Client<T> {
             }));
         }
 
-        self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
-            .await
+        // Execute the status request and the metadata/sliver request concurrently.
+        // If the status request fails, the metadata/sliver request will be cancelled. If the
+        // status request succeeds, the metadata/sliver request will be executed to completion. If
+        // we already have a blob status, the `get_status_fn` immediately returns Ok.
+        let (_, blob) = futures::try_join!(
+            get_status_fn(blob_status),
+            self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
+        )?;
+        Ok(blob)
     }
 
     async fn read_metadata_and_slivers<U>(
