@@ -260,11 +260,17 @@ impl<T: ReadClient> Client<T> {
         let committees = self.get_committees().await?;
 
         let get_status_fn = |status: Option<BlobStatus>| async move {
-            if let Some(status) = status {
-                Ok(status)
+            let status = if let Some(status) = status {
+                status
             } else {
                 self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                    .await
+                    .await?
+            };
+
+            if BlobStatus::Nonexistent == status {
+                Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist))
+            } else {
+                Ok(status)
             }
         };
 
