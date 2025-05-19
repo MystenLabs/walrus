@@ -26,7 +26,7 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ``` sh
-site-builder publish ./walrus-snake --epochs 1
+site-builder deploy ./walrus-snake --epochs 1
 ```
 
 ``` admonish tip
@@ -76,12 +76,12 @@ Let's say now you want to update the content of the site, for example by changin
 
 First, make this edit on in the `./walrus-snake/index.html` file.
 
-Then, you can update the existing site by running the `update` command, providing the directory
-where to find the updated files (still `./walrus-snake`) and the object ID of the existing site
-(`0x407a3081...`):
+Then, you can update the existing site by running the `deploy` command again. The deploy command will
+use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
+to update. You do not need to specify the object ID manually:
 
 ``` sh
-site-builder update --epochs 1 ./walrus-snake 0xe674c14...
+site-builder deploy --epochs 1 ./walrus-snake
 ```
 
 The output this time should be:
@@ -102,8 +102,8 @@ To browse the site, you have the following options:
            Finally, browse it with: https://example-domain.wal.app
 ```
 
-Compared to the `publish` action, we can see that now the only actions performed were to delete the
-old `index.html`, and update it with the newer one.
+Compared to the when the site was first published, we can see that now the only actions performed
+were to delete the old `index.html`, and update it with the newer one.
 
 Browsing to the provided URL should reflect the change. You've updated the site!
 

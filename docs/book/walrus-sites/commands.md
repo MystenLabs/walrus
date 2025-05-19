@@ -7,7 +7,57 @@ In general, the `--help` flag is your friend, you can add it to get further deta
 CLI (`site-builder --help`) or individual commands (e.g. `site-builder update --help`).
 ```
 
+## `deploy`
+
+The `deploy` command is the primary and recommended command for managing your Walrus Site on Sui.
+The command takes a directory as input and creates a new Walrus Site from the
+resources contained within, and on subsequent calls, it updates the Existing Site.
+
+### Usage
+
+As shown by the command's help information, the typical usage is:
+
+``` sh
+site-builder deploy [OPTIONS] --epochs <EPOCHS> <DIRECTORY>
+```
+
+The `deploy` command determines whether to publish or update based on the presence of a `site_object_id`
+field in the `ws-resources.json` file. [specifying headers and routing](./routing.md).
+
+```admonish info
+The `site_object_id` field is automatically set by the `deploy`
+command, when deploying a new Site, so there is no need for manually tracking the site's object ID.
+```
+
+```admonish note
+The wallet you are using to update an existing Site must be the *owner* of the Walrus Site object to be able
+to update it.
+```
+
+The `--epochs` flag specifies the number of epochs for which the site's resources will be stored
+on Walrus (e.g., 10). You can also use max to store for the maximum allowed duration.
+
+```admonish warning
+The `--epochs` flag is required & it's value must be greater than 0.
+```
+
+```admonish danger title="Epoch duration on Walrus Testnet"
+On Walrus Testnet, the epoch duration is **two days**. Therefore, consider storing your site for a
+large number of epochs if you want to make it available for the following months! The maximum
+duration is set to 183 epochs (corresponding to one year).
+```
+
+If you are just uploading raw files without an `index.html`, you may want to use the
+`--list-directory` flag, which will automatically create an index page to browse the files. See for
+example <https://bin.wal.app>.
+
 ## `publish`
+
+```admonish warning title="Soft deprecation"
+The `deploy` command is the new standard for publishing and updating your Walrus Sites. The individual
+`publish` and `update` commands are now considered soft-deprecated and may be removed in future versions.
+Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
+```
 
 The `publish` command, as described in the [previous section](./tutorial-publish.md), publishes a
 new site on Sui. The command takes a directory as input and creates a new Walrus Site from the
@@ -29,6 +79,12 @@ The `publish` command will also respect the instructions in the `ws-resources.js
 file. To know more, see the section on [specifying headers and routing](./routing.md).
 
 ## `update`
+
+```admonish warning title="Soft deprecation"
+The `deploy` command is the new standard for publishing and updating your Walrus Sites. The individual
+`publish` and `update` commands are now considered soft-deprecated and may be removed in future versions.
+Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
+```
 
 This command is the equivalent of `publish`, but for updating an existing site. It takes the same
 arguments, with the addition of the Sui object ID of the site to update.
