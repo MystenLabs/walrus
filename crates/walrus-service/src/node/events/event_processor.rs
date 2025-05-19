@@ -674,8 +674,7 @@ impl EventProcessor {
                 );
                 return Err(anyhow!("Invalid checkpoint state"));
             }
-            let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
-            current_lag
+            latest_checkpoint.sequence_number - current_checkpoint
         } else {
             tracing::info!(
                 "Using 0 as fallback for current_lag since latest checkpoint is unavailable"
