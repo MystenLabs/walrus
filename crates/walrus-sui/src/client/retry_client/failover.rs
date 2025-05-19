@@ -215,6 +215,11 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                         "Failed to get client from url: {}, failover to next client",
                         error
                     );
+
+                    // Print stack trace here.
+                    let backtrace = std::backtrace::Backtrace::capture();
+                    tracing::warn!("Backtrace: {:?}", backtrace);
+
                     next_index = (next_index + 1) % self.client_count();
                     continue;
                 }
