@@ -577,6 +577,8 @@ mod commands {
             None => None,
         };
 
+        tracing::info!("Starting event processor...");
+
         let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
             config
                 .sui
@@ -591,6 +593,8 @@ mod commands {
             &config.db_config,
         )?;
 
+        tracing::info!("Starting storage node...");
+
         let node_runtime = StorageNodeRuntime::start(
             &config,
             metrics_runtime,
@@ -599,6 +603,8 @@ mod commands {
             cancel_token.child_token(),
             Some(config_loader),
         )?;
+
+        tracing::info!("Starting monitor runtimes...");
 
         monitor_runtimes(
             node_runtime,
