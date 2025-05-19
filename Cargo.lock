@@ -3355,7 +3355,9 @@ version = "1.26.0"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
+ "axum-server 0.7.2",
  "clap",
+ "futures",
  "serde",
  "serde_json",
  "tokio",

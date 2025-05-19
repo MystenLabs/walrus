@@ -2,9 +2,17 @@
 use std::{env, fs::canonicalize, net::SocketAddr};
 
 use anyhow::Result;
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    body::Bytes,
+    extract::Query,
+    http::StatusCode,
+    response::{IntoResponse, Json},
+    routing::post,
+};
+use axum_server::bind;
 use clap::{Parser, Subcommand};
-use tokio::net::TcpListener;
+use serde::Deserialize;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt}; //prelude::*;
 
@@ -25,7 +33,6 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Run from the git root directory.
     let args = Args::parse();
     tracing_subscriber::registry()
         // We don't need timestamps in the logs.
@@ -44,25 +51,35 @@ async fn main() -> Result<()> {
 
     match args.command {
         Command::Proxy => {
-            // Run the proxy.
-            Ok(run_proxy().await?)
+            let app = Router::new().route("/upload", post(upload_blob));
+            let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+            Ok(bind(addr).serve(app.into_make_service()).await?)
         }
     }
 }
 
-async fn run_proxy() -> anyhow::Result<()> {
-    // pass incoming GET requests on "/hello-world" to "hello_world" handler.
-    let app = Router::new().route("/hello-world", get(hello_world));
-
-    // write address like this to not make typos
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3030));
-    let listener = TcpListener::bind(addr).await?;
-    tracing::info!(?addr, "Listening...");
-    axum::serve(listener, app.into_make_service()).await?;
-
-    Ok(())
+#[derive(Deserialize)]
+struct Params {
+    tx: String,
+    blob_id: String,
 }
 
-async fn hello_world() -> &'static str {
-    "Hello, world!"
+async fn upload_blob(Query(params): Query<Params>, body: Bytes) -> impl IntoResponse {
+    // Validate "tx" length and hex-ness
+    if params.tx.len() != 32 || !params.tx.chars().all(|c| c.is_ascii_hexdigit()) {
+        return (StatusCode::BAD_REQUEST, "Invalid tx parameter").into_response();
+    }
+    if !params.blob_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return (StatusCode::BAD_REQUEST, "Invalid blob_id parameter").into_response();
+    }
+
+    let size: usize = body.as_ref().len();
+
+    let response = serde_json::json!({
+        "tx": params.tx,
+        "blob_id": params.blob_id,
+        "blob_size": size,
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
 }
