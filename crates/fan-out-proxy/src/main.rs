@@ -32,8 +32,7 @@ async fn main() -> Result<()> {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_file(true)
-                .with_line_number(true)
-                .without_time(),
+                .with_line_number(true),
         )
         // Allow usage of RUST_LOG environment variable to set the log level.
         .with(
