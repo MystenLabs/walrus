@@ -498,6 +498,7 @@ impl SuiReadClient {
                 .expect("lock should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
+            Some(self.get_system_package_id()),
         )
     }
 

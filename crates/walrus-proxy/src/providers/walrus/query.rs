@@ -101,6 +101,7 @@ pub async fn get_walrus_nodes(
         ObjectID::from_hex_literal(system_object_id)?,
         ObjectID::from_hex_literal(staking_object_id)?,
         None,
+        None,
     );
     let backoff_config = ExponentialBackoffConfig::default();
     let c: walrus_sui::client::SuiReadClient = walrus_sui::client::SuiReadClient::new_for_rpc_urls(

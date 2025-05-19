@@ -372,6 +372,7 @@ impl StorageNodeBuilder {
         config: &StorageNodeConfig,
         metrics_registry: Registry,
     ) -> Result<StorageNode, anyhow::Error> {
+        tracing::info!("ZZZZZ Building node build()...");
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
@@ -388,6 +389,8 @@ impl StorageNodeBuilder {
             } else {
                 None
             };
+
+        tracing::info!("ZZZZZ Building event manager...");
 
         let event_manager: Box<dyn EventManager> = if let Some(event_manager) = self.event_manager {
             event_manager
@@ -428,6 +431,8 @@ impl StorageNodeBuilder {
             }
         };
 
+        tracing::info!("ZZZZZ Building committee service...");
+
         let committee_service: Arc<dyn CommitteeService> =
             if let Some(service) = self.committee_service {
                 service
@@ -442,6 +447,8 @@ impl StorageNodeBuilder {
                     .await?;
                 Arc::new(service)
             };
+
+        tracing::info!("ZZZZZ Building contract service...");
 
         let contract_service: Arc<dyn SystemContractService> = if let Some(service) =
             self.contract_service
@@ -461,10 +468,14 @@ impl StorageNodeBuilder {
             )
         };
 
+        tracing::info!("ZZZZZ Building node params...");
+
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
         };
+
+        tracing::info!("ZZZZZ Building node new()...");
 
         StorageNode::new(
             config,
@@ -547,6 +558,8 @@ impl StorageNode {
         let start_time = Instant::now();
         let metrics = NodeMetricSet::new(registry);
 
+        tracing::info!("ZZZZZ Getting node capability...");
+
         let node_capability = contract_service
             .get_node_capability_object(config.storage_node_cap)
             .await?;
@@ -562,6 +575,8 @@ impl StorageNode {
         )
         .set(1);
 
+        tracing::info!("ZZZZZ Building config synchronizer...");
+
         let config_synchronizer =
             config
                 .config_synchronizer
@@ -573,6 +588,8 @@ impl StorageNode {
                     node_capability.id,
                     config_loader,
                 )));
+
+        tracing::info!("ZZZZZ Syncing node params...");
 
         contract_service
             .sync_node_params(config, node_capability.id)
@@ -587,6 +604,8 @@ impl StorageNode {
 
         let encoding_config = committee_service.encoding_config().clone();
 
+        tracing::info!("ZZZZZ Opening storage...");
+
         let storage = if let Some(storage) = node_params.pre_created_storage {
             storage
         } else {
@@ -599,11 +618,15 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
+        tracing::info!("ZZZZZ Building thread pool...");
+
         let thread_pool = ThreadPoolBuilder::default()
             .max_concurrent(config.thread_pool.max_concurrent_tasks)
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        tracing::info!("ZZZZZ Building inner...");
+
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -638,16 +661,22 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
+        tracing::info!("ZZZZZ Building blob sync handler...");
+
         let blob_sync_handler = Arc::new(BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
             config.blob_recovery.max_concurrent_sliver_syncs,
         ));
 
+        tracing::info!("ZZZZZ Building shard sync handler...");
+
         let shard_sync_handler =
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
+
+        tracing::info!("ZZZZZ Building epoch change driver...");
 
         let system_parameters = contract_service.fixed_system_parameters().await?;
         let epoch_change_driver = EpochChangeDriver::new(
@@ -656,16 +685,24 @@ impl StorageNode {
             StdRng::seed_from_u64(thread_rng().r#gen()),
         );
 
+        tracing::info!("ZZZZZ Building start epoch change finisher...");
+
         let start_epoch_change_finisher = StartEpochChangeFinisher::new(inner.clone());
+
+        tracing::info!("ZZZZZ Building node recovery handler...");
 
         let node_recovery_handler =
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
         node_recovery_handler.restart_recovery().await?;
 
+        tracing::info!("ZZZZZ Building event blob writer factory...");
+
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
         );
+
+        tracing::info!("ZZZZZ Building event blob writer factory...");
 
         let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
@@ -681,6 +718,8 @@ impl StorageNode {
         } else {
             None
         };
+
+        tracing::info!("ZZZZZ Returning storage node...");
 
         Ok(StorageNode {
             inner,

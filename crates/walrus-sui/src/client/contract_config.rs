@@ -16,6 +16,9 @@ pub struct ContractConfig {
     /// Object ID of the Walrus subsidies object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subsidies_object: Option<ObjectID>,
+    /// The original system package ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_system_package_id: Option<ObjectID>,
 }
 
 impl ContractConfig {
@@ -24,11 +27,13 @@ impl ContractConfig {
         system_object: ObjectID,
         staking_object: ObjectID,
         subsidies_object: Option<ObjectID>,
+        original_system_package_id: Option<ObjectID>,
     ) -> Self {
         Self {
             system_object,
             staking_object,
             subsidies_object,
+            original_system_package_id,
         }
     }
     /// Creates a basic [`ContractConfig`] with just the system and staking objects.
@@ -37,6 +42,7 @@ impl ContractConfig {
             system_object,
             staking_object,
             subsidies_object: None,
+            original_system_package_id: None,
         }
     }
 }

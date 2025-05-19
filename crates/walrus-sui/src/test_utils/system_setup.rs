@@ -97,6 +97,7 @@ impl SystemContext {
             self.system_object,
             self.staking_object,
             self.subsidies_object,
+            None,
         )
     }
 }

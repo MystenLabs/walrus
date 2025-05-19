@@ -49,11 +49,16 @@ impl EventProcessorRuntime {
             rpc_fallback_config: sui_reader_config.rpc_fallback_config.clone(),
             db_config: db_config.clone(),
         };
-        let system_config = SystemConfig {
-            system_pkg_id: sui_reader_config
+
+        let system_pkg_id = match sui_reader_config.contract_config.original_system_package_id {
+            Some(id) => id,
+            None => sui_reader_config
                 .new_read_client()
                 .await?
                 .get_system_package_id(),
+        };
+        let system_config = SystemConfig {
+            system_pkg_id: system_pkg_id,
             system_object_id: sui_reader_config.contract_config.system_object,
             staking_object_id: sui_reader_config.contract_config.staking_object,
         };
@@ -97,6 +102,7 @@ impl EventProcessorRuntime {
                     tokio::spawn(async { std::future::pending().await }),
                 )
             } else {
+                tracing::info!("ZZZZZ Building event processor...");
                 let event_processor = runtime.block_on(async {
                     Self::build_event_processor(
                         &sui_config,
@@ -107,6 +113,7 @@ impl EventProcessorRuntime {
                     )
                     .await
                 })?;
+                tracing::info!("ZZZZZ Cloning event processor...");
                 let cloned_event_processor = event_processor.clone();
                 let event_processor_handle = tokio::spawn(async move {
                     let result = cloned_event_processor.start(cancel_token).await;
@@ -115,6 +122,7 @@ impl EventProcessorRuntime {
                     }
                     result
                 });
+                tracing::info!("ZZZZZ Returning event processor...");
                 (Box::new(event_processor), event_processor_handle)
             };
 

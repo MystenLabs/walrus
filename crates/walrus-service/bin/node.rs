@@ -558,6 +558,8 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
+        tracing::info!("Starting metricx push...");
+
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
             Some(mut mc) => {
@@ -577,6 +579,8 @@ mod commands {
             None => None,
         };
 
+        tracing::info!("Starting event processor...");
+
         let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
             config
                 .sui
@@ -591,6 +595,8 @@ mod commands {
             &config.db_config,
         )?;
 
+        tracing::info!("Starting storage node...");
+
         let node_runtime = StorageNodeRuntime::start(
             &config,
             metrics_runtime,
@@ -599,6 +605,8 @@ mod commands {
             cancel_token.child_token(),
             Some(config_loader),
         )?;
+
+        tracing::info!("Starting monitor runtimes...");
 
         monitor_runtimes(
             node_runtime,
@@ -1147,6 +1155,7 @@ impl StorageNodeRuntime {
         cancel_token: CancellationToken,
         config_loader: Option<Arc<dyn ConfigLoader>>,
     ) -> anyhow::Result<Self> {
+        tracing::info!("ZZZZZ Starting runtime...");
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("walrus-node-runtime")
             .enable_all()
@@ -1154,7 +1163,7 @@ impl StorageNodeRuntime {
             .build()
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
-
+        tracing::info!("ZZZZZ Entering runtime...");
         let walrus_node = Arc::new(
             runtime.block_on(
                 StorageNode::builder()
@@ -1163,7 +1172,7 @@ impl StorageNodeRuntime {
                     .build(node_config, metrics_runtime.registry.clone()),
             )?,
         );
-
+        tracing::info!("ZZZZZ Building node...");
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();
         let walrus_node_handle = tokio::spawn(async move {
@@ -1181,13 +1190,14 @@ impl StorageNodeRuntime {
 
             result
         });
-
+        tracing::info!("ZZZZZ Starting rest api...");
         let rest_api = RestApiServer::new(
             walrus_node,
             cancel_token.child_token(),
             RestApiConfig::from(node_config),
             &metrics_runtime.registry,
         );
+        tracing::info!("ZZZZZ Spawning rest api...");
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api
                 .run()
