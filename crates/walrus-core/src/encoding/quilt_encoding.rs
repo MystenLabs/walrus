@@ -496,13 +496,17 @@ pub struct QuiltStoreBlobOwned {
 // Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
 impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
     fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
-        self.blob == other.blob.as_slice() && self.attributes == other.attributes
+        self.blob == other.blob.as_slice()
+            && self.identifier == other.identifier
+            && self.attributes == other.attributes
     }
 }
 
 impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
     fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
-        self.blob.as_slice() == other.blob && self.attributes == other.attributes
+        self.blob.as_slice() == other.blob
+            && self.identifier == other.identifier
+            && self.attributes == other.attributes
     }
 }
 
@@ -1241,6 +1245,8 @@ impl<'a> QuiltEncoderV1<'a> {
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
         header.length = total_size as u64;
         let header_bytes = header.as_bytes();
+        debug_assert_eq!(header_bytes.len(), QuiltVersionV1::BLOB_HEADER_SIZE);
+
         let mut result_bytes = Vec::with_capacity(header_bytes.len() + total_size);
         result_bytes.extend_from_slice(&header_bytes);
         for mut inner_extension_vec in extension_bytes {
@@ -1908,7 +1914,7 @@ mod tests {
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
-                        identifier: "test-blob-1".to_string(),
+                        identifier: "".to_string(),
                         attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
@@ -1980,8 +1986,7 @@ mod tests {
                 .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Patch should exist for this blob identifier");
             assert_eq!(
-                extracted_blob.data(),
-                quilt_store_blob.blob,
+                extracted_blob, *quilt_store_blob,
                 "Mismatch in encoded blob"
             );
 
@@ -1998,7 +2003,7 @@ mod tests {
             let blob_by_identifier = quilt
                 .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Should be able to get blob by identifier");
-            assert_eq!(blob_by_identifier.data(), quilt_store_blob.blob);
+            assert_eq!(blob_by_identifier, *quilt_store_blob);
         }
 
         assert_eq!(quilt.quilt_index().len(), quilt_store_blobs.len());
@@ -2124,7 +2129,7 @@ mod tests {
             let blob = quilt_decoder
                 .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Should get blob by identifier");
-            assert_eq!(blob.data(), quilt_store_blob.blob);
+            assert_eq!(blob, *quilt_store_blob);
         }
 
         let mut decoder = config
@@ -2169,6 +2174,18 @@ mod tests {
         ]
     }
     fn test_quilt_blob_header(length: u64, mask: u16) {
+        {
+            let mut header = BlobHeaderV1::new(100, 0).expect("Should create header");
+            assert_eq!(header.length, 100);
+            assert_eq!(header.mask, 0);
+            assert!(!header.has_attributes());
+            header.set_has_attributes(true);
+            assert!(header.has_attributes());
+            let bytes = header.as_bytes();
+            let reconstructed_header = BlobHeaderV1::from_bytes(bytes);
+            assert!(reconstructed_header.has_attributes());
+        }
+
         let header = BlobHeaderV1::new(length, mask).expect("Should create header");
 
         assert_eq!(
@@ -2234,7 +2251,18 @@ mod tests {
             let static_data = Box::leak(blob_data.into_boxed_slice());
 
             // Create and store the QuiltStoreBlob.
-            result.push(QuiltStoreBlob::new(static_data, format!("test-blob-{}", i)));
+            let mut quilt_store_blob = QuiltStoreBlob::new(static_data, format!("test-blob-{}", i));
+            let num_attributes = rng.gen_range(0..15);
+            for _ in 0..num_attributes {
+                // Generate random data and convert to hex string
+                let value_bytes_length = rng.gen_range(0..100);
+                let random_bytes = random_data(value_bytes_length);
+                let random_value = hex::encode(random_bytes);
+                let random_bytes = random_data(value_bytes_length);
+                let random_key = hex::encode(random_bytes);
+                quilt_store_blob.attributes.insert(random_key, random_value);
+            }
+            result.push(quilt_store_blob);
         }
 
         result

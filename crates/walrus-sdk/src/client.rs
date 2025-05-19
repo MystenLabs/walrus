@@ -2292,13 +2292,6 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
     ) -> ClientResult<QuiltIndex> {
-        // // Check cache first
-        // {
-        //     let cache = self.client.quilt_cache.lock().unwrap();
-        //     if let Some(metadata) = cache.get(quilt_id) {
-        //         return Ok(metadata.clone());
-        //     }
-        // }
         let slivers = self
             .client
             .retrieve_slivers_with_retry::<Secondary>(
