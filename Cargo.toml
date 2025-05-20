@@ -120,7 +120,8 @@ sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0"
 syn = "2.0"
 tap = "1.0.1"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-tempfile = "3.20.0"
+# TODO (WAL-834): Update to the latest version after sui testnet-v1.50 is used.
+tempfile = "=3.19.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
 thiserror = "2.0.12"
 tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
@@ -135,7 +136,6 @@ tracing-subscriber = { version = "0.3.19", default-features = false, features = 
 twox-hash = "2.1.0"
 typed-store = { path = "crates/typed-store" }
 uint = "0.10.0"
-# TODO (WAL-790): update typed-store to >= 1.47 or remove it.
 url = "2.5.4"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
