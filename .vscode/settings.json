@@ -2,5 +2,5 @@
   "rust-analyzer.rustfmt.extraArgs": [
     "--config",
     "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
-  ]
+  ],
 }

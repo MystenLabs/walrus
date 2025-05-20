@@ -357,6 +357,11 @@ impl CommitteeTracker {
         self.0.epoch() + 1
     }
 
+    /// The epoch of the committee that is currently being tracked.
+    pub fn tracked_committee_epoch(&self) -> Epoch {
+        self.0.epoch()
+    }
+
     /// Sets the committee for the next epoch, always update the next committee with the
     /// provided committee.
     ///

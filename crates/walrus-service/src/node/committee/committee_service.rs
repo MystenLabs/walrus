@@ -5,6 +5,7 @@
 //! Committee lookup and management.
 
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     num::NonZeroU16,
     sync::{Arc, Mutex as SyncMutex},
@@ -574,35 +575,63 @@ where
         &self,
         new_epoch: Epoch,
     ) -> Result<(), BeginCommitteeChangeError> {
-        let expected_next_epoch = self.inner.committee_tracker.borrow().next_epoch();
+        // Here we first check the epoch from the current committee already in memory to determine
+        // what action we should take.
+        // Note that it is possible that the committee in committee_tracker is already
+        // up-to-date with the latest committee on chain (since the node can restart before
+        // processing the epoch change event).
+        let tracked_committee_epoch = self
+            .inner
+            .committee_tracker
+            .borrow()
+            .tracked_committee_epoch();
 
-        if new_epoch > expected_next_epoch {
-            return Err(BeginCommitteeChangeError::EpochIsNotSequential {
-                expected: expected_next_epoch,
-                actual: new_epoch,
-            });
-        } else if new_epoch == expected_next_epoch - 1 {
+        if new_epoch == tracked_committee_epoch {
+            // In this case, the committee the epoch change event is based on is already match
+            // the committee stored in committee_tracker. And therefore no need to fetch the
+            // committee from the chain again.
             return Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent);
-        } else if new_epoch < expected_next_epoch - 1 {
-            return Err(BeginCommitteeChangeError::EpochIsLess {
-                expected: expected_next_epoch,
-                actual: new_epoch,
-            });
         }
-        debug_assert_eq!(new_epoch, expected_next_epoch);
 
+        // Now, fetch the latest committee from the chain.
         let latest = self
             .committee_lookup
             .get_active_committees()
             .await
             .map_err(BeginCommitteeChangeError::LookupError)?;
+        let latest_committee_epoch = latest.epoch();
+
+        match new_epoch.cmp(&latest_committee_epoch) {
+            Ordering::Greater => {
+                // This should never happen that the epoch change event has later epoch than
+                // the latest epoch from the committee.
+                return Err(BeginCommitteeChangeError::EpochIsNotSequential {
+                    expected: latest_committee_epoch,
+                    actual: new_epoch,
+                });
+            }
+            Ordering::Less => {
+                // The epoch change event requests to enter a new epoch that is less than the latest
+                // epoch on chain.
+                return Err(BeginCommitteeChangeError::EpochIsLess {
+                    latest_epoch: latest_committee_epoch,
+                    requested_epoch: new_epoch,
+                });
+            }
+            Ordering::Equal => {}
+        }
+
+        debug_assert_eq!(new_epoch, latest_committee_epoch);
+
         let current_committee: Committee = (**latest.current_committee()).clone();
 
+        // At this point, the only situation left, is that the tracked committee is transitioning
+        // into the next epoch, which must match the latest_committee_epoch.
         ensure!(
-            current_committee.epoch == expected_next_epoch,
+            current_committee.epoch == tracked_committee_epoch + 1,
             BeginCommitteeChangeError::LatestCommitteeEpochDiffers {
                 latest_committee: current_committee,
-                expected_epoch: expected_next_epoch
+                expected_epoch: tracked_committee_epoch + 1
             },
         );
 

@@ -534,6 +534,17 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
 }
 
+/// The action to take when the node transitions to a new committee.
+#[derive(Debug)]
+pub enum BeginCommitteeChangeAction {
+    /// The node should execute the epoch change.
+    ExecuteEpochChange,
+    /// The node should skip the epoch change.
+    SkipEpochChange,
+    /// The node should enter recovery mode.
+    EnterRecoveryMode,
+}
+
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
@@ -1058,6 +1069,7 @@ impl StorageNode {
             stream_element.element.label()
         )
         .start_timer();
+        fail_point_async!("before-process-event-impl");
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
                 self.process_blob_event(event_handle, blob_event).await?;
@@ -1323,7 +1335,6 @@ impl StorageNode {
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
-        // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
@@ -1367,12 +1378,32 @@ impl StorageNode {
             self.process_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
                 .await?;
         } else {
-            self.process_epoch_change_start_when_node_is_in_sync(
-                event_handle,
-                event,
-                shard_map_lock,
-            )
-            .await?;
+            let enter_recovery_mode = match self.begin_committee_change(event.epoch).await? {
+                BeginCommitteeChangeAction::ExecuteEpochChange => false,
+                BeginCommitteeChangeAction::SkipEpochChange => {
+                    event_handle.mark_as_complete();
+                    return Ok(());
+                }
+                BeginCommitteeChangeAction::EnterRecoveryMode => true,
+            };
+
+            if enter_recovery_mode {
+                tracing::info!("storage node entering recovery mode");
+                self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                self.process_epoch_change_start_while_catching_up(
+                    event_handle,
+                    event,
+                    shard_map_lock,
+                )
+                .await?;
+            } else {
+                self.process_epoch_change_start_when_node_is_in_sync(
+                    event_handle,
+                    event,
+                    shard_map_lock,
+                )
+                .await?;
+            }
         }
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
@@ -1453,11 +1484,6 @@ impl StorageNode {
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
-        if !self.begin_committee_change(event.epoch).await? {
-            event_handle.mark_as_complete();
-            return Ok(());
-        }
-
         // For blobs that are expired in the new epoch, sends a notification to all the tasks
         // that may be affected by the blob expiration.
         self.inner
@@ -1581,13 +1607,12 @@ impl StorageNode {
 
     /// Initiates a committee transition to a new epoch.
     ///
-    /// Returns `true` if epoch change event has started or was sufficiently recent such
-    /// that it should be handled.
+    /// Returns the action to execute epoch change based on the result of committee service.
     #[tracing::instrument(skip_all)]
     async fn begin_committee_change(
         &self,
         epoch: Epoch,
-    ) -> Result<bool, BeginCommitteeChangeError> {
+    ) -> Result<BeginCommitteeChangeAction, BeginCommitteeChangeError> {
         match self
             .inner
             .committee_service
@@ -1600,26 +1625,44 @@ impl StorageNode {
                     "successfully started a transition to a new epoch"
                 );
                 self.inner.current_epoch.send_replace(epoch);
-                Ok(true)
+                Ok(BeginCommitteeChangeAction::ExecuteEpochChange)
             }
             Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent) => {
                 tracing::info!(
                     walrus.epoch = epoch,
-                    "epoch change event was for the epoch we are currently in, not skipping"
+                    "epoch change event was for the epoch we already fetched the committee info, \
+                    directly executing epoch change"
                 );
-                Ok(true)
+                Ok(BeginCommitteeChangeAction::ExecuteEpochChange)
             }
-            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress)
-            | Err(BeginCommitteeChangeError::EpochIsLess { .. }) => {
+            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress) => {
+                // TODO(WAL-479): can this condition actually happen? It seems that the only case
+                // this could happen is when the node calls begin_committee_change() multiple times
+                // on the same epoch in the same life time of the storage node. This is not expected
+                // and indicates software bug.
+                tracing::info!(
+                    walrus.epoch = epoch,
+                    committee_epoch = self.inner.committee_service.get_epoch(),
+                    "epoch change is already in progress, do not need to re-execute epoch change"
+                );
+                Ok(BeginCommitteeChangeAction::SkipEpochChange)
+            }
+            Err(BeginCommitteeChangeError::EpochIsLess {
+                latest_epoch,
+                requested_epoch,
+            }) => {
+                debug_assert!(requested_epoch < latest_epoch);
                 // We are likely processing a backlog of events. Since the committee service has a
                 // more recent committee or has already had the current committee marked as
                 // transitioning, our shards have also already been configured for the more
                 // recent committee and there is actual nothing to do.
-                tracing::info!(
-                    walrus.epoch = epoch,
-                    "skipping epoch change start event for an older epoch"
+                tracing::warn!(
+                    ?latest_epoch,
+                    ?requested_epoch,
+                    "epoch change requested for an older epoch than the latest epoch, this \
+                    the node is severely lagging behind, and should enter recovery mode"
                 );
-                Ok(false)
+                Ok(BeginCommitteeChangeAction::EnterRecoveryMode)
             }
             Err(error) => {
                 tracing::error!(?error, "failed to initiate a transition to the new epoch");
