@@ -9,7 +9,11 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{Arc, Mutex, atomic::AtomicBool},
+        sync::{
+            Arc,
+            Mutex,
+            atomic::{AtomicBool, AtomicUsize},
+        },
         time::{Duration, Instant},
     };
 
@@ -580,7 +584,8 @@ mod tests {
         tokio::time::sleep(block_duration).await;
     }
 
-    // This integration test simulates a scenario where a node is lagging behind and recovers.
+    // This integration test simulates a scenario where a node is lagging behind and should enter
+    // recovery mode while processing events.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_node_slow_process_events_entering_recovery() {
@@ -631,6 +636,12 @@ mod tests {
                 )
                 .await;
             }
+        });
+
+        let enter_recovery_mode_count = Arc::new(AtomicUsize::new(0));
+        let enter_recovery_mode_count_clone = enter_recovery_mode_count.clone();
+        sui_macros::register_fail_point("fail-point-enter-recovery-mode", move || {
+            enter_recovery_mode_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         });
 
         // Changes the stake of the crashed node so that it will gain some shards after the next
@@ -697,7 +708,13 @@ mod tests {
 
         workload_handle.abort();
 
+        assert!(
+            enter_recovery_mode_count.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "the node should enter recovery mode"
+        );
+
         blob_info_consistency_check.check_storage_node_consistency();
         clear_fail_point("before-process-event-impl");
+        clear_fail_point("fail-point-enter-recovery-mode");
     }
 }

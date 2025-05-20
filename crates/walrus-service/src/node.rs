@@ -1412,6 +1412,7 @@ impl StorageNode {
                 }
                 BeginCommitteeChangeAction::EnterRecoveryMode => {
                     tracing::info!("storage node entering recovery mode during epoch change start");
+                    sui_macros::fail_point!("fail-point-enter-recovery-mode");
                     self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
                     self.execute_epoch_change_start_while_catching_up(
                         event_handle,
