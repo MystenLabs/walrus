@@ -1188,7 +1188,7 @@ impl<'a> QuiltEncoderV1<'a> {
     fn add_blob_to_quilt(
         data: &mut [u8],
         blob: &QuiltStoreBlob,
-        include_blob_size: bool,
+        is_meta_blob: bool,
         current_col: usize,
         column_size: usize,
         row_size: usize,
@@ -1201,7 +1201,7 @@ impl<'a> QuiltEncoderV1<'a> {
         let mut max_col = current_col;
 
         let mut prefix_bytes = Vec::new();
-        if include_blob_size {
+        if !is_meta_blob {
             prefix_bytes = Self::get_header_and_extension_bytes(blob)?;
         };
 
@@ -1296,7 +1296,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             let cols_needed = Self::add_blob_to_quilt(
                 &mut data,
                 quilt_store_blob,
-                true,
+                false,
                 current_col,
                 column_size,
                 row_size,
@@ -1323,7 +1323,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         let index_cols_used = Self::add_blob_to_quilt(
             &mut data,
             &meta_blob,
-            false,
+            true,
             0,
             column_size,
             row_size,
