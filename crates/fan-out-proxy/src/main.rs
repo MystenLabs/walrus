@@ -1,5 +1,5 @@
 //! Walrus Fan-out Proxy entry point.
-use std::{net::SocketAddr, num::NonZeroU16};
+use std::{env, net::SocketAddr, num::NonZeroU16};
 
 use anyhow::Result;
 use axum::{
@@ -14,8 +14,7 @@ use axum_server::bind;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
 use walrus_core::{
     BlobId,
     BlobIdParseError,
@@ -42,23 +41,27 @@ enum Command {
     Proxy,
 }
 
+fn init_logging() {
+    // Use INFO level by default.
+    let directive = format!(
+        "info,{}",
+        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
+    );
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .boxed()
+                .with_filter(EnvFilter::new(directive.clone())),
+        )
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    tracing_subscriber::registry()
-        // We don't need timestamps in the logs.
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_file(true)
-                .with_line_number(true),
-        )
-        // Allow usage of RUST_LOG environment variable to set the log level.
-        .with(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
-        .init();
+
+    init_logging();
 
     match args.command {
         Command::Proxy => {
