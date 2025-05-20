@@ -3360,11 +3360,13 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "thiserror 2.0.12",
  "tokio",
  "tower 0.5.2",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "walrus-core",
 ]
 
 [[package]]
