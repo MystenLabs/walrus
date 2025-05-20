@@ -2387,6 +2387,73 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
+    /// Retrieves the list of blobs contained in a quilt.
+    pub async fn get_blobs_by_id(
+        &self,
+        quilt_id: &BlobId,
+        identifiers: &[&str],
+    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
+        let metadata = self.get_quilt_metadata(quilt_id).await?;
+
+        match metadata {
+            QuiltMetadata::V1(metadata) => {
+                let mut decoder = QuiltDecoderV1::new_with_quilt_index(&[], metadata.index.clone());
+                let mut sliver_indices = Vec::new();
+                for &identifier in identifiers {
+                    match metadata.index.get_quilt_patch_by_identifier(identifier) {
+                        Ok(patch) => {
+                            // Add all indices in the range [start_index, end_index)
+                            for idx in patch.start_index()..patch.end_index() {
+                                sliver_indices.push(SliverIndex::new(idx));
+                            }
+                        }
+                        Err(e) => {
+                            return Err(ClientError::other(e));
+                        }
+                    }
+                }
+
+                // Retrieve necessary blob data
+                let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;
+
+                // Retrieve the slivers using the existing helper
+                let retrieve_slivers = self
+                    .client
+                    .retrieve_slivers_with_retry::<Secondary>(
+                        &metadata.get_verified_metadata(),
+                        &sliver_indices,
+                        certified_epoch,
+                        Some(2),
+                        None,
+                    )
+                    .await;
+
+                if let Ok(slivers) = retrieve_slivers {
+                    let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
+                    decoder.add_slivers(&sliver_refs);
+
+                    identifiers
+                        .iter()
+                        .map(|identifier| {
+                            decoder
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                } else {
+                    let quilt = self.get_quilt_enum(quilt_id).await?;
+                    identifiers
+                        .iter()
+                        .map(|identifier| {
+                            quilt
+                                .get_blob_by_identifier(identifier)
+                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                }
+            }
+        }
+    }
     async fn get_quilt_enum(&self, quilt_id: &BlobId) -> ClientResult<QuiltEnum> {
         self.client.check_blob_id(quilt_id)?;
         let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;

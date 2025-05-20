@@ -7,7 +7,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{fmt, fmt::Debug, num::NonZeroU16};
+use core::{fmt::Debug, num::NonZeroU16};
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -60,9 +60,6 @@ pub struct QuiltPatchV1 {
     end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     identifier: String,
-    /// The internal ID of the quilt patch.
-    #[serde(skip)]
-    quilt_patch_id: QuiltPatchIdV1,
 }
 
 impl QuiltPatchV1 {
@@ -74,7 +71,6 @@ impl QuiltPatchV1 {
             identifier,
             start_index: 0,
             end_index: 0,
-            quilt_patch_id: QuiltPatchIdV1::new(0, 0),
         })
     }
 
@@ -91,11 +87,6 @@ impl QuiltPatchV1 {
             ));
         }
         Ok(())
-    }
-
-    /// The internal ID of the quilt patch.
-    pub fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
-        self.quilt_patch_id
     }
 
     /// The start index of the quilt patch.
@@ -117,45 +108,6 @@ impl QuiltPatchV1 {
     pub fn set_range(&mut self, start_index: u16, end_index: u16) {
         self.start_index = start_index;
         self.end_index = end_index;
-        self.quilt_patch_id = QuiltPatchIdV1::new(start_index, end_index);
-    }
-}
-
-/// The type of the quilt internal ID;
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
-pub struct QuiltPatchIdV1(u32);
-
-impl QuiltPatchIdV1 {
-    /// Creates a new quilt patch ID from a start and end index.
-    pub fn new(start_index: u16, end_index: u16) -> Self {
-        Self((start_index as u32) << 16 | end_index as u32)
-    }
-
-    /// Returns the start index of the quilt patch.
-    pub fn start_index(&self) -> u16 {
-        (self.0 >> 16) as u16
-    }
-
-    /// Returns the end index of the quilt patch.
-    pub fn end_index(&self) -> u16 {
-        self.0 as u16
-    }
-}
-
-impl fmt::Display for QuiltPatchIdV1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for QuiltPatchIdV1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "QuiltPatchIdV1({}..{})",
-            self.start_index(),
-            self.end_index()
-        )
     }
 }
 

@@ -30,14 +30,7 @@ use crate::{
         blob_encoding::BlobEncoder,
         config::EncodingConfigTrait as _,
     },
-    metadata::{
-        QuiltIndex,
-        QuiltIndexV1,
-        QuiltMetadata,
-        QuiltMetadataV1,
-        QuiltPatchIdV1,
-        QuiltPatchV1,
-    },
+    metadata::{QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1, QuiltPatchV1},
 };
 
 /// The number of bytes to store the size of the quilt index.
@@ -74,8 +67,6 @@ pub trait QuiltVersion: Sized {
     type QuiltIndex: Clone;
     /// The type of the quilt metadata.
     type QuiltMetadata;
-    /// The type of the quilt patch ID.
-    type QuiltPatchId: Clone + fmt::Debug + Copy;
 
     /// The serialized bytes of the quilt type.
     fn quilt_version_byte() -> u8;
@@ -91,12 +82,6 @@ pub trait QuiltApi<V: QuiltVersion> {
 
     /// Gets a blob by its identifier from the quilt.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
-
-    /// Gets a blob by its patch ID from the quilt.
-    fn get_blob_by_patch_id(
-        &self,
-        patch_id: V::QuiltPatchId,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> &V::QuiltIndex;
@@ -142,12 +127,6 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
 
     /// Gets a blob by its identifier from the quilt.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
-
-    /// Gets a blob by its patch ID from the quilt.
-    fn get_blob_by_patch_id(
-        &self,
-        patch_id: V::QuiltPatchId,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
@@ -681,7 +660,6 @@ impl QuiltVersion for QuiltVersionV1 {
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
     type QuiltMetadata = QuiltMetadataV1;
-    type QuiltPatchId = QuiltPatchIdV1;
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
@@ -847,16 +825,6 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         self.quilt_index
             .get_quilt_patch_by_identifier(identifier)
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
-    }
-
-    fn get_blob_by_patch_id(
-        &self,
-        patch_id: QuiltPatchIdV1,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
-        self.get_blob_by_range(
-            patch_id.start_index() as usize,
-            patch_id.end_index() as usize,
-        )
     }
 
     fn quilt_index(&self) -> &QuiltIndexV1 {
@@ -1529,16 +1497,6 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
-    }
-
-    fn get_blob_by_patch_id(
-        &self,
-        patch_id: QuiltPatchIdV1,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
-        self.get_blob_by_range(
-            patch_id.start_index() as usize,
-            patch_id.end_index() as usize,
-        )
     }
 
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]) {

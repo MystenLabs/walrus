@@ -790,8 +790,7 @@ impl ClientCommandRunner {
                 println!("Quilt constructed and saved to {}", out.display());
                 for patch in quilt.quilt_index().quilt_patches.iter() {
                     println!(
-                        "Blob {}, {} stored in quilt at [{}, {})",
-                        patch.quilt_patch_id(),
+                        "Blob {} stored in quilt at [{}, {})",
                         patch.identifier(),
                         patch.start_index(),
                         patch.end_index(),

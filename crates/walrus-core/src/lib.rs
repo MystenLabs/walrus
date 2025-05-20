@@ -215,6 +215,103 @@ impl Debug for BlobId {
     }
 }
 
+/// A QuiltBlobId identifies a blob within a quilt.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+pub struct QuiltBlobId {
+    /// The BlobId of the quilt as a Walrus blob.
+    pub quilt_id: BlobId,
+    /// The internal ID of the blob.
+    pub internal_blob_id: Vec<u8>,
+    /// The version of the quilt.
+    pub quilt_version: u8,
+}
+
+impl QuiltBlobId {
+    /// Serializes the QuiltBlobId to bytes
+    //
+    // Schema for serialized QuiltBlobId:
+    // +---------------+-------------------------------------+
+    // | BlobId        | Base64(version + internal_blob_id)  |
+    // | display       |                                     |
+    // | representation|   +--------+---------------------+  |
+    // |               |   | 1 byte | variable length     |  |
+    // |               |   | version| internal_blob_id    |  |
+    // +---------------+---+--------+---------------------+--+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.quilt_id.0);
+        bytes.push(self.quilt_version);
+        bytes.extend_from_slice(&self.internal_blob_id);
+        bytes
+    }
+
+    /// Deserializes the QuiltBlobId from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BlobIdParseError> {
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+        let quilt_version = bytes[BlobId::LENGTH];
+        let internal_blob_id = bytes[BlobId::LENGTH + 1..].to_vec();
+        Ok(Self {
+            quilt_id,
+            quilt_version,
+            internal_blob_id,
+        })
+    }
+
+    /// Returns a zero-initialized QuiltBlobId.
+    pub fn zero() -> Self {
+        Self {
+            quilt_id: BlobId::ZERO,
+            quilt_version: 0,
+            internal_blob_id: Vec::new(),
+        }
+    }
+}
+
+impl Display for QuiltBlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Base64Display::new(&self.to_bytes(), &URL_SAFE_NO_PAD).fmt(f)
+    }
+}
+
+impl Debug for QuiltBlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BlobId({}), version({}), internal_blob_id({:?})",
+            self.quilt_id, self.quilt_version, self.internal_blob_id
+        )
+    }
+}
+
+impl FromStr for QuiltBlobId {
+    type Err = BlobIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Decode from Base64.
+        let bytes = URL_SAFE_NO_PAD.decode(s).map_err(|_| BlobIdParseError)?;
+
+        // Must have at least BlobId.LENGTH + 1 bytes (quilt_id + version).
+        if bytes.len() < BlobId::LENGTH + 1 {
+            return Err(BlobIdParseError);
+        }
+
+        // Extract quilt_id (first 32 bytes).
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+
+        // Extract version (next byte).
+        let quilt_version = bytes[BlobId::LENGTH];
+
+        // Extract internal_blob_id (remaining bytes).
+        let internal_blob_id = bytes[BlobId::LENGTH + 1..].to_vec();
+
+        Ok(Self {
+            quilt_id,
+            quilt_version,
+            internal_blob_id,
+        })
+    }
+}
+
 /// Error returned when unable to parse a blob ID.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("failed to parse a blob ID")]
