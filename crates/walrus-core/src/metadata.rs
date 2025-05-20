@@ -55,11 +55,11 @@ pub enum VerificationError {
 pub struct QuiltPatchV1 {
     /// The start sliver index of the blob.
     #[serde(skip)]
-    start_index: u16,
+    pub start_index: u16,
     /// The end sliver index of the blob.
-    end_index: u16,
+    pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
-    identifier: String,
+    pub identifier: String,
 }
 
 impl QuiltPatchV1 {
@@ -87,21 +87,6 @@ impl QuiltPatchV1 {
             ));
         }
         Ok(())
-    }
-
-    /// The start index of the quilt patch.
-    pub fn start_index(&self) -> u16 {
-        self.start_index
-    }
-
-    /// The end index of the quilt patch.
-    pub fn end_index(&self) -> u16 {
-        self.end_index
-    }
-
-    /// The identifier of the quilt patch.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
     }
 
     /// Sets the range of the quilt patch.
@@ -163,9 +148,8 @@ impl QuiltIndexV1 {
     pub fn populate_start_indices(&mut self, first_start: u16) {
         let mut prev_end_index = first_start;
         for i in 0..self.quilt_patches.len() {
-            let end_index = self.quilt_patches[i].end_index();
-            self.quilt_patches[i].set_range(prev_end_index, end_index);
-            prev_end_index = end_index;
+            self.quilt_patches[i].start_index = prev_end_index;
+            prev_end_index = self.quilt_patches[i].end_index;
         }
     }
 }
