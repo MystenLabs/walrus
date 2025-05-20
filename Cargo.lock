@@ -1944,6 +1944,7 @@ dependencies = [
  "sui-macros",
  "sui-rpc-api",
  "sui-types",
+ "telemetry-subscribers",
  "tempfile",
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
