@@ -406,8 +406,6 @@ impl SimStorageNodeHandle {
                     }
                     .await;
 
-                    cancel_token.cancel();
-
                     match result {
                         Err(e) => {
                             if matches!(

@@ -260,7 +260,7 @@ where
         let mut modify_result = Ok(());
         let modify_tracker = |tracker: &mut CommitteeTracker| {
             // Guaranteed by the caller.
-            assert_eq!(tracker.next_epoch(), next_committee.epoch);
+            assert_eq!(tracker.tracked_committee_next_epoch(), next_committee.epoch);
             tracker
                 .set_committee_for_next_epoch(next_committee)
                 .unwrap_or_else(|error| {

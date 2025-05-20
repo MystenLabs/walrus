@@ -1374,37 +1374,8 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
-        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.process_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
-                .await?;
-        } else {
-            let enter_recovery_mode = match self.begin_committee_change(event.epoch).await? {
-                BeginCommitteeChangeAction::ExecuteEpochChange => false,
-                BeginCommitteeChangeAction::SkipEpochChange => {
-                    event_handle.mark_as_complete();
-                    return Ok(());
-                }
-                BeginCommitteeChangeAction::EnterRecoveryMode => true,
-            };
-
-            if enter_recovery_mode {
-                tracing::info!("storage node entering recovery mode");
-                self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
-                self.process_epoch_change_start_while_catching_up(
-                    event_handle,
-                    event,
-                    shard_map_lock,
-                )
-                .await?;
-            } else {
-                self.process_epoch_change_start_when_node_is_in_sync(
-                    event_handle,
-                    event,
-                    shard_map_lock,
-                )
-                .await?;
-            }
-        }
+        self.execute_epoch_change_start_event(event_handle, event, shard_map_lock)
+            .await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
@@ -1415,9 +1386,49 @@ impl StorageNode {
         Ok(())
     }
 
+    /// Storage node execution of the epoch change start event.
+    async fn execute_epoch_change_start_event(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
+    ) -> anyhow::Result<()> {
+        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
+            self.execute_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
+                .await?;
+        } else {
+            match self.begin_committee_change(event.epoch).await? {
+                BeginCommitteeChangeAction::ExecuteEpochChange => {
+                    self.execute_epoch_change_start_when_node_is_in_sync(
+                        event_handle,
+                        event,
+                        shard_map_lock,
+                    )
+                    .await?;
+                }
+                BeginCommitteeChangeAction::SkipEpochChange => {
+                    event_handle.mark_as_complete();
+                    return Ok(());
+                }
+                BeginCommitteeChangeAction::EnterRecoveryMode => {
+                    tracing::info!("storage node entering recovery mode during epoch change start");
+                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                    self.execute_epoch_change_start_while_catching_up(
+                        event_handle,
+                        event,
+                        shard_map_lock,
+                    )
+                    .await?;
+                }
+            };
+        }
+
+        Ok(())
+    }
+
     /// Processes the epoch change start event while the node is in
     /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] mode.
-    async fn process_epoch_change_start_while_catching_up(
+    async fn execute_epoch_change_start_while_catching_up(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1478,7 +1489,7 @@ impl StorageNode {
 
     /// Processes the epoch change start event when the node is up-to-date with the epoch and event
     /// processing.
-    async fn process_epoch_change_start_when_node_is_in_sync(
+    async fn execute_epoch_change_start_when_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1605,9 +1616,11 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Initiates a committee transition to a new epoch.
+    /// Initiates a committee transition to a new epoch. Upon the return of this function, the
+    /// latest committee on chain is updated to the new node.
     ///
-    /// Returns the action to execute epoch change based on the result of committee service.
+    /// Returns the action to execute epoch change based on the result of committee service,
+    /// including possible actions to enter recovery mode due to the node being severely lagging.
     #[tracing::instrument(skip_all)]
     async fn begin_committee_change(
         &self,
@@ -1639,7 +1652,7 @@ impl StorageNode {
                 // TODO(WAL-479): can this condition actually happen? It seems that the only case
                 // this could happen is when the node calls begin_committee_change() multiple times
                 // on the same epoch in the same life time of the storage node. This is not expected
-                // and indicates software bug.
+                // and indicates software bug (convert this to debug assertion?).
                 tracing::info!(
                     walrus.epoch = epoch,
                     committee_epoch = self.inner.committee_service.get_epoch(),
@@ -1652,15 +1665,16 @@ impl StorageNode {
                 requested_epoch,
             }) => {
                 debug_assert!(requested_epoch < latest_epoch);
-                // We are likely processing a backlog of events. Since the committee service has a
-                // more recent committee or has already had the current committee marked as
-                // transitioning, our shards have also already been configured for the more
-                // recent committee and there is actual nothing to do.
+                // We are processing a backlog of events. Since the committee service has a
+                // more recent committee. In this situation, we have already lost the information
+                // and the shard assignment of the previous epoch relative to `event.epoch`, the
+                // node cannot execute the epoch change. Therefore, the node needs to enter recovery
+                // mode to catch up to the latest epoch as quickly as possible.
                 tracing::warn!(
                     ?latest_epoch,
                     ?requested_epoch,
                     "epoch change requested for an older epoch than the latest epoch, this \
-                    the node is severely lagging behind, and should enter recovery mode"
+                    the node is severely lagging behind, and will enter recovery mode"
                 );
                 Ok(BeginCommitteeChangeAction::EnterRecoveryMode)
             }
