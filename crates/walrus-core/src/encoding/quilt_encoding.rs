@@ -138,7 +138,7 @@ pub trait QuiltColumnDataIterator {
     where
         Self: 'a;
 
-    /// Returns an iterator over byte in the columns identified by the given start and end indices.
+    /// Returns an iterator over bytes in the columns identified by the given start and end indices.
     ///
     /// Assuming a 0-indexed bytes, the iterator will return the bytes in the range
     /// `[start_byte, start_byte + limit_bytes)`.
@@ -153,7 +153,7 @@ pub trait QuiltColumnDataIterator {
 
 /// An iterator over symbols within a specified column range of a Quilt.
 #[derive(Debug)]
-pub struct SymbolIter<'a> {
+pub struct QuiltSymbolIter<'a> {
     quilt_data: &'a [u8],
     row_size: usize,
     symbol_size: usize,
@@ -167,8 +167,8 @@ pub struct SymbolIter<'a> {
     bytes_remaining: usize,
 }
 
-impl<'a> SymbolIter<'a> {
-    /// Creates a new iterator for symbols within a defined columnar slice of the quilt.
+impl<'a> QuiltSymbolIter<'a> {
+    /// Creates a new iterator of symbols over the column range of the quilt.
     fn new(
         quilt_data: &'a [u8],
         row_size: usize,
@@ -203,7 +203,7 @@ impl<'a> SymbolIter<'a> {
     }
 }
 
-impl<'a> Iterator for SymbolIter<'a> {
+impl<'a> Iterator for QuiltSymbolIter<'a> {
     type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,7 +235,7 @@ impl<'a> Iterator for SymbolIter<'a> {
     }
 }
 
-impl<'a> SymbolIter<'a> {
+impl<'a> QuiltSymbolIter<'a> {
     fn next_internal(&mut self) -> Option<&'a [u8]> {
         if self.current_col >= self.end_col
             || self.current_row >= self.n_rows
@@ -312,7 +312,6 @@ impl<'a> Iterator for SliverBytesIterator<'a> {
             return None;
         }
 
-        // Handle skipping
         while self.bytes_to_skip > 0 {
             match self.next_n_bytes(self.bytes_to_skip) {
                 Some(slice) => {
@@ -433,8 +432,6 @@ impl QuiltEnum {
 pub struct QuiltStoreBlob<'a> {
     blob: &'a [u8],
     identifier: String,
-    /// The attributes of the blob.
-    pub attributes: HashMap<String, String>,
 }
 
 impl<'a> QuiltStoreBlob<'a> {
@@ -443,7 +440,6 @@ impl<'a> QuiltStoreBlob<'a> {
         Self {
             blob,
             identifier: identifier.into(),
-            attributes: HashMap::new(),
         }
     }
 
@@ -468,24 +464,18 @@ pub struct QuiltStoreBlobOwned {
     pub blob: Vec<u8>,
     /// The identifier of the blob.
     pub identifier: String,
-    /// The attributes of the blob.
-    pub attributes: HashMap<String, String>,
 }
 
 // Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
 impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
     fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
-        self.blob == other.blob.as_slice()
-            && self.identifier == other.identifier
-            && self.attributes == other.attributes
+        self.blob == other.blob.as_slice() && self.identifier == other.identifier
     }
 }
 
 impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
     fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
-        self.blob.as_slice() == other.blob
-            && self.identifier == other.identifier
-            && self.attributes == other.attributes
+        self.blob.as_slice() == other.blob && self.identifier == other.identifier
     }
 }
 
@@ -495,7 +485,6 @@ impl QuiltStoreBlobOwned {
         Self {
             blob,
             identifier: identifier.into(),
-            attributes: HashMap::new(),
         }
     }
 
@@ -534,18 +523,12 @@ impl QuiltVersionV1 {
 
         extension_size += identifier_size as usize + BLOB_IDENTIFIER_BYTES_LENGTH;
 
-        if !blob.attributes.is_empty() {
-            let attributes_size = bcs::serialized_size(&blob.attributes).map_err(|e| {
-                QuiltError::Other(format!("Failed to compute attributes size: {}", e))
-            })?;
-            extension_size += attributes_size + QuiltVersionV1::EXTENSION_SIZE_BYTES_LENGTH;
-        }
-
         let total_size = extension_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE;
         Ok(total_size)
     }
 
     /// Decodes a blob from a column data source.
+    ///
     pub fn decode_blob<T>(
         data_source: &T,
         start_col: usize,
@@ -572,74 +555,16 @@ impl QuiltVersionV1 {
         );
 
         let mut offset = Self::BLOB_HEADER_SIZE;
-        let mut identifier_bytes = Vec::new();
         let mut blob_bytes_size = usize::try_from(blob_header.length).map_err(|e| {
             QuiltError::Other(format!("Blob length exceeds maximum allowed value: {}", e))
         })?;
-        {
-            let iter = data_source.iter_column_bytes(
-                start_col,
-                end_col,
-                offset,
-                BLOB_IDENTIFIER_BYTES_LENGTH,
-            )?;
-            let mut size_buffer = Vec::new();
-            for symbol in iter {
-                size_buffer.extend_from_slice(symbol);
-            }
-            offset += BLOB_IDENTIFIER_BYTES_LENGTH;
-            let identifier_size = u16::from_le_bytes(
-                size_buffer
-                    .try_into()
-                    .expect("size_buffer should be 2 bytes"),
-            );
-            let identifier_iter = data_source.iter_column_bytes(
-                start_col,
-                end_col,
-                offset,
-                identifier_size as usize,
-            )?;
-            for symbol in identifier_iter {
-                identifier_bytes.extend_from_slice(symbol);
-            }
-            offset += identifier_size as usize;
-            blob_bytes_size -= identifier_size as usize + BLOB_IDENTIFIER_BYTES_LENGTH;
-        }
-        blob.identifier = bcs::from_bytes(&identifier_bytes)
-            .map_err(|_| QuiltError::Other("Failed to deserialize identifier".into()))?;
 
-        if blob_header.has_attributes() {
-            let mut size_bytes = Vec::new();
-            let iter = data_source.iter_column_bytes(
-                start_col,
-                end_col,
-                offset,
-                Self::EXTENSION_SIZE_BYTES_LENGTH,
-            )?;
-            for symbol in iter {
-                size_bytes.extend_from_slice(symbol);
-            }
-            assert!(size_bytes.len() == Self::EXTENSION_SIZE_BYTES_LENGTH);
-            blob_bytes_size -= size_bytes.len();
-            let attributes_size =
-                u32::from_le_bytes(size_bytes.try_into().expect("size_bytes should be 4 bytes"));
-            offset += Self::EXTENSION_SIZE_BYTES_LENGTH;
-            let attribute_iter = data_source.iter_column_bytes(
-                start_col,
-                end_col,
-                offset,
-                attributes_size as usize,
-            )?;
-            let mut attributes_bytes = Vec::new();
-            for symbol in attribute_iter {
-                attributes_bytes.extend_from_slice(symbol);
-            }
-            assert!(attributes_bytes.len() == attributes_size as usize);
-            blob.attributes = bcs::from_bytes(&attributes_bytes)
-                .map_err(|_| QuiltError::Other("Failed to deserialize attributes".into()))?;
-            offset += attributes_size as usize;
-            blob_bytes_size -= attributes_size as usize;
-        }
+        let (identifier, bytes_consumed) =
+            Self::decode_blob_identifier(data_source, start_col, end_col, offset)?;
+        offset += bytes_consumed;
+        blob_bytes_size -= bytes_consumed;
+
+        blob.identifier = identifier;
 
         let mut data_bytes = Vec::new();
         let iter = data_source.iter_column_bytes(start_col, end_col, offset, blob_bytes_size)?;
@@ -650,6 +575,59 @@ impl QuiltVersionV1 {
         blob.blob = data_bytes;
 
         Ok(blob)
+    }
+
+    /// Decodes the blob identifier from a column data source.
+    /// Returns a tuple containing the decoded identifier string and the total number
+    /// of bytes consumed.
+    fn decode_blob_identifier<T>(
+        data_source: &T,
+        start_col: usize,
+        end_col: usize,
+        initial_offset: usize,
+    ) -> Result<(String, usize), QuiltError>
+    where
+        T: QuiltColumnDataIterator,
+    {
+        let mut offset = initial_offset;
+        let mut identifier_bytes = Vec::new();
+
+        // Read identifier size (2 bytes).
+        let iter = data_source.iter_column_bytes(
+            start_col,
+            end_col,
+            offset,
+            BLOB_IDENTIFIER_BYTES_LENGTH,
+        )?;
+        let mut size_buffer = Vec::new();
+        for symbol in iter {
+            size_buffer.extend_from_slice(symbol);
+        }
+        offset += BLOB_IDENTIFIER_BYTES_LENGTH;
+
+        // Parse identifier size.
+        let identifier_size = usize::from(u16::from_le_bytes(
+            size_buffer
+                .try_into()
+                .expect("size_buffer should be 2 bytes"),
+        ));
+
+        // Read the actual identifier.
+        let identifier_iter =
+            data_source.iter_column_bytes(start_col, end_col, offset, identifier_size)?;
+        for symbol in identifier_iter {
+            identifier_bytes.extend_from_slice(symbol);
+        }
+        debug_assert!(identifier_bytes.len() == identifier_size);
+
+        // Deserialize the identifier bytes into a String.
+        let identifier = bcs::from_bytes(&identifier_bytes)
+            .map_err(|_| QuiltError::Other("Failed to deserialize identifier".into()))?;
+
+        // Calculate total bytes consumed.
+        let bytes_consumed = BLOB_IDENTIFIER_BYTES_LENGTH + identifier_size;
+
+        Ok((identifier, bytes_consumed))
     }
 }
 
@@ -843,7 +821,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 // Implementation of QuiltColumnDataIterator for QuiltV1
 impl QuiltColumnDataIterator for QuiltV1 {
     type RangeIter<'a>
-        = SymbolIter<'a>
+        = QuiltSymbolIter<'a>
     where
         Self: 'a;
 
@@ -854,7 +832,7 @@ impl QuiltColumnDataIterator for QuiltV1 {
         start_byte: usize,
         limit_bytes: usize,
     ) -> Result<Self::RangeIter<'_>, QuiltError> {
-        SymbolIter::new(
+        QuiltSymbolIter::new(
             &self.data,
             self.row_size,
             self.symbol_size,
@@ -876,8 +854,8 @@ impl QuiltV1 {
         end_col: usize,
         begin_position: usize,
         limit: usize,
-    ) -> Result<SymbolIter<'_>, QuiltError> {
-        SymbolIter::new(
+    ) -> Result<QuiltSymbolIter<'_>, QuiltError> {
+        QuiltSymbolIter::new(
             data,
             row_size,
             symbol_size,
@@ -1192,24 +1170,6 @@ impl<'a> QuiltEncoderV1<'a> {
             })?);
         extension_bytes.push(identifier_bytes);
 
-        if !blob.attributes.is_empty() {
-            header.set_has_attributes(true);
-            let mut serialized_attributes = bcs::to_bytes(&blob.attributes)
-                .map_err(|e| QuiltError::Other(format!("Failed to serialize attributes: {}", e)))?;
-
-            let attributes_size = u32::try_from(serialized_attributes.len()).map_err(|e| {
-                QuiltError::Other(format!(
-                    "Failed to convert attributes payload length to u32: {}",
-                    e
-                ))
-            })?;
-
-            let mut result_bytes = Vec::new();
-            result_bytes.extend_from_slice(&attributes_size.to_le_bytes());
-            result_bytes.append(&mut serialized_attributes);
-            extension_bytes.push(result_bytes);
-        }
-
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
         header.length = total_size as u64;
         let header_bytes = header.as_bytes();
@@ -1225,6 +1185,26 @@ impl<'a> QuiltEncoderV1<'a> {
     }
 
     /// Adds a blob to the quilt as consecutive columns.
+    ///
+    /// The blob data layout is as follows:
+    // +------------------+-----------------------------+----------------------+------------------+
+    // | Blob Header      | Identifier Section          | Feature Section      | Blob Data        |
+    // | (7 bytes)        | (variable length)           | (optional)           | (variable length)|
+    // +------------------+-----------------------------+----------------------+------------------+
+    //                    |                             |                      |
+    //                    v                             v                      v
+    // +------------------+----------------+------------+----------------------+------------------+
+    // | BlobHeaderV1     | Identifier Size| Serialized | Feature Data         | Actual blob      |
+    // | (version, length,| (2 bytes)      | Identifier | (Feature size +      | data             |
+    // |  mask flags)     | u16            | (variable) | serialized features) | (variable)       |
+    // +------------------+----------------+------------+----------------------+------------------+
+    //
+    // - BlobHeaderV1: Contains version byte, length (encoded in 34 bits), and mask flags (14 bits).
+    // - Identifier Size: 2-byte length of the serialized identifier.
+    // - Serialized Identifier: BCS-encoded identifier string.
+    // - Feature Data: Optional section for feature data, such as attributes,
+    //  (when mask flag is set).
+    // - Blob Data: The actual blob contents.
     fn add_blob_to_quilt(
         data: &mut [u8],
         blob: &QuiltStoreBlob,
@@ -1805,20 +1785,14 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::from([
-                            ("key1".to_string(), "value1".to_string()),
-                            ("key2".to_string(), "value2".to_string()),
-                        ]),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 7
@@ -1828,17 +1802,14 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-2".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 7
@@ -1848,17 +1819,14 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-1".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 7
@@ -1868,17 +1836,14 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 7
@@ -1888,17 +1853,14 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 3][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[255u8; 1024][..],
                         identifier: "test-blob-1".to_string(),
-                        attributes: HashMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3][..],
                         identifier: "test-blob-2".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 12
@@ -1908,7 +1870,6 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
                         identifier: "test-blob-0".to_string(),
-                        attributes: HashMap::new(),
                     },
                 ],
                 7
@@ -2209,17 +2170,7 @@ mod tests {
             let static_data = Box::leak(blob_data.into_boxed_slice());
 
             // Create and store the QuiltStoreBlob.
-            let mut quilt_store_blob = QuiltStoreBlob::new(static_data, format!("test-blob-{}", i));
-            let num_attributes = rng.gen_range(0..15);
-            for _ in 0..num_attributes {
-                // Generate random data and convert to hex string
-                let value_bytes_length = rng.gen_range(0..100);
-                let random_bytes = random_data(value_bytes_length);
-                let random_value = hex::encode(random_bytes);
-                let random_bytes = random_data(value_bytes_length);
-                let random_key = hex::encode(random_bytes);
-                quilt_store_blob.attributes.insert(random_key, random_value);
-            }
+            let quilt_store_blob = QuiltStoreBlob::new(static_data, format!("test-blob-{}", i));
             result.push(quilt_store_blob);
         }
 
