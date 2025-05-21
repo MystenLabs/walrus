@@ -1130,6 +1130,18 @@ impl ClientCommandRunner {
                     HumanReadableFrost::from(sui_client.collect_commission(node_id).await?);
                 println!("{} Collected {} as commission", success(), amount);
             }
+            NodeAdminCommands::PackageDigest { package_path } => {
+                let digest = sui_client
+                    .read_client()
+                    .compute_package_digest(package_path.clone())
+                    .await?;
+                println!(
+                    "{} Digest for package '{}': 0x{}",
+                    success(),
+                    package_path.display(),
+                    digest.iter().map(|b| format!("{:02x}", b)).join("")
+                );
+            }
         }
         Ok(())
     }

@@ -617,6 +617,12 @@ pub enum NodeAdminCommands {
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
     },
+    /// Outputs the package digest of a sui package.
+    PackageDigest {
+        /// The path to the package directory.
+        #[arg(long)]
+        package_path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
