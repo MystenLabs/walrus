@@ -84,7 +84,7 @@ impl LoadGenerator {
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         for read_client in try_join_all((0..n_clients).map(|_| {
-            Client::new_read_client(
+            Client::new(
                 client_config.clone(),
                 refresher_handle.clone(),
                 sui_read_client.clone(),
