@@ -28,6 +28,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    QuiltBlobId,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -45,6 +46,8 @@ use walrus_core::{
         QuiltEncoderApi,
         QuiltEnum,
         QuiltPatchApi,
+        QuiltPatchIdApi,
+        QuiltPatchIdV1,
         QuiltStoreBlob,
         QuiltStoreBlobOwned,
         QuiltV1,
@@ -2390,39 +2393,36 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     }
 
     /// Retrieves the list of blobs contained in a quilt.
-    pub async fn get_blobs_by_id(
+    pub async fn get_blob_by_id(
         &self,
-        quilt_id: &BlobId,
-        identifiers: &[&str],
-    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
-        let metadata = self.get_quilt_metadata(quilt_id).await?;
+        quilt_blob_id: &QuiltBlobId,
+    ) -> ClientResult<QuiltStoreBlobOwned> {
+        let version_enum = quilt_blob_id.version_enum().map_err(ClientError::other)?;
+        let quilt_id = quilt_blob_id.quilt_id;
 
-        match metadata {
-            QuiltMetadata::V1(metadata) => {
-                let mut decoder = QuiltDecoderV1::new_with_quilt_index(&[], metadata.index.clone());
-                let mut sliver_indices = Vec::new();
-                for &identifier in identifiers {
-                    match metadata.index.get_quilt_patch_by_identifier(identifier) {
-                        Ok(patch) => {
-                            // Add all indices in the range [start_index, end_index)
-                            for idx in patch.start_index()..patch.end_index() {
-                                sliver_indices.push(SliverIndex::new(idx));
-                            }
-                        }
-                        Err(e) => {
-                            return Err(ClientError::other(e));
-                        }
-                    }
-                }
+        let certified_epoch = self.client.get_certified_epoch(&quilt_id, None).await?;
+        let metadata = self
+            .client
+            .retrieve_metadata(certified_epoch, &quilt_id)
+            .await?;
 
-                // Retrieve necessary blob data
-                let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;
+        match version_enum {
+            QuiltVersionEnum::V1 => {
+                let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)
+                    .map_err(ClientError::other)?;
+                let sliver_indices = (id.start_index..id.end_index)
+                    .map(SliverIndex::new)
+                    .collect::<Vec<_>>();
+                let mut decoder = QuiltDecoderV1::new(&[]);
 
-                // Retrieve the slivers using the existing helper
+                // Retrieve necessary blob data.
+                let certified_epoch = self.client.get_certified_epoch(&quilt_id, None).await?;
+
+                // Retrieve the slivers using the existing helper.
                 let retrieve_slivers = self
                     .client
                     .retrieve_slivers_with_retry::<Secondary>(
-                        &metadata.get_verified_metadata(),
+                        &metadata,
                         &sliver_indices,
                         certified_epoch,
                         Some(2),
@@ -2434,24 +2434,16 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
                     decoder.add_slivers(&sliver_refs);
 
-                    identifiers
-                        .iter()
-                        .map(|identifier| {
-                            decoder
-                                .get_blob_by_identifier(identifier)
-                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
-                        })
-                        .collect::<Result<Vec<_>, _>>()
+                    decoder
+                        .get_blob_by_range(id.start_index as usize, id.end_index as usize)
+                        .map_err(ClientError::other)
                 } else {
-                    let quilt = self.get_quilt_enum(quilt_id).await?;
-                    identifiers
-                        .iter()
-                        .map(|identifier| {
-                            quilt
-                                .get_blob_by_identifier(identifier)
-                                .map_err(|e| ClientError::from(ClientErrorKind::Other(Box::new(e))))
-                        })
-                        .collect::<Result<Vec<_>, _>>()
+                    let quilt = self.get_quilt_enum(&quilt_id).await?;
+                    let QuiltEnum::V1(quilt_v1) = quilt;
+                    let blob = quilt_v1
+                        .get_blob_by_range(id.start_index as usize, id.end_index as usize)
+                        .map_err(ClientError::other)?;
+                    Ok(blob)
                 }
             }
         }

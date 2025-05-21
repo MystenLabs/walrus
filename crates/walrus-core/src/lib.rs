@@ -29,6 +29,8 @@ use encoding::{
     Primary,
     PrimaryRecoverySymbol,
     PrimarySliver,
+    QuiltError,
+    QuiltVersionEnum,
     RecoverySymbolError,
     Secondary,
     SecondaryRecoverySymbol,
@@ -257,6 +259,16 @@ impl QuiltBlobId {
             quilt_id: BlobId::ZERO,
             patch_id_bytes: Vec::new(),
         }
+    }
+
+    /// Returns the version of the quilt.
+    pub fn version_enum(&self) -> Result<QuiltVersionEnum, QuiltError> {
+        QuiltVersionEnum::try_from(
+            *self
+                .patch_id_bytes
+                .first()
+                .ok_or_else(|| QuiltError::Other(String::from("Patch ID bytes are empty")))?,
+        )
     }
 }
 

@@ -1028,7 +1028,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .await?;
 
     let QuiltStoreResult {
-        blob_store_result, ..
+        blob_store_result,
+        stored_quilt_blobs,
+        ..
     } = store_operation_result;
     let blob_object = match blob_store_result {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
@@ -1083,12 +1085,12 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         );
     }
 
-    for bwi in quilt_store_blobs.iter() {
+    for stored_blob in stored_quilt_blobs.iter() {
         let retrieved_blob = quilt_read_client
-            .get_blobs(&blob_id, &[bwi.identifier()])
+            .get_blob_by_id(&stored_blob.quilt_blob_id)
             .await?;
-        assert_eq!(retrieved_blob.len(), 1);
-        assert_eq!(retrieved_blob[0].data(), bwi.data());
+        let original_blob = retrieved_map.get(stored_blob.identifier.as_str()).unwrap();
+        assert_eq!(retrieved_blob.data(), *original_blob);
     }
 
     Ok(())

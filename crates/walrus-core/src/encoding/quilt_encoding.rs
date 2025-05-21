@@ -1069,7 +1069,7 @@ impl QuiltV1 {
     }
 
     /// Gets a blob by its start and end indices.
-    fn get_blob_by_range(
+    pub fn get_blob_by_range(
         &self,
         start_col: usize,
         end_col: usize,
@@ -1691,7 +1691,7 @@ impl<'a> QuiltDecoderV1<'a> {
     }
 
     /// Get the blob represented by the range.
-    fn get_blob_by_range(
+    pub fn get_blob_by_range(
         &self,
         start_idx: usize,
         end_idx: usize,

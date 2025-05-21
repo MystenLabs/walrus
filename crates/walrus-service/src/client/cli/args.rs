@@ -21,6 +21,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    QuiltBlobId,
     encoding::{EncodingConfig, EncodingConfigTrait, QuiltVersionEnum},
     ensure,
 };
@@ -30,7 +31,13 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
+use super::{
+    BlobIdDecimal,
+    HumanReadableBytes,
+    parse_blob_id,
+    parse_quilt_blob_id,
+    read_blob_from_file,
+};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
