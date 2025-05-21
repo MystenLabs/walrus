@@ -4,7 +4,10 @@
 use rstest::rstest;
 
 use super::*;
-use crate::rocks::safe_iter::{SafeIter, SafeRevIter};
+use crate::{
+    rocks::safe_iter::{SafeIter, SafeRevIter},
+    traits::SeekableIterator,
+};
 
 fn temp_dir() -> std::path::PathBuf {
     tempfile::tempdir()
@@ -26,6 +29,40 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for TestIteratorWrapper<
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             TestIteratorWrapper::SafeIter(iter) => iter.next().map(|result| result.unwrap()),
+        }
+    }
+}
+
+impl<K: DeserializeOwned + Serialize, V: DeserializeOwned> SeekableIterator<K>
+    for TestIteratorWrapper<'_, K, V>
+{
+    fn seek_to_first(&mut self) {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_first(),
+        }
+    }
+
+    fn seek_to_last(&mut self) {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_last(),
+        }
+    }
+
+    fn seek(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek(key),
+        }
+    }
+
+    fn seek_to_prev(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_prev(key),
+        }
+    }
+
+    fn key(&self) -> Result<Option<K>, TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.key(),
         }
     }
 }
@@ -730,4 +767,72 @@ async fn test_sampling_time() {
     tokio::time::advance(Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
     assert!(sampling_interval.sample());
+}
+
+#[tokio::test]
+async fn test_iterator_seek() {
+    let db: DBMap<u32, String> = open_map(temp_dir(), None);
+
+    db.insert(&123, &"123".to_string())
+        .expect("Failed to insert");
+    db.insert(&456, &"456".to_string())
+        .expect("Failed to insert");
+    db.insert(&789, &"789".to_string())
+        .expect("Failed to insert");
+
+    let mut iter = get_iter(&db);
+
+    assert!(matches!(
+        iter.key().unwrap_err(),
+        TypedStoreError::IteratorNotInitialized
+    ));
+
+    iter.seek(&0).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+    assert_eq!(
+        iter.by_ref().collect::<Vec<_>>(),
+        vec![
+            (123, "123".to_string()),
+            (456, "456".to_string()),
+            (789, "789".to_string())
+        ]
+    );
+
+    iter.seek(&123).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek(&234).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(456));
+    assert_eq!(
+        iter.by_ref().collect::<Vec<_>>(),
+        vec![(456, "456".to_string()), (789, "789".to_string())]
+    );
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek(&567).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek_to_prev(&234).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_prev(&123).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_prev(&122).unwrap();
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek(&789).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek(&890).unwrap();
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek_to_last();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek_to_first();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_last();
+    assert_eq!(iter.key().unwrap(), Some(789));
 }
