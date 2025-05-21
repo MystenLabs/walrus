@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     path::PathBuf,
+    pin::pin,
     sync::Arc,
     time::Instant,
 };
@@ -14,7 +15,11 @@ use std::{
 use anyhow::anyhow;
 pub use client_types::{WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
-use futures::{Future, FutureExt};
+use futures::{
+    Future,
+    FutureExt,
+    future::{Either, select},
+};
 use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
 use rand::{RngCore as _, rngs::ThreadRng};
@@ -259,7 +264,7 @@ impl<T: ReadClient> Client<T> {
 
         let committees = self.get_committees().await?;
 
-        let get_status_fn = |status: Option<BlobStatus>| async move {
+        let get_status_if_exists_fn = |status: Option<BlobStatus>| async move {
             let status = if let Some(status) = status {
                 status
             } else {
@@ -274,8 +279,8 @@ impl<T: ReadClient> Client<T> {
             }
         };
 
-        let (certified_epoch, blob_status) = if committees.is_change_in_progress() {
-            let blob_status = get_status_fn(blob_status).await?;
+        let (epoch_to_be_read, blob_status) = if committees.is_change_in_progress() {
+            let blob_status = get_status_if_exists_fn(blob_status).await?;
             (blob_status.initial_certified_epoch(), Some(blob_status))
         } else {
             // We are not during epoch change, we can read from the current epoch directly if we do
@@ -289,7 +294,7 @@ impl<T: ReadClient> Client<T> {
         };
 
         // Return early if the blob is not certified, or if the committee is behind.
-        let Some(certified_epoch) = certified_epoch else {
+        let Some(certified_epoch) = epoch_to_be_read else {
             return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
         };
         let current_epoch = committees.epoch();
@@ -301,14 +306,25 @@ impl<T: ReadClient> Client<T> {
         }
 
         // Execute the status request and the metadata/sliver request concurrently.
-        // If the status request fails, the metadata/sliver request will be cancelled. If the
-        // status request succeeds, the metadata/sliver request will be executed to completion. If
-        // we already have a blob status, the `get_status_fn` immediately returns Ok.
-        let (_, blob) = futures::try_join!(
-            get_status_fn(blob_status),
-            self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
-        )?;
-        Ok(blob)
+        //
+        // If the status request fails, the metadata/sliver request will be cancelled. If the status
+        // request succeeds, the metadata/sliver request will be executed to completion. If we
+        // already have a blob status, the `get_status_fn` immediately returns Ok.
+        //
+        // In the unlikely event that the status request takes longer than reading the
+        // metadata/slivers, the status request will be dropped.
+        match select(
+            pin!(get_status_if_exists_fn(blob_status)),
+            pin!(self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)),
+        )
+        .await
+        {
+            Either::Left((status_result, read_future)) => {
+                status_result?;
+                read_future.await
+            }
+            Either::Right((read_result, _status_future)) => read_result,
+        }
     }
 
     async fn read_metadata_and_slivers<U>(
