@@ -259,8 +259,8 @@ impl RetriableSuiClient {
         .await
     }
 
-    /// Returns a list of all coins for the given address, with  filter on the coin type. Note that
-    /// coin_type of None is implicitly filtering for SUI.
+    /// Returns a list of all coins for the given address, with a filter on the coin type. Note
+    /// that coin_type of None is implicitly filtering for SUI.
     pub async fn select_all_coins(
         &self,
         address: SuiAddress,
