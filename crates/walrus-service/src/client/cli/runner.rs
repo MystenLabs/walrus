@@ -25,6 +25,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
+    QuiltBlobId,
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
@@ -454,9 +455,13 @@ impl ClientCommandRunner {
             CliCommands::ReadQuilt {
                 blob_id,
                 identifiers,
+                quilt_blob_id,
                 out,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.read_quilt(blob_id, identifiers, out, rpc_url).await,
+            } => {
+                self.read_quilt(blob_id, identifiers, quilt_blob_id, out, rpc_url)
+                    .await
+            }
 
             CliCommands::ListBlobsInQuilt {
                 blob_id,
@@ -860,8 +865,9 @@ impl ClientCommandRunner {
 
     pub(crate) async fn read_quilt(
         self,
-        blob_id: BlobId,
+        blob_id: Option<BlobId>,
         identifiers: Vec<String>,
+        quilt_blob_id: Option<QuiltBlobId>,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
@@ -869,10 +875,17 @@ impl ClientCommandRunner {
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
+        let mut retrieved_blobs = Vec::new();
 
         let quilt_read_client = read_client.quilt_client();
-        let identifiers = identifiers.iter().map(|id| id.as_str()).collect::<Vec<_>>();
-        let retrieved_blobs = quilt_read_client.get_blobs(&blob_id, &identifiers).await?;
+        if let Some(blob_id) = blob_id {
+            let identifiers = identifiers.iter().map(|id| id.as_str()).collect::<Vec<_>>();
+            retrieved_blobs = quilt_read_client.get_blobs(&blob_id, &identifiers).await?;
+        } else if let Some(quilt_blob_id) = quilt_blob_id {
+            retrieved_blobs.push(quilt_read_client.get_blob_by_id(&quilt_blob_id).await?);
+        } else {
+            anyhow::bail!("Either blob_id or quilt_blob_id must be provided");
+        }
 
         for blob_with_id in retrieved_blobs {
             let identifier = blob_with_id.identifier();

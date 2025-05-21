@@ -334,17 +334,24 @@ pub enum CliCommands {
         #[serde(flatten)]
         rpc_arg: RpcArg,
     },
-    /// Read a blob from Walrus, given the blob ID.
+    /// Read a blob from Walrus using either a quilt blob ID or a quilt ID with blob identifiers.
     ReadQuilt {
-        /// The blob ID to be read.
-        #[serde_as(as = "DisplayFromStr")]
-        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
-        blob_id: BlobId,
+        /// The blob ID of the quilt.
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+        blob_id: Option<BlobId>,
+
         /// The identifiers of the blobs to be read from the quilt.
         /// Can be provided as a space-separated list (e.g., --identifiers quilt1 quilt2 quilt3).
-        #[arg(long, num_args = 1.., required = false)]
+        #[arg(long, num_args = 1.., requires = "blob_id")]
         #[serde(default)]
         identifiers: Vec<String>,
+
+        /// Direct QuiltBlobId reference to a specific blob within a quilt.
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id)]
+        quilt_blob_id: Option<QuiltBlobId>,
+
         /// The file path where to write the blobs.
         ///
         /// If unset, prints the blob to stdout.
