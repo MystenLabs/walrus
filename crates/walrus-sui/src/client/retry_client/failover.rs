@@ -209,7 +209,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
 
             // Load the next client.
             let client = match self.lazy_client_builders[next_index]
-                .lazy_build_client(tried_client_indices.len() + 1 < self.max_tries)
+                .lazy_build_client(tried_client_indices.len() + 1 >= self.max_tries)
                 .await
             {
                 Ok(client) => client,
