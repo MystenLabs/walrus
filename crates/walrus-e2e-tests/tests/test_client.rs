@@ -2243,24 +2243,12 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     let max_num_coins = 2;
 
     let result = retry_client
-        .select_coins_with_limit(
-            address,
-            None,
-            Some(sui(1).into()),
-            vec![],
-            Some(max_num_coins),
-        )
+        .select_coins_with_limit(address, None, sui(1).into(), vec![], max_num_coins)
         .await;
     assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
 
     let result = retry_client
-        .select_coins_with_limit(
-            address,
-            None,
-            Some(sui(3).into()),
-            vec![],
-            Some(max_num_coins),
-        )
+        .select_coins_with_limit(address, None, sui(3).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
@@ -2272,13 +2260,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     }
 
     let result = retry_client
-        .select_coins_with_limit(
-            address,
-            None,
-            Some(sui(5).into()),
-            vec![],
-            Some(max_num_coins),
-        )
+        .select_coins_with_limit(address, None, sui(5).into(), vec![], max_num_coins)
         .await;
     if let Err(error) = result {
         assert!(
