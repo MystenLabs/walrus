@@ -2648,6 +2648,7 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        // TODO(WAL-835): buy single storage resource to extend multiple blobs
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,
@@ -2672,6 +2673,7 @@ impl SuiContractClientInner {
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        // TODO(WAL-835): buy single storage resource to extend multiple blobs
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,
