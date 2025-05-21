@@ -6,7 +6,7 @@
 //! Wraps the [`SuiClient`] to introduce retries.
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap, HashSet},
+    collections::{BTreeMap, BinaryHeap},
     fmt,
     pin::pin,
     str::FromStr,
@@ -247,9 +247,9 @@ impl RetriableSuiClient {
                 self.select_coins_with_limit(
                     address,
                     coin_type.clone(),
-                    Some(amount),
+                    amount,
                     exclude.clone(),
-                    Some(MAX_GAS_PAYMENT_OBJECTS),
+                    MAX_GAS_PAYMENT_OBJECTS,
                 )
                 .await
             },
@@ -259,35 +259,51 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns a list of all coins for the given address, with  filter on the coin type. Note that
+    /// coin_type of None is implicitly filtering for SUI.
+    pub async fn select_all_coins(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+    ) -> SuiClientResult<Vec<Coin>> {
+        let mut coins_stream = pin!(self.get_coins_stream_retry(address, coin_type.clone()));
+
+        let mut selected_coins = Vec::new();
+        while let Some(coin) = coins_stream.as_mut().next().await {
+            selected_coins.push(coin);
+        }
+        Ok(selected_coins)
+    }
+
     /// Returns a list of coins for the given address, or an error upon failure. This method always
-    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise,
-    /// it will filter to the given coin type. If `amount` is present it will attempt to gather
-    /// coins to satisfy that amount. `exclude` is a list of coin object IDs to exclude from the
-    /// result. `max_num_coins` puts a hard cap on the number of coins returned.
+    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise, it
+    /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
+    /// `amount`. `exclude` is a list of coin object IDs to exclude from the result.
+    /// `max_num_coins` puts a hard cap on the number of coins returned.
     pub async fn select_coins_with_limit(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
-        amount: Option<u128>,
+        amount: u128,
         exclude: Vec<ObjectID>,
-        max_num_coins: Option<usize>,
+        max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
         let mut coins_stream = pin!(
             self.get_coins_stream_retry(address, coin_type.clone())
                 .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
         );
 
-        let mut selected_coins = Vec::with_capacity(max_num_coins.unwrap_or(10));
+        let mut selected_coins = Vec::with_capacity(max_num_coins);
         let mut total_selected = 0u128;
 
         while let Some(coin) = coins_stream.as_mut().next().await {
             total_selected += u128::from(coin.balance);
             selected_coins.push(coin);
 
-            if amount.is_some_and(|amount| total_selected >= amount) {
+            if total_selected >= amount {
                 return Ok(selected_coins);
             }
-            if max_num_coins.is_some_and(|max_num_coins| selected_coins.len() >= max_num_coins) {
+            if selected_coins.len() >= max_num_coins {
                 break;
             }
         }
@@ -296,13 +312,8 @@ impl RetriableSuiClient {
         // can add more coins by peeking from the stream. If not, we have exactly
         // MAX_GAS_PAYMENT_OBJECTS coins in the wallet, but not enough value.
         let mut peekable = pin!(coins_stream.as_mut().peekable());
-        if let Some(max_num_coins) = max_num_coins {
-            if let Some(amount) = amount {
-                if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none()
-                {
-                    return Err(SuiSdkError::InsufficientFund { address, amount }.into());
-                }
-            }
+        if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none() {
+            return Err(SuiSdkError::InsufficientFund { address, amount }.into());
         }
 
         // The wallet has more coins.
@@ -331,42 +342,16 @@ impl RetriableSuiClient {
                 selected_coins_heap.push(Reverse(coin.into()));
             }
 
-            // If we're filtering on amount, and we've reached it, we can stop.
-            if amount.is_some_and(|amount| total_selected >= amount) {
-                debug_assert!(
-                    selected_coins_heap
-                        .iter()
-                        .map(|coin| coin.0.0.coin_type.as_str())
-                        .collect::<HashSet<_>>()
-                        .len()
-                        <= 1,
-                    "selected coins should be of the same type",
-                );
+            if total_selected >= amount {
                 return Ok(selected_coins_heap
                     .into_iter()
                     .map(|rev_coin| rev_coin.0.into())
                     .collect());
             }
         }
-        let Some(amount) = amount else {
-            debug_assert!(
-                selected_coins_heap
-                    .iter()
-                    .map(|coin| coin.0.0.coin_type.as_str())
-                    .collect::<HashSet<_>>()
-                    .len()
-                    <= 1,
-                "selected coins should be of the same type",
-            );
-            // We just want all the coins. We're done.
-            return Ok(selected_coins_heap
-                .into_iter()
-                .map(|rev_coin| rev_coin.0.into())
-                .collect());
-        };
 
         debug_assert!(
-            max_num_coins.is_none_or(|max_num_coins| selected_coins_heap.len() == max_num_coins),
+            selected_coins_heap.len() == max_num_coins,
             "selected coins should be or equal to the max gas payment objects",
         );
         debug_assert!(

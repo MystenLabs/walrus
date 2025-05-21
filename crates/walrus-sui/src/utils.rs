@@ -361,7 +361,7 @@ async fn sui_coin_set(
     address: SuiAddress,
 ) -> Result<HashSet<ObjectID>> {
     Ok(retriable_sui_client
-        .select_coins_with_limit(address, None, None, vec![], None)
+        .select_all_coins(address, None)
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
