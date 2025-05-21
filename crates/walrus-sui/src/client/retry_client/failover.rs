@@ -15,7 +15,11 @@ pub trait LazyClientBuilder<C> {
     /// The maximum number of allowable retries (by way of failing over) for this client.
     const DEFAULT_MAX_TRIES: usize;
     /// Should lazily create a new client instance.
-    fn lazy_build_client(&self) -> impl Future<Output = Result<Arc<C>, FailoverError>>;
+    fn lazy_build_client(
+        &self,
+        // This parameter is only used in simtests. (NB: attributes on expressions are experimental)
+        is_last_chance: bool,
+    ) -> impl Future<Output = Result<Arc<C>, FailoverError>>;
     /// Should return the RPC URL of the client, if one exists.
     fn get_rpc_url(&self) -> Option<&str>;
 }
@@ -205,7 +209,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
 
             // Load the next client.
             let client = match self.lazy_client_builders[next_index]
-                .lazy_build_client()
+                .lazy_build_client(tried_client_indices.len() + 1 < self.max_tries)
                 .await
             {
                 Ok(client) => client,
@@ -386,7 +390,10 @@ mod tests {
 
     impl LazyClientBuilder<MockClient> for Arc<MockClient> {
         const DEFAULT_MAX_TRIES: usize = 2;
-        async fn lazy_build_client(&self) -> Result<Arc<MockClient>, FailoverError> {
+        async fn lazy_build_client(
+            &self,
+            _is_last_chance: bool,
+        ) -> Result<Arc<MockClient>, FailoverError> {
             Ok(self.clone())
         }
         fn get_rpc_url(&self) -> Option<&str> {
