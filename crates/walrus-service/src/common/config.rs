@@ -71,19 +71,19 @@ impl SuiConfig {
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
+    /// Always use the RPC endpoints supplied in the configuration instead of the wallet's RPC URL
+    /// to allow for failover.
     pub async fn new_contract_client(
         &self,
         metrics: Option<Arc<SuiClientMetricSet>>,
     ) -> Result<SuiContractClient, SuiClientError> {
         let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
 
-        #[allow(deprecated)]
-        let rpc_urls = &[wallet.get_rpc_url()?];
-
+        let rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
         if let Some(metrics) = metrics {
             SuiContractClient::new_with_metrics(
                 wallet,
-                rpc_urls,
+                &rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -93,7 +93,7 @@ impl SuiConfig {
         } else {
             SuiContractClient::new(
                 wallet,
-                rpc_urls,
+                &rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
