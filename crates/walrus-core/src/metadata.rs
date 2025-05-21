@@ -24,6 +24,9 @@ use crate::{
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
+        QuiltPatchApi,
+        QuiltPatchIdV1,
+        QuiltVersionV1,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
     },
@@ -60,6 +63,16 @@ pub struct QuiltPatchV1 {
     end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     identifier: String,
+}
+
+impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
+    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+        self.quilt_patch_id()
+    }
+
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
 }
 
 impl QuiltPatchV1 {
@@ -108,6 +121,11 @@ impl QuiltPatchV1 {
     pub fn set_range(&mut self, start_index: u16, end_index: u16) {
         self.start_index = start_index;
         self.end_index = end_index;
+    }
+
+    /// Returns the quilt patch id for the quilt patch.
+    pub fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+        QuiltPatchIdV1::new(self.start_index, self.end_index)
     }
 }
 
@@ -167,6 +185,14 @@ impl QuiltIndexV1 {
             self.quilt_patches[i].set_range(prev_end_index, end_index);
             prev_end_index = end_index;
         }
+    }
+}
+
+impl Iterator for QuiltIndexV1 {
+    type Item = QuiltPatchV1;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.quilt_patches.pop()
     }
 }
 

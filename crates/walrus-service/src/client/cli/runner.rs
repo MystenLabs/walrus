@@ -714,7 +714,7 @@ impl ClientCommandRunner {
         tracing::info!(
             duration = ?start_timer.elapsed(),
             "{} blobs stored in quilt",
-            result.quilt_index.len(),
+            result.stored_quilt_blobs.len(),
         );
 
         result.print_cli_output();

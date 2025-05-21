@@ -220,40 +220,34 @@ impl Debug for BlobId {
 pub struct QuiltBlobId {
     /// The BlobId of the quilt as a Walrus blob.
     pub quilt_id: BlobId,
-    /// The internal ID of the blob.
-    pub internal_blob_id: Vec<u8>,
-    /// The version of the quilt.
-    pub quilt_version: u8,
+    /// The patch id of the quilt.
+    pub patch_id_bytes: Vec<u8>,
 }
 
 impl QuiltBlobId {
+    /// Create a new QuiltBlobId.
+    pub fn new(quilt_id: BlobId, patch_id_bytes: Vec<u8>) -> Self {
+        Self {
+            quilt_id,
+            patch_id_bytes,
+        }
+    }
+
     /// Serializes the QuiltBlobId to bytes
-    //
-    // Schema for serialized QuiltBlobId:
-    // +---------------+-------------------------------------+
-    // | BlobId        | Base64(version + internal_blob_id)  |
-    // | display       |                                     |
-    // | representation|   +--------+---------------------+  |
-    // |               |   | 1 byte | variable length     |  |
-    // |               |   | version| internal_blob_id    |  |
-    // +---------------+---+--------+---------------------+--+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.quilt_id.0);
-        bytes.push(self.quilt_version);
-        bytes.extend_from_slice(&self.internal_blob_id);
+        bytes.extend_from_slice(&self.patch_id_bytes);
         bytes
     }
 
     /// Deserializes the QuiltBlobId from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BlobIdParseError> {
         let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
-        let quilt_version = bytes[BlobId::LENGTH];
-        let internal_blob_id = bytes[BlobId::LENGTH + 1..].to_vec();
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
         Ok(Self {
             quilt_id,
-            quilt_version,
-            internal_blob_id,
+            patch_id_bytes,
         })
     }
 
@@ -261,8 +255,7 @@ impl QuiltBlobId {
     pub fn zero() -> Self {
         Self {
             quilt_id: BlobId::ZERO,
-            quilt_version: 0,
-            internal_blob_id: Vec::new(),
+            patch_id_bytes: Vec::new(),
         }
     }
 }
@@ -277,8 +270,8 @@ impl Debug for QuiltBlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "BlobId({}), version({}), internal_blob_id({:?})",
-            self.quilt_id, self.quilt_version, self.internal_blob_id
+            "BlobId({}), patch_id_bytes({:?})",
+            self.quilt_id, self.patch_id_bytes
         )
     }
 }
@@ -298,16 +291,12 @@ impl FromStr for QuiltBlobId {
         // Extract quilt_id (first 32 bytes).
         let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
 
-        // Extract version (next byte).
-        let quilt_version = bytes[BlobId::LENGTH];
-
-        // Extract internal_blob_id (remaining bytes).
-        let internal_blob_id = bytes[BlobId::LENGTH + 1..].to_vec();
+        // Extract patch_id (remaining bytes).
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
 
         Ok(Self {
             quilt_id,
-            quilt_version,
-            internal_blob_id,
+            patch_id_bytes,
         })
     }
 }

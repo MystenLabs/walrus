@@ -12,7 +12,6 @@ use serde::Serialize;
 use walrus_core::{
     BlobId,
     ShardIndex,
-    encoding::QuiltVersionV1,
     metadata::{QuiltIndex, QuiltIndexV1},
 };
 use walrus_sdk::{
@@ -245,18 +244,23 @@ impl CliOutput for BlobStoreResultWithPath {
     }
 }
 
-impl CliOutput for QuiltStoreResult<QuiltVersionV1> {
+impl CliOutput for QuiltStoreResult {
     fn print_cli_output(&self) {
         let Some(path) = self.path.clone() else {
             println!("Quilt should have been uploaded from a directory.");
             return;
         };
         let blob_store_result = BlobStoreResultWithPath {
-            blob_store_result: self.quilt_blob_store_result.clone(),
+            blob_store_result: self.blob_store_result.clone(),
             path,
         };
         blob_store_result.print_cli_output();
-        self.quilt_index.print_cli_output();
+        for quilt_blob in &self.stored_quilt_blobs {
+            println!(
+                "Blob {} {} is stored.",
+                quilt_blob.identifier, quilt_blob.quilt_blob_id
+            );
+        }
     }
 }
 

@@ -32,6 +32,7 @@ use walrus_core::{
     encoding::{
         EncodingConfigTrait as _,
         Primary,
+        QuiltApi,
         QuiltStoreBlob,
         QuiltStoreBlobOwned,
         QuiltVersionV1,
@@ -1012,6 +1013,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 
     // Add a blob that is not deletable.
     let quilt_write_client = client.quilt_client();
+    let quilt = quilt_write_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+        .await?;
     let store_operation_result = quilt_write_client
         .reserve_and_store_quilt::<QuiltVersionV1>(
             &quilt_store_blobs,
@@ -1024,13 +1028,11 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .await?;
 
     let QuiltStoreResult {
-        quilt_blob_store_result,
-        quilt_index,
-        path: _,
+        blob_store_result, ..
     } = store_operation_result;
-    let blob_object = match quilt_blob_store_result {
+    let blob_object = match blob_store_result {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
-        _ => panic!("Expected NewlyCreated, got {:?}", quilt_blob_store_result),
+        _ => panic!("Expected NewlyCreated, got {:?}", blob_store_result),
     };
 
     let read_client = Client::new_read_client_with_refresher(
@@ -1043,7 +1045,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_read_client = read_client.quilt_client();
     let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
     let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
-    assert_eq!(metadata_v1.index, quilt_index);
+    assert_eq!(&metadata_v1.index, quilt.quilt_index());
 
     let identifiers_owned = (0..blobs_to_create as usize)
         .map(|i| format!("test-blob-{}", i + 1))

@@ -44,6 +44,7 @@ use walrus_core::{
         QuiltDecoderV1,
         QuiltEncoderApi,
         QuiltEnum,
+        QuiltPatchApi,
         QuiltStoreBlob,
         QuiltStoreBlobOwned,
         QuiltV1,
@@ -88,6 +89,7 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
+    client::client_types::StoredQuiltBlob,
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
@@ -2454,6 +2456,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             }
         }
     }
+
     async fn get_quilt_enum(&self, quilt_id: &BlobId) -> ClientResult<QuiltEnum> {
         self.client.check_blob_id(quilt_id)?;
         let certified_epoch = self.client.get_certified_epoch(quilt_id, None).await?;
@@ -2481,6 +2484,20 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 }
 
 impl QuiltClient<'_, SuiContractClient> {
+    /// Constructs a quilt from a list of blobs.
+    pub async fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: EncodingType,
+    ) -> ClientResult<V::Quilt> {
+        let encoder = V::QuiltConfig::get_encoder(
+            self.client.encoding_config().get_for_type(encoding_type),
+            blobs,
+        );
+
+        encoder.construct_quilt().map_err(ClientError::other)
+    }
+
     /// Constructs a quilt from a folder of files.
     pub async fn construct_quilt_from_path<V: QuiltVersion>(
         &self,
@@ -2511,12 +2528,8 @@ impl QuiltClient<'_, SuiContractClient> {
             })
             .collect();
 
-        let encoder = V::QuiltConfig::get_encoder(
-            self.client.encoding_config().get_for_type(encoding_type),
-            &quilt_store_blobs,
-        );
-
-        encoder.construct_quilt().map_err(ClientError::other)
+        self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
+            .await
     }
 
     /// Stores all files from a folder as a quilt, using file names as descriptions.
@@ -2529,7 +2542,7 @@ impl QuiltClient<'_, SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> ClientResult<QuiltStoreResult<V>> {
+    ) -> ClientResult<QuiltStoreResult> {
         // Read files from the folder.
         let blobs_with_paths = read_blobs_from_path(path.clone()).map_err(|e| {
             ClientError::from(ClientErrorKind::Other(
@@ -2556,7 +2569,7 @@ impl QuiltClient<'_, SuiContractClient> {
             .collect();
 
         let mut result = self
-            .reserve_and_store_quilt(
+            .reserve_and_store_quilt::<V>(
                 &quilt_store_blobs,
                 encoding_type,
                 epochs_ahead,
@@ -2581,7 +2594,7 @@ impl QuiltClient<'_, SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> ClientResult<QuiltStoreResult<V>> {
+    ) -> ClientResult<QuiltStoreResult> {
         if quilt_store_blobs.is_empty() {
             return Err(ClientError::from(ClientErrorKind::StoreBlobInternal(
                 "no blobs to store".to_string(),
@@ -2615,9 +2628,21 @@ impl QuiltClient<'_, SuiContractClient> {
             )
             .await?;
 
+        let blob_store_result = result.first().unwrap().clone();
+        let blob_id = blob_store_result.blob_id().unwrap();
+        let mut stored_quilt_blobs = Vec::new();
+        let index = quilt.quilt_index().clone();
+        for patch in index {
+            stored_quilt_blobs.push(StoredQuiltBlob::new(
+                blob_id,
+                patch.identifier(),
+                patch.quilt_patch_id(),
+            ));
+        }
+
         Ok(QuiltStoreResult {
-            quilt_blob_store_result: result.first().unwrap().clone(),
-            quilt_index: quilt.quilt_index().clone(),
+            blob_store_result,
+            stored_quilt_blobs,
             path: None,
         })
     }

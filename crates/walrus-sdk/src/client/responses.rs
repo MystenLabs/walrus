@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::{base_types::ObjectID, event::EventID};
 use utoipa::ToSchema;
-use walrus_core::{BlobId, Epoch, encoding::QuiltVersion};
+use walrus_core::{BlobId, Epoch};
 use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
 
-use super::resource::RegisterBlobOp;
+use super::{client_types::StoredQuiltBlob, resource::RegisterBlobOp};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -144,11 +144,11 @@ impl BlobStoreResult {
 /// Result when attempting to store a quilt.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct QuiltStoreResult<V: QuiltVersion> {
+pub struct QuiltStoreResult {
     /// The result of storing the quilt data as a blob.
-    pub quilt_blob_store_result: BlobStoreResult,
+    pub blob_store_result: BlobStoreResult,
     /// The structure of the quilt.
-    pub quilt_index: V::QuiltIndex,
+    pub stored_quilt_blobs: Vec<StoredQuiltBlob>,
     /// Path to the directory containing the blobs.
     pub path: Option<PathBuf>,
 }

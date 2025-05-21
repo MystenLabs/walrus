@@ -64,7 +64,11 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt.
     type Quilt: QuiltApi<Self>;
     /// The type of the quilt index.
-    type QuiltIndex: Clone;
+    type QuiltIndex: Clone + Iterator<Item = Self::QuiltPatch>;
+    /// The type of the quilt patch.
+    type QuiltPatch: Clone + QuiltPatchApi<Self>;
+    /// The type of the quilt patch id.
+    type QuiltPatchId: QuiltPatchIdApi;
     /// The type of the quilt metadata.
     type QuiltMetadata;
 
@@ -91,6 +95,23 @@ pub trait QuiltApi<V: QuiltVersion> {
 
     /// Returns the symbol size of the quilt.
     fn symbol_size(&self) -> usize;
+}
+
+/// API for QuiltPatch.
+pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
+    /// Returns the quilt patch id.
+    fn quilt_patch_id(&self) -> V::QuiltPatchId;
+
+    /// Returns the identifier of the quilt patch.
+    fn identifier(&self) -> &str;
+}
+/// API for QuiltPatchId.
+pub trait QuiltPatchIdApi: Clone {
+    /// The serialized bytes of the quilt patch id.
+    fn to_bytes(&self) -> Vec<u8>;
+
+    /// Deserializes the quilt patch id from bytes.
+    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError>;
 }
 
 /// The configuration of the quilt.
@@ -659,10 +680,112 @@ impl QuiltVersion for QuiltVersionV1 {
     type QuiltDecoder<'a> = QuiltDecoderV1<'a>;
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
+    type QuiltPatch = QuiltPatchV1;
+    type QuiltPatchId = QuiltPatchIdV1;
     type QuiltMetadata = QuiltMetadataV1;
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
+    }
+}
+
+/// QuiltPatchIdV1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltPatchIdV1 {
+    /// The start index of the patch.
+    pub start_index: u16,
+    /// The end index of the patch.
+    pub end_index: u16,
+}
+
+/// Definition of the layout of the quilt patch id in QuiltVersionV1.
+//┌─────────────┬──────────────────┬─────────────────────────────┬─────────────────────────┐
+//│    Byte 0   │      Byte 1      │           Byte 2            │         Byte 3          │
+//├─────────────┼──────────────────┼─────────────────────────────┼─────────────────────────┤
+//│  Version    │   start_index    │ start_index │   end_index   │  end_index  │  Padding  │
+//│    Byte     │  (upper 8 bits)  │ (lower 2)   │ (upper 6 bits)│ (lower 4)   │  (zeros)  │
+//├─────────────┼──────────────────┼─────────────┼───────────────┼─────────────┼───────────┤
+//│     8 bits  │     8 bits       │   2 bits    │    6 bits     │   4 bits    │  4 bits   │
+//└─────────────┴──────────────────┴─────────────┴───────────────┴─────────────┴───────────┘
+impl QuiltPatchIdApi for QuiltPatchIdV1 {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4);
+
+        // First byte is the version byte.
+        bytes.push(QuiltVersionV1::quilt_version_byte());
+
+        // Ensure indexes don't exceed 10 bits (0-1023).
+        debug_assert!(
+            self.start_index <= 0x3FF,
+            "start_index exceeds 10 bits: {}",
+            self.start_index
+        );
+        debug_assert!(
+            self.end_index <= 0x3FF,
+            "end_index exceeds 10 bits: {}",
+            self.end_index
+        );
+
+        // Truncate to 10 bits each.
+        let start = self.start_index & 0x3FF;
+        let end = self.end_index & 0x3FF;
+
+        // Pack the 20 bits into 3 bytes:
+        // Byte 1: upper 8 bits of start_index.
+        bytes.push((start >> 2) as u8);
+
+        // Byte 2: lower 2 bits of start_index + upper 6 bits of end_index.
+        bytes.push(((start & 0x3) << 6 | (end >> 4)) as u8);
+
+        // Byte 3: lower 4 bits of end_index + 4 bits of padding (zeros)
+        bytes.push(((end & 0xF) << 4) as u8);
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
+        if bytes.len() < 4 {
+            return Err(QuiltError::Other(
+                "QuiltPatchIdV1 requires 4 bytes".to_string(),
+            ));
+        }
+
+        // Check version byte.
+        if bytes[0] != QuiltVersionV1::quilt_version_byte() {
+            return Err(QuiltError::QuiltVersionMismatch(
+                bytes[0],
+                QuiltVersionV1::quilt_version_byte(),
+            ));
+        }
+
+        // Extract start_index (10 bits).
+        // Upper 8 bits from byte 1.
+        let start_high = (bytes[1] as u16) << 2;
+        // Lower 2 bits from byte 2 (highest 2 bits).
+        let start_low = (bytes[2] >> 6) as u16;
+        let start_index = start_high | start_low;
+
+        // Extract end_index (10 bits).
+        // Upper 6 bits from byte 2 (lowest 6 bits).
+        let end_high = ((bytes[2] & 0x3F) as u16) << 4;
+        // Lower 4 bits from byte 3 (highest 4 bits).
+        let end_low = (bytes[3] >> 4) as u16;
+        let end_index = end_high | end_low;
+
+        Ok(Self {
+            start_index,
+            end_index,
+        })
+    }
+}
+
+impl QuiltPatchIdV1 {
+    /// Creates a new quilt patch id.
+    pub fn new(start_index: u16, end_index: u16) -> Self {
+        Self {
+            start_index,
+            end_index,
+        }
     }
 }
 
@@ -2168,6 +2291,23 @@ mod tests {
             reconstructed_header, header,
             "Reconstructed header does not match original"
         );
+    }
+
+    param_test! {
+        test_quilt_patch_id: [
+            case_0: (0, 0),
+            case_1: (1, 1),
+            case_2: (10, 20),
+        ]
+    }
+    fn test_quilt_patch_id(start_index: u16, end_index: u16) {
+        let patch_id = QuiltPatchIdV1::new(start_index, end_index);
+        let bytes = patch_id.to_bytes();
+        let reconstructed_patch_id =
+            QuiltPatchIdV1::from_bytes(&bytes).expect("Should reconstruct patch id");
+        assert_eq!(patch_id, reconstructed_patch_id);
+        assert_eq!(reconstructed_patch_id.start_index, start_index);
+        assert_eq!(reconstructed_patch_id.end_index, end_index);
     }
 
     /// Generate random blobs with sizes in the specified range.
