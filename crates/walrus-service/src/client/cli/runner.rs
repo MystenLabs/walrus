@@ -37,7 +37,7 @@ use walrus_core::{
         encoded_blob_length_for_n_shards,
     },
     ensure,
-    metadata::{BlobMetadataApi as _, QuiltIndex, QuiltMetadata},
+    metadata::{BlobMetadataApi as _, QuiltIndex},
 };
 use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
@@ -921,12 +921,13 @@ impl ClientCommandRunner {
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
-
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
-        match quilt_metadata {
-            QuiltMetadata::V1(quilt_metadata_v1) => {
-                quilt_metadata_v1.index.print_cli_output();
-            }
+
+        if self.json {
+            println!("{}", serde_json::to_string_pretty(&quilt_metadata)?);
+        } else {
+            println!("\nQuilt Metadata for Blob ID: {}", blob_id);
+            quilt_metadata.print_cli_output();
         }
 
         Ok(())
