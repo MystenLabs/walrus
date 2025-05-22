@@ -340,8 +340,8 @@ impl DatabaseConfig {
             .clone()
             .map(|options| options.inherit_from(self.optimized_for_blobs.clone()))
             .unwrap_or_else(|| self.optimized_for_blobs.clone());
-        // Disable write throttling for metadata column family.
-        metadata_cf_options.soft_pending_compaction_bytes_limit = Some(256 * 1024 * 1024 * 1024); // 256GB
+        // TODO(WAL-840): decide whether we want to keep this option even after all the nodes
+        // applied RocksDB 0.22.0, or apply it to all column families.
         metadata_cf_options.hard_pending_compaction_bytes_limit = Some(0); // Disable write stall.
         metadata_cf_options
     }
