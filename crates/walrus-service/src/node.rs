@@ -704,43 +704,24 @@ impl StorageNode {
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
         );
-        let sui_config = config
-            .sui
-            .as_ref()
-            .expect("Sui config must be provided")
-            .clone();
-        let contract_config = sui_config.contract_config.clone();
-        let rpc_urls = combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
-        let client_config = crate::client::ClientConfig {
-            contract_config,
-            exchange_objects: vec![],
-            wallet_config: None,
-            communication_config: Default::default(),
-            refresh_config: Default::default(),
-            rpc_urls,
-        };
-        let sui_read_client = config
-            .sui
-            .as_ref()
-            .expect("Sui config must be provided")
-            .new_read_client()
-            .await?;
-        let walrus_client = walrus_sdk::client::Client::new_read_client_with_refresher(
-            client_config,
-            sui_read_client.clone(),
-        )
-        .await?;
-
-        let event_blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
-        let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
-        let last_certified_event_blob_metadata = event_blob_downloader
-            .get_latest_certified_event_blob()
-            .await
-            .ok()
-            .flatten();
-        let latest_certified_event_blob = last_certified_event_blob_metadata
-            .map(LastCertifiedEventBlob::EventBlobWithMetadata)
-            .or(last_certified_event_blob.map(LastCertifiedEventBlob::EventBlob));
+        let event_blob_downloader = Self::get_event_blob_downloader_from_config(config).await?;
+        let mut last_certified_event_blob = None;
+        if let Some(downloader) = event_blob_downloader {
+            last_certified_event_blob = downloader
+                .get_last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlobWithMetadata);
+        }
+        if last_certified_event_blob.is_none() {
+            last_certified_event_blob = contract_service
+                .last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlob);
+        }
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
             Some(
                 EventBlobWriterFactory::new(
@@ -749,7 +730,7 @@ impl StorageNode {
                     inner.clone(),
                     registry,
                     node_params.num_checkpoints_per_blob,
-                    latest_certified_event_blob,
+                    last_certified_event_blob,
                     config.num_uncertified_blob_threshold,
                 )
                 .await?,
@@ -922,6 +903,25 @@ impl StorageNode {
         }
 
         Ok((Pin::from(event_stream), actual_event_index))
+    }
+
+    async fn get_event_blob_downloader_from_config(
+        config: &StorageNodeConfig,
+    ) -> anyhow::Result<Option<EventBlobDownloader>> {
+        let sui_config: Option<SuiConfig> = config.sui.as_ref().cloned();
+        let Some(sui_config) = sui_config else {
+            return Ok(None);
+        };
+        let sui_read_client = sui_config.new_read_client().await?;
+        let walrus_client = crate::common::utils::create_walrus_client_with_refresher(
+            sui_config.contract_config.clone(),
+            sui_read_client.clone(),
+        )
+        .await?;
+        Ok(Some(EventBlobDownloader::new(
+            walrus_client,
+            sui_read_client,
+        )))
     }
 
     async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {

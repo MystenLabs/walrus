@@ -48,7 +48,7 @@ impl EventBlobWithMetadata {
     }
 }
 
-/// A struct that contains the metadata of an event blob.
+/// This is used to store the last certified event blob in the event blob writer.
 #[derive(Debug, Clone)]
 pub enum LastCertifiedEventBlob {
     /// A struct that contains the metadata of an event blob.
@@ -74,38 +74,31 @@ impl EventBlobDownloader {
     }
 
     /// Returns the metadata of the last certified event blob.
-    pub async fn get_latest_certified_event_blob(&self) -> Result<Option<EventBlobWithMetadata>> {
-        let blob = self.sui_read_client.last_certified_event_blob().await?;
-        match blob {
-            Some(blob) => {
-                let blob_id = blob.blob_id;
-                let result = self
-                    .walrus_client
-                    .read_blob::<walrus_core::encoding::Primary>(&blob_id)
-                    .await?;
-                let blob = LocalEventBlob::new(&result)?;
-                let prev_blob_id = blob.prev_blob_id();
-                if prev_blob_id == BlobId::ZERO {
-                    return Ok(None);
-                }
-                let blob_epoch = blob.epoch();
-                let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();
-                let blob_iter = blob.into_iter();
-                let blob_event = blob_iter
-                    .last()
-                    .ok_or(anyhow::anyhow!("No events in blob"))?;
-                Ok(Some(EventBlobWithMetadata {
-                    blob_id,
-                    event_stream_cursor: EventStreamCursor::new(
-                        blob_event.element.element.event_id(),
-                        blob_event.index + 1,
-                    ),
-                    epoch: blob_epoch,
-                    ending_checkpoint_sequence_number: blob_ending_checkpoint_sequence_number,
-                }))
-            }
-            None => Ok(None),
-        }
+    pub async fn get_last_certified_event_blob(&self) -> Result<Option<EventBlobWithMetadata>> {
+        let Some(blob) = self.sui_read_client.last_certified_event_blob().await? else {
+            return Ok(None);
+        };
+        let blob_id = blob.blob_id;
+        let result = self
+            .walrus_client
+            .read_blob::<walrus_core::encoding::Primary>(&blob_id)
+            .await?;
+        let blob = LocalEventBlob::new(&result)?;
+        let blob_epoch = blob.ending_epoch()?;
+        let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();
+        let blob_iter = blob.into_iter();
+        let blob_event = blob_iter
+            .last()
+            .ok_or(anyhow::anyhow!("No events in blob"))?;
+        Ok(Some(EventBlobWithMetadata {
+            blob_id,
+            event_stream_cursor: EventStreamCursor::new(
+                blob_event.element.element.event_id(),
+                blob_event.index + 1,
+            ),
+            epoch: blob_epoch,
+            ending_checkpoint_sequence_number: blob_ending_checkpoint_sequence_number,
+        }))
     }
 
     /// Collects event blobs starting from the given blob ID and going backwards until reaching
