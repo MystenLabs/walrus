@@ -594,12 +594,12 @@ where
         }
 
         // Now, fetch the latest committee from the chain.
-        let latest = self
+        let latest_committees = self
             .committee_lookup
             .get_active_committees()
             .await
             .map_err(BeginCommitteeChangeError::LookupError)?;
-        let latest_committee_epoch = latest.epoch();
+        let latest_committee_epoch = latest_committees.epoch();
 
         match new_epoch.cmp(&latest_committee_epoch) {
             Ordering::Greater => {
@@ -623,7 +623,7 @@ where
 
         debug_assert_eq!(new_epoch, latest_committee_epoch);
 
-        let current_committee: Committee = (**latest.current_committee()).clone();
+        let current_committee: Committee = (**latest_committees.current_committee()).clone();
 
         // At this point, the only situation left, is that the tracked committee is transitioning
         // into the next epoch, which must match the latest_committee_epoch.

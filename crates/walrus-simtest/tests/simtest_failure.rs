@@ -294,14 +294,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
-                .await
-                .get(0)
-                .unwrap()
-                .node_status,
-            "Active"
-        );
+        assert_eq!(node_health_info[0].node_status, "Active");
 
         workload_handle.abort();
 
@@ -613,13 +606,13 @@ mod tests {
         let client_arc = Arc::new(client);
 
         // Starts a background workload that a client keeps writing and retrieving data.
-        // All requests should succeed even if a node crashes.
+        // All requests should succeed even if a node is lagging behind.
         let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        // Tracks if a crash has been triggered.
+        // Tracks if a lagging event processing has been triggered.
         let fail_triggered = Arc::new(AtomicBool::new(false));
         let target_fail_node_id = walrus_cluster.nodes[0]
             .node_id
@@ -638,13 +631,14 @@ mod tests {
             }
         });
 
+        // Tracks the number of times the node enters recovery mode.
         let enter_recovery_mode_count = Arc::new(AtomicUsize::new(0));
         let enter_recovery_mode_count_clone = enter_recovery_mode_count.clone();
         sui_macros::register_fail_point("fail-point-enter-recovery-mode", move || {
             enter_recovery_mode_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         });
 
-        // Changes the stake of the crashed node so that it will gain some shards after the next
+        // Changes the stake of the lagging node so that it will gain some shards after the next
         // epoch change. Note that the expectation is the node will be back only after more than
         // 2 epoch changes, so that the node can be in a RecoveryInProgress state.
         client_arc
@@ -668,7 +662,7 @@ mod tests {
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
-            // For all the shards that the crashed node owns, they should be in ready state.
+            // For all the shards that the lagging node owns, they should be in ready state.
             assert_eq!(shard.status, ShardStatus::Ready);
 
             // These shards should not exist in any of the other nodes.
@@ -697,14 +691,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
-                .await
-                .get(0)
-                .unwrap()
-                .node_status,
-            "Active"
-        );
+        assert_eq!(node_health_info[0].node_status, "Active");
 
         workload_handle.abort();
 

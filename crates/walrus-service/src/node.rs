@@ -1374,7 +1374,9 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
-        self.execute_epoch_change_start_event(event_handle, event, shard_map_lock)
+        // Now the general tasks around epoch change are done. Next, entering epoch change logic
+        // to bring the node state to the next epoch.
+        self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
@@ -1386,20 +1388,21 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Storage node execution of the epoch change start event.
-    async fn execute_epoch_change_start_event(
+    /// Storage node execution of the epoch change start event, to bring the node state to the next
+    /// epoch.
+    async fn execute_epoch_change(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.execute_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
+            self.execute_epoch_change_while_catching_up(event_handle, event, shard_map_lock)
                 .await?;
         } else {
             match self.begin_committee_change(event.epoch).await? {
                 BeginCommitteeChangeAction::ExecuteEpochChange => {
-                    self.execute_epoch_change_start_when_node_is_in_sync(
+                    self.execute_epoch_change_when_node_is_in_sync(
                         event_handle,
                         event,
                         shard_map_lock,
@@ -1414,7 +1417,7 @@ impl StorageNode {
                     tracing::info!("storage node entering recovery mode during epoch change start");
                     sui_macros::fail_point!("fail-point-enter-recovery-mode");
                     self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
-                    self.execute_epoch_change_start_while_catching_up(
+                    self.execute_epoch_change_while_catching_up(
                         event_handle,
                         event,
                         shard_map_lock,
@@ -1427,9 +1430,9 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Processes the epoch change start event while the node is in
+    /// Executes the epoch change logic while the node is in
     /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] mode.
-    async fn execute_epoch_change_start_while_catching_up(
+    async fn execute_epoch_change_while_catching_up(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1488,9 +1491,9 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Processes the epoch change start event when the node is up-to-date with the epoch and event
+    /// Executes the epoch change logic when the node is up-to-date with the epoch and event
     /// processing.
-    async fn execute_epoch_change_start_when_node_is_in_sync(
+    async fn execute_epoch_change_when_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1674,7 +1677,7 @@ impl StorageNode {
                 tracing::warn!(
                     ?latest_epoch,
                     ?requested_epoch,
-                    "epoch change requested for an older epoch than the latest epoch, this \
+                    "epoch change requested for an older epoch than the latest epoch, this means \
                     the node is severely lagging behind, and will enter recovery mode"
                 );
                 Ok(BeginCommitteeChangeAction::EnterRecoveryMode)
