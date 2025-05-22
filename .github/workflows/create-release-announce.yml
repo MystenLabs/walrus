@@ -97,7 +97,7 @@ jobs:
         shell: bash
         env:
           PREVIOUS_BRANCH: ${{ env.previous_release_branch }}
-          CURRENT_BRANCH: ${{ env.current_release_branch }} 
+          CURRENT_BRANCH: ${{ env.current_release_branch }}
         working-directory: ./
         run: |
           echo "previous_commit=$(curl -s \
