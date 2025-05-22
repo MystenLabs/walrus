@@ -12,8 +12,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
-    use sui_macros::{clear_fail_point, register_fail_point_if};
+    use rocksdb::Options as RocksdbOptions;
     use sui_rpc_api::Client as RpcClient;
     use tokio::sync::RwLock;
     use typed_store::rocks::be_fix_int_ser;
@@ -21,7 +20,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
     use walrus_service::{
-        node::events::event_blob_writer::CertifiedEventBlobMetadata,
+        node::{DatabaseConfig, events::event_blob_writer::CertifiedEventBlobMetadata},
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
@@ -81,10 +80,15 @@ mod tests {
                 last_certified_blob = current_blob;
                 tokio::time::sleep(Duration::from_secs(30)).await;
 
-                let node_blob_id = get_last_certified_event_blob_from_node(node).await?;
-                if node_blob_id != last_certified_blob.blob_id {
-                    tracing::info!("Node forked");
-                    break;
+                let prev_blob_id = get_last_certified_event_blob_from_node(node).await?.blob_id;
+                if prev_blob_id != last_certified_blob.blob_id {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    let current_blob_id =
+                        get_last_certified_event_blob_from_node(node).await?.blob_id;
+                    if current_blob_id == prev_blob_id {
+                        tracing::info!("Node forked");
+                        break;
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -92,9 +96,8 @@ mod tests {
         Ok(())
     }
 
-    async fn wait_for_node_to_recover(
+    async fn wait_for_event_blob_writer_to_recover(
         node: &SimStorageNodeHandle,
-        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
     ) -> Result<(), anyhow::Error> {
         let mut last_certified_blob = get_last_certified_event_blob_from_node(node).await?;
         let mut previous_blob = BlobId::ZERO;
@@ -269,10 +272,13 @@ mod tests {
         // Wait for event blob certification to get stuck
         let stuck_blob = wait_for_certification_stuck(&client).await;
 
+        tracing::info!("Stuck blob: {:?}", stuck_blob);
+
         // Restart nodes with same checkpoint number to recover
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Verify recovery
+        tokio::time::sleep(Duration::from_secs(30)).await;
         let recovered_blob = get_last_certified_event_blob_must_succeed(&client).await;
 
         // Event blob should make progress again.
@@ -319,7 +325,9 @@ mod tests {
         restart_node_with_checkpoints(&mut walrus_cluster, 0, |_| 20).await;
 
         // Verify recovery
-        wait_for_node_to_recover(&walrus_cluster.nodes[0], &client).await;
+        wait_for_event_blob_writer_to_recover(&walrus_cluster.nodes[0])
+            .await
+            .unwrap();
     }
 
     /// Waits for all nodes to download checkpoints up to the specified sequence number
