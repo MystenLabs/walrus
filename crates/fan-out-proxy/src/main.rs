@@ -30,8 +30,8 @@ use walrus_core::{
 use walrus_sdk::{
     SuiReadClient,
     client::Client,
-    config::ClientConfig,
-    sui::client::retry_client::RetriableSuiClient,
+    config::{ClientConfig, combine_rpc_urls},
+    sui::{client::retry_client::RetriableSuiClient, config::WalletConfig},
 };
 
 use crate::error::FanOutError;
@@ -49,19 +49,16 @@ struct Args {
     command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Command {
     /// Run the Walrus Fan-out Proxy.
     Proxy {
         /// The configuration context to use for the client, if omitted the default_context is used.
         #[arg(long, global = true)]
         context: Option<String>,
-        /// The file path of the Walrus read client configuration.
+        /// The file path to the Walrus read client configuration.
         #[arg(long, global = true)]
         config_path: PathBuf,
-        /// The file path of the Fan-out Proxy operator's wallet. This is the account that will be
-        /// used to check for fan-out transactions that may have been received.
-        wallet_path: PathBuf,
     },
 }
 
@@ -97,10 +94,10 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     init_logging();
+    dbg!(&args.command);
     match args.command {
         Command::Proxy {
             context,
-            wallet_path: _wallet_path,
             config_path,
         } => {
             let c = context.as_deref();
@@ -119,8 +116,12 @@ async fn main() -> Result<()> {
 
 async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<SuiReadClient>> {
     let config: ClientConfig = walrus_sdk::config::load_configuration(Some(config_path), context)?;
+    // TODO: allow configuration of wallet.
+    let wallet = WalletConfig::load_wallet(None, None)?;
+    #[allow(deprecated)]
+    let rpc_url = wallet.get_rpc_url()?;
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &config.rpc_urls,
+        &combine_rpc_urls(rpc_url, &config.rpc_urls),
         config.backoff_config().clone(),
         None,
     )
