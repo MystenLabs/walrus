@@ -1,0 +1,22 @@
+[package]
+name = "fan-out-proxy"
+authors = ["Mysten Labs <build@mystenlabs.com>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+axum-server.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+walrus-core.workspace = true
+walrus-sdk.workspace = true
