@@ -425,52 +425,78 @@ impl EventBlobWriterFactory {
             &certified,
         )?;
         let mut wb = pending.batch();
-        if let Some(LastCertifiedEventBlob::EventBlobWithMetadata(latest)) =
-            last_certified_event_blob
-        {
-            if certified
-                .get(&())?
-                .filter(|current_certified| {
-                    latest.event_stream_cursor.element_index
-                        > current_certified.event_cursor.element_index
-                })
-                .is_some()
-            {
-                let certified_metadata = CertifiedEventBlobMetadata::new(
-                    latest.blob_id,
-                    latest.event_stream_cursor,
-                    latest.epoch,
+        match last_certified_event_blob {
+            // Case 1: We have a full event blob with metadata
+            Some(LastCertifiedEventBlob::EventBlobWithMetadata(latest)) => {
+                tracing::info!(
+                    "Found last certified event blob with metadata: {:?}",
+                    latest
                 );
-                wb.insert_batch(&certified, std::iter::once(((), certified_metadata)))?;
-                wb.delete_batch(&attested, std::iter::once(()))?;
-                wb.delete_batch(&failed_to_attest, std::iter::once(()))?;
-                for entry in pending.safe_iter() {
-                    wb.delete_batch(&pending, std::iter::once(entry?.0))?;
+                if certified
+                    .get(&())?
+                    .filter(|current_certified| {
+                        latest.event_stream_cursor.element_index
+                            > current_certified.event_cursor.element_index
+                    })
+                    .is_some()
+                {
+                    // The last certified event blob is ahead of the local certified event blob.
+                    // We skip past all the blobs until the last certified event blob and delete
+                    // all the uncertified blobs. If this was a local fork, the pending blobs
+                    // will also be in bad shape and discarding them is needed to recover.
+                    tracing::info!(
+                        "Skipping past all the blobs until the last certified event blob"
+                    );
+                    let certified_metadata = CertifiedEventBlobMetadata::new(
+                        latest.blob_id,
+                        latest.event_stream_cursor,
+                        latest.epoch,
+                    );
+                    wb.insert_batch(&certified, std::iter::once(((), certified_metadata)))?;
+                    wb.delete_batch(&attested, std::iter::once(()))?;
+                    wb.delete_batch(&failed_to_attest, std::iter::once(()))?;
+                    for entry in pending.safe_iter() {
+                        wb.delete_batch(&pending, std::iter::once(entry?.0))?;
+                    }
+                } else {
+                    // The last certified event blob is same as the local certified event blob.
+                    // We reset the uncertified blobs to recover from potential global fork where
+                    // nodes cannot agree on the last certified event blob.
+                    Self::reset_uncertified_blobs(
+                        &pending,
+                        &attested,
+                        &failed_to_attest,
+                        num_uncertified_blob_threshold,
+                        Some(latest.blob()),
+                        &blobs_path,
+                        &mut wb,
+                    )?;
                 }
-            } else {
-                tracing::info!("No certified metadata to update");
             }
-            Self::reset_uncertified_blobs(
-                &pending,
-                &attested,
-                &failed_to_attest,
-                num_uncertified_blob_threshold,
-                Some(latest.blob()),
-                &blobs_path,
-                &mut wb,
-            )?;
-        } else if let Some(LastCertifiedEventBlob::EventBlob(event_blob)) =
-            last_certified_event_blob
-        {
-            Self::reset_uncertified_blobs(
-                &pending,
-                &attested,
-                &failed_to_attest,
-                num_uncertified_blob_threshold,
-                Some(event_blob),
-                &blobs_path,
-                &mut wb,
-            )?;
+            // Case 2: We have just a basic event blob without metadata
+            Some(LastCertifiedEventBlob::EventBlob(event_blob)) => {
+                // Without metadata, we don't have enough information to skip past any blobs.
+                // We reset the uncertified blobs to recover from potential global fork where
+                // nodes cannot agree on the last certified event blob.
+                tracing::info!(
+                    "Found last certified event blob without metadata: {:?}",
+                    event_blob
+                );
+                Self::reset_uncertified_blobs(
+                    &pending,
+                    &attested,
+                    &failed_to_attest,
+                    num_uncertified_blob_threshold,
+                    Some(event_blob),
+                    &blobs_path,
+                    &mut wb,
+                )?;
+            }
+            // Case 3: No certified event blob exists
+            None => {
+                tracing::info!("No certified event blob exists");
+                // do nothing
+            }
         }
 
         wb.write()?;
