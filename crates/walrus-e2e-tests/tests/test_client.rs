@@ -33,8 +33,8 @@ use walrus_core::{
         EncodingConfigTrait as _,
         Primary,
         QuiltApi,
+        QuiltBlobOwned,
         QuiltStoreBlob,
-        QuiltStoreBlobOwned,
         QuiltVersionV1,
     },
     merkle::Node,
@@ -1055,7 +1055,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let identifiers_refs: Vec<&str> = identifiers_owned.iter().map(AsRef::as_ref).collect();
 
     // Fetch all blobs from the quilt once.
-    let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
+    let retrieved_quilt_blobs: Vec<QuiltBlobOwned> = quilt_read_client
         .get_blobs(&blob_id, &identifiers_refs)
         .await?;
 
@@ -1087,10 +1087,10 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 
     for stored_blob in stored_quilt_blobs.iter() {
         let retrieved_blob = quilt_read_client
-            .get_blob_by_id(&stored_blob.quilt_blob_id)
+            .get_blobs_by_ids(&[stored_blob.quilt_blob_id.clone()])
             .await?;
         let original_blob = retrieved_map.get(stored_blob.identifier.as_str()).unwrap();
-        assert_eq!(retrieved_blob.data(), *original_blob);
+        assert_eq!(retrieved_blob[0].data(), *original_blob);
     }
 
     Ok(())

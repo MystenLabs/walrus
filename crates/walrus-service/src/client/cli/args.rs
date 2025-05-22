@@ -350,9 +350,10 @@ pub enum CliCommands {
         identifiers: Vec<String>,
 
         /// Direct QuiltBlobId reference to a specific blob within a quilt.
-        #[serde_as(as = "Option<DisplayFromStr>")]
-        #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id)]
-        quilt_blob_id: Option<QuiltBlobId>,
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id, num_args = 0..)]
+        #[serde(default)]
+        quilt_blob_ids: Vec<QuiltBlobId>,
 
         /// The file path where to write the blobs.
         ///

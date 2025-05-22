@@ -85,7 +85,7 @@ pub trait QuiltApi<V: QuiltVersion> {
     ) -> Result<V::Quilt, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltBlobOwned, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> &V::QuiltIndex;
@@ -147,7 +147,7 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn get_or_decode_quilt_index(&mut self) -> Result<&V::QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
@@ -429,10 +429,7 @@ pub enum QuiltEnum {
 
 impl QuiltEnum {
     /// Returns the blob identified by the given identifier.
-    pub fn get_blob_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    pub fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltBlobOwned, QuiltError> {
         match self {
             QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
         }
@@ -484,25 +481,27 @@ impl<'a> QuiltStoreBlob<'a> {
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct QuiltStoreBlobOwned {
+pub struct QuiltBlobOwned {
     /// The blob data.
     pub blob: Vec<u8>,
     /// The identifier of the blob.
     pub identifier: String,
     /// The attributes of the blob.
     pub attributes: HashMap<String, String>,
+    /// QuiltBlobId of the blob.
+    pub quilt_batch_id_bytes: Vec<u8>,
 }
 
-// Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
-impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
-    fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
+// Implement cross-type equality between QuiltStoreBlob and QuiltBlobOwned
+impl PartialEq<QuiltBlobOwned> for QuiltStoreBlob<'_> {
+    fn eq(&self, other: &QuiltBlobOwned) -> bool {
         self.blob == other.blob.as_slice()
             && self.identifier == other.identifier
             && self.attributes == other.attributes
     }
 }
 
-impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
+impl PartialEq<QuiltStoreBlob<'_>> for QuiltBlobOwned {
     fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
         self.blob.as_slice() == other.blob
             && self.identifier == other.identifier
@@ -510,13 +509,14 @@ impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
     }
 }
 
-impl QuiltStoreBlobOwned {
-    /// Creates a new `QuiltStoreBlobOwned` from an owned blob and an identifier.
+impl QuiltBlobOwned {
+    /// Creates a new `QuiltBlobOwned` from an owned blob and an identifier.
     pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
         Self {
             blob,
             identifier: identifier.into(),
             attributes: HashMap::new(),
+            quilt_batch_id_bytes: Vec::new(),
         }
     }
 
@@ -571,11 +571,11 @@ impl QuiltVersionV1 {
         data_source: &T,
         start_col: usize,
         end_col: usize,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>
+    ) -> Result<QuiltBlobOwned, QuiltError>
     where
         T: QuiltColumnDataIterator,
     {
-        let mut blob = QuiltStoreBlobOwned::default();
+        let mut blob = QuiltBlobOwned::default();
 
         let mut header_bytes = Vec::new();
         {
@@ -669,6 +669,12 @@ impl QuiltVersionV1 {
         }
         assert!(data_bytes.len() == blob_bytes_size);
         blob.blob = data_bytes;
+        let start_index = u16::try_from(start_col)
+            .map_err(|_| QuiltError::Other("Start index exceeds maximum allowed value".into()))?;
+        let end_index = u16::try_from(end_col).map_err(|e| {
+            QuiltError::Other(format!("End index exceeds maximum allowed value: {}", e))
+        })?;
+        blob.quilt_batch_id_bytes = QuiltPatchIdV1::new(start_index, end_index).to_bytes();
 
         Ok(blob)
     }
@@ -944,7 +950,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         })
     }
 
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltBlobOwned, QuiltError> {
         self.quilt_index
             .get_quilt_patch_by_identifier(identifier)
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
@@ -1073,7 +1079,7 @@ impl QuiltV1 {
         &self,
         start_col: usize,
         end_col: usize,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltBlobOwned, QuiltError> {
         if start_col >= end_col {
             return Err(QuiltError::Other(format!(
                 "Invalid column range in quilt patch: start_col {} >= end_col {}",
@@ -1081,7 +1087,7 @@ impl QuiltV1 {
             )));
         }
 
-        let blob: QuiltStoreBlobOwned = QuiltVersionV1::decode_blob(self, start_col, end_col)?;
+        let blob: QuiltBlobOwned = QuiltVersionV1::decode_blob(self, start_col, end_col)?;
 
         Ok(blob)
     }
@@ -1090,7 +1096,7 @@ impl QuiltV1 {
     fn get_blob_by_quilt_patch(
         &self,
         quilt_patch: &QuiltPatchV1,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltBlobOwned, QuiltError> {
         let start_col = usize::from(quilt_patch.start_index());
         let end_col = usize::from(quilt_patch.end_index());
 
@@ -1614,7 +1620,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .expect("quilt index should be decoded"))
     }
 
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltBlobOwned, QuiltError> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
@@ -1684,7 +1690,7 @@ impl<'a> QuiltDecoderV1<'a> {
     fn get_blob_by_quilt_patch(
         &self,
         quilt_patch: &QuiltPatchV1,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltBlobOwned, QuiltError> {
         let start_idx = usize::from(quilt_patch.start_index());
         let end_idx = usize::from(quilt_patch.end_index());
         self.get_blob_by_range(start_idx, end_idx)
@@ -1695,10 +1701,10 @@ impl<'a> QuiltDecoderV1<'a> {
         &self,
         start_idx: usize,
         end_idx: usize,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltBlobOwned, QuiltError> {
         self.check_missing_slivers(start_idx, end_idx)?;
 
-        let blob: QuiltStoreBlobOwned = QuiltVersionV1::decode_blob(self, start_idx, end_idx)?;
+        let blob: QuiltBlobOwned = QuiltVersionV1::decode_blob(self, start_idx, end_idx)?;
 
         Ok(blob)
     }
