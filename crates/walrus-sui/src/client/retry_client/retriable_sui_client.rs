@@ -305,10 +305,7 @@ impl RetriableSuiClient {
                 .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
         );
 
-        // Limit the initial capacity to at most `MAX_GAS_PAYMENT_OBJECTS`, so that we don't try
-        // to allocate too much space if e.g. `usize::MAX` is passed as `max_num_coins`.
-        let mut selected_coins_heap: BinaryHeap<Reverse<OrderedCoin>> =
-            BinaryHeap::with_capacity(max_num_coins.min(MAX_GAS_PAYMENT_OBJECTS));
+        let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
 
         let mut total_selected = 0u128;
         let mut total_available = 0u128;
@@ -316,24 +313,24 @@ impl RetriableSuiClient {
         while let Some(coin) = coins_stream.as_mut().next().await {
             let coin_balance = u128::from(coin.balance);
             total_available += coin_balance;
-            if selected_coins_heap.len() >= max_num_coins {
-                let min_coin_balance = selected_coins_heap
+            if selected_coins.len() >= max_num_coins {
+                let min_coin_balance = selected_coins
                     .peek()
                     .expect("heap is not empty")
                     .0
                     .balance();
                 if min_coin_balance < coin.balance {
-                    selected_coins_heap.pop();
+                    selected_coins.pop();
                     total_selected -= min_coin_balance as u128;
                 } else {
                     continue;
                 }
             }
             total_selected += coin_balance;
-            selected_coins_heap.push(Reverse(OrderedCoin::from(coin)));
+            selected_coins.push(Reverse(OrderedCoin::from(coin)));
 
             if total_selected >= amount {
-                return Ok(selected_coins_heap
+                return Ok(selected_coins
                     .into_iter()
                     .map(|rev_coin| rev_coin.0.0)
                     .collect());
