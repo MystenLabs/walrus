@@ -54,6 +54,14 @@ pub struct DatabaseTableOptions {
     /// Pin l0 filter and index blocks in block cache.
     #[serde(skip_serializing_if = "Option::is_none")]
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
+    /// The soft pending compaction bytes limit. When pending compaction bytes exceed this limit,
+    /// write rate will be throttled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soft_pending_compaction_bytes_limit: Option<usize>,
+    /// The hard pending compaction bytes limit. When pending compaction bytes exceed this limit,
+    /// write will be stopped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hard_pending_compaction_bytes_limit: Option<usize>,
 }
 
 impl DatabaseTableOptions {
@@ -72,6 +80,8 @@ impl DatabaseTableOptions {
             max_bytes_for_level_base: Some(512 << 20),
             block_cache_size: Some(64 << 20),
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
+            soft_pending_compaction_bytes_limit: None,
+            hard_pending_compaction_bytes_limit: None,
         }
     }
 
@@ -90,6 +100,8 @@ impl DatabaseTableOptions {
             max_bytes_for_level_base: Some(512 << 20),
             block_cache_size: Some(256 << 20),
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
+            soft_pending_compaction_bytes_limit: None,
+            hard_pending_compaction_bytes_limit: None,
         }
     }
 
@@ -140,6 +152,12 @@ impl DatabaseTableOptions {
             pin_l0_filter_and_index_blocks_in_block_cache: self
                 .pin_l0_filter_and_index_blocks_in_block_cache
                 .or(default_override.pin_l0_filter_and_index_blocks_in_block_cache),
+            soft_pending_compaction_bytes_limit: self
+                .soft_pending_compaction_bytes_limit
+                .or(default_override.soft_pending_compaction_bytes_limit),
+            hard_pending_compaction_bytes_limit: self
+                .hard_pending_compaction_bytes_limit
+                .or(default_override.hard_pending_compaction_bytes_limit),
         }
     }
 
@@ -200,6 +218,14 @@ impl DatabaseTableOptions {
                 );
             }
             options.set_block_based_table_factory(&block_based_options);
+        }
+        if let Some(soft_pending_compaction_bytes_limit) = self.soft_pending_compaction_bytes_limit
+        {
+            options.set_soft_pending_compaction_bytes_limit(soft_pending_compaction_bytes_limit);
+        }
+        if let Some(hard_pending_compaction_bytes_limit) = self.hard_pending_compaction_bytes_limit
+        {
+            options.set_hard_pending_compaction_bytes_limit(hard_pending_compaction_bytes_limit);
         }
         options
     }
@@ -309,10 +335,15 @@ impl DatabaseConfig {
 
     /// Returns the metadata database option.
     pub fn metadata(&self) -> DatabaseTableOptions {
-        self.metadata
+        let mut metadata_cf_options = self
+            .metadata
             .clone()
             .map(|options| options.inherit_from(self.optimized_for_blobs.clone()))
-            .unwrap_or_else(|| self.optimized_for_blobs.clone())
+            .unwrap_or_else(|| self.optimized_for_blobs.clone());
+        // Disable write throttling for metadata column family.
+        metadata_cf_options.soft_pending_compaction_bytes_limit = Some(256 * 1024 * 1024 * 1024); // 256GB
+        metadata_cf_options.hard_pending_compaction_bytes_limit = Some(0); // Disable write stall.
+        metadata_cf_options
     }
 
     /// Returns the blob info database option.
