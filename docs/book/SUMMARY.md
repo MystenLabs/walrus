@@ -53,6 +53,7 @@
   - [Specifying headers, routing, and metadata](./walrus-sites/routing.md)
   - [Linking from and to Walrus Sites](./walrus-sites/linking.md)
   - [Redirecting objects to Walrus Sites](./walrus-sites/redirects.md)
+  - [CI/CD](./walrus-sites/ci-cd.md)
 - [Technical overview](./walrus-sites/overview.md)
   - [The Walrus Sites portal](./walrus-sites/portal.md)
   - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
