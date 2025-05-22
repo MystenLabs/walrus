@@ -257,9 +257,10 @@ pub enum CliCommands {
     StoreQuilt {
         /// The path to the directory containing the quilt files, the file names will be used as
         /// the identifiers for the files within the quilt.
-        #[arg(required = true, value_name = "PATH")]
-        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_path")]
-        path: PathBuf,
+        #[arg(required = true, value_name = "PATH", alias("path-list"))]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        #[arg(long, num_args = 1..)]
+        path: Vec<PathBuf>,
         /// The epoch argument to specify either the number of epochs to store the blob, or the
         /// end epoch, or the earliest expiry time in rfc3339 format.
         ///
@@ -305,7 +306,8 @@ pub enum CliCommands {
     ConstructQuilt {
         /// The path to the directory containing the files to be used to construct the quilt.
         #[arg(required = true, value_name = "PATH")]
-        path: PathBuf,
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        paths: Vec<PathBuf>,
         /// Quilt Version.
         #[arg(long, default_value_t = QuiltVersionEnum::V1)]
         version: QuiltVersionEnum,

@@ -227,9 +227,11 @@ impl ClientCommandRunner {
                 .await
             }
 
-            CliCommands::ConstructQuilt { path, version, out } => {
-                self.construct_quilt(path, version, out).await
-            }
+            CliCommands::ConstructQuilt {
+                paths,
+                version,
+                out,
+            } => self.construct_quilt(paths, version, out).await,
 
             CliCommands::BlobStatus {
                 file_or_blob_id,
@@ -672,7 +674,7 @@ impl ClientCommandRunner {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn store_quilt(
         self,
-        path: PathBuf,
+        paths: Vec<PathBuf>,
         epoch_arg: EpochArg,
         dry_run: bool,
         store_when: StoreWhen,
@@ -690,7 +692,7 @@ impl ClientCommandRunner {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
-        tracing::info!("storing files in {} as a quilt on Walrus", path.display());
+        tracing::info!("storing files in {:?} as a quilt on Walrus", paths);
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
@@ -699,15 +701,21 @@ impl ClientCommandRunner {
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
         if dry_run {
-            return Self::store_quilt_dry_run(client, path, encoding_type, epochs_ahead, self.json)
-                .await;
+            return Self::store_quilt_dry_run(
+                client,
+                &paths,
+                encoding_type,
+                epochs_ahead,
+                self.json,
+            )
+            .await;
         }
 
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client();
         let result = quilt_write_client
-            .reserve_and_store_quilt_from_path::<QuiltVersionV1>(
-                path,
+            .reserve_and_store_quilt_from_paths::<QuiltVersionV1, PathBuf>(
+                &paths,
                 encoding_type,
                 epochs_ahead,
                 store_when,
@@ -729,16 +737,16 @@ impl ClientCommandRunner {
     /// Performs a dry run of quilt storage
     async fn store_quilt_dry_run(
         client: Client<SuiContractClient>,
-        path: PathBuf,
+        paths: &[PathBuf],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         json: bool,
     ) -> Result<()> {
-        tracing::info!("performing dry-run for quilt from {}", path.display());
+        tracing::info!("performing dry-run for quilt from {:?}", paths);
 
         let quilt_client = client.quilt_client();
         let quilt = quilt_client
-            .construct_quilt_from_path::<QuiltVersionV1>(path.clone(), encoding_type)
+            .construct_quilt_from_paths::<QuiltVersionV1, PathBuf>(paths, encoding_type)
             .await?;
         let (_, metadata) =
             client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
@@ -759,7 +767,7 @@ impl ClientCommandRunner {
 
         let output = StoreQuiltDryRunOutput {
             quilt_blob_output: DryRunOutput {
-                path,
+                path: PathBuf::from("n/a"),
                 blob_id: *metadata.blob_id(),
                 encoding_type,
                 unencoded_size,
@@ -780,7 +788,7 @@ impl ClientCommandRunner {
 
     pub(crate) async fn construct_quilt(
         self,
-        path: PathBuf,
+        paths: Vec<PathBuf>,
         version: QuiltVersionEnum,
         out: PathBuf,
     ) -> Result<()> {
@@ -789,7 +797,7 @@ impl ClientCommandRunner {
         match version {
             QuiltVersionEnum::V1 => {
                 let quilt = quilt_write_client
-                    .construct_quilt_from_path::<QuiltVersionV1>(path, DEFAULT_ENCODING)
+                    .construct_quilt_from_paths::<QuiltVersionV1, PathBuf>(&paths, DEFAULT_ENCODING)
                     .await?;
                 std::fs::write(out.clone(), quilt.data())?;
                 println!("Quilt constructed and saved to {}", out.display());

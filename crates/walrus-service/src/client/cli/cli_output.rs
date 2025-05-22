@@ -247,10 +247,8 @@ impl CliOutput for BlobStoreResultWithPath {
 
 impl CliOutput for QuiltStoreResult {
     fn print_cli_output(&self) {
-        let Some(path) = self.path.clone() else {
-            println!("Quilt should have been uploaded from a directory.");
-            return;
-        };
+        let path = self.path.clone().unwrap_or(PathBuf::from("n/a"));
+
         let blob_store_result = BlobStoreResultWithPath {
             blob_store_result: self.blob_store_result.clone(),
             path,

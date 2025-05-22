@@ -4,10 +4,10 @@
 //! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
@@ -116,43 +116,52 @@ pub mod responses;
 /// If the path is a directory, its files are read recursively.
 /// Only regular files (not directories or other special files) are included in the result.
 /// If the provided path is unreadable, or not a file or directory, an error is returned.
-pub fn read_blobs_from_path(path: PathBuf) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
+pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
+    let files = get_all_files_from_paths(paths)?;
+
     let mut collected_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-
-    if path.is_file() {
-        // Path is a file, read it and return.
-        let content = fs::read(&path).map_err(ClientError::other)?;
-        collected_files.push((path, content));
-        Ok(collected_files)
-    } else if path.is_dir() {
-        // Path is a directory, process its entries.
-        let dir_entries = fs::read_dir(&path).map_err(ClientError::other)?;
-
-        for entry_result in dir_entries {
-            let entry = entry_result.map_err(ClientError::other)?;
-            let current_entry_path = entry.path();
-
-            if current_entry_path.is_file() {
-                let content = fs::read(&current_entry_path).map_err(ClientError::other)?;
-                collected_files.push((current_entry_path, content));
-            } else if current_entry_path.is_dir() {
-                // Recursively read this directory and extend the collected_files vector
-                let sub_dir_files = read_blobs_from_path(current_entry_path)?;
-                collected_files.extend(sub_dir_files);
-            }
-            // Other entry types (symlinks, etc.) are ignored.
-        }
-        Ok(collected_files)
-    } else {
-        // Path is not a file or directory, or is unreadable.
-        Err(ClientError::from(ClientErrorKind::Other(
-            format!(
-                "Path is not a readable file or directory: {}",
-                path.display()
-            )
-            .into(),
-        )))
+    for file_path in files {
+        let content = fs::read(&file_path).map_err(ClientError::other)?;
+        collected_files.push((file_path, content));
     }
+
+    Ok(collected_files)
+}
+
+/// Reads all files recursively from a given path and returns them as path-content pairs.
+pub fn get_all_files_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<PathBuf>> {
+    let mut collected_files: HashSet<PathBuf> = HashSet::new();
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut collected_dirs: HashSet<PathBuf> = HashSet::new();
+    for path in paths {
+        let path = path.as_ref();
+        if path.is_file() {
+            collected_files.insert(path.to_path_buf());
+        } else if path.is_dir() {
+            let dir_entries = fs::read_dir(path).map_err(ClientError::other)?;
+            for entry_result in dir_entries {
+                let current_entry_path = entry_result.map_err(ClientError::other)?.path();
+                if current_entry_path.is_file() {
+                    collected_files.insert(current_entry_path);
+                } else if current_entry_path.is_dir() {
+                    collected_dirs.insert(current_entry_path);
+                }
+            }
+        }
+    }
+
+    let files = get_all_files_from_paths(
+        &collected_dirs
+            .iter()
+            .map(|p| p.as_path())
+            .collect::<Vec<_>>(),
+    )?;
+    collected_files.extend(files);
+
+    Ok(collected_files.into_iter().collect())
 }
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -2491,12 +2500,12 @@ impl QuiltClient<'_, SuiContractClient> {
     }
 
     /// Constructs a quilt from a folder of files.
-    pub async fn construct_quilt_from_path<V: QuiltVersion>(
+    pub async fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
-        path: PathBuf,
+        paths: &[P],
         encoding_type: EncodingType,
     ) -> ClientResult<V::Quilt> {
-        let blobs_with_paths = read_blobs_from_path(path).map_err(|e| {
+        let blobs_with_paths = read_blobs_from_paths(paths).map_err(|e| {
             ClientError::from(ClientErrorKind::Other(
                 format!("Failed to read directory: {}", e).into(),
             ))
@@ -2525,10 +2534,10 @@ impl QuiltClient<'_, SuiContractClient> {
     }
 
     /// Stores all files from a folder as a quilt, using file names as descriptions.
-    #[tracing::instrument(skip_all, fields(path = %path.display()))]
-    pub async fn reserve_and_store_quilt_from_path<V: QuiltVersion>(
+    #[tracing::instrument(skip_all)]
+    pub async fn reserve_and_store_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
-        path: PathBuf,
+        paths: &[P],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
@@ -2536,7 +2545,7 @@ impl QuiltClient<'_, SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
         // Read files from the folder.
-        let blobs_with_paths = read_blobs_from_path(path.clone()).map_err(|e| {
+        let blobs_with_paths = read_blobs_from_paths(paths).map_err(|e| {
             ClientError::from(ClientErrorKind::Other(
                 format!("Failed to read directory: {}", e).into(),
             ))
@@ -2570,7 +2579,11 @@ impl QuiltClient<'_, SuiContractClient> {
                 post_store,
             )
             .await?;
-        result.path = Some(path);
+
+        if paths.len() == 1 && paths[0].as_ref().is_dir() {
+            result.path = Some(paths[0].as_ref().to_path_buf());
+        }
+
         Ok(result)
     }
 
