@@ -123,7 +123,7 @@ jobs:
         env:
           PREVIOUS_COMMIT: ${{ env.previous_commit }}
           CURRENT_COMMIT: ${{ env.current_commit }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.release_tag }}
         working-directory: ./
         run: |
           WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} \
