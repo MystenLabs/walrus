@@ -17,6 +17,7 @@ use sui_types::base_types::ObjectID;
 use tokio::sync::oneshot;
 use typed_store::TypedStoreError;
 use walrus_core::{BlobId, Epoch};
+use walrus_utils::metrics::monitored_scope;
 
 use super::{
     NodeStatus,
@@ -94,7 +95,7 @@ pub(super) async fn schedule_background_consistency_check(
     // Create a background thread which takes the ownership of the iterator and process it.
     tokio::task::spawn_blocking(move || {
         let _scope =
-            mysten_metrics::monitored_scope("EpochChange::background_blob_info_consistency_check");
+            monitored_scope::monitored_scope("EpochChange::background_blob_info_consistency_check");
 
         // Create a blob info iterator that takes the current blob info table as the snapshot.
         let blob_info_iterator = node.storage.certified_blob_info_iter_before_epoch(epoch);
@@ -271,7 +272,7 @@ fn certified_blob_consistency_check(
     node_status: NodeStatus,
     blobs_not_yet_fully_synced: &HashSet<BlobId>,
 ) {
-    let _scope = mysten_metrics::monitored_scope(
+    let _scope = monitored_scope::monitored_scope(
         "EpochChange::background_certified_blob_info_consistency_check",
     );
     let epoch_bucket = get_epoch_bucket(epoch);
@@ -381,7 +382,7 @@ fn compose_certified_object_blob_list_digest(
     per_object_blob_info_iter: PerObjectBlobInfoIterator,
     epoch: Epoch,
 ) {
-    let _scope = mysten_metrics::monitored_scope(
+    let _scope = monitored_scope::monitored_scope(
         "EpochChange::background_certified_blob_object_info_consistency_check",
     );
     let epoch_bucket = get_epoch_bucket(epoch);

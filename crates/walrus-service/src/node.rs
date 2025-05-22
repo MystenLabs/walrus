@@ -119,7 +119,7 @@ use walrus_storage_node_client::{
         StoredOnNodeStatus,
     },
 };
-use walrus_utils::metrics::{Registry, TaskMonitorFamily};
+use walrus_utils::metrics::{Registry, TaskMonitorFamily, monitored_scope};
 
 use self::{
     blob_sync::BlobSyncHandler,
@@ -942,7 +942,7 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent");
+        monitored_scope::monitored_scope("ProcessEvent");
         let node_status = self.inner.storage.node_status()?;
         let span = tracing::info_span!(
             parent: &Span::current(),
@@ -1050,7 +1050,7 @@ impl StorageNode {
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::Impl");
+        monitored_scope::monitored_scope("ProcessEvent::Impl");
         let _timer_guard = walrus_utils::with_label!(
             self.inner.metrics.event_process_duration_seconds,
             stream_element.element.label()
@@ -1087,27 +1087,27 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::BlobEvent");
+        monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
         self.inner
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         match blob_event {
             BlobEvent::Registered(_) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Registered");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
                 event_handle.mark_as_complete();
             }
             BlobEvent::Certified(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Certified");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
                 self.process_blob_certified_event(event_handle, event)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Deleted");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
                 self.process_blob_deleted_event(event_handle, event).await?;
             }
             BlobEvent::InvalidBlobID(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
@@ -1127,7 +1127,7 @@ impl StorageNode {
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent");
+        monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
         match epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
@@ -1146,7 +1146,7 @@ impl StorageNode {
         }
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
-                mysten_metrics::monitored_scope(
+                monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
                 self.epoch_change_driver
@@ -1157,22 +1157,24 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeStart");
+                monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::EpochChangeStart",
+                );
                 fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
+                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(_) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
+                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(_) => {
-                mysten_metrics::monitored_scope(
+                monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::ShardRecoveryStart",
                 );
                 event_handle.mark_as_complete();
@@ -1187,7 +1189,7 @@ impl StorageNode {
         event_handle: EventHandle,
         package_event: PackageEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::PackageEvent");
+        monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
         tracing::info!(?package_event, "{} event received", package_event.name());
         match package_event {
             PackageEvent::ContractUpgraded(_event) => {

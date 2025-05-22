@@ -12,6 +12,9 @@ use prometheus::{IntGauge, core::Collector, proto::MetricFamily};
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
 
+#[cfg(feature = "metrics")]
+pub mod monitored_scope;
+
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 pub use tokio::{TaskMonitorCollector, TaskMonitorFamily};
 

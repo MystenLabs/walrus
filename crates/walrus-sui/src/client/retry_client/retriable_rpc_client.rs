@@ -15,7 +15,6 @@ use std::{
 };
 
 use atomic_time::AtomicInstant;
-use mysten_metrics::monitored_scope;
 use rand::{
     Rng as _,
     rngs::{StdRng, ThreadRng},
@@ -28,7 +27,10 @@ use sui_types::{
     object::Object,
 };
 use thiserror::Error;
-use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
+use walrus_utils::{
+    backoff::{ExponentialBackoff, ExponentialBackoffConfig},
+    metrics::monitored_scope,
+};
 
 use self::fallback_client::FallbackClient;
 pub use self::fallback_client::FallbackError;
@@ -359,7 +361,7 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        let _scope = monitored_scope("RetriableRpcClient::get_full_checkpoint");
+        let _scope = monitored_scope::monitored_scope("RetriableRpcClient::get_full_checkpoint");
         let start_time = Instant::now();
 
         // Check if we should directly skip RPC node due to previous failures, and use fallback.
