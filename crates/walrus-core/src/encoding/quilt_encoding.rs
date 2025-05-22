@@ -42,6 +42,9 @@ const QUILT_VERSION_BYTES_LENGTH: usize = 1;
 /// The number of bytes used to store the identifier of the blob.
 const BLOB_IDENTIFIER_SIZE_BYTES_LENGTH: usize = 2;
 
+/// The maximum number of bytes for the identifier of the blob.
+const MAX_BLOB_IDENTIFIER_BYTES_LENGTH: usize = (1 << (8 * BLOB_IDENTIFIER_SIZE_BYTES_LENGTH)) - 1;
+
 /// The number of bytes stored before the quilt index data.
 const QUILT_INDEX_PREFIX_SIZE: usize = QUILT_INDEX_SIZE_BYTES_LENGTH + QUILT_VERSION_BYTES_LENGTH;
 
@@ -509,27 +512,25 @@ impl QuiltVersionV1 {
     const BLOB_HEADER_SIZE: usize = 7;
     const EXTENSION_SIZE_BYTES_LENGTH: usize = 4;
 
-    /// Returns the total size of the encoded blob.
-    pub fn compute_encoded_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
-        let mut extension_size = 0;
-
-        let identifier_bytes_size = bcs::serialized_size(&blob.identifier)
+    /// Returns the total size of the serialized blob.
+    pub fn serialized_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
+        let identifier_size = bcs::serialized_size(&blob.identifier)
             .map_err(|e| QuiltError::Other(format!("Failed to compute identifier size: {}", e)))?;
-        let identifier_size = u16::try_from(identifier_bytes_size).map_err(|e| {
-            QuiltError::Other(format!(
-                "Identifier size exceeds maximum allowed value: {}",
-                e
-            ))
-        })?;
 
-        extension_size += identifier_size as usize + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
+        if identifier_size >= MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
+            return Err(QuiltError::Other(format!(
+                "identifier size exceeds maximum allowed value: {}",
+                MAX_BLOB_IDENTIFIER_BYTES_LENGTH
+            )));
+        }
 
-        let total_size = extension_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE;
-        Ok(total_size)
+        Ok(identifier_size
+            + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH
+            + blob.data().len()
+            + QuiltVersionV1::BLOB_HEADER_SIZE)
     }
 
     /// Decodes a blob from a column data source.
-    ///
     pub fn decode_blob<T>(
         data_source: &T,
         start_col: usize,
@@ -1286,7 +1287,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             .chain(
                 blob_pairs
                     .iter()
-                    .map(|blob| QuiltVersionV1::compute_encoded_blob_size(blob)),
+                    .map(|blob| QuiltVersionV1::serialized_blob_size(blob)),
             )
             .collect::<Result<Vec<usize>, QuiltError>>()?;
 
