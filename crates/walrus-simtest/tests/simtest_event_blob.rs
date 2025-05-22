@@ -81,10 +81,14 @@ mod tests {
                 last_certified_blob = current_blob;
                 tokio::time::sleep(Duration::from_secs(30)).await;
 
-                let node_blob_id = get_last_certified_event_blob_from_node(node).await?;
-                if node_blob_id != last_certified_blob.blob_id {
-                    tracing::info!("Node forked");
-                    break;
+                let prev_blob_id = get_last_certified_event_blob_from_node(node).await?;
+                if prev_blob_id != last_certified_blob.blob_id {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    let current_blob_id = get_last_certified_event_blob_from_node(node).await?;
+                    if current_blob_id == prev_blob_id {
+                        tracing::info!("Node forked");
+                        break;
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
