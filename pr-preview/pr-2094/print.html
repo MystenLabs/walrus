@@ -1659,10 +1659,14 @@ view this in the browser, for example, at <a href="https://aggregator.walrus-tes
 <h3 id="store"><a class="header" href="#store">Store</a></h3>
 <p>You can interact with the daemon through simple HTTP PUT requests. For example, with
 <a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
-<pre><code class="language-sh">curl -X PUT "$PUBLISHER/v1/blobs" -d "some string" # store the string `some string` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file" # store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+<pre><code class="language-sh"># store the string `some string` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+# store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+# store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file"
 </code></pre>
 <p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a <code>newlyCreated</code> field contains information about the
