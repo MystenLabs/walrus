@@ -13,7 +13,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY contracts contracts
 
-RUN cargo build --profile $PROFILE --bin walrus-stress
+RUN cargo build --profile $PROFILE --bin walrus-stress --bin walrus
 
 # Production Image for walrus stress
 FROM debian:bookworm-slim AS walrus-stress
@@ -22,6 +22,7 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus-stress /opt/walrus/bin/walrus-stress
+COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
 
 ARG BUILD_DATE
 ARG GIT_REVISION
