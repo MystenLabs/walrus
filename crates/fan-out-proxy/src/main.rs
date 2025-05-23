@@ -41,6 +41,8 @@ use crate::error::FanOutError;
 
 mod error;
 
+const DEFAULT_SERVER_ADDRESS: &'static str = "0.0.0.0:57391";
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -59,6 +61,9 @@ enum Command {
         /// The file path to the Walrus read client configuration.
         #[arg(long, global = true)]
         config_path: PathBuf,
+        /// The address to listen on. Defaults to 0.0.0.0:57391.
+        #[arg(long, global = true)]
+        server_address: Option<SocketAddr>,
     },
 }
 
@@ -99,16 +104,29 @@ async fn main() -> Result<()> {
         Command::Proxy {
             context,
             config_path,
+            server_address,
         } => {
+            // Create a client we can use to communicate with the Sui network, which is used to
+            // coordinate the Walrus network.
             let client = get_client(context.as_deref(), config_path.as_path()).await?;
+
+            // Get the n_shards constant for the given network. It will not change over the lifetime
+            // of the fan-out-proxy.
             let n_shards = client.get_committees().await?.n_shards();
+
+            // Build our HTTP application to handle the blob fan-out operations.
             let app = Router::new()
                 .route("/v1/blob-fan-out", post(fan_out_blob_slivers))
                 .with_state(Arc::new(Controller::new(client, n_shards)));
 
-            let addr: SocketAddr = "0.0.0.0:3000".parse().context("invalid address")?;
+            let addr: SocketAddr = if let Some(socket_addr) = server_address {
+                socket_addr
+            } else {
+                DEFAULT_SERVER_ADDRESS.parse().context("invalid address")?
+            };
+
             let listener = tokio::net::TcpListener::bind(&addr).await?;
-            tracing::info!(?addr, "Serving fan-out proxy");
+            tracing::info!(?addr, n_shards, "Serving fan-out proxy");
             Ok(axum::serve(listener, app).await?)
         }
     }
@@ -122,7 +140,7 @@ async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<
     #[allow(deprecated)]
     let rpc_url = wallet.get_rpc_url()?;
 
-    tracing::info!(
+    tracing::debug!(
         ?wallet,
         rpc_url = rpc_url.as_str(),
         ?config,
@@ -147,7 +165,6 @@ async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<
 
 #[derive(Debug, Deserialize)]
 struct Params {
-    tx: String,
     blob_id: String,
 }
 
@@ -167,13 +184,6 @@ async fn fan_out_blob_slivers(
     // TODO: add this parameter to the API?
     let blob_persistence_type: BlobPersistenceType = BlobPersistenceType::Permanent;
 
-    // Validate "tx" length and hex-ness
-    if params.tx.len() != 32 || !params.tx.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(FanOutError::BadRequest(format!(
-            "Invalid tx parameter [tx={}]",
-            params.tx
-        )));
-    }
     let blob_id: BlobId = params.blob_id.parse()?;
     let blob = body.as_ref();
     let encoding_type: EncodingType = EncodingType::RS2;
