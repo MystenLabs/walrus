@@ -29,10 +29,14 @@ You can interact with the daemon through simple HTTP PUT requests. For example, 
 [cURL](https://curl.se), you can store blobs using a publisher or daemon as follows:
 
 ```sh
-curl -X PUT "$PUBLISHER/v1/blobs" -d "some string" # store the string `some string` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file" # store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+# store the string `some string` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+# store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+# store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&send_object_to=$ADDRESS" --upload-file "some/file"
 ```
 
 The store HTTP API end points return information about the blob stored in JSON format. When a blob
