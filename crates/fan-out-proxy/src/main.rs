@@ -14,7 +14,6 @@ use anyhow::{Context, Result};
 use axum::{
     Router,
     body::Bytes,
-    debug_handler,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
@@ -28,7 +27,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     encoding::{EncodingConfig, EncodingConfigTrait as _, SliverPair},
-    messages::{BlobPersistenceType, ProtocolMessageCertificate},
+    messages::{BlobPersistenceType, ConfirmationCertificate},
     metadata::BlobMetadataWithId,
 };
 use walrus_sdk::{
@@ -41,9 +40,6 @@ use walrus_sdk::{
 use crate::error::FanOutError;
 
 mod error;
-
-// TODO: Pull this from the active committee on chain.
-const N_SHARDS: NonZeroU16 = NonZeroU16::new(1000).expect("N_SHARDS must be non-zero");
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -85,11 +81,12 @@ fn init_logging() {
 #[allow(dead_code)]
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
+    pub(crate) n_shards: NonZeroU16,
 }
 
 impl Controller {
-    fn new(client: Client<SuiReadClient>) -> Self {
-        Self { client }
+    fn new(client: Client<SuiReadClient>, n_shards: NonZeroU16) -> Self {
+        Self { client, n_shards }
     }
 }
 
@@ -105,9 +102,10 @@ async fn main() -> Result<()> {
         } => {
             let c = context.as_deref();
             let client = get_client(c, config_path.as_path()).await?;
+            let n_shards = client.get_committees().await?.n_shards();
             let app = Router::new()
                 .route("/v1/blob-fan-out", post(fan_out_blob_slivers))
-                .with_state(Arc::new(Controller::new(client)));
+                .with_state(Arc::new(Controller::new(client, n_shards)));
 
             let addr: SocketAddr = "0.0.0.0:3000".parse().context("invalid address")?;
             let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -155,15 +153,11 @@ struct Params {
 }
 
 #[derive(Serialize)]
-struct ResponseType<T> {
-    blob_size: usize,
+struct ResponseType {
     blob_id: String,
-    symbol_size: u16,
-    n_shards: u16,
-    protocol_message_certificate: ProtocolMessageCertificate<T>,
+    confirmation_certificate: ConfirmationCertificate,
 }
 
-#[debug_handler]
 async fn fan_out_blob_slivers(
     State(controller): State<Arc<Controller>>,
     Query(params): Query<Params>,
@@ -183,9 +177,9 @@ async fn fan_out_blob_slivers(
     }
     let blob_id: BlobId = params.blob_id.parse()?;
     let blob = body.as_ref();
-    let size: usize = blob.len();
     let encoding_type: EncodingType = EncodingType::RS2;
-    let encoding_config = EncodingConfig::new(N_SHARDS);
+    let n_shards = controller.n_shards;
+    let encoding_config = EncodingConfig::new(n_shards);
     let encode_start_timer = Instant::now();
     let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = encoding_config
         .get_for_type(encoding_type)
@@ -212,18 +206,16 @@ async fn fan_out_blob_slivers(
         "encoded sliver pairs and metadata"
     );
 
-    let protocol_message_certificate = controller
+    // Attempt to upload the slivers.
+    let confirmation_certificate: ConfirmationCertificate = controller
         .client
         .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence_type, None)
         .await?;
 
-    // ASSUME None of the slivers have been uploaded yet.
+    // Reply with the confirmation certificate.
     let response = ResponseType {
         blob_id: blob_id.to_string(),
-        blob_size: size,
-        symbol_size,
-        n_shards: metadata.n_shards().into(),
-        protocol_message_certificate,
+        confirmation_certificate,
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
