@@ -22,7 +22,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.26.0"
+version = "1.27.0"
 
 [workspace.dependencies]
 anyhow = "1.0.98"
