@@ -896,9 +896,19 @@ impl StorageNode {
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
         let task_monitors = TaskMonitorFamily::<&'static str>::new(self.inner.registry.clone());
+        let stream_poll_monitor = task_monitors
+            .get_or_insert_with_task_name(&"event_stream_poll", || {
+                "poll_indexed_element_stream".to_string()
+            });
+
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
         // invariant violations and interference between different events.
-        while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
+        while let Some((element_index, stream_element)) =
+            TaskMonitor::instrument(&stream_poll_monitor, async {
+                indexed_element_stream.next().await
+            })
+            .await
+        {
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
                 format!("process_event {}", event_label)
