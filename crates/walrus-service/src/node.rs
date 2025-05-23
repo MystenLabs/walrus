@@ -1273,6 +1273,9 @@ impl StorageNode {
             .start_sync(event.blob_id, event.epoch, Some(event_handle))
             .await?;
 
+        walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
+            .observe(start.elapsed().as_secs_f64());
+
         Ok(())
     }
 
