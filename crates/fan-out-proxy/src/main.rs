@@ -32,7 +32,7 @@ use walrus_sdk::{
     SuiReadClient,
     client::Client,
     config::{ClientConfig, combine_rpc_urls},
-    sui::{client::retry_client::RetriableSuiClient, config::WalletConfig},
+    sui::{client::retry_client::RetriableSuiClient, config::WalletConfig, wallet::Wallet},
 };
 
 use crate::error::FanOutError;
@@ -95,7 +95,6 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     init_logging();
-    dbg!(&args.command);
     match args.command {
         Command::Proxy {
             context,
@@ -118,9 +117,18 @@ async fn main() -> Result<()> {
 async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<SuiReadClient>> {
     let config: ClientConfig = walrus_sdk::config::load_configuration(Some(config_path), context)?;
     // TODO: allow configuration of wallet.
-    let wallet = WalletConfig::load_wallet(None, None)?;
+    let wallet: Wallet = WalletConfig::load_wallet(None, None)?;
+
     #[allow(deprecated)]
     let rpc_url = wallet.get_rpc_url()?;
+
+    tracing::info!(
+        ?wallet,
+        rpc_url = rpc_url.as_str(),
+        ?config,
+        "loaded wallet and client config"
+    );
+
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
         &combine_rpc_urls(rpc_url, &config.rpc_urls),
         config.backoff_config().clone(),

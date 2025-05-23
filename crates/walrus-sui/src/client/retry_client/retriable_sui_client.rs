@@ -206,7 +206,6 @@ impl RetriableSuiClient {
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
     ) -> anyhow::Result<Self> {
-        dbg!(&lazy_client_builders);
         Ok(RetriableSuiClient {
             failover_sui_client: FailoverWrapper::new(lazy_client_builders)
                 .await
