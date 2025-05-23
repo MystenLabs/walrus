@@ -175,6 +175,11 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub checkpoint_config: DbCheckpointConfig,
     /// Admin socket path.
+    ///
+    /// config example:
+    /// ```yaml
+    /// admin_socket_path: /var/run/walrus/admin.sock
+    /// ```
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub admin_socket_path: Option<PathBuf>,
 }

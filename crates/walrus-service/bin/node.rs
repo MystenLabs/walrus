@@ -167,8 +167,8 @@ enum Commands {
     #[command(hide = true)]
     Catchup(CatchupArgs),
 
-    /// Admin commands for managing a running node.
-    Admin {
+    /// Local admin commands for managing a running node.
+    LocalAdmin {
         /// Admin subcommand to execute.
         #[command(subcommand)]
         command: AdminCommands,
@@ -199,6 +199,8 @@ struct AdminCommandResponse {
 }
 
 /// Commands for checkpoint management.
+///
+/// Note the checkpoint command works only on the Walrus main DB.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[command(rename_all = "kebab-case")]
 enum CheckpointCommands {
@@ -515,7 +517,7 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
 
-        Commands::Admin {
+        Commands::LocalAdmin {
             command,
             socket_path,
         } => commands::handle_admin_command(command, socket_path)?,
@@ -1190,7 +1192,7 @@ mod commands {
         Ok(())
     }
 
-    /// Handle admin commands.
+    /// Handle local admin commands.
     #[tokio::main]
     pub(crate) async fn handle_admin_command(
         command: AdminCommands,
@@ -1198,7 +1200,7 @@ mod commands {
     ) -> anyhow::Result<()> {
         // Connect to the socket.
         let socket = UnixStream::connect(&socket_path).await.context(format!(
-            "failed to connect to admin socket at '{}'",
+            "failed to connect to local admin socket at '{}'",
             socket_path.display()
         ))?;
         let (reader, mut writer) = tokio::io::split(socket);
@@ -1250,8 +1252,8 @@ struct StorageNodeRuntime {
     metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
-    /// Path to the admin socket.
-    admin_socket_handle: Option<JoinHandle<()>>,
+    /// Path to the local admin socket.
+    local_admin_socket_handle: Option<JoinHandle<()>>,
 }
 
 impl StorageNodeRuntime {
@@ -1323,7 +1325,7 @@ impl StorageNodeRuntime {
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
-        let admin_socket_handle = Self::start_admin_socket(
+        let local_admin_socket_handle = Self::start_admin_socket(
             AdminArgs {
                 checkpoint_manager,
                 admin_socket_path: node_config.admin_socket_path.clone(),
@@ -1334,7 +1336,7 @@ impl StorageNodeRuntime {
         Ok(Self {
             walrus_node_handle,
             rest_api_handle,
-            admin_socket_handle,
+            local_admin_socket_handle,
             metrics_runtime,
             runtime,
         })
@@ -1345,7 +1347,7 @@ impl StorageNodeRuntime {
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
         let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
-        if let Some(handle) = self.admin_socket_handle.take() {
+        if let Some(handle) = self.local_admin_socket_handle.take() {
             handle.abort();
         }
 
@@ -1362,11 +1364,11 @@ impl StorageNodeRuntime {
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Option<JoinHandle<()>>> {
         if admin_args.checkpoint_manager.is_none() {
-            tracing::warn!("checkpoint manager is not initialized, skipping admin socket");
+            tracing::warn!("checkpoint manager is not initialized, skipping local admin socket");
             return Ok(None);
         }
         let Some(socket_path) = admin_args.admin_socket_path.clone() else {
-            tracing::warn!("admin socket path is not specified, skipping admin socket");
+            tracing::warn!("local admin socket path is not specified, skipping local admin socket");
             return Ok(None);
         };
 
@@ -1382,7 +1384,7 @@ impl StorageNodeRuntime {
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
 
         let handle = tokio::spawn(async move {
-            tracing::info!("Admin socket listening on {}", socket_path.display());
+            tracing::info!("Local admin socket listening on {}", socket_path.display());
 
             loop {
                 tokio::select! {
@@ -1401,7 +1403,7 @@ impl StorageNodeRuntime {
             }
 
             let _ = std::fs::remove_file(socket_path);
-            tracing::info!("Admin socket stopped");
+            tracing::info!("Local admin socket stopped");
         });
 
         Ok(Some(handle))
@@ -1411,8 +1413,14 @@ impl StorageNodeRuntime {
 /// Handle checkpoint commands from admin socket.
 async fn handle_checkpoint_command(
     command: CheckpointCommands,
-    manager: &Arc<DbCheckpointManager>,
-) -> Result<String, String> {
+    args: &AdminArgs,
+) -> AdminCommandResponse {
+    let Some(manager) = args.checkpoint_manager.as_ref() else {
+        return AdminCommandResponse {
+            success: false,
+            message: "Checkpoint manager is not initialized".to_string(),
+        };
+    };
     match command {
         CheckpointCommands::Create { path, delay_secs } => {
             match manager
@@ -1422,20 +1430,38 @@ async fn handle_checkpoint_command(
                 )
                 .await
             {
-                Ok(_) => Ok("Checkpoint created successfully".to_string()),
-                Err(e) => Err(format!("Failed to create checkpoint: {:?}", e)),
+                Ok(_) => AdminCommandResponse {
+                    success: true,
+                    message: "Checkpoint created successfully".to_string(),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to create checkpoint: {:?}", e),
+                },
             }
         }
         CheckpointCommands::List => {
             // List operation not yet implemented.
-            Ok("Checkpoint listing not implemented yet".to_string())
+            AdminCommandResponse {
+                success: true,
+                message: "Checkpoint listing not implemented yet".to_string(),
+            }
         }
         CheckpointCommands::Cancel => {
             let result = manager.cancel_db_checkpoint_creation().await;
             match result {
-                Ok(true) => Ok("Checkpoint creation cancelled".to_string()),
-                Ok(false) => Ok("No backup was in progress".to_string()),
-                Err(e) => Err(format!("Failed to cancel checkpoint creation: {}", e)),
+                Ok(true) => AdminCommandResponse {
+                    success: true,
+                    message: "Checkpoint creation cancelled".to_string(),
+                },
+                Ok(false) => AdminCommandResponse {
+                    success: true,
+                    message: "No backup was in progress".to_string(),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to cancel checkpoint creation: {}", e),
+                },
             }
         }
     }
@@ -1448,33 +1474,17 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
     let mut line = String::new();
 
     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-        let response = if let Some(manager) = args.checkpoint_manager.as_ref() {
-            match serde_json::from_str::<AdminCommands>(&line) {
-                Ok(AdminCommands::Checkpoint { command }) => {
-                    match handle_checkpoint_command(command, manager).await {
-                        Ok(message) => AdminCommandResponse {
-                            success: true,
-                            message,
-                        },
-                        Err(error) => AdminCommandResponse {
-                            success: false,
-                            message: error,
-                        },
-                    }
-                }
-                Err(e) => AdminCommandResponse {
-                    success: false,
-                    message: format!("Failed to parse command: {}", e),
-                },
+        let response = match serde_json::from_str::<AdminCommands>(&line) {
+            Ok(AdminCommands::Checkpoint { command }) => {
+                handle_checkpoint_command(command, &args).await
             }
-        } else {
-            AdminCommandResponse {
+            Err(e) => AdminCommandResponse {
                 success: false,
-                message: "Checkpoint manager is not initialized".into(),
-            }
+                message: format!("Failed to parse command: {}", e),
+            },
         };
 
-        // Serialize and send response
+        // Serialize and send response.
         if let Ok(json) = serde_json::to_string(&response) {
             let _ = writer.write_all((json + "\n").as_bytes()).await;
         }

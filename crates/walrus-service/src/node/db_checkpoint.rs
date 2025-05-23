@@ -24,11 +24,14 @@ use crate::node::errors::DbCheckpointError;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DbCheckpointConfig {
     /// Directory where db_checkpoints will be stored.
+    /// Note: It is strongly recommended to locate this directory on a separate physical disk
+    /// from the main database to avoid potential I/O performance degradation.
+    // TODO(WAL-843): Add a check to ensure the directory is on a separate physical disk.
     pub db_checkpoint_dir: Option<PathBuf>,
     /// Maximum number of db_checkpoints to keep.
     pub max_db_checkpoints: usize,
-    /// How often to create db_checkpoints (in seconds).
-    pub db_checkpoint_interval_secs: u64,
+    /// How often to create db_checkpoints.
+    pub db_checkpoint_interval: StdDuration,
     /// Whether to sync files to disk before each db_checkpoint.
     pub sync: bool,
     /// Number of background operations for db_checkpoint/restore.
@@ -42,9 +45,9 @@ impl Default for DbCheckpointConfig {
         Self {
             db_checkpoint_dir: None,
             max_db_checkpoints: 3,
-            db_checkpoint_interval_secs: 86400, // 1 day.
+            db_checkpoint_interval: StdDuration::from_secs(86400), // 1 day.
             sync: true,
-            max_background_operations: 2,
+            max_background_operations: 1,
             periodic_db_checkpoints: false,
         }
     }
@@ -82,7 +85,7 @@ pub enum TaskResult<E> {
     TaskError(String),
 }
 
-/// A task scheduled to run at a specific time.
+/// A task scheduled to run at a specific time, in a blocking thread.
 #[derive(Debug)]
 pub struct DelayedTask {
     status: Arc<std::sync::Mutex<TaskStatus>>,
@@ -386,7 +389,8 @@ impl DbCheckpointManager {
                                     Self::DEFAULT_TASK_TIMEOUT,
                                     move || {
                                         let result = Self::create_backup_impl(
-                                            &db_clone, &db_checkpoint_dir, config_clone.sync
+                                            &db_clone, &db_checkpoint_dir, config_clone.sync,
+                                            Some(config_clone.max_background_operations)
                                         );
                                         match &result {
                                             Ok(_) => {
@@ -443,7 +447,7 @@ impl DbCheckpointManager {
         let mut next_db_checkpoint_time = loop {
             match Self::calculate_first_db_checkpoint_time(
                 db_checkpoint_dir,
-                config.db_checkpoint_interval_secs,
+                config.db_checkpoint_interval,
             )
             .await
             {
@@ -494,7 +498,7 @@ impl DbCheckpointManager {
                     };
 
                     next_db_checkpoint_time = Self::get_next_db_checkpoint_time(
-                        config.db_checkpoint_interval_secs,
+                        config.db_checkpoint_interval,
                         &result
                     );
                 }
@@ -506,11 +510,11 @@ impl DbCheckpointManager {
 
     /// Get the next db_checkpoint time based on the result of the previous db_checkpoint task.
     fn get_next_db_checkpoint_time(
-        db_checkpoint_interval_secs: u64,
+        db_checkpoint_interval: StdDuration,
         result: &TaskResult<DbCheckpointError>,
     ) -> time::Instant {
         if let TaskResult::Success = result {
-            time::Instant::now() + StdDuration::from_secs(db_checkpoint_interval_secs)
+            time::Instant::now() + db_checkpoint_interval
         } else {
             time::Instant::now() + Self::CHECKPOINT_CREATION_RETRY_DELAY
         }
@@ -519,11 +523,11 @@ impl DbCheckpointManager {
     /// Calculate the first db_checkpoint time.
     async fn calculate_first_db_checkpoint_time(
         db_checkpoint_dir: &Path,
-        db_checkpoint_interval_secs: u64,
+        db_checkpoint_interval: StdDuration,
     ) -> Result<time::Instant, DbCheckpointError> {
         let latest_timestamp = Self::get_latest_db_checkpoint_timestamp(db_checkpoint_dir)?;
         let now = Utc::now().timestamp();
-        let interval_secs = i64::try_from(db_checkpoint_interval_secs)
+        let interval_secs = i64::try_from(db_checkpoint_interval.as_secs())
             .map_err(|e| DbCheckpointError::Other(e.into()))?;
         let next_ts = if let Some(last_ts) = latest_timestamp {
             std::cmp::max(last_ts + interval_secs, now)
@@ -541,7 +545,7 @@ impl DbCheckpointManager {
     pub fn get_latest_db_checkpoint_timestamp(
         db_checkpoint_dir: &Path,
     ) -> Result<Option<i64>, DbCheckpointError> {
-        let engine = Self::create_backup_engine(db_checkpoint_dir)?;
+        let engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
         let backup_info = engine.get_backup_info();
 
         if backup_info.is_empty() {
@@ -554,11 +558,17 @@ impl DbCheckpointManager {
     }
 
     /// Create a BackupEngine instance.
-    fn create_backup_engine(db_checkpoint_dir: &Path) -> Result<BackupEngine, DbCheckpointError> {
+    fn create_backup_engine(
+        db_checkpoint_dir: &Path,
+        max_background_operations: Option<i32>,
+    ) -> Result<BackupEngine, DbCheckpointError> {
         let env = Env::new().map_err(|e| DbCheckpointError::Other(e.into()))?;
 
-        let backup_opts = BackupEngineOptions::new(db_checkpoint_dir)
+        let mut backup_opts = BackupEngineOptions::new(db_checkpoint_dir)
             .map_err(|e| DbCheckpointError::Other(e.into()))?;
+        if let Some(max_background_operations) = max_background_operations {
+            backup_opts.set_max_background_operations(max_background_operations);
+        }
 
         BackupEngine::open(&backup_opts, &env).map_err(|e| DbCheckpointError::Other(e.into()))
     }
@@ -569,7 +579,7 @@ impl DbCheckpointManager {
             return;
         }
 
-        let Ok(mut engine) = Self::create_backup_engine(db_checkpoint_dir) else {
+        let Ok(mut engine) = Self::create_backup_engine(db_checkpoint_dir, None) else {
             tracing::error!("Failed to create backup engine");
             return;
         };
@@ -593,7 +603,7 @@ impl DbCheckpointManager {
         wal_dir: Option<&Path>,
     ) -> Result<(), DbCheckpointError> {
         // Create a fresh BackupEngine for this operation.
-        let mut engine = Self::create_backup_engine(db_checkpoint_dir)?;
+        let mut engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
 
         let restore_opts = RestoreOptions::default();
         let wal_path = wal_dir.unwrap_or(db_path);
@@ -621,8 +631,9 @@ impl DbCheckpointManager {
         db: &Arc<RocksDB>,
         db_checkpoint_dir: &Path,
         flush_before_backup: bool,
+        max_background_operations: Option<i32>,
     ) -> Result<(), DbCheckpointError> {
-        let mut engine = Self::create_backup_engine(db_checkpoint_dir)?;
+        let mut engine = Self::create_backup_engine(db_checkpoint_dir, max_background_operations)?;
 
         tracing::info!("start creating RocksDB backup");
 
@@ -633,11 +644,6 @@ impl DbCheckpointManager {
 
         tracing::info!("rocksDB backup created successfully");
         Ok(())
-    }
-
-    /// Cancel db_checkpoint manager.
-    pub fn cancel(&self) {
-        self.cancel_token.cancel();
     }
 
     /// Join the background tasks and clean up resources.
