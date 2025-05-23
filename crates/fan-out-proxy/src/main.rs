@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 //! Walrus Fan-out Proxy entry point.
 use std::{
     env,
