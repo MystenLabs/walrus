@@ -80,7 +80,7 @@ fn init_logging() {
 
 #[allow(dead_code)]
 pub(crate) struct Controller {
-    client: Client<SuiReadClient>,
+    pub(crate) client: Client<SuiReadClient>,
 }
 
 impl Controller {
@@ -152,11 +152,12 @@ struct ResponseType {
 
 #[debug_handler]
 async fn fan_out_blob_slivers(
-    State(_controller): State<Arc<Controller>>,
+    State(controller): State<Arc<Controller>>,
     Query(params): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
     tracing::info!(?params, "fan_out_blob_slivers");
+    let blob_persistence_type: BlobPersistenceType = BlobPersistenceType::Permanent;
     // Validate "tx" length and hex-ness
     if params.tx.len() != 32 || !params.tx.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(FanOutError::BadRequest(format!(
@@ -195,6 +196,10 @@ async fn fan_out_blob_slivers(
         "encoded sliver pairs and metadata"
     );
 
+    let result = controller
+        .client
+        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, blob_persistence_type, None)
+        .await?;
     // ASSUME None of the slivers have been uploaded yet.
     let response = ResponseType {
         blob_id: blob_id.to_string(),
