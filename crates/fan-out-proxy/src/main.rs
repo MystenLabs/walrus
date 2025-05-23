@@ -25,6 +25,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     encoding::{EncodingConfig, EncodingConfigTrait as _, SliverPair},
+    messages::{BlobPersistenceType, ProtocolMessageCertificate},
     metadata::BlobMetadataWithId,
 };
 use walrus_sdk::{
@@ -143,11 +144,12 @@ struct Params {
 }
 
 #[derive(Serialize)]
-struct ResponseType {
+struct ResponseType<T> {
     blob_size: usize,
     blob_id: String,
     symbol_size: u16,
     n_shards: u16,
+    protocol_message_certificate: ProtocolMessageCertificate<T>,
 }
 
 #[debug_handler]
@@ -157,7 +159,10 @@ async fn fan_out_blob_slivers(
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
     tracing::info!(?params, "fan_out_blob_slivers");
+
+    // TODO: add this parameter to the API?
     let blob_persistence_type: BlobPersistenceType = BlobPersistenceType::Permanent;
+
     // Validate "tx" length and hex-ness
     if params.tx.len() != 32 || !params.tx.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(FanOutError::BadRequest(format!(
@@ -196,16 +201,18 @@ async fn fan_out_blob_slivers(
         "encoded sliver pairs and metadata"
     );
 
-    let result = controller
+    let protocol_message_certificate = controller
         .client
-        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, blob_persistence_type, None)
+        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence_type, None)
         .await?;
+
     // ASSUME None of the slivers have been uploaded yet.
     let response = ResponseType {
         blob_id: blob_id.to_string(),
         blob_size: size,
         symbol_size,
         n_shards: metadata.n_shards().into(),
+        protocol_message_certificate,
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())

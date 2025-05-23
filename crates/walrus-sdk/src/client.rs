@@ -20,7 +20,7 @@ use futures::{
     FutureExt,
     future::{Either, select},
 };
-use indicatif::{HumanDuration, MultiProgress, ProgressBar};
+use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
