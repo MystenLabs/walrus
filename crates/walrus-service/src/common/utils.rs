@@ -54,7 +54,7 @@ use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
-use walrus_utils::metrics::Registry;
+use walrus_utils::metrics::{Registry, monitored_scope};
 
 use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
 
@@ -243,6 +243,8 @@ impl MetricsAndLoggingRuntime {
     pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
+
+        monitored_scope::init_monitored_scope_metrics(&walrus_registry);
 
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()

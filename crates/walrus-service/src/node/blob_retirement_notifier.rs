@@ -6,9 +6,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use mysten_metrics::monitored_scope;
 use tokio::sync::{Notify, futures::Notified};
 use walrus_core::BlobId;
+use walrus_utils::metrics::monitored_scope;
 
 use super::StorageNodeInner;
 
@@ -66,7 +66,7 @@ impl BlobRetirementNotifier {
         &self,
         node: Arc<StorageNodeInner>,
     ) -> anyhow::Result<()> {
-        let _scope = monitored_scope("EpochChange::NotifyRetiredBlobs");
+        let _scope = monitored_scope::monitored_scope("EpochChange::NotifyRetiredBlobs");
         let mut registered_blobs = self.registered_blobs.lock().unwrap();
         for (blob_id, notify) in registered_blobs.iter_mut() {
             if !node.is_blob_certified(blob_id)? {

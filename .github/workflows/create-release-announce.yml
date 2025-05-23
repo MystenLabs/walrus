@@ -18,7 +18,6 @@ on:
         type: boolean
         default: true
         required: true
-
 env:
   RELEASE_NOTES_FILE: "./release_notes.txt"
 
@@ -70,18 +69,20 @@ jobs:
           export walrus_commit=$(git rev-parse HEAD)
           echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
           echo "walrus_commit=${walrus_commit}" >> "$GITHUB_OUTPUT"
+          export walrus_release_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')
+          echo "walrus_release_version=${walrus_release_version}" >> $GITHUB_ENV
 
           echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
           echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} \
             --header "Accept: application/vnd.github+json" --input -
 
-      - name: Create a release tag
+      - name: Create ${{ inputs.network }}-v${{ env.WALRUS_RELEASE_VERSION }} release tag
         shell: bash
         env:
-          WALRUS_VERSION: ${{ env.current_release_version }}
           WALRUS_COMMIT: ${{ env.walrus_commit }}
+          WALRUS_RELEASE_VERSION: ${{ env.walrus_release_version }}
         run: |
-          export release_tag="${{ inputs.network }}-v${{ env.WALRUS_VERSION }}"
+          export release_tag="${{ inputs.network }}-v${{ env.WALRUS_RELEASE_VERSION }}"
           echo "release_tag=${release_tag}" >> $GITHUB_ENV
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -95,8 +96,8 @@ jobs:
       - name: Get commits for branches
         shell: bash
         env:
-          PREVIOUS_BRANCH: ${{ env.current_release_branch }}
-          CURRENT_BRANCH: ${{ env.previous_release_branch }}
+          PREVIOUS_BRANCH: ${{ env.previous_release_branch }}
+          CURRENT_BRANCH: ${{ env.current_release_branch }}
         working-directory: ./
         run: |
           echo "previous_commit=$(curl -s \
@@ -117,7 +118,7 @@ jobs:
         with:
           python-version: 3.10.10
 
-      - name: Generate Release Notes
+      - name: Generate Release Notes for ${{ env.release_tag }}
         shell: bash
         env:
           PREVIOUS_COMMIT: ${{ env.previous_commit }}

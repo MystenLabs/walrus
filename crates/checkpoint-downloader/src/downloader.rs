@@ -16,7 +16,11 @@ use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
-use walrus_utils::{backoff::ExponentialBackoff, metrics::Registry, tracing_sampled};
+use walrus_utils::{
+    backoff::ExponentialBackoff,
+    metrics::{Registry, monitored_scope},
+    tracing_sampled,
+};
 
 use crate::{
     ParallelDownloaderConfig,
@@ -196,7 +200,7 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
-        mysten_metrics::monitored_scope("WorkerLoop");
+        monitored_scope::monitored_scope("WorkerLoop");
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {

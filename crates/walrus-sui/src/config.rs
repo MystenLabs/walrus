@@ -110,7 +110,10 @@ impl WalletConfig {
         let path = path_or_defaults_if_exist(wallet_config.and_then(|c| c.path()), &default_paths)
             .ok_or(anyhow!("could not find a valid wallet config file"))?;
         tracing::info!("using Sui wallet configuration from '{}'", path.display());
-        let mut wallet_context: WalletContext = WalletContext::new(&path, request_timeout, None)?;
+        let mut wallet_context: WalletContext = WalletContext::new(&path)?;
+        if let Some(request_timeout) = request_timeout {
+            wallet_context = wallet_context.with_request_timeout(request_timeout);
+        }
         if let Some(active_env) = wallet_config.and_then(|wallet_config| wallet_config.active_env())
         {
             if !wallet_context
