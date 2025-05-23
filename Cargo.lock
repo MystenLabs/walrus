@@ -3351,7 +3351,7 @@ checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 
 [[package]]
 name = "fan-out-proxy"
-version = "0.1.0"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
