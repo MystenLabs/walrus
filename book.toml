@@ -18,7 +18,6 @@ exclude = [
   'github\.com',
   'google\.com',
   'x\.com',
-  'faucet\.sui\.io',
 ]
 follow-web-links = true
 optional = true
