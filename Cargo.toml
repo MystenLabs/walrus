@@ -22,7 +22,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.26.0"
+version = "1.26.1"
 
 [workspace.dependencies]
 anyhow = "1.0.98"
@@ -72,9 +72,9 @@ jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 once_cell = { version = "1.21.3" }
@@ -104,25 +104,25 @@ serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
 syn = "2.0"
 tap = "1.0.1"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
 # TODO (WAL-834): Update to the latest version after sui testnet-v1.50 is used.
 tempfile = "=3.19.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.48.0" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
 thiserror = "2.0.12"
 tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
