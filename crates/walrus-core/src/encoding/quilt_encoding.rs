@@ -605,8 +605,9 @@ impl QuiltVersionV1 {
         debug_assert!(identifier_bytes.len() == identifier_size);
 
         // Deserialize the identifier bytes into a String.
-        let identifier = bcs::from_bytes(&identifier_bytes)
-            .map_err(|_| QuiltError::Other("Failed to deserialize identifier".into()))?;
+        let identifier = bcs::from_bytes(&identifier_bytes).map_err(|_| {
+            QuiltError::InvalidIdentifier("Failed to deserialize identifier".into())
+        })?;
 
         // Calculate total bytes consumed.
         let bytes_consumed = BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + identifier_size;
@@ -1075,16 +1076,18 @@ impl<'a> QuiltEncoderV1<'a> {
 
         let identifier_size =
             u16::try_from(bcs::serialized_size(&blob.identifier).map_err(|e| {
-                QuiltError::Other(format!("Failed to serialize identifier: {}", e))
+                QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
             })?)
             .map_err(|e| {
-                QuiltError::Other(format!("Failed to convert identifier size to u16: {}", e))
+                QuiltError::InvalidIdentifier(format!(
+                    "Failed to convert identifier size to u16: {}",
+                    e
+                ))
             })?;
         identifier_bytes.extend_from_slice(&identifier_size.to_le_bytes());
-        identifier_bytes
-            .extend_from_slice(&bcs::to_bytes(&blob.identifier).map_err(|e| {
-                QuiltError::Other(format!("Failed to serialize identifier: {}", e))
-            })?);
+        identifier_bytes.extend_from_slice(&bcs::to_bytes(&blob.identifier).map_err(|e| {
+            QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
+        })?);
         extension_bytes.push(identifier_bytes);
 
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
@@ -1104,24 +1107,27 @@ impl<'a> QuiltEncoderV1<'a> {
     /// Adds a blob to the quilt as consecutive columns.
     ///
     /// The blob data layout is as follows:
-    // +------------------+-----------------------------+----------------------+------------------+
-    // | Blob Header      | Identifier Section          | Feature Section      | Blob Data        |
-    // | (7 bytes)        | (variable length)           | (optional)           | (variable length)|
-    // +------------------+-----------------------------+----------------------+------------------+
-    //                    |                             |                      |
-    //                    v                             v                      v
-    // +------------------+----------------+------------+----------------------+------------------+
-    // | BlobHeaderV1     | Identifier Size| Serialized | Feature Data         | Actual blob      |
-    // | (version, length,| (2 bytes)      | Identifier | (Feature size +      | data             |
-    // |  mask flags)     | u16            | (variable) | serialized features) | (variable)       |
-    // +------------------+----------------+------------+----------------------+------------------+
-    //
-    // - BlobHeaderV1: Contains version byte, length (encoded in 34 bits), and mask flags (14 bits).
-    // - Identifier Size: 2-byte length of the serialized identifier.
-    // - Serialized Identifier: BCS-encoded identifier string.
-    // - Feature Data: Optional section for feature data, such as attributes,
-    //  (when mask flag is set).
-    // - Blob Data: The actual blob contents.
+    ///
+    /// ```text
+    /// +------------------+-----------------------------+----------------------+------------------+
+    /// | Blob Header      | Identifier Section          | Feature Section      | Blob Data        |
+    /// | (6 bytes)        | (variable length)           | (optional)           | (variable length)|
+    /// +------------------+-----------------------------+----------------------+------------------+
+    ///                    |                             |                      |
+    ///                    v                             v                      v
+    /// +------------------+----------------+------------+----------------------+------------------+
+    /// | BlobHeaderV1     | Identifier Size| Serialized | Feature Data         | Actual blob      |
+    /// | (version, length,| (2 bytes)      | Identifier | (Feature size +      | data             |
+    /// |  mask flags)     | u16            | (variable) | serialized features) | (variable)       |
+    /// +------------------+----------------+------------+----------------------+------------------+
+    /// ```
+    ///
+    /// - BlobHeaderV1: Contains version byte, length , and mask feature flags.
+    /// - Identifier Size: 2-byte length of the serialized identifier.
+    /// - Serialized Identifier: BCS-encoded identifier string.
+    /// - Feature Data: Optional section for feature data, such as attributes,
+    ///   (when mask flag is set).
+    /// - Blob Data: The actual blob contents.
     fn add_blob_to_quilt(
         data: &mut [u8],
         blob: &QuiltStoreBlob,

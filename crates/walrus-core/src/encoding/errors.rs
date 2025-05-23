@@ -185,6 +185,9 @@ pub enum QuiltError {
     /// Empty input.
     #[error("{0} is empty")]
     EmptyInput(String),
+    /// Invalid identifier.
+    #[error("invalid identifier: {0}")]
+    InvalidIdentifier(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),
