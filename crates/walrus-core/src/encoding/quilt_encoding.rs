@@ -1046,63 +1046,6 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     }
 }
 
-struct MergeIterator<'a> {
-    iterators: Vec<&'a [u8]>,
-    current_slice: usize,
-    current_index: usize,
-    symbol_size: usize,
-}
-
-impl<'a> MergeIterator<'a> {
-    fn new(iterators: Vec<&'a [u8]>, symbol_size: usize) -> Self {
-        Self {
-            iterators,
-            current_slice: 0,
-            current_index: 0,
-            symbol_size,
-        }
-    }
-
-    fn next_n_bytes(&mut self, limit: usize) -> Option<&'a [u8]> {
-        while self.current_slice < self.iterators.len()
-            && self.current_index >= self.iterators[self.current_slice].len()
-        {
-            self.current_slice += 1;
-            self.current_index = 0;
-        }
-        if self.current_slice >= self.iterators.len() {
-            return None;
-        }
-
-        let end_index = self.iterators[self.current_slice]
-            .len()
-            .min(self.current_index + limit);
-        let next_bytes = &self.iterators[self.current_slice][self.current_index..end_index];
-        self.current_index = end_index;
-        Some(next_bytes)
-    }
-}
-
-impl<'a> Iterator for MergeIterator<'a> {
-    type Item = Vec<&'a [u8]>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut total_size = 0;
-
-        let mut result = Vec::new();
-        while total_size < self.symbol_size {
-            if let Some(next_bytes) = self.next_n_bytes(self.symbol_size - total_size) {
-                total_size += next_bytes.len();
-                result.push(next_bytes);
-            } else {
-                break;
-            }
-        }
-
-        (total_size > 0).then_some(result)
-    }
-}
-
 /// EncoderV1.
 #[derive(Debug)]
 pub struct QuiltEncoderV1<'a> {
