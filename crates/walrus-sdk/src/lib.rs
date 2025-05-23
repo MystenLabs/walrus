@@ -13,6 +13,7 @@ pub mod store_when;
 pub mod utils;
 
 pub use sui_types::event::EventID;
+pub use walrus_core as core;
 pub use walrus_sui as sui;
 
 /// Format the event ID as the transaction digest and the sequence number.
