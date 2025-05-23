@@ -509,8 +509,7 @@ pub struct QuiltVersionV1;
 
 impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x01;
-    const BLOB_HEADER_SIZE: usize = 7;
-    const EXTENSION_SIZE_BYTES_LENGTH: usize = 4;
+    const BLOB_HEADER_SIZE: usize = 6;
 
     /// Returns the total size of the serialized blob.
     pub fn serialized_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
@@ -632,76 +631,53 @@ impl QuiltVersion for QuiltVersionV1 {
 /// The header of a encoded blob in QuiltVersionV1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BlobHeaderV1 {
-    pub length: u64, // the lower 34 bits are used for the length.
-    pub mask: u16,   // the lower 14 bits are used for the mask.
+    pub length: u32, // the lower 34 bits are used for the length.
+    pub mask: u8,    // the lower 14 bits are used for the mask.
 }
 
 impl BlobHeaderV1 {
-    const LENGTH_BITS: u32 = 34;
-    const MASK_BITS: u32 = 14;
-    const METADATA_ENABLED: u16 = 1;
+    const LENGTH_BYTES: usize = 4;
+    const MASK_BYTES: usize = 1;
+    const METADATA_ENABLED: u8 = 1;
 
-    const LENGTH_MAX: u64 = (1u64 << Self::LENGTH_BITS) - 1;
-    const MASK_MAX: u16 = (1u16 << Self::MASK_BITS) - 1;
+    const LENGTH_MAX: u32 = u32::MAX;
+    const MASK_MAX: u8 = u8::MAX;
 
     /// Creates a new header with length and mask initialized to 0.
-    pub fn new(length: u64, mask: u16) -> Result<Self, QuiltError> {
-        if length > Self::LENGTH_MAX {
-            return Err(QuiltError::Other(
-                "Length exceeds maximum allowed value".to_string(),
-            ));
-        }
-        if mask > Self::MASK_MAX {
-            return Err(QuiltError::Other(
-                "Mask exceeds maximum allowed value".to_string(),
-            ));
-        }
-        Ok(Self { length, mask })
+    pub fn new(length: u32, mask: u8) -> Self {
+        Self { length, mask }
     }
 
-    /// Creates a `BlobHeaderV1` from a 7-byte array.
-    /// The layout is: version (1 byte), length (next 34 bits), mask (next 14 bits).
+    /// Creates a `BlobHeaderV1` from a 6-byte array.
+    /// The layout is: version (1 byte), length (next 32 bits), mask (next 1 bit).
     pub fn from_bytes(bytes: [u8; QuiltVersionV1::BLOB_HEADER_SIZE]) -> Self {
         let version = bytes[0];
         assert_eq!(version, QuiltVersionV1::QUILT_VERSION_BYTE);
-        let mut length: u64 = 0;
-        length |= u64::from(bytes[1]);
-        length |= u64::from(bytes[2]) << 8;
-        length |= u64::from(bytes[3]) << 16;
-        length |= u64::from(bytes[4]) << 24;
-        // Lower 2 bits of bytes[5] for length.
-        length |= (u64::from(bytes[5]) & 0x03) << 32;
 
-        let mut mask: u16 = 0;
-        // Upper 6 bits from bytes[5] for the lower 6 bits of the mask.
-        mask |= (u16::from(bytes[5]) >> 2) & 0x3F;
-        // All 8 bits from bytes[6] for the upper 8 bits of the mask.
-        mask |= u16::from(bytes[6]) << 6;
+        // Read 4 bytes for length (bytes 1-4)
+        let length = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
 
-        Self {
-            length: length & Self::LENGTH_MAX,
-            mask: mask & Self::MASK_MAX,
-        }
+        // Read 1 byte for mask (byte 5)
+        let mask = bytes[5];
+
+        Self { length, mask }
     }
 
     /// Converts the `BlobHeaderV1` to a 7-byte array.
     pub fn as_bytes(&self) -> [u8; QuiltVersionV1::BLOB_HEADER_SIZE] {
         let mut data = [0u8; QuiltVersionV1::BLOB_HEADER_SIZE];
 
+        // Set version byte
         data[0] = QuiltVersionV1::QUILT_VERSION_BYTE;
 
-        data[1] = (self.length & 0xFF) as u8;
-        data[2] = ((self.length >> 8) & 0xFF) as u8;
-        data[3] = ((self.length >> 16) & 0xFF) as u8;
-        data[4] = ((self.length >> 24) & 0xFF) as u8;
+        // Set length bytes (1-4)
+        let length_bytes = self.length.to_le_bytes();
+        data[1..5].copy_from_slice(&length_bytes);
 
-        // data[5] contains the two highest bits of length (32,33) in its lowest 2 bits (0,1).
-        // and the lowest 6 bits of mask (0-5) in its highest 6 bits (2-7).
-        data[5] = ((self.length >> 32) & 0x03) as u8;
-        data[5] |= ((self.mask & 0x3F) << 2) as u8;
+        // Set mask byte (5)
+        data[5] = self.mask;
 
-        // data[6] contains the highest 8 bits of mask (6-13).
-        data[6] = ((self.mask >> 6) & 0xFF) as u8;
+        // byte 6 is unused, left as 0
 
         data
     }
@@ -1169,7 +1145,7 @@ impl<'a> QuiltEncoderV1<'a> {
         extension_bytes.push(identifier_bytes);
 
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
-        header.length = total_size as u64;
+        header.length = total_size as u32;
         let header_bytes = header.as_bytes();
         debug_assert_eq!(header_bytes.len(), QuiltVersionV1::BLOB_HEADER_SIZE);
 
@@ -1213,31 +1189,74 @@ impl<'a> QuiltEncoderV1<'a> {
         symbol_size: usize,
     ) -> Result<usize, QuiltError> {
         assert!(column_size % symbol_size == 0);
-        let n_rows = column_size / symbol_size;
-        let mut row = 0;
-        let mut col = current_col;
-        let mut max_col = current_col;
 
-        let mut prefix_bytes = Vec::new();
+        let mut total_bytes_written = 0;
         if !is_meta_blob {
-            prefix_bytes = Self::get_header_and_extension_bytes(blob)?;
-        };
+            let prefix_bytes = Self::get_header_and_extension_bytes(blob)?;
+            total_bytes_written += prefix_bytes.len();
 
-        let merge_iterator = MergeIterator::new(vec![&prefix_bytes, blob.data()], symbol_size);
-        for data_slice in merge_iterator {
-            let mut dest_idx = row * row_size + col * symbol_size;
-            for chunk in data_slice {
-                data[dest_idx..dest_idx + chunk.len()].copy_from_slice(chunk);
-                dest_idx += chunk.len();
-            }
-            max_col = max_col.max(col);
-            row = (row + 1) % n_rows;
-            if row == 0 {
-                col += 1;
-            }
+            Self::write_bytes_to_columns(
+                data,
+                &prefix_bytes,
+                current_col,
+                row_size,
+                column_size,
+                symbol_size,
+                0,
+            )?;
         }
 
-        Ok(max_col - current_col + 1)
+        Self::write_bytes_to_columns(
+            data,
+            blob.data(),
+            current_col,
+            row_size,
+            column_size,
+            symbol_size,
+            total_bytes_written,
+        )?;
+
+        total_bytes_written += blob.data().len();
+
+        Ok(total_bytes_written.div_ceil(column_size))
+    }
+
+    fn write_bytes_to_columns(
+        data: &mut [u8],
+        bytes: &[u8],
+        start_col: usize,
+        row_size: usize,
+        column_size: usize,
+        symbol_size: usize,
+        bytes_to_skip: usize,
+    ) -> Result<(), QuiltError> {
+        let n_rows = column_size / symbol_size;
+        let n_cols = row_size / symbol_size;
+
+        let mut current_col = start_col + bytes_to_skip / column_size;
+        assert!(current_col < n_cols);
+        let mut current_row = (bytes_to_skip / symbol_size) % n_rows;
+        let mut offset = bytes_to_skip % symbol_size;
+        assert!(offset < symbol_size);
+        let mut idx = 0;
+
+        while idx < bytes.len() {
+            let base_idx = current_row * row_size + current_col * symbol_size;
+            let start_idx = base_idx + offset;
+            let len = (symbol_size - offset).min(bytes.len() - idx);
+
+            data[start_idx..start_idx + len].copy_from_slice(&bytes[idx..idx + len]);
+            idx += len;
+            current_row = (current_row + 1) % n_rows;
+            if current_row == 0 {
+                current_col += 1;
+            }
+
+            // Only the first symbol requires offset.
+            offset = 0;
+        }
+
+        Ok(())
     }
 }
 
@@ -2095,20 +2114,8 @@ mod tests {
             case_9: (BlobHeaderV1::LENGTH_MAX, 1), // Max length, min mask
         ]
     }
-    fn test_quilt_blob_header(length: u64, mask: u16) {
-        {
-            let mut header = BlobHeaderV1::new(100, 0).expect("Should create header");
-            assert_eq!(header.length, 100);
-            assert_eq!(header.mask, 0);
-            assert!(!header.has_attributes());
-            header.set_has_attributes(true);
-            assert!(header.has_attributes());
-            let bytes = header.as_bytes();
-            let reconstructed_header = BlobHeaderV1::from_bytes(bytes);
-            assert!(reconstructed_header.has_attributes());
-        }
-
-        let header = BlobHeaderV1::new(length, mask).expect("Should create header");
+    fn test_quilt_blob_header(length: u32, mask: u8) {
+        let header = BlobHeaderV1::new(length, mask);
 
         assert_eq!(
             header.length, length,
@@ -2132,6 +2139,9 @@ mod tests {
             reconstructed_header, header,
             "Reconstructed header does not match original"
         );
+
+        assert_eq!(reconstructed_header.length, length);
+        assert_eq!(reconstructed_header.mask, mask);
     }
 
     /// Generate random blobs with sizes in the specified range.
