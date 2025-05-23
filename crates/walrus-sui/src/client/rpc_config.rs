@@ -19,6 +19,18 @@ pub struct RpcFallbackConfig {
     /// endpoint before falling back to the checkpoint bucket.
     #[serde(default = "RpcFallbackConfig::default_quick_retry_config")]
     pub quick_retry_config: ExponentialBackoffConfig,
+
+    /// The minimum number of failures to start the fallback.
+    #[serde(default = "RpcFallbackConfig::default_min_failures_to_start_fallback")]
+    pub min_failures_to_start_fallback: usize,
+
+    /// The duration of the failure window to start the fallback.
+    #[serde(default = "RpcFallbackConfig::default_failure_window_to_start_fallback_duration")]
+    pub failure_window_to_start_fallback_duration: Duration,
+
+    /// The duration to skip the RPC for checkpoint download if fallback is configured.
+    #[serde(default = "RpcFallbackConfig::default_skip_rpc_for_checkpoint_duration")]
+    pub skip_rpc_for_checkpoint_duration: Duration,
 }
 
 impl RpcFallbackConfig {
@@ -28,6 +40,18 @@ impl RpcFallbackConfig {
             max_backoff: Duration::from_millis(300),
             max_retries: None,
         }
+    }
+
+    fn default_min_failures_to_start_fallback() -> usize {
+        10
+    }
+
+    fn default_failure_window_to_start_fallback_duration() -> Duration {
+        Duration::from_secs(300)
+    }
+
+    fn default_skip_rpc_for_checkpoint_duration() -> Duration {
+        Duration::from_secs(300)
     }
 }
 
@@ -75,6 +99,12 @@ impl RpcFallbackConfigArgs {
             RpcFallbackConfig {
                 checkpoint_bucket: url.clone(),
                 quick_retry_config: backoff,
+                min_failures_to_start_fallback:
+                    RpcFallbackConfig::default_min_failures_to_start_fallback(),
+                failure_window_to_start_fallback_duration:
+                    RpcFallbackConfig::default_failure_window_to_start_fallback_duration(),
+                skip_rpc_for_checkpoint_duration:
+                    RpcFallbackConfig::default_skip_rpc_for_checkpoint_duration(),
             }
         })
     }

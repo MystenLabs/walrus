@@ -157,7 +157,7 @@ async fn run_stress(
 
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
-    let wallet = WalletConfig::load_wallet_context(
+    let wallet = WalletConfig::load_wallet(
         client_config.wallet_config.as_ref(),
         client_config
             .communication_config
@@ -210,7 +210,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
     tracing::info!("Starting the staking stress runner.");
     // Start the re-staking machine.
     let restaking_period = Duration::from_secs(15);
-    let wallet = WalletConfig::load_wallet_context(
+    let wallet = WalletConfig::load_wallet(
         config.wallet_config.as_ref(),
         config.communication_config.sui_client_request_timeout,
     )

@@ -65,7 +65,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         UpgradeType,
-        retry_client::RetriableSuiClient,
+        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     system_setup::copy_recursively,
     test_utils::{
@@ -292,7 +292,7 @@ async_param_test! {
         f_failures: (&[4]),
     ]
 }
-/// Stores a blob that is inconsistent in 1 shard
+/// Stores a blob that is inconsistent in 1 shard.
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
@@ -2213,7 +2213,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         ),
         None,
     )?;
-    let env = cluster_wallet.config.get_active_env()?.to_owned();
+    let env = cluster_wallet.get_active_env()?.to_owned();
     let mut wallet = test_utils::temp_dir_wallet(None, env)?;
 
     let sui = |sui: u64| (sui * 1_000_000_000);
@@ -2223,19 +2223,21 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
         .await?;
 
-    let balance = wallet
-        .as_mut()
-        .get_client()
-        .await?
-        .coin_read_api()
-        .get_balance(address, None)
-        .await?;
-    assert_eq!(balance.total_balance, u128::from(sui(4)));
+    #[allow(deprecated)]
+    let rpc_urls = &[wallet.as_ref().get_rpc_url().unwrap()];
 
     // Create a new client with the funded wallet.
-    let retry_client =
-        RetriableSuiClient::new_from_wallet(&wallet.inner, ExponentialBackoffConfig::default())
-            .await?;
+    let retry_client = RetriableSuiClient::new(
+        rpc_urls
+            .iter()
+            .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, None))
+            .collect(),
+        ExponentialBackoffConfig::default(),
+    )
+    .await?;
+
+    let balance = retry_client.get_balance(address, None).await?;
+    assert_eq!(balance.total_balance, u128::from(sui(4)));
 
     // The maximum number of coins that can be selected to reach the amount.
     let max_num_coins = 2;

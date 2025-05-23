@@ -245,6 +245,7 @@ pub struct EventProcessorRuntimeConfig {
 }
 
 /// Struct to group client-related parameters.
+#[derive(Clone)]
 pub struct SuiClientSet {
     /// Sui client.
     pub sui_client: RetriableSuiClient,
@@ -652,19 +653,6 @@ impl EventProcessor {
 
         event_processor.update_checkpoint_cache(current_checkpoint);
 
-        let latest_checkpoint = retry_client.get_latest_checkpoint_summary().await?;
-        if current_checkpoint > latest_checkpoint.sequence_number {
-            tracing::error!(
-                current_checkpoint,
-                ?latest_checkpoint,
-                "Current store has a checkpoint that is greater than latest network checkpoint! \
-                    This is especially likely when a node is restarted running against a newer \
-                    localnet, testnet or devnet network."
-            );
-            return Err(anyhow!("Invalid checkpoint state"));
-        }
-        let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
-
         let retriable_sui_client = RetriableSuiClient::new(
             runtime_config
                 .rpc_addresses
@@ -676,27 +664,15 @@ impl EventProcessor {
             ExponentialBackoffConfig::default(),
         )
         .await?;
-        if current_lag > config.event_stream_catchup_min_checkpoint_lag {
-            let clients = SuiClientSet {
-                sui_client: retriable_sui_client.clone(),
-                client: retry_client.clone(),
-            };
-            let recovery_path = runtime_config.db_path.join("recovery");
-            if let Err(error) = event_processor
-                .catchup_using_event_blobs(
-                    clients,
-                    system_config.clone(),
-                    stores.clone(),
-                    &recovery_path,
-                    Some(&event_processor.metrics),
-                )
-                .await
-            {
-                tracing::error!(?error, "failed to catch up using event blobs");
-            } else {
-                tracing::info!("successfully caught up using event blobs");
-            }
-        }
+
+        let clients = SuiClientSet {
+            sui_client: retriable_sui_client.clone(),
+            client: retry_client.clone(),
+        };
+
+        event_processor
+            .check_and_catchup_if_needed(&clients, &system_config, &runtime_config, config)
+            .await?;
 
         if event_processor.stores.checkpoint_store.is_empty() {
             let (committee, verified_checkpoint) = Self::get_bootstrap_committee_and_checkpoint(
@@ -719,6 +695,72 @@ impl EventProcessor {
         }
 
         Ok(event_processor)
+    }
+
+    /// Checks if the event processor is lagging behind the network and performs catchup if needed.
+    async fn check_and_catchup_if_needed(
+        &self,
+        clients: &SuiClientSet,
+        system_config: &SystemConfig,
+        runtime_config: &EventProcessorRuntimeConfig,
+        config: &EventProcessorConfig,
+    ) -> Result<()> {
+        let current_checkpoint = self
+            .stores
+            .checkpoint_store
+            .get(&())?
+            .map(|t| *t.inner().sequence_number())
+            .unwrap_or(0);
+
+        let latest_checkpoint = match clients.client.get_latest_checkpoint_summary().await {
+            Ok(summary) => Some(summary),
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    "Failed to get latest checkpoint summary, proceeding without lag check"
+                );
+                None
+            }
+        };
+
+        let current_lag = if let Some(latest_checkpoint) = latest_checkpoint {
+            if current_checkpoint > latest_checkpoint.sequence_number {
+                tracing::error!(
+                    current_checkpoint,
+                    ?latest_checkpoint,
+                    "Current store has a checkpoint that is greater than latest network \
+                    checkpoint! This is especially likely when a node is restarted running
+                    against a newer localnet, testnet or devnet network."
+                );
+                return Err(anyhow!("Invalid checkpoint state"));
+            }
+            latest_checkpoint.sequence_number - current_checkpoint
+        } else {
+            tracing::info!(
+                "Using 0 as fallback for current_lag since latest checkpoint is unavailable"
+            );
+            0
+        };
+
+        if current_lag > config.event_stream_catchup_min_checkpoint_lag {
+            let recovery_path = runtime_config.db_path.join("recovery");
+            if let Err(error) = self
+                .catchup_using_event_blobs(
+                    clients.clone(),
+                    system_config.clone(),
+                    self.stores.clone(),
+                    &recovery_path,
+                    Some(&self.metrics),
+                )
+                .await
+            {
+                tracing::error!(?error, "failed to catch up using event blobs");
+            } else {
+                tracing::info!("successfully caught up using event blobs");
+            }
+        }
+
+        Ok(())
     }
 
     async fn create_and_validate_client(
@@ -1264,7 +1306,7 @@ mod tests {
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
             .expect("Failed to open temporary directory")
-            .keep();
+            .into_path();
         let database = {
             let _lock = global_test_lock().lock().await;
             rocks::open_cf_opts(

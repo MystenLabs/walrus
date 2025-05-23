@@ -8,7 +8,7 @@ use std::{
 
 use indicatif::MultiProgress;
 use rand::{SeedableRng, rngs::StdRng, thread_rng};
-use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
+use sui_sdk::types::base_types::SuiAddress;
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -30,10 +30,11 @@ use walrus_sui::{
         PostStoreAction,
         ReadClient,
         SuiContractClient,
-        retry_client::RetriableSuiClient,
+        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
+    wallet::Wallet,
 };
 use walrus_test_utils::WithTempDir;
 
@@ -245,8 +246,21 @@ async fn new_client(
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
-    let sui_client =
-        RetriableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
+    #[allow(deprecated)]
+    let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
+    let sui_client = RetriableSuiClient::new(
+        rpc_urls
+            .iter()
+            .map(|rpc_url| {
+                LazySuiClientBuilder::new(
+                    rpc_url,
+                    config.communication_config.sui_client_request_timeout,
+                )
+            })
+            .collect(),
+        Default::default(),
+    )
+    .await?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
@@ -265,7 +279,7 @@ pub async fn wallet_for_testing_from_refill(
     config: &ClientConfig,
     network: &SuiNetwork,
     refiller: Refiller,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
+) -> anyhow::Result<WithTempDir<Wallet>> {
     let mut wallet = temp_dir_wallet(
         config.communication_config.sui_client_request_timeout,
         network.env(),

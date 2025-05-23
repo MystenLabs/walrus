@@ -7,7 +7,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use enum_dispatch::enum_dispatch;
 use sui_types::base_types::ObjectID;
-use tracing::{Level, Span};
+use tracing::{Level, Span, field};
 use walrus_core::{
     BlobId,
     encoding::SliverPair,
@@ -179,7 +179,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
             "store_blob_tracing",
-            blob_id = %BlobId::ZERO,  // Initial placeholder value
+            blob_id = field::Empty,
             identifier = ?identifier
         );
 
@@ -234,6 +234,13 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Completed(inner) => &inner.input_blob.span,
             WalrusStoreBlob::Error(inner) => &inner.input_blob.span,
         }
+    }
+
+    /// Logs the current state with the provided message.
+    fn log_state(&self, message: &'static str) {
+        self.get_span().in_scope(|| {
+            tracing::event!(BLOB_SPAN_LEVEL, state = self.get_state(), message);
+        });
     }
 }
 
@@ -318,18 +325,17 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
 
     fn with_encode_result(
         self,
-        result: ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
+        encode_result: ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.span.enter();
+        self.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_encode_result",
-                result = ?result
+                encode_result_success = encode_result.is_ok(),
+                "entering with_encode_result",
             );
-        }
+        });
 
-        let new_state = match result {
+        let new_state = match encode_result {
             Ok((pairs, metadata)) => {
                 let blob_id = *metadata.blob_id();
                 self.span.record("blob_id", blob_id.to_string());
@@ -347,14 +353,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
             }),
         };
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_encode_result completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("with_encode_result completed");
 
         Ok(new_state)
     }
@@ -533,14 +532,9 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         self,
         status: Result<BlobStatus, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_status",
-                status = ?status
-            );
-        }
+        self.input_blob.span.in_scope(|| {
+            tracing::event!(BLOB_SPAN_LEVEL, ?status, "entering with_status");
+        });
 
         let new_state = match status {
             Ok(status) => WalrusStoreBlob::WithStatus(BlobWithStatus {
@@ -563,14 +557,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
             }
         };
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_status completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("with_status completed");
 
         Ok(new_state)
     }
@@ -743,14 +730,13 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         self,
         target_epoch: u32,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
+        self.input_blob.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "try_complete_if_certified_beyond_epoch",
-                target_epoch = ?target_epoch
+                target_epoch,
+                "entering try_complete_if_certified_beyond_epoch",
             );
-        }
+        });
 
         let status = self.status;
         let blob_id = *self.metadata.blob_id();
@@ -777,14 +763,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
             _ => WalrusStoreBlob::WithStatus(self),
         };
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "try_complete_if_certified_beyond_epoch completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("try_complete_if_certified_beyond_epoch completed");
 
         Ok(new_state)
     }
@@ -792,18 +771,17 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
     // TODO: Replace StoreOp with RegisterBlobOp and blob.
     fn with_register_result(
         self,
-        result: ClientResult<StoreOp>,
+        register_result: ClientResult<StoreOp>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
+        self.input_blob.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_register_result",
-                result = ?result
+                ?register_result,
+                "entering with_register_result"
             );
-        }
+        });
 
-        let new_state = match result {
+        let new_state = match register_result {
             Ok(StoreOp::NoOp(result)) => WalrusStoreBlob::Completed(CompletedBlob {
                 input_blob: self.input_blob,
                 result,
@@ -829,14 +807,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
             }
         };
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_register_result completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("with_register_result completed");
 
         Ok(new_state)
     }
@@ -1062,14 +1033,13 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
+        self.input_blob.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_get_certificate_result",
-                certificate_result = ?certificate_result
+                certificate_result_success = certificate_result.is_ok(),
+                "entering with_get_certificate_result",
             );
-        }
+        });
 
         let new_state = match certificate_result {
             Ok(certificate) => WalrusStoreBlob::WithCertificate(BlobWithCertificate {
@@ -1094,31 +1064,24 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
             }
         };
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "certificate completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("with_get_certificate_result completed");
 
         Ok(new_state)
     }
 
     fn with_certify_and_extend_result(
         self,
-        result: CertifyAndExtendBlobResult,
+        certify_and_extend_result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
+        self.input_blob.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_certify_and_extend_result",
-                result = ?result
+                ?certify_and_extend_result,
+                ?price_computation,
+                "entering with_certify_and_extend_result",
             );
-        }
+        });
 
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return Err(invalid_operation_for_blob(
@@ -1141,17 +1104,10 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
             blob_object,
             resource_operation,
             // TODO: pass error back to the caller.
-            shared_blob_object: result.shared_blob_object(),
+            shared_blob_object: certify_and_extend_result.shared_blob_object(),
         });
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "certificate completed",
-                state = ?new_state
-            );
-        }
+        new_state.log_state("with_certify_and_extend_result completed");
 
         Ok(new_state)
     }
@@ -1351,22 +1307,25 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
 
     fn with_certify_and_extend_result(
         self,
-        result: CertifyAndExtendBlobResult,
+        certify_and_extend_result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.input_blob.span.enter();
+        self.input_blob.span.in_scope(|| {
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_certify_and_extend_result",
-                result = ?result
+                ?certify_and_extend_result,
+                ?price_computation,
+                "entering with_certify_and_extend_result",
             );
-        }
+        });
 
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return Err(invalid_operation_for_blob(
                 &self,
-                format!("with_certify_and_extend_result: {:?}", result),
+                format!(
+                    "with_certify_and_extend_result: {:?}",
+                    certify_and_extend_result
+                ),
             ));
         };
 
@@ -1374,20 +1333,12 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
             blob_object: blob.clone(),
             resource_operation: operation.clone(),
             cost: price_computation.operation_cost(operation),
-            shared_blob_object: result.shared_blob_object(),
+            shared_blob_object: certify_and_extend_result.shared_blob_object(),
         };
 
         let new_state = self.complete_with(store_result);
 
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_certify_and_extend_result",
-                new_state = ?new_state,
-                result = ?result
-            );
-        }
+        new_state.log_state("with_certify_and_extend_result completed");
 
         Ok(new_state)
     }

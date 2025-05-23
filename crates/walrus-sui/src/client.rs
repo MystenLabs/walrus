@@ -28,7 +28,6 @@ use sui_sdk::{
         get_new_package_obj_from_response,
     },
     types::base_types::{ObjectID, ObjectRef},
-    wallet_context::WalletContext,
 };
 use sui_types::{
     TypeTag,
@@ -78,6 +77,7 @@ use crate::{
         },
     },
     utils::get_created_sui_object_ids_by_type,
+    wallet::Wallet,
 };
 
 mod read_client;
@@ -458,15 +458,17 @@ pub struct SuiContractClient {
 
 impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
-    pub async fn new(
-        wallet: WalletContext,
+    pub async fn new<S: AsRef<str>>(
+        wallet: Wallet,
+        rpc_urls: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_from_wallet(&wallet, backoff_config.clone()).await?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
+                    .await?,
                 contract_config,
             )
             .await?,
@@ -475,8 +477,9 @@ impl SuiContractClient {
     }
 
     /// Constructor for [`SuiContractClient`] with metrics.
-    pub async fn new_from_wallet_with_metrics(
-        wallet: WalletContext,
+    pub async fn new_with_metrics<S: AsRef<str>>(
+        wallet: Wallet,
+        rpc_urls: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
@@ -484,12 +487,9 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_from_wallet_with_metrics(
-                    &wallet,
-                    backoff_config.clone(),
-                    metrics,
-                )
-                .await?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)
+                    .await?
+                    .with_metrics(Some(metrics)),
                 contract_config,
             )
             .await?,
@@ -499,7 +499,7 @@ impl SuiContractClient {
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new_with_read_client(
-        mut wallet: WalletContext,
+        mut wallet: Wallet,
         gas_budget: Option<u64>,
         read_client: Arc<SuiReadClient>,
     ) -> SuiClientResult<Self> {
@@ -1182,7 +1182,7 @@ impl SuiContractClient {
     /// This is mainly useful for deployment code where a wallet is used to provide
     /// gas coins to the storage nodes and client, while also being used for staking
     /// operations.
-    pub fn wallet_mut(&mut self) -> &mut WalletContext {
+    pub fn wallet_mut(&mut self) -> &mut Wallet {
         &mut self.inner.get_mut().wallet
     }
 
@@ -1258,7 +1258,7 @@ impl SuiContractClient {
 
 struct SuiContractClientInner {
     /// The wallet used by the client.
-    wallet: WalletContext,
+    wallet: Wallet,
     /// The read client used by the client.
     read_client: Arc<SuiReadClient>,
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
@@ -1269,7 +1269,7 @@ struct SuiContractClientInner {
 impl SuiContractClientInner {
     /// Constructor for [`SuiContractClientInner`] with an existing [`SuiReadClient`].
     pub fn new(
-        wallet: WalletContext,
+        wallet: Wallet,
         read_client: Arc<SuiReadClient>,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
@@ -2925,14 +2925,14 @@ impl SuiContractClientInner {
             .0;
 
         // Update the lock file with the upgraded package info.
-        sui_package_management::update_lock_file(
-            &self.wallet,
-            LockCommand::Upgrade,
-            build_config.install_dir,
-            build_config.lock_file,
-            response,
-        )
-        .await?;
+        self.wallet
+            .update_lock_file(
+                LockCommand::Upgrade,
+                build_config.install_dir,
+                build_config.lock_file,
+                response,
+            )
+            .await?;
         Ok(new_package_id)
     }
 }

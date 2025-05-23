@@ -23,7 +23,8 @@ public struct InitCap has key, store {
     publisher: Publisher,
 }
 
-/// Init function, creates an init cap and transfers it to the sender.
+/// Initializes the system by creating an init cap and transferring it to the sender.
+///
 /// This allows the sender to call the function to actually initialize the system
 /// with the corresponding parameters. Once that function is called, the cap is destroyed.
 fun init(otw: INIT, ctx: &mut TxContext) {
@@ -33,7 +34,8 @@ fun init(otw: INIT, ctx: &mut TxContext) {
     transfer::transfer(init_cap, ctx.sender());
 }
 
-/// Function to initialize walrus and share the system and staking objects.
+/// Initializes Walrus and shares the system and staking objects.
+///
 /// This can only be called once, after which the `InitCap` is destroyed.
 public fun initialize_walrus(
     init_cap: InitCap,
@@ -59,7 +61,7 @@ public fun initialize_walrus(
     emergency_upgrade_cap
 }
 
-/// Migrate the staking and system objects to the new package id.
+/// Migrates the staking and system objects to the new package ID.
 ///
 /// This must be called in the new package after an upgrade is committed
 /// to emit an event that informs all storage nodes and prevent previous package

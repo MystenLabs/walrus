@@ -457,7 +457,7 @@ impl ShardIndex {
     ///
     /// # Panics
     ///
-    /// Panics if a range with an unbounded end is specified (i.e., `range(3..)`)
+    /// Panics if a range with an unbounded end is specified (i.e., `range(3..)`).
     pub fn range(range: impl RangeBounds<u16>) -> ShardRange {
         let start = match range.start_bound() {
             Bound::Included(left) => *left,
@@ -652,7 +652,7 @@ impl<'de> Deserialize<'de> for SymbolId {
     }
 }
 
-/// A decoding symbol for recovering a sliver
+/// A decoding symbol for recovering a sliver.
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
 pub type RecoverySymbol<U> = ByAxis<PrimaryRecoverySymbol<U>, SecondaryRecoverySymbol<U>>;

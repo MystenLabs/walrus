@@ -3,11 +3,11 @@
 
 //! Common configuration module.
 
-use std::{iter::once, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationMilliSeconds, serde_as};
+use walrus_sdk::config::combine_rpc_urls;
 use walrus_sui::{
     client::{
         SuiClientError,
@@ -58,15 +58,6 @@ pub struct SuiConfig {
     pub request_timeout: Option<Duration>,
 }
 
-/// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
-pub fn combine_rpc_urls(rpc: &str, additional_rpc_endpoints: &[String]) -> Vec<String> {
-    once(rpc.to_string())
-        .chain(additional_rpc_endpoints.iter().cloned())
-        .collect::<IndexSet<String>>()
-        .into_iter()
-        .collect::<Vec<_>>()
-}
-
 impl SuiConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
@@ -80,13 +71,23 @@ impl SuiConfig {
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
+    /// Always use the RPC endpoints supplied in the configuration instead of the wallet's RPC URL
+    /// to allow for failover.
     pub async fn new_contract_client(
         &self,
         metrics: Option<Arc<SuiClientMetricSet>>,
     ) -> Result<SuiContractClient, SuiClientError> {
+        let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
+
+        #[allow(deprecated)]
+        let rpc_urls = combine_rpc_urls(
+            wallet.get_rpc_url()?,
+            &combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints),
+        );
         if let Some(metrics) = metrics {
-            SuiContractClient::new_from_wallet_with_metrics(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
+            SuiContractClient::new_with_metrics(
+                wallet,
+                &rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -95,7 +96,8 @@ impl SuiConfig {
             .await
         } else {
             SuiContractClient::new(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
+                wallet,
+                &rpc_urls,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -188,27 +190,5 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t.is_none()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_combine_rpc_urls() {
-        let rpc = "http://localhost:1".to_string();
-        let rpc_urls = vec![
-            "http://localhost:2".to_string(),
-            "http://localhost:2".to_string(),
-            "http://localhost:3".to_string(),
-            "http://localhost:1".to_string(),
-            "http://localhost:3".to_string(),
-        ];
-
-        // Check that the duplicates are removed and the order is preserved.
-        let combined = super::combine_rpc_urls(&rpc, &rpc_urls);
-        assert_eq!(combined.len(), 3);
-        assert_eq!(combined[0], "http://localhost:1");
-        assert_eq!(combined[1], "http://localhost:2");
-        assert_eq!(combined[2], "http://localhost:3");
     }
 }
