@@ -100,8 +100,7 @@ async fn main() -> Result<()> {
             context,
             config_path,
         } => {
-            let c = context.as_deref();
-            let client = get_client(c, config_path.as_path()).await?;
+            let client = get_client(context.as_deref(), config_path.as_path()).await?;
             let n_shards = client.get_committees().await?.n_shards();
             let app = Router::new()
                 .route("/v1/blob-fan-out", post(fan_out_blob_slivers))
