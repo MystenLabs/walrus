@@ -1955,6 +1955,7 @@ impl StorageNodeInner {
         anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
 
+    #[tracing::instrument(skip_all)]
     async fn is_stored_at_all_shards_impl(
         &self,
         blob_id: &BlobId,
@@ -1968,6 +1969,7 @@ impl StorageNodeInner {
         self.is_stored_at_specific_shards(blob_id, &shards).await
     }
 
+    #[tracing::instrument(skip_all)]
     async fn is_stored_at_specific_shards(
         &self,
         blob_id: &BlobId,
@@ -1987,6 +1989,7 @@ impl StorageNodeInner {
     }
 
     /// Returns true if the blob is stored at all shards at the latest epoch.
+    #[tracing::instrument(skip_all)]
     pub(crate) async fn is_stored_at_all_shards_at_latest_epoch(
         &self,
         blob_id: &BlobId,
@@ -1997,6 +2000,7 @@ impl StorageNodeInner {
     /// Returns true if the blob is stored at all shards at the given epoch.
     /// Note that since shard assignment is only available for the current and previous epoch,
     /// this function will return false if the given epoch is not the current or previous epoch.
+    #[tracing::instrument(skip_all)]
     pub(crate) async fn is_stored_at_all_shards_at_epoch(
         &self,
         blob_id: &BlobId,
