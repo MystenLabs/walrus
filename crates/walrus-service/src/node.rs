@@ -896,9 +896,19 @@ impl StorageNode {
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
         let task_monitors = TaskMonitorFamily::<&'static str>::new(self.inner.registry.clone());
+        let stream_poll_monitor = task_monitors
+            .get_or_insert_with_task_name(&"event_stream_poll", || {
+                "poll_indexed_element_stream".to_string()
+            });
+
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
         // invariant violations and interference between different events.
-        while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
+        while let Some((element_index, stream_element)) =
+            TaskMonitor::instrument(&stream_poll_monitor, async {
+                indexed_element_stream.next().await
+            })
+            .await
+        {
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
                 format!("process_event {}", event_label)
@@ -1262,6 +1272,9 @@ impl StorageNode {
         self.blob_sync_handler
             .start_sync(event.blob_id, event.epoch, Some(event_handle))
             .await?;
+
+        walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
+            .observe(start.elapsed().as_secs_f64());
 
         Ok(())
     }
@@ -1942,6 +1955,7 @@ impl StorageNodeInner {
         anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
 
+    #[tracing::instrument(skip_all)]
     async fn is_stored_at_all_shards_impl(
         &self,
         blob_id: &BlobId,
@@ -1955,6 +1969,7 @@ impl StorageNodeInner {
         self.is_stored_at_specific_shards(blob_id, &shards).await
     }
 
+    #[tracing::instrument(skip_all)]
     async fn is_stored_at_specific_shards(
         &self,
         blob_id: &BlobId,
@@ -1974,6 +1989,7 @@ impl StorageNodeInner {
     }
 
     /// Returns true if the blob is stored at all shards at the latest epoch.
+    #[tracing::instrument(skip_all)]
     pub(crate) async fn is_stored_at_all_shards_at_latest_epoch(
         &self,
         blob_id: &BlobId,
@@ -1984,6 +2000,7 @@ impl StorageNodeInner {
     /// Returns true if the blob is stored at all shards at the given epoch.
     /// Note that since shard assignment is only available for the current and previous epoch,
     /// this function will return false if the given epoch is not the current or previous epoch.
+    #[tracing::instrument(skip_all)]
     pub(crate) async fn is_stored_at_all_shards_at_epoch(
         &self,
         blob_id: &BlobId,
