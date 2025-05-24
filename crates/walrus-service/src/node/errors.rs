@@ -404,3 +404,13 @@ pub enum SyncNodeConfigError {
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbCheckpointError {
+    #[error("Failed to create checkpoint: {0}")]
+    CheckpointCreationError(String),
+    #[error("Backup already in progress")]
+    CheckpointInProgress,
+    #[error("Other checkpoint error: {0}")]
+    Other(#[from] anyhow::Error),
+}

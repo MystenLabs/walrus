@@ -285,6 +285,11 @@ impl Storage {
         })
     }
 
+    /// Returns a reference to the database.
+    pub(crate) fn get_db(&self) -> Arc<RocksDB> {
+        self.database.clone()
+    }
+
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
         self.node_status
             .get(&())
