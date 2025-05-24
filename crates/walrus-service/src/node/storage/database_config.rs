@@ -43,9 +43,13 @@ pub struct DatabaseTableOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     write_buffer_size: Option<usize>,
     /// The target file size for level-1 files in bytes.
+    /// Per https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide, this is recommended to be
+    /// at least the same as write_buffer_size.
     #[serde(skip_serializing_if = "Option::is_none")]
     target_file_size_base: Option<u64>,
     /// The maximum total data size for level 1 in bytes.
+    /// Per https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide, this is recommended to be
+    /// 10 times of target_file_size_base.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_bytes_for_level_base: Option<u64>,
     /// Block cache size in bytes.
@@ -75,10 +79,10 @@ impl DatabaseTableOptions {
             blob_garbage_collection_age_cutoff: Some(0.0),
             blob_garbage_collection_force_threshold: Some(0.0),
             blob_compaction_read_ahead_size: Some(0),
-            write_buffer_size: Some(64 << 20),
-            target_file_size_base: Some(64 << 20),
-            max_bytes_for_level_base: Some(512 << 20),
-            block_cache_size: Some(64 << 20),
+            write_buffer_size: Some(64 << 20),         // 64 MB,
+            target_file_size_base: Some(64 << 20),     // 64 MB,
+            max_bytes_for_level_base: Some(512 << 20), // 512 MB,
+            block_cache_size: Some(256 << 20),         // 256 MB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             hard_pending_compaction_bytes_limit: None,
@@ -95,13 +99,35 @@ impl DatabaseTableOptions {
             blob_garbage_collection_age_cutoff: Some(0.5),
             blob_garbage_collection_force_threshold: Some(0.5),
             blob_compaction_read_ahead_size: Some(10 << 20),
-            write_buffer_size: Some(256 << 20),
-            target_file_size_base: Some(64 << 20),
-            max_bytes_for_level_base: Some(512 << 20),
-            block_cache_size: Some(256 << 20),
+            write_buffer_size: Some(256 << 20),      // 256 MB,
+            target_file_size_base: Some(256 << 20),  // 256 MB,
+            max_bytes_for_level_base: Some(2 << 30), // 2 GB,
+            block_cache_size: Some(256 << 20),       // 256 MB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             hard_pending_compaction_bytes_limit: None,
+        }
+    }
+
+    fn metadata() -> Self {
+        Self {
+            enable_blob_files: Some(false),
+            min_blob_size: None,
+            blob_file_size: None,
+            blob_compression_type: Some("zstd".to_string()),
+            enable_blob_garbage_collection: None,
+            blob_garbage_collection_age_cutoff: None,
+            blob_garbage_collection_force_threshold: None,
+            blob_compaction_read_ahead_size: None,
+            write_buffer_size: Some(512 << 20),      // 512 MB,
+            target_file_size_base: Some(512 << 20),  // 512 MB,
+            max_bytes_for_level_base: Some(5 << 30), // 5 GB,
+            block_cache_size: Some(512 << 20),       // 512 MB,
+            pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
+            soft_pending_compaction_bytes_limit: None,
+            // TODO(WAL-840): decide whether we want to keep this option even after all the nodes
+            // applied RocksDB 0.22.0, or apply it to all column families.
+            hard_pending_compaction_bytes_limit: Some(0), // Disable write stall.
         }
     }
 
@@ -236,12 +262,21 @@ impl DatabaseTableOptions {
 pub struct GlobalDatabaseOptions {
     /// The maximum number of open files
     pub max_open_files: Option<i32>,
+    /// The number of log files to keep.
+    pub keep_log_file_num: Option<usize>,
+    /// The TTL for the WAL in seconds.
+    pub wal_ttl_seconds: Option<u64>,
+    /// The size limit for the WAL in MB.
+    pub wal_size_limit_mb: Option<u64>,
 }
 
 impl Default for GlobalDatabaseOptions {
     fn default() -> Self {
         Self {
             max_open_files: Some(512_000),
+            keep_log_file_num: Some(50),
+            wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
+            wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
         }
     }
 }
@@ -252,6 +287,18 @@ impl From<&GlobalDatabaseOptions> for Options {
 
         if let Some(max_files) = value.max_open_files {
             options.set_max_open_files(max_files);
+        }
+
+        if let Some(keep_log_file_num) = value.keep_log_file_num {
+            options.set_keep_log_file_num(keep_log_file_num);
+        }
+
+        if let Some(wal_ttl_seconds) = value.wal_ttl_seconds {
+            options.set_wal_ttl_seconds(wal_ttl_seconds);
+        }
+
+        if let Some(wal_size_limit_mb) = value.wal_size_limit_mb {
+            options.set_wal_size_limit_mb(wal_size_limit_mb);
         }
 
         options
@@ -284,7 +331,7 @@ pub struct DatabaseConfig {
     /// Node status database options.
     pub(super) node_status: Option<DatabaseTableOptions>,
     /// Metadata database options.
-    pub(super) metadata: Option<DatabaseTableOptions>,
+    pub(super) metadata: DatabaseTableOptions,
     /// Blob info database options.
     pub(super) blob_info: Option<DatabaseTableOptions>,
     /// Per object blob info database options.
@@ -335,15 +382,7 @@ impl DatabaseConfig {
 
     /// Returns the metadata database option.
     pub fn metadata(&self) -> DatabaseTableOptions {
-        let mut metadata_cf_options = self
-            .metadata
-            .clone()
-            .map(|options| options.inherit_from(self.optimized_for_blobs.clone()))
-            .unwrap_or_else(|| self.optimized_for_blobs.clone());
-        // TODO(WAL-840): decide whether we want to keep this option even after all the nodes
-        // applied RocksDB 0.22.0, or apply it to all column families.
-        metadata_cf_options.hard_pending_compaction_bytes_limit = Some(0); // Disable write stall.
-        metadata_cf_options
+        self.metadata.clone()
     }
 
     /// Returns the blob info database option.
@@ -473,7 +512,7 @@ impl Default for DatabaseConfig {
             standard: DatabaseTableOptions::standard(),
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
             node_status: None,
-            metadata: None,
+            metadata: DatabaseTableOptions::metadata(),
             blob_info: Some(DatabaseTableOptions::blob_info()),
             per_object_blob_info: Some(DatabaseTableOptions::blob_info()),
             event_cursor: None,
