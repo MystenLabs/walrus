@@ -89,6 +89,7 @@ use walrus_core::{
 use walrus_sdk::{
     active_committees::ActiveCommittees,
     blocklist::Blocklist,
+    config::combine_rpc_urls,
     sui::{
         client::SuiReadClient,
         types::{
@@ -118,7 +119,7 @@ use walrus_storage_node_client::{
         StoredOnNodeStatus,
     },
 };
-use walrus_utils::metrics::{Registry, TaskMonitorFamily};
+use walrus_utils::metrics::{Registry, TaskMonitorFamily, monitored_scope};
 
 use self::{
     blob_sync::BlobSyncHandler,
@@ -158,10 +159,7 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{
-        config::{SuiConfig, combine_rpc_urls},
-        utils::should_reposition_cursor,
-    },
+    common::{config::SuiConfig, utils::should_reposition_cursor},
     utils::ShardDiffCalculator,
 };
 
@@ -532,6 +530,17 @@ pub struct NodeParameters {
     // Number of checkpoints per blob to use when creating event blobs.
     // If not provided, the default value will be used.
     num_checkpoints_per_blob: Option<u32>,
+}
+
+/// The action to take when the node transitions to a new committee.
+#[derive(Debug)]
+pub enum BeginCommitteeChangeAction {
+    /// The node should execute the epoch change.
+    ExecuteEpochChange,
+    /// The node should skip the epoch change.
+    SkipEpochChange,
+    /// The node should enter recovery mode.
+    EnterRecoveryMode,
 }
 
 impl StorageNode {
@@ -944,7 +953,7 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent");
+        monitored_scope::monitored_scope("ProcessEvent");
         let node_status = self.inner.storage.node_status()?;
         let span = tracing::info_span!(
             parent: &Span::current(),
@@ -1052,12 +1061,13 @@ impl StorageNode {
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::Impl");
+        monitored_scope::monitored_scope("ProcessEvent::Impl");
         let _timer_guard = walrus_utils::with_label!(
             self.inner.metrics.event_process_duration_seconds,
             stream_element.element.label()
         )
         .start_timer();
+        fail_point_async!("before-process-event-impl");
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
                 self.process_blob_event(event_handle, blob_event).await?;
@@ -1089,27 +1099,27 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::BlobEvent");
+        monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
         self.inner
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         match blob_event {
             BlobEvent::Registered(_) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Registered");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
                 event_handle.mark_as_complete();
             }
             BlobEvent::Certified(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Certified");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
                 self.process_blob_certified_event(event_handle, event)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Deleted");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
                 self.process_blob_deleted_event(event_handle, event).await?;
             }
             BlobEvent::InvalidBlobID(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
+                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
@@ -1129,7 +1139,7 @@ impl StorageNode {
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent");
+        monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
         match epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
@@ -1148,7 +1158,7 @@ impl StorageNode {
         }
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
-                mysten_metrics::monitored_scope(
+                monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
                 self.epoch_change_driver
@@ -1159,22 +1169,24 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeStart");
+                monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::EpochChangeStart",
+                );
                 fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
+                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(_) => {
-                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
+                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(_) => {
-                mysten_metrics::monitored_scope(
+                monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::ShardRecoveryStart",
                 );
                 event_handle.mark_as_complete();
@@ -1189,7 +1201,7 @@ impl StorageNode {
         event_handle: EventHandle,
         package_event: PackageEvent,
     ) -> anyhow::Result<()> {
-        mysten_metrics::monitored_scope("ProcessEvent::PackageEvent");
+        monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
         tracing::info!(?package_event, "{} event received", package_event.name());
         match package_event {
             PackageEvent::ContractUpgraded(_event) => {
@@ -1323,7 +1335,6 @@ impl StorageNode {
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
-        // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
@@ -1363,17 +1374,10 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
-        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.process_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
-                .await?;
-        } else {
-            self.process_epoch_change_start_when_node_is_in_sync(
-                event_handle,
-                event,
-                shard_map_lock,
-            )
+        // Now the general tasks around epoch change are done. Next, entering epoch change logic
+        // to bring the node state to the next epoch.
+        self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
-        }
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
@@ -1384,9 +1388,51 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Processes the epoch change start event while the node is in
+    /// Storage node execution of the epoch change start event, to bring the node state to the next
+    /// epoch.
+    async fn execute_epoch_change(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
+    ) -> anyhow::Result<()> {
+        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
+            self.execute_epoch_change_while_catching_up(event_handle, event, shard_map_lock)
+                .await?;
+        } else {
+            match self.begin_committee_change(event.epoch).await? {
+                BeginCommitteeChangeAction::ExecuteEpochChange => {
+                    self.execute_epoch_change_when_node_is_in_sync(
+                        event_handle,
+                        event,
+                        shard_map_lock,
+                    )
+                    .await?;
+                }
+                BeginCommitteeChangeAction::SkipEpochChange => {
+                    event_handle.mark_as_complete();
+                    return Ok(());
+                }
+                BeginCommitteeChangeAction::EnterRecoveryMode => {
+                    tracing::info!("storage node entering recovery mode during epoch change start");
+                    sui_macros::fail_point!("fail-point-enter-recovery-mode");
+                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                    self.execute_epoch_change_while_catching_up(
+                        event_handle,
+                        event,
+                        shard_map_lock,
+                    )
+                    .await?;
+                }
+            };
+        }
+
+        Ok(())
+    }
+
+    /// Executes the epoch change logic while the node is in
     /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] mode.
-    async fn process_epoch_change_start_while_catching_up(
+    async fn execute_epoch_change_while_catching_up(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1445,19 +1491,14 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Processes the epoch change start event when the node is up-to-date with the epoch and event
+    /// Executes the epoch change logic when the node is up-to-date with the epoch and event
     /// processing.
-    async fn process_epoch_change_start_when_node_is_in_sync(
+    async fn execute_epoch_change_when_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
-        if !self.begin_committee_change(event.epoch).await? {
-            event_handle.mark_as_complete();
-            return Ok(());
-        }
-
         // For blobs that are expired in the new epoch, sends a notification to all the tasks
         // that may be affected by the blob expiration.
         self.inner
@@ -1579,15 +1620,16 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Initiates a committee transition to a new epoch.
+    /// Initiates a committee transition to a new epoch. Upon the return of this function, the
+    /// latest committee on chain is updated to the new node.
     ///
-    /// Returns `true` if epoch change event has started or was sufficiently recent such
-    /// that it should be handled.
+    /// Returns the action to execute epoch change based on the result of committee service,
+    /// including possible actions to enter recovery mode due to the node being severely lagging.
     #[tracing::instrument(skip_all)]
     async fn begin_committee_change(
         &self,
         epoch: Epoch,
-    ) -> Result<bool, BeginCommitteeChangeError> {
+    ) -> Result<BeginCommitteeChangeAction, BeginCommitteeChangeError> {
         match self
             .inner
             .committee_service
@@ -1600,26 +1642,45 @@ impl StorageNode {
                     "successfully started a transition to a new epoch"
                 );
                 self.inner.current_epoch.send_replace(epoch);
-                Ok(true)
+                Ok(BeginCommitteeChangeAction::ExecuteEpochChange)
             }
             Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent) => {
                 tracing::info!(
                     walrus.epoch = epoch,
-                    "epoch change event was for the epoch we are currently in, not skipping"
+                    "epoch change event was for the epoch we already fetched the committee info, \
+                    directly executing epoch change"
                 );
-                Ok(true)
+                Ok(BeginCommitteeChangeAction::ExecuteEpochChange)
             }
-            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress)
-            | Err(BeginCommitteeChangeError::EpochIsLess { .. }) => {
-                // We are likely processing a backlog of events. Since the committee service has a
-                // more recent committee or has already had the current committee marked as
-                // transitioning, our shards have also already been configured for the more
-                // recent committee and there is actual nothing to do.
+            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress) => {
+                // TODO(WAL-479): can this condition actually happen? It seems that the only case
+                // this could happen is when the node calls begin_committee_change() multiple times
+                // on the same epoch in the same life time of the storage node. This is not expected
+                // and indicates software bug (convert this to debug assertion?).
                 tracing::info!(
                     walrus.epoch = epoch,
-                    "skipping epoch change start event for an older epoch"
+                    committee_epoch = self.inner.committee_service.get_epoch(),
+                    "epoch change is already in progress, do not need to re-execute epoch change"
                 );
-                Ok(false)
+                Ok(BeginCommitteeChangeAction::SkipEpochChange)
+            }
+            Err(BeginCommitteeChangeError::EpochIsLess {
+                latest_epoch,
+                requested_epoch,
+            }) => {
+                debug_assert!(requested_epoch < latest_epoch);
+                // We are processing a backlog of events. Since the committee service has a
+                // more recent committee. In this situation, we have already lost the information
+                // and the shard assignment of the previous epoch relative to `event.epoch`, the
+                // node cannot execute the epoch change. Therefore, the node needs to enter recovery
+                // mode to catch up to the latest epoch as quickly as possible.
+                tracing::warn!(
+                    ?latest_epoch,
+                    ?requested_epoch,
+                    "epoch change requested for an older epoch than the latest epoch, this means \
+                    the node is severely lagging behind, and will enter recovery mode"
+                );
+                Ok(BeginCommitteeChangeAction::EnterRecoveryMode)
             }
             Err(error) => {
                 tracing::error!(?error, "failed to initiate a transition to the new epoch");

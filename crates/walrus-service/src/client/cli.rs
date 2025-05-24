@@ -14,7 +14,6 @@ use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use sui_sdk::wallet_context::WalletContext;
 use walrus_core::{BlobId, QuiltBlobId};
 use walrus_sdk::{
     blocklist::Blocklist,
@@ -22,6 +21,7 @@ use walrus_sdk::{
     config::ClientConfig,
     sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
+use walrus_sui::wallet::Wallet;
 
 mod args;
 mod cli_output;
@@ -50,7 +50,7 @@ pub use runner::ClientCommandRunner;
 pub async fn get_read_client(
     config: ClientConfig,
     rpc_url: Option<String>,
-    wallet: Result<WalletContext>,
+    wallet: Result<Wallet>,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiReadClient>> {
     let sui_read_client =
@@ -73,7 +73,7 @@ pub async fn get_read_client(
 /// write access to Sui.
 pub async fn get_contract_client(
     config: ClientConfig,
-    wallet: Result<WalletContext>,
+    wallet: Result<Wallet>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
@@ -102,7 +102,7 @@ pub async fn get_contract_client(
 pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     config: &ClientConfig,
     rpc_url: Option<String>,
-    wallet: Result<WalletContext>,
+    wallet: Result<Wallet>,
 ) -> Result<SuiReadClient> {
     tracing::debug!(
         ?rpc_url,
@@ -125,7 +125,6 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         }
         (_, _, Ok(wallet)) => {
             let url = wallet
-                .config
                 .get_active_env()
                 .context("unable to get the wallet's active environment")?
                 .rpc

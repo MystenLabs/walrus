@@ -30,7 +30,6 @@ use sui_sdk::{
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::TransactionData,
     },
-    wallet_context::WalletContext,
 };
 use sui_types::{
     SUI_CLOCK_OBJECT_ID,
@@ -42,9 +41,10 @@ use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
 use crate::{
-    client::retry_client::RetriableSuiClient,
+    client::retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     contracts::{self, StructTag},
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
+    wallet::Wallet,
 };
 
 const INIT_MODULE: &str = "init";
@@ -72,7 +72,7 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
 }
 
 pub(crate) async fn publish_package_with_default_build_config(
-    wallet: &mut WalletContext,
+    wallet: &mut Wallet,
     package_path: PathBuf,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
@@ -155,15 +155,18 @@ fn compile_package_inner_blocking(
 
 #[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
-    wallet: &mut WalletContext,
+    wallet: &mut Wallet,
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    let retry_client =
-        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
-            .await?;
+    #[allow(deprecated)]
+    let retry_client = RetriableSuiClient::new(
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
+        Default::default(),
+    )
+    .await?;
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
@@ -219,20 +222,21 @@ pub(crate) async fn publish_package(
         .await?;
 
     let signed_transaction = wallet.sign_transaction(&transaction);
+    #[allow(deprecated)]
     let response = wallet
         .execute_transaction_may_fail(signed_transaction)
         .await?;
 
     // Update the lock file with the new package ID.
-    sui_package_management::update_lock_file(
-        wallet,
-        sui_package_management::LockCommand::Publish,
-        build_config.install_dir,
-        build_config.lock_file,
-        &response,
-    )
-    .await
-    .context("failed to update Move.lock")?;
+    wallet
+        .update_lock_file(
+            sui_package_management::LockCommand::Publish,
+            build_config.install_dir,
+            build_config.lock_file,
+            &response,
+        )
+        .await
+        .context("failed to update Move.lock")?;
 
     Ok(response)
 }
@@ -287,7 +291,7 @@ fn copy_recursively_inner_blocking(
 /// the package address to be set in the `wal/Move.lock` file for the current network.
 #[tracing::instrument(err, skip(wallet))]
 pub async fn publish_coin_and_system_package(
-    wallet: &mut WalletContext,
+    wallet: &mut Wallet,
     walrus_contract_directory: PathBuf,
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
@@ -397,7 +401,7 @@ pub struct InitSystemParams {
 ///
 /// Returns the IDs of the system, staking, and upgrade manager objects.
 pub async fn create_system_and_staking_objects(
-    wallet: &mut WalletContext,
+    wallet: &mut Wallet,
     contract_pkg_id: ObjectID,
     init_cap: ObjectID,
     upgrade_cap: ObjectID,
@@ -418,9 +422,11 @@ pub async fn create_system_and_staking_objects(
         .context("genesis epoch duration is too long")?;
 
     // prepare the arguments
+    #[allow(deprecated)]
     let init_cap_ref = wallet.get_object_ref(init_cap).await?;
     let init_cap_arg = pt_builder.input(init_cap_ref.into())?;
 
+    #[allow(deprecated)]
     let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap).await?;
     let upgrade_cap_arg = pt_builder.input(upgrade_cap_ref.into())?;
 
@@ -457,9 +463,12 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    let retry_client =
-        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
-            .await?;
+    #[allow(deprecated)]
+    let retry_client = RetriableSuiClient::new(
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
+        Default::default(),
+    )
+    .await?;
     let gas_price = retry_client.get_reference_gas_price().await?;
 
     let gas_budget = if let Some(gas_budget) = gas_budget {
@@ -486,6 +495,7 @@ pub async fn create_system_and_staking_objects(
 
     // sign and send transaction
     let signed_transaction = wallet.sign_transaction(&transaction);
+    #[allow(deprecated)]
     let response = wallet
         .execute_transaction_may_fail(signed_transaction)
         .await?;

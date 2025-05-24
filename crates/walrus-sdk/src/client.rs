@@ -8,6 +8,7 @@ use std::{
     fmt::{Debug, Display},
     fs,
     path::{Path, PathBuf},
+    pin::pin,
     sync::Arc,
     time::Instant,
 };
@@ -15,7 +16,11 @@ use std::{
 use anyhow::anyhow;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
-use futures::{Future, FutureExt};
+use futures::{
+    Future,
+    FutureExt,
+    future::{Either, select},
+};
 use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
 use rand::{RngCore as _, rngs::ThreadRng};
@@ -335,27 +340,44 @@ impl<T: ReadClient> Client<T> {
         SliverData<U>: TryFrom<Sliver>,
     {
         tracing::debug!("starting to read blob");
+
         self.check_blob_id(blob_id)?;
+
         let committees = self.get_committees().await?;
 
-        let certified_epoch = if committees.is_change_in_progress() {
-            tracing::info!("epoch change in progress, reading from initial certified epoch");
-            let blob_status = match blob_status {
-                Some(status) => status,
-                None => {
-                    self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                        .await?
-                }
+        let get_status_if_exists_fn = |status: Option<BlobStatus>| async move {
+            let status = if let Some(status) = status {
+                status
+            } else {
+                self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                    .await?
             };
-            blob_status
-                .initial_certified_epoch()
-                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
-        } else {
-            // We are not during epoch change, we can read from the current epoch directly.
-            committees.epoch()
+
+            if BlobStatus::Nonexistent == status {
+                Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist))
+            } else {
+                Ok(status)
+            }
         };
 
-        // Return early if the committee is behind.
+        let (epoch_to_be_read, blob_status) = if committees.is_change_in_progress() {
+            let blob_status = get_status_if_exists_fn(blob_status).await?;
+            (blob_status.initial_certified_epoch(), Some(blob_status))
+        } else {
+            // We are not during epoch change, we can read from the current epoch directly if we do
+            // not have a blob status.
+            (
+                blob_status
+                    .map(|status| status.initial_certified_epoch())
+                    .unwrap_or_else(|| Some(committees.epoch())),
+                blob_status,
+            )
+        };
+
+        // Return early if the blob is not certified, or if the committee is behind.
+        let Some(certified_epoch) = epoch_to_be_read else {
+            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
+        };
         let current_epoch = committees.epoch();
         if certified_epoch > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
@@ -364,8 +386,26 @@ impl<T: ReadClient> Client<T> {
             }));
         }
 
-        self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
-            .await
+        // Execute the status request and the metadata/sliver request concurrently.
+        //
+        // If the status request fails, the metadata/sliver request will be cancelled. If the status
+        // request succeeds, the metadata/sliver request will be executed to completion. If we
+        // already have a blob status, the `get_status_fn` immediately returns Ok.
+        //
+        // In the unlikely event that the status request takes longer than reading the
+        // metadata/slivers, the status request will be dropped.
+        match select(
+            pin!(get_status_if_exists_fn(blob_status)),
+            pin!(self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)),
+        )
+        .await
+        {
+            Either::Left((status_result, read_future)) => {
+                status_result?;
+                read_future.await
+            }
+            Either::Right((read_result, _status_future)) => read_result,
+        }
     }
 
     async fn read_metadata_and_slivers<U>(
@@ -418,7 +458,7 @@ impl<T: ReadClient> Client<T> {
                 Ok(result) => return Ok(result),
                 Err(error) => {
                     if error.may_be_caused_by_epoch_change() {
-                        tracing::warn!(
+                        tracing::info!(
                             %error,
                             "operation aborted; maybe because of epoch change; retrying"
                         );
@@ -428,17 +468,17 @@ impl<T: ReadClient> Client<T> {
                             self.force_refresh_committees().await?;
                         }
                     } else {
-                        tracing::warn!(%error, "operation failed; not retrying");
+                        tracing::debug!(%error, "operation failed; not retrying");
                         return Err(error);
                     }
                 }
             };
 
             attempts += 1;
-            tracing::info!(
+            tracing::debug!(
                 ?attempts,
                 ?delay,
-                "committee change detected; retrying after a delay",
+                "a potential committee change detected; retrying after a delay",
             );
             tokio::time::sleep(delay).await;
         }
