@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use walrus_core::{BlobId, encoding::Primary};
 use walrus_sdk::{
     client::Client,
-    config::{ClientCommunicationConfig, ClientConfig},
+    config::{ClientConfig, combine_rpc_urls},
 };
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
@@ -43,10 +43,7 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::{
-        config::combine_rpc_urls,
-        utils::{self, MetricsAndLoggingRuntime, version},
-    },
+    common::utils::{self, MetricsAndLoggingRuntime, version},
     node::{
         DatabaseConfig,
         events::{
@@ -604,13 +601,8 @@ async fn backup_fetcher(
     .await
     .context("[backup_fetcher] cannot create SuiReadClient")?;
 
-    let walrus_client_config = ClientConfig {
-        contract_config: backup_config.sui.contract_config.clone(),
-        exchange_objects: vec![],
-        wallet_config: None,
-        communication_config: ClientCommunicationConfig::default(),
-        refresh_config: Default::default(),
-    };
+    let walrus_client_config =
+        ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
     let read_client =
         Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())

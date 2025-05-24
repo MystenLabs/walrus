@@ -457,19 +457,14 @@ impl<'a> ResourceManager<'a> {
         let mut extended_blobs = Vec::with_capacity(max_len);
         let mut extended_blobs_noncertified = Vec::with_capacity(max_len);
 
-        // This keeps tracks of selected storage objects and exclude them from selecting again.
-        let mut excluded = Vec::with_capacity(max_len);
-
         // Gets the owned blobs once for all checks, to avoid multiple calls to the RPC.
         let owned_blobs = self
             .sui_client
             .owned_blobs(None, ExpirySelectionPolicy::Valid)
             .await?;
 
-        // For all the metadata, if the blob is registered in wallet, add it directly to results.
-        // Otherwise, check if there is existing storage resource selected for the encoded length,
-        // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
-        // Otherwise, add it to new_metadata_list and its length to new_encoded_lengths.
+        let mut blob_processing_items = Vec::with_capacity(max_len);
+
         for (metadata, encoded_length) in metadata_list.iter().zip(encoded_lengths) {
             if let Some(blob) = self
                 .find_blob_owned_by_wallet(
@@ -519,35 +514,60 @@ impl<'a> ResourceManager<'a> {
                         },
                     ));
                 }
-            } else if let Some(storage_resource) = self
-                .sui_client
-                .owned_storage_for_size_and_epoch(
-                    *encoded_length,
-                    epochs_ahead + self.write_committee_epoch,
-                    &excluded,
-                )
-                .await?
-            {
-                // TODO(joy): Currently select is done one at a time for each blob using `excluded`
-                // to filter, this might not be efficient if the list is too long, consider better
-                // storage selection strategy (WAL-363).
-                // TODO(giac): consider splitting the storage before reusing it (WAL-208).
-                tracing::debug!(
-                    blob_id=%metadata.blob_id(),
-                    storage_object=%storage_resource.id,
-                    "using an existing storage resource to register the blob"
-                );
-                excluded.push(storage_resource.id);
-                reused_metadata_with_storage.push(((*metadata).try_into()?, storage_resource));
-                reused_encoded_lengths.push(*encoded_length);
             } else {
-                tracing::debug!(
-                    blob_id=%metadata.blob_id(),
-                    "no storage resource found for the blob"
-                );
-                new_metadata_list.push(*metadata);
-                new_encoded_lengths.push(*encoded_length);
-            };
+                blob_processing_items.push((*metadata, *encoded_length));
+            }
+        }
+
+        // TODO(giac): consider splitting the storage before reusing it (WAL-208).
+        if !blob_processing_items.is_empty() {
+            let all_storage_resources = self
+                .sui_client
+                .owned_storage(ExpirySelectionPolicy::Valid)
+                .await?;
+
+            let target_epoch = epochs_ahead + self.write_committee_epoch;
+            let mut available_resources: Vec<_> = all_storage_resources
+                .into_iter()
+                .filter(|storage| storage.end_epoch >= target_epoch)
+                .collect();
+
+            blob_processing_items.sort_by(|(_, size_a), (_, size_b)| size_b.cmp(size_a));
+
+            for (metadata, encoded_length) in blob_processing_items {
+                let best_resource_idx = available_resources
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, storage)| storage.storage_size >= encoded_length)
+                    .min_by(|(_, storage_a), (_, storage_b)| {
+                        match storage_a.storage_size.cmp(&storage_b.storage_size) {
+                            std::cmp::Ordering::Equal => {
+                                storage_a.end_epoch.cmp(&storage_b.end_epoch)
+                            }
+                            ordering => ordering,
+                        }
+                    })
+                    .map(|(idx, _)| idx);
+
+                if let Some(idx) = best_resource_idx {
+                    let storage_resource = available_resources.swap_remove(idx);
+                    tracing::debug!(
+                        blob_id=%metadata.blob_id(),
+                        storage_object=%storage_resource.id,
+                        "using an existing storage resource to register the blob"
+                    );
+
+                    reused_metadata_with_storage.push((metadata.try_into()?, storage_resource));
+                    reused_encoded_lengths.push(encoded_length);
+                } else {
+                    tracing::debug!(
+                        blob_id=%metadata.blob_id(),
+                        "no storage resource found for the blob"
+                    );
+                    new_metadata_list.push(metadata);
+                    new_encoded_lengths.push(encoded_length);
+                }
+            }
         }
 
         // Register all in reused_metadata_with_storage in one ptb.

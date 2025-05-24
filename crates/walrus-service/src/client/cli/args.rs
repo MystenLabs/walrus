@@ -887,8 +887,8 @@ impl PublisherArgs {
 pub struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
-    /// If unset, the wallet configuration is applied (if set), or the fullnode at
-    /// `fullnode.testnet.sui.io:443` is used.
+    /// If not provided, the RPC URL is set based on the `rpc_url` field in the client configuration
+    /// (if set), or the wallet configuration.
     // NB: Keep this in sync with `crate::cli`.
     #[arg(long)]
     #[serde(default)]

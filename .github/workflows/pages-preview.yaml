@@ -12,6 +12,7 @@ on:
       - "docs/book/**"
       - "docs/theme/**"
       - "docs/mdbook-admonish.css"
+      - "setup/**"
       - ".github/actions/build-mdbook/action.yaml"
       - ".github/workflows/pages-preview.yaml"
 
@@ -39,6 +40,6 @@ jobs:
           with_linkcheck: "false"
         if: github.event.action != 'closed'
       - name: Deploy preview
-        uses: rossjrw/pr-preview-action@df22037db54ab6ee34d3c1e2b8810ac040a530c6 # pin@v1.6.0
+        uses: rossjrw/pr-preview-action@2fb559e4766555e23d07b73d313fe97c4f8c3cfe # pin@v1.6.1
         with:
           source-dir: docs/build/html

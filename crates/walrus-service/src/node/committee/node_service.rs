@@ -6,8 +6,8 @@
 //! [`tower::Service`] trait implementation on the defined [`Request`] and [`Response`] types.
 //!
 //! It also defines [`RemoteStorageNode`] which implements the trait for
-//! [`walrus_rest_client::client::Client`], and implements the trait for [`LocalStorageNode`], an
-//! alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
+//! [`walrus_storage_node_client::client::Client`], and implements the trait for
+//! [`LocalStorageNode`], an alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
 //!
 //! The use of [`tower::Service`] will allow us to add layers to monitor a given node's
 //! communication with all others, to monitor and disable nodes which fail frequently, and to later
@@ -24,7 +24,7 @@ use std::{
 };
 
 use futures::{FutureExt, future::BoxFuture};
-use tower::Service;
+use tower::{Service, limit::ConcurrencyLimit};
 use walrus_core::{
     BlobId,
     Epoch,
@@ -40,14 +40,17 @@ use walrus_core::{
     messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::{
-    client::{Client, RecoverySymbolsFilter},
-    error::{ClientBuildError, NodeError},
+use walrus_storage_node_client::{
+    ClientBuildError,
+    NodeError,
+    RecoverySymbolsFilter,
+    StorageNodeClient,
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
 use walrus_utils::metrics::Registry;
 
 use super::{DefaultRecoverySymbol, NodeServiceFactory};
+use crate::node::config::defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS;
 
 /// Requests used with a [`NodeService`].
 #[derive(Debug, Clone)]
@@ -170,14 +173,16 @@ where
 {
 }
 
-/// A [`NodeService`] that is reachable via a [`walrus_rest_client::client::Client`].
+pub(crate) type RemoteStorageNode = ConcurrencyLimit<UnboundedRemoteStorageNode>;
+
+/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
 #[derive(Clone, Debug)]
-pub(crate) struct RemoteStorageNode {
-    client: Client,
+pub(crate) struct UnboundedRemoteStorageNode {
+    client: StorageNodeClient,
     encoding_config: Arc<EncodingConfig>,
 }
 
-impl Service<Request> for RemoteStorageNode {
+impl Service<Request> for UnboundedRemoteStorageNode {
     type Error = NodeServiceError;
     type Response = Response;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
@@ -303,7 +308,7 @@ impl Service<Request> for RemoteStorageNode {
 // pub(crate) type LocalStorageNode = Weak<StorageNodeInner>;
 
 /// A [`NodeServiceFactory`] creating [`RemoteStorageNode`] services.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct DefaultNodeServiceFactory {
     /// If true, disables the use of proxies.
     ///
@@ -320,6 +325,22 @@ pub(crate) struct DefaultNodeServiceFactory {
 
     /// The registry to use for registering node metrics.
     pub registry: Option<Registry>,
+
+    /// The maximum number of outstanding requests at a time.
+    pub concurrency_limit: usize,
+}
+
+impl Default for DefaultNodeServiceFactory {
+    fn default() -> Self {
+        Self {
+            disable_use_proxy: Default::default(),
+            disable_loading_native_certs: Default::default(),
+            connect_timeout: Default::default(),
+            registry: Default::default(),
+            concurrency_limit: usize::try_from(REST_HTTP2_MAX_CONCURRENT_STREAMS)
+                .expect("number of concurrent streams fits in usize"),
+        }
+    }
 }
 
 impl DefaultNodeServiceFactory {
@@ -356,7 +377,7 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
         member: &SuiStorageNode,
         encoding_config: &Arc<EncodingConfig>,
     ) -> Result<Self::Service, ClientBuildError> {
-        let mut builder = walrus_rest_client::client::Client::builder()
+        let mut builder = walrus_storage_node_client::StorageNodeClient::builder()
             .authenticate_with_public_key(member.network_public_key.clone());
 
         if self.disable_loading_native_certs {
@@ -372,12 +393,15 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
             builder = builder.metric_registry(registry.clone());
         }
 
-        builder
-            .build(&member.network_address.0)
-            .map(|client| RemoteStorageNode {
-                client,
-                encoding_config: encoding_config.clone(),
-            })
+        builder.build(&member.network_address.0).map(|client| {
+            ConcurrencyLimit::new(
+                UnboundedRemoteStorageNode {
+                    client,
+                    encoding_config: encoding_config.clone(),
+                },
+                self.concurrency_limit,
+            )
+        })
     }
 
     fn connect_timeout(&mut self, timeout: Duration) {

@@ -4,24 +4,23 @@
 //! Checkpoint downloader.
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicUsize},
     time::Duration,
 };
 
 use anyhow::{Result, anyhow};
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sui_rpc_api::client::ResponseExt;
 use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint};
-use tokio::{
-    sync::{RwLock, mpsc},
-    time::Instant,
-};
+use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
-#[cfg(not(test))]
-use walrus_utils::backoff::ExponentialBackoff;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{
+    backoff::ExponentialBackoff,
+    metrics::{Registry, monitored_scope},
+    tracing_sampled,
+};
 
 use crate::{
     ParallelDownloaderConfig,
@@ -78,7 +77,7 @@ struct ParallelCheckpointDownloaderInner {
     message_sender: async_channel::Sender<WorkerMessage>,
     checkpoint_receiver: mpsc::Receiver<CheckpointEntry>,
     config: AdaptiveDownloaderConfig,
-    worker_count: Arc<RwLock<usize>>,
+    worker_count: Arc<AtomicUsize>,
     cancellation_token: CancellationToken,
 }
 
@@ -110,7 +109,7 @@ impl ParallelCheckpointDownloaderInner {
             );
         }
 
-        let worker_count = Arc::new(RwLock::new(config.initial_workers));
+        let worker_count = Arc::new(AtomicUsize::new(config.initial_workers));
         let cloned_checkpoint_store = checkpoint_store.clone();
         let cloned_cancel_token = cancellation_token.clone();
         let cloned_client = full_node_client.clone();
@@ -163,7 +162,9 @@ impl ParallelCheckpointDownloaderInner {
     }
 
     /// Returns the current checkpoint lag between the local store and the full node
-    /// in terms of sequence numbers. This works by downloading the latest checkpoint
+    /// in terms of sequence numbers.
+    ///
+    /// This works by downloading the latest checkpoint
     /// summary from the full node and comparing it with the current checkpoint in the store.
     async fn current_checkpoint_lag(
         checkpoint_store: &DBMap<(), TrustedCheckpoint>,
@@ -199,11 +200,13 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
+        monitored_scope::monitored_scope("WorkerLoop");
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
+            tracing_sampled::info!("30s", "Downloaded checkpoint {}", sequence_number);
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!(worker_id, "checkpoint download worker shutting down");
@@ -216,7 +219,7 @@ impl ParallelCheckpointDownloaderInner {
         target_workers: usize,
         channels: &PoolMonitorChannels,
         config: &PoolMonitorConfig,
-        worker_count: &Arc<RwLock<usize>>,
+        worker_count: &Arc<AtomicUsize>,
     ) -> Result<()> {
         match current_workers.cmp(&target_workers) {
             std::cmp::Ordering::Greater => {
@@ -226,11 +229,7 @@ impl ParallelCheckpointDownloaderInner {
                         .message_sender
                         .send(WorkerMessage::Shutdown)
                         .await?;
-                    let new_count = {
-                        let mut count = worker_count.write().await;
-                        *count -= 1;
-                        *count
-                    };
+                    let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                     config.metrics.num_workers.set(new_count as i64);
                 }
             }
@@ -249,11 +248,7 @@ impl ParallelCheckpointDownloaderInner {
                         cloned_config,
                     );
                     *next_worker_id += 1;
-                    let new_count = {
-                        let mut count = worker_count.write().await;
-                        *count += 1;
-                        *count
-                    };
+                    let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     config.metrics.num_workers.set(new_count as i64);
                 }
             }
@@ -266,7 +261,7 @@ impl ParallelCheckpointDownloaderInner {
     async fn pool_monitor(
         config: PoolMonitorConfig,
         channels: PoolMonitorChannels,
-        worker_count: Arc<RwLock<usize>>,
+        worker_count: Arc<AtomicUsize>,
         cancellation_token: CancellationToken,
     ) -> Result<()> {
         let downloader_config = config.downloader_config.clone();
@@ -274,7 +269,6 @@ impl ParallelCheckpointDownloaderInner {
         let mut last_scale = Instant::now();
         let mut consecutive_failures = 0;
         let average_workers = (downloader_config.min_workers + downloader_config.max_workers) / 2;
-        const MAX_CONSECUTIVE_POOL_MONITOR_FAILURES: u32 = 10;
 
         loop {
             tokio::select! {
@@ -296,10 +290,11 @@ impl ParallelCheckpointDownloaderInner {
                         tracing::warn!(
                             error = ?err,
                             consecutive_failures,
-                            max_failures = MAX_CONSECUTIVE_POOL_MONITOR_FAILURES,
+                            max_failures = downloader_config.max_consecutive_pool_monitor_failures,
                             "failed to fetch checkpoint lag from full node"
                         );
-                        if consecutive_failures >= MAX_CONSECUTIVE_POOL_MONITOR_FAILURES {
+                        if consecutive_failures >=
+                            downloader_config.max_consecutive_pool_monitor_failures {
                             tracing::error!(
                                 error = ?err,
                                 consecutive_failures,
@@ -307,8 +302,9 @@ impl ParallelCheckpointDownloaderInner {
                                 "checkpoint lag monitoring has failed repeatedly \
                                 - adjusting to average workers"
                             );
-                            let current_workers = *worker_count.read().await;
-                            tracing::info!("adjusting to average workers {:?}", current_workers);
+                            let current_workers =
+                                worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                            tracing::info!("adjusting to average workers {:?}", average_workers);
                             Self::adjust_workers(
                                 &mut next_worker_id,
                                 current_workers,
@@ -323,8 +319,8 @@ impl ParallelCheckpointDownloaderInner {
 
                     consecutive_failures = 0;
                     config.metrics.checkpoint_lag.set(lag as i64);
-                    let current = *worker_count.read().await;
 
+                    let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
                     if lag > downloader_config.scale_up_lag_threshold &&
                         current < downloader_config.max_workers {
                         tracing::info!(
@@ -380,7 +376,7 @@ impl ParallelCheckpointDownloaderInner {
             let mut next_expected = sequence_number;
 
             while !self.cancellation_token.is_cancelled() {
-                let num_workers = *self.worker_count.read().await;
+                let num_workers = self.worker_count.load(std::sync::atomic::Ordering::Relaxed);
                 let max_in_flight_requests =
                     num_workers * self.config.channel_config.work_queue_buffer_factor;
                 while in_flight.len() < max_in_flight_requests {
@@ -392,6 +388,11 @@ impl ParallelCheckpointDownloaderInner {
                         tracing::error!("failed to send job to workers; channel closed");
                         return;
                     }
+                    tracing_sampled::info!(
+                        "30s",
+                        "Adding checkpoint to worker queue {}",
+                        sequence_number
+                    );
                     in_flight.insert(sequence_number);
                     sequence_number += 1;
                 }
@@ -429,75 +430,58 @@ impl ParallelCheckpointDownloaderInner {
     }
 
     /// Downloads a checkpoint with retries.
-    #[cfg(not(test))]
     async fn download_with_retry(
         client: &RetriableRpcClient,
         sequence_number: CheckpointSequenceNumber,
         config: &ParallelDownloaderConfig,
         rng: &mut StdRng,
     ) -> CheckpointEntry {
-        let mut backoff = create_backoff(rng, config);
+        let mut backoff = if cfg!(test) {
+            // Note that we only return error in test mode.
+            ExponentialBackoff::new_with_seed(
+                config.initial_delay,
+                config.max_delay,
+                config.retries,
+                rng.next_u64(),
+            )
+        } else {
+            // In production, we should never stop trying to fetch the checkpoint. This is critical
+            // for the node to make progress.
+            ExponentialBackoff::new_with_seed(
+                config.initial_delay,
+                config.max_delay,
+                None,
+                rng.next_u64(),
+            )
+        };
+
         loop {
             let result = client.get_full_checkpoint(sequence_number).await;
             let Ok(checkpoint) = result else {
-                let err = result.err();
-                handle_checkpoint_error(err.as_ref(), sequence_number);
+                let err = result.unwrap_err();
+                handle_checkpoint_error(&err, sequence_number);
 
-                let delay = backoff.next().expect("backoff should not be exhausted");
+                if let Some(delay) = backoff.next() {
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
 
-                tokio::time::sleep(delay).await;
-                continue;
+                // Note that we only return error in test mode.
+                assert!(cfg!(test));
+                return CheckpointEntry::new(sequence_number, Err(err.into()));
             };
 
             return CheckpointEntry::new(sequence_number, Ok(checkpoint));
         }
     }
-
-    #[cfg(test)]
-    async fn download_with_retry(
-        client: &RetriableRpcClient,
-        sequence_number: CheckpointSequenceNumber,
-        _config: &ParallelDownloaderConfig,
-        _rng: &mut StdRng,
-    ) -> CheckpointEntry {
-        let res = tokio::time::timeout(
-            Duration::from_secs(1),
-            client.get_full_checkpoint(sequence_number),
-        )
-        .await;
-        match res {
-            Ok(Ok(checkpoint)) => CheckpointEntry {
-                sequence_number,
-                result: Ok(checkpoint),
-            },
-            Ok(Err(e)) => {
-                handle_checkpoint_error(Some(&e), sequence_number);
-                CheckpointEntry::new(sequence_number, Err(e.into()))
-            }
-            Err(_) => {
-                let err = anyhow!("Timeout while downloading checkpoint");
-                handle_checkpoint_error(None, sequence_number);
-                CheckpointEntry::new(sequence_number, Err(err))
-            }
-        }
-    }
-}
-
-/// Helper function to create backoff with consistent settings
-#[cfg(not(test))]
-fn create_backoff(
-    rng: &mut StdRng,
-    config: &ParallelDownloaderConfig,
-) -> ExponentialBackoff<StdRng> {
-    use rand::RngCore;
-    ExponentialBackoff::new_with_seed(config.initial_delay, config.max_delay, None, rng.next_u64())
 }
 
 /// Handles an error that occurred while reading the next checkpoint.
-/// If the error is due to a checkpoint that is already present on the server, it is logged as an
-/// error. Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
-    if let Some(RetriableClientError::RpcError(rpc_error)) = err {
+/// If the error is due to a checkpoint that is already present on the server,
+/// it is logged as an error.
+/// Otherwise, it is logged as a debug.
+fn handle_checkpoint_error(err: &RetriableClientError, next_checkpoint: u64) {
+    if let RetriableClientError::RpcError(rpc_error) = err {
         if let Some(checkpoint_height) = rpc_error.status.checkpoint_height() {
             if next_checkpoint > checkpoint_height {
                 return tracing::trace!(
@@ -529,20 +513,25 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
+        telemetry_subscribers::init_for_testing();
         let rest_url = "http://localhost:9000";
         let retriable_client = RetriableRpcClient::new(
             vec![LazyFallibleRpcClientBuilder::Url {
                 rpc_url: rest_url.to_string(),
                 ensure_experimental_rest_endpoint: false,
             }],
-            Duration::from_secs(5),
-            ExponentialBackoffConfig::default(),
+            Duration::from_millis(100),
+            ExponentialBackoffConfig {
+                min_backoff: Duration::from_millis(100),
+                max_backoff: Duration::from_secs(1),
+                max_retries: Some(0),
+            },
             None,
             None,
         )
         .await?;
         let parallel_config = ParallelDownloaderConfig {
-            min_retries: 10,
+            retries: Some(0),
             initial_delay: Duration::from_millis(250),
             max_delay: Duration::from_secs(2),
         };
@@ -559,6 +548,7 @@ mod tests {
             scale_cooldown: Duration::from_secs(30),
             base_config: parallel_config,
             channel_config,
+            max_consecutive_pool_monitor_failures: 10,
         };
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();

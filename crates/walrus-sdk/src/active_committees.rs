@@ -352,8 +352,14 @@ impl CommitteeTracker {
         &self.0
     }
 
-    /// The next epoch to which this committee would be transitioning.
-    pub fn next_epoch(&self) -> Epoch {
+    /// The epoch of the committee that is currently being tracked.
+    pub fn tracked_committee_epoch(&self) -> Epoch {
+        self.0.epoch()
+    }
+
+    /// The next epoch to which the tracked committee the tracker is currently holding would be
+    /// transitioning to.
+    pub fn tracked_committee_next_epoch(&self) -> Epoch {
         self.0.epoch() + 1
     }
 
@@ -363,14 +369,15 @@ impl CommitteeTracker {
     /// # Panics
     ///
     /// Panics if the committees have a different number of shards, or if the epoch of the provided
-    /// committee does not match [`Self::next_epoch()`], or the shard assignment is different.
+    /// committee does not match [`Self::tracked_committee_next_epoch()`], or the shard assignment
+    /// is different.
     pub fn set_committee_for_next_epoch(
         &mut self,
         committee: Committee,
     ) -> Result<(), NextCommitteeInconsistent> {
         assert_eq!(
             committee.epoch,
-            self.next_epoch(),
+            self.tracked_committee_next_epoch(),
             "committee's epoch must match the next epoch"
         );
         if let Some(next_committee) = self.0.next_committee.as_ref() {

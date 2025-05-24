@@ -22,7 +22,7 @@ use walrus_core::{
     metadata::VerificationError,
 };
 use walrus_proc_macros::RestApiError;
-use walrus_rest_client::{
+use walrus_storage_node_client::{
     api::errors::{
         DebugInfo,
         GLOBAL_ERROR_DOMAIN,

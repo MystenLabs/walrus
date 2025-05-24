@@ -4,7 +4,15 @@
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
-use std::{collections::BTreeMap, fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap},
+    fmt,
+    pin::pin,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use futures::{Stream, StreamExt, future, stream};
@@ -16,6 +24,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use sui_sdk::{
     SuiClient,
     SuiClientBuilder,
+    error::Error as SuiSdkError,
     rpc_types::{
         Balance,
         Coin,
@@ -36,7 +45,6 @@ use sui_sdk::{
         SuiTransactionBlockResponseQuery,
         TransactionBlocksPage,
     },
-    wallet_context::WalletContext,
 };
 #[cfg(msim)]
 use sui_types::transaction::TransactionDataAPI;
@@ -70,6 +78,10 @@ use crate::{
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+/// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
+/// configuration
+/// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
+pub(crate) const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
 
 /// [`LazySuiClientBuilder`] has enough information to create a [`SuiClient`], when its
 /// [`LazyClientBuilder`] trait implementation is used.
@@ -121,9 +133,36 @@ impl LazySuiClientBuilder {
 impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
     // TODO: WAL-796 Out of concern for consistency, we are disabling the failover mechanism for
     // SuiClient for now.
-    const DEFAULT_MAX_TRIES: usize = 1;
+    const DEFAULT_MAX_TRIES: usize = 5;
 
     async fn lazy_build_client(&self) -> Result<Arc<SuiClient>, FailoverError> {
+        // Inject sui client build failure for simtests.
+        #[cfg(msim)]
+        {
+            let mut fail_client_creation = false;
+            sui_macros::fail_point_arg!(
+                "failpoint_sui_client_build_client",
+                |url_to_fail: String| {
+                    match self {
+                        Self::Url { rpc_url, .. } => {
+                            if *rpc_url == url_to_fail {
+                                fail_client_creation = true;
+                            }
+                        }
+                        Self::Client(_) => {}
+                    }
+                }
+            );
+
+            if fail_client_creation {
+                tracing::info!("injected sui client build failure {:?}", self.get_rpc_url());
+                return Err(FailoverError::FailedToGetClient(format!(
+                    "injected sui client build failure {:?}",
+                    self.get_rpc_url()
+                )));
+            }
+        }
+
         match self {
             Self::Client(client) => Ok(client.clone()),
             Self::Url {
@@ -163,11 +202,6 @@ pub struct RetriableSuiClient {
 
 impl RetriableSuiClient {
     /// Creates a new retriable client.
-    ///
-    /// NB: If you are creating the sui client from a wallet context, you should use
-    /// [`RetriableSuiClient::new_from_wallet`] instead. This is because the wallet context will
-    /// make a call to the RPC server in [`WalletContext::get_client`], which may fail without any
-    /// retries. `new_from_wallet` will handle this case correctly.
     pub async fn new(
         lazy_client_builders: Vec<LazySuiClientBuilder>,
         backoff_config: ExponentialBackoffConfig,
@@ -205,34 +239,6 @@ impl RetriableSuiClient {
         Ok(Self::new(failover_clients, backoff_config).await?)
     }
 
-    /// Creates a new retriable client from a wallet context.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn new_from_wallet(
-        wallet: &WalletContext,
-        backoff_config: ExponentialBackoffConfig,
-    ) -> SuiClientResult<Self> {
-        let strategy = backoff_config.get_strategy(ThreadRng::default().r#gen());
-        let client = retry_rpc_errors(
-            strategy,
-            || async { wallet.get_client().await },
-            None,
-            "get_client",
-        )
-        .await?;
-        // TODO: WAL-793 Wrap the WalletContext and allow RetriableSuiClient to manage the network
-        // communications, including managing RPC urls.
-        Ok(Self::new(vec![client.into()], backoff_config).await?)
-    }
-
-    /// Creates a new retriable client from a wallet context with metrics.
-    pub async fn new_from_wallet_with_metrics(
-        wallet: &WalletContext,
-        backoff_config: ExponentialBackoffConfig,
-        metrics: Arc<SuiClientMetricSet>,
-    ) -> SuiClientResult<Self> {
-        let client = Self::new_from_wallet(wallet, backoff_config).await?;
-        Ok(client.with_metrics(Some(metrics)))
-    }
     // Reimplementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
@@ -250,8 +256,14 @@ impl RetriableSuiClient {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
-                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
-                    .await
+                self.select_coins_with_limit(
+                    address,
+                    coin_type.clone(),
+                    amount,
+                    exclude.clone(),
+                    MAX_GAS_PAYMENT_OBJECTS,
+                )
+                .await
             },
             self.metrics.clone(),
             "select_coins",
@@ -259,33 +271,81 @@ impl RetriableSuiClient {
         .await
     }
 
-    /// Returns a list of coins for the given address, or an error upon failure.
-    ///
-    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi::select_coins`] method, but
-    /// using [`get_coins_stream_retry`] to handle retriable failures.
-    async fn select_coins_inner(
+    /// Returns a list of all coins for the given address, with a filter on the coin type. Note
+    /// that coin_type of None is implicitly filtering for SUI.
+    pub async fn select_all_coins(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+    ) -> SuiClientResult<Vec<Coin>> {
+        let mut coins_stream = pin!(self.get_coins_stream_retry(address, coin_type.clone()));
+
+        let mut selected_coins = Vec::new();
+        while let Some(coin) = coins_stream.as_mut().next().await {
+            selected_coins.push(coin);
+        }
+        Ok(selected_coins)
+    }
+
+    /// Returns a list of coins for the given address, or an error upon failure. This method always
+    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise, it
+    /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
+    /// `amount`. `exclude` is a list of coin object IDs to exclude from the result.
+    /// `max_num_coins` puts a hard cap on the number of coins returned.
+    pub async fn select_coins_with_limit(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
         amount: u128,
         exclude: Vec<ObjectID>,
+        max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut total = 0u128;
-        let coins = self
-            .get_coins_stream_retry(address, coin_type)
-            .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
-            .take_while(|coin: &Coin| {
-                let ready = future::ready(total < amount);
-                total += coin.balance as u128;
-                ready
-            })
-            .collect::<Vec<_>>()
-            .await;
+        let mut coins_stream = pin!(
+            self.get_coins_stream_retry(address, coin_type.clone())
+                .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
+        );
 
-        if total < amount {
-            return Err(sui_sdk::error::Error::InsufficientFund { address, amount }.into());
+        let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
+
+        let mut total_selected = 0u128;
+        let mut total_available = 0u128;
+
+        while let Some(coin) = coins_stream.as_mut().next().await {
+            let coin_balance = u128::from(coin.balance);
+            total_available += coin_balance;
+            if selected_coins.len() >= max_num_coins {
+                let min_coin_balance = selected_coins
+                    .peek()
+                    .expect("heap is not empty")
+                    .0
+                    .balance();
+                if min_coin_balance < coin.balance {
+                    selected_coins.pop();
+                    total_selected -= min_coin_balance as u128;
+                } else {
+                    continue;
+                }
+            }
+            total_selected += coin_balance;
+            selected_coins.push(Reverse(OrderedCoin::from(coin)));
+
+            if total_selected >= amount {
+                return Ok(selected_coins
+                    .into_iter()
+                    .map(|rev_coin| rev_coin.0.0)
+                    .collect());
+            }
         }
-        Ok(coins)
+
+        if total_available < amount {
+            // We don't have a sufficient balance in any case (given the excluded objects).
+            Err(SuiSdkError::InsufficientFund { address, amount }.into())
+        } else {
+            // We ran out of coins and cannot get to `amount` with `max_num_coins`.
+            Err(SuiClientError::InsufficientFundsWithMaxCoins(
+                coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+            ))
+        }
     }
 
     /// Returns a stream of coins for the given address.
@@ -692,12 +752,13 @@ impl RetriableSuiClient {
         note = "please implement a full treatment in RetriableSuiClient for your use case"
     )]
     pub async fn get_current_client(&self) -> Arc<SuiClient> {
-        self.failover_sui_client.get_current_client().await
+        self.failover_sui_client
+            .get_current_client()
+            .await
+            .expect("client must have been created")
     }
 
-    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    /// Returns the Sui Object of type `U` with the provided [`ObjectID`].
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
@@ -710,6 +771,29 @@ impl RetriableSuiClient {
             )
             .await?;
         get_sui_object_from_object_response(&sui_object_response)
+    }
+
+    /// Returns the Sui Objects of type `U` with the provided [`ObjectID`]s.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_sui_objects<U>(&self, object_ids: &[ObjectID]) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let mut responses = vec![];
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(
+                    obj_id_batch.to_vec(),
+                    SuiObjectDataOptions::new().with_bcs().with_type(),
+                )
+                .await?,
+            );
+        }
+
+        responses
+            .iter()
+            .map(|r| get_sui_object_from_object_response(r))
+            .collect::<Result<Vec<_>, _>>()
     }
 
     /// Returns the chain identifier.
@@ -733,31 +817,6 @@ impl RetriableSuiClient {
     }
 
     // Other wrapper methods.
-
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_objects<U>(
-        &self,
-        object_ids: &[ObjectID],
-    ) -> SuiClientResult<Vec<U>>
-    where
-        U: AssociatedContractStruct,
-    {
-        let mut responses = vec![];
-        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            responses.extend(
-                self.multi_get_object_with_options(
-                    obj_id_batch.to_vec(),
-                    SuiObjectDataOptions::new().with_bcs().with_type(),
-                )
-                .await?,
-            );
-        }
-
-        responses
-            .iter()
-            .map(|r| get_sui_object_from_object_response(r))
-            .collect::<Result<Vec<_>, _>>()
-    }
 
     pub(crate) async fn get_extended_field<V>(
         &self,
@@ -954,6 +1013,7 @@ impl RetriableSuiClient {
             .failover_sui_client
             .get_current_client()
             .await
+            .expect("client must have been created")
             .transaction_builder()
             .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
             .await;
@@ -1091,4 +1151,38 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
+}
+
+/// A representation of Coin with an `Ord` implementation, allowing for sorting by balance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OrderedCoin(pub Coin);
+
+impl From<Coin> for OrderedCoin {
+    fn from(coin: Coin) -> Self {
+        OrderedCoin(coin)
+    }
+}
+
+impl From<OrderedCoin> for Coin {
+    fn from(val: OrderedCoin) -> Self {
+        val.0
+    }
+}
+
+impl PartialOrd for OrderedCoin {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedCoin {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.balance.cmp(&other.0.balance)
+    }
+}
+
+impl OrderedCoin {
+    fn balance(&self) -> u64 {
+        self.0.balance
+    }
 }

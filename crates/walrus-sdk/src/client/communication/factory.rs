@@ -15,10 +15,7 @@ use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use tokio::sync::Semaphore;
 use walrus_core::{Epoch, NetworkPublicKey, encoding::EncodingConfig};
-use walrus_rest_client::{
-    client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
-    error::ClientBuildError,
-};
+use walrus_storage_node_client::{ClientBuildError, StorageNodeClient, StorageNodeClientBuilder};
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
 use walrus_utils::metrics::Registry;
 

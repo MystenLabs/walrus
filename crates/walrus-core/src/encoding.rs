@@ -15,6 +15,9 @@ pub use basic_encoding::{
 mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
+mod quilt_encoding;
+pub use quilt_encoding::{QuiltDecoderV1, QuiltEncoderV1, QuiltV1};
+
 mod common;
 pub use common::{EncodingAxis, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE, Primary, Secondary};
 
@@ -41,6 +44,7 @@ pub use errors::{
     DecodingVerificationError,
     EncodeError,
     InvalidDataSizeError,
+    QuiltError,
     RecoverySymbolError,
     SliverRecoveryError,
     SliverRecoveryOrVerificationError,

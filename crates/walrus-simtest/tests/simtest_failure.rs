@@ -9,7 +9,11 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{Arc, Mutex, atomic::AtomicBool},
+        sync::{
+            Arc,
+            Mutex,
+            atomic::{AtomicBool, AtomicUsize},
+        },
         time::{Duration, Instant},
     };
 
@@ -17,7 +21,6 @@ mod tests {
     use sui_macros::{clear_fail_point, register_fail_point_async, register_fail_point_if};
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
@@ -27,6 +30,7 @@ mod tests {
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
     };
+    use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -290,14 +294,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
-                .await
-                .get(0)
-                .unwrap()
-                .node_status,
-            "Active"
-        );
+        assert_eq!(node_health_info[0].node_status, "Active");
 
         workload_handle.abort();
 
@@ -556,5 +553,155 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
+    }
+
+    // Simulates node event processing is severely lagging behind without crashing the node.
+    async fn blocking_target_node_event_processing(
+        target_node_id: sui_simulator::task::NodeId,
+        fail_triggered: Arc<AtomicBool>,
+        block_duration: Duration,
+    ) {
+        if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
+            // We only need to trigger failure once.
+            return;
+        }
+
+        let current_node = sui_simulator::current_simnode_id();
+        if target_node_id != current_node {
+            return;
+        }
+
+        tracing::warn!("blocking node {current_node} for {:?}", block_duration);
+
+        fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
+        tokio::time::sleep(block_duration).await;
+    }
+
+    // This integration test simulates a scenario where a node is lagging behind and should enter
+    // recovery mode while processing events.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_node_slow_process_events_entering_recovery() {
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node is lagging behind.
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+
+        // Running the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Tracks if a lagging event processing has been triggered.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let target_fail_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+        let fail_triggered_clone = fail_triggered.clone();
+
+        sui_macros::register_fail_point_async("before-process-event-impl", move || {
+            let fail_triggered_clone = fail_triggered_clone.clone();
+            async move {
+                blocking_target_node_event_processing(
+                    target_fail_node_id,
+                    fail_triggered_clone.clone(),
+                    Duration::from_secs(90),
+                )
+                .await;
+            }
+        });
+
+        // Tracks the number of times the node enters recovery mode.
+        let enter_recovery_mode_count = Arc::new(AtomicUsize::new(0));
+        let enter_recovery_mode_count_clone = enter_recovery_mode_count.clone();
+        sui_macros::register_fail_point("fail-point-enter-recovery-mode", move || {
+            enter_recovery_mode_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        // Changes the stake of the lagging node so that it will gain some shards after the next
+        // epoch change. Note that the expectation is the node will be back only after more than
+        // 2 epoch changes, so that the node can be in a RecoveryInProgress state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[0]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+
+        assert!(node_health_info[0].shard_detail.is_some());
+        for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
+            // For all the shards that the lagging node owns, they should be in ready state.
+            assert_eq!(shard.status, ShardStatus::Ready);
+
+            // These shards should not exist in any of the other nodes.
+            for i in 1..node_health_info.len() {
+                assert_eq!(
+                    node_health_info[i]
+                        .shard_detail
+                        .as_ref()
+                        .unwrap()
+                        .owned
+                        .iter()
+                        .find(|s| s.shard == shard.shard),
+                    None
+                );
+                let shard_i_status = node_health_info[i]
+                    .shard_detail
+                    .as_ref()
+                    .unwrap()
+                    .owned
+                    .iter()
+                    .find(|s| s.shard == shard.shard);
+                assert!(
+                    shard_i_status.is_none()
+                        || shard_i_status.unwrap().status != ShardStatus::ReadOnly
+                );
+            }
+        }
+
+        assert_eq!(node_health_info[0].node_status, "Active");
+
+        workload_handle.abort();
+
+        assert!(
+            enter_recovery_mode_count.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "the node should enter recovery mode"
+        );
+
+        blob_info_consistency_check.check_storage_node_consistency();
+        clear_fail_point("before-process-event-impl");
+        clear_fail_point("fail-point-enter-recovery-mode");
     }
 }

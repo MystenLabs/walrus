@@ -190,7 +190,8 @@ impl<'a> BlobEncoder<'a> {
         self.get_expanded_matrix().get_metadata()
     }
 
-    fn symbol_usize(&self) -> usize {
+    /// Returns the size of the symbol in bytes.
+    pub fn symbol_usize(&self) -> usize {
         self.symbol_size.get().into()
     }
 

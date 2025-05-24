@@ -70,16 +70,8 @@ stable toolchain when specified via the `--config` command-line option. This is 
 [CI](.github/workflows/code.yml) and in our [pre-commit hooks](.pre-commit-config.yaml) (see also
 [above](#pre-commit-hooks)).
 
-If you want the same behavior in your IDE, you need to modify the corresponding formatting setting.
-For example, when using `rust-analyzer` with VSCode, you need to add the following to your
-`settings.json`:
-
-```json
-    "rust-analyzer.rustfmt.extraArgs": [
-        "--config",
-        "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
-    ]
-```
+Note that this repo includes a `.vscode/settings.json` file which aims to provide for the correct
+formatting behavior from mainstream Rust LSP configurations.
 
 Also make sure you use the correct version of Rustfmt. See
 [`rust-toolchain.toml`](rust-toolchain.toml) for the current version. This also impacts other checks,

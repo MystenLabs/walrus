@@ -64,6 +64,8 @@ walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
 
 [dev-dependencies]
 clap.workspace = true
+indoc.workspace = true
+serde_yaml.workspace = true
 tracing-subscriber.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
 

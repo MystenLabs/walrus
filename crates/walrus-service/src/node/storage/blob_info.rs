@@ -21,7 +21,7 @@ use typed_store::{
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
-use walrus_rest_client::api::{BlobStatus, DeletableCounts};
+use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
@@ -1188,8 +1188,8 @@ impl Ord for BlobCertificationStatus {
 }
 
 /// Internal representation of the aggregate blob information for use in the database etc. Use
-/// [`walrus_rest_client::api::BlobStatus`] for anything public facing (e.g., communication to the
-/// client).
+/// [`walrus_storage_node_client::api::BlobStatus`] for anything public facing (e.g., communication
+/// to the client).
 #[enum_dispatch(CertifiedBlobInfoApi)]
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
@@ -1873,7 +1873,183 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            // TODO(mlegner): Add some more cases for permanent blobs and deletions (#1006).
+            register_additional_permanent: (
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 2, 0)),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Register, false, 2, 3, fixed_event_id_for_testing(1)
+                ),
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 3, 1)),
+                    ..Default::default()
+                },
+            ),
+            delete_permanent_blob: (
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 1)),
+                    initial_certified_epoch: Some(1),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: true },
+                    false,
+                    2,
+                    6,
+                    fixed_event_id_for_testing(2),
+                ),
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
+                    initial_certified_epoch: Some(1),
+                    ..Default::default()
+                },
+            ),
+            delete_last_permanent_blob: (
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
+                    permanent_certified: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 1)),
+                    initial_certified_epoch: Some(1),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: true },
+                    false,
+                    1,
+                    6,
+                    fixed_event_id_for_testing(2),
+                ),
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
+                    permanent_certified: None,
+                    initial_certified_epoch: None,
+                    ..Default::default()
+                },
+            ),
+            delete_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 3,
+                    count_deletable_certified: 2,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: true },
+                    true,
+                    1,
+                    6,
+                    event_id_for_testing(),
+                ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(4),
+                    ..Default::default()
+                },
+            ),
+            delete_last_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    count_deletable_certified: 1,
+                    initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: true },
+                    true,
+                    1,
+                    4,
+                    event_id_for_testing(),
+                ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 1,
+                    count_deletable_certified: 0,
+                    initial_certified_epoch: None,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(4),
+                    ..Default::default()
+                },
+            ),
+            delete_uncertified_permanent_blob: (
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(3, 5, 0)),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: false },
+                    false,
+                    1,
+                    6,
+                    fixed_event_id_for_testing(2),
+                ),
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(2, 5, 0)),
+                    ..Default::default()
+                },
+            ),
+            delete_last_uncertified_permanent_blob: (
+                ValidBlobInfoV1{
+                    permanent_total: Some(PermanentBlobInfoV1::new_fixed_for_testing(1, 5, 0)),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: false },
+                    false,
+                    2,
+                    5,
+                    fixed_event_id_for_testing(2),
+                ),
+                ValidBlobInfoV1{
+                    permanent_total: None,
+                    ..Default::default()
+                },
+            ),
+            delete_uncertified_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 3,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: false },
+                    true,
+                    1,
+                    6,
+                    event_id_for_testing(),
+                ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 2,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    ..Default::default()
+                },
+            ),
+            delete_last_uncertified_deletable_blob: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 1,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Delete { was_certified: false },
+                    true,
+                    2,
+                    6,
+                    event_id_for_testing(),
+                ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 0,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    ..Default::default()
+                },
+            ),
         ]
     }
     fn test_merge_preexisting_expected_successes(

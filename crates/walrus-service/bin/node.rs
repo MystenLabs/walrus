@@ -7,7 +7,7 @@ use std::{
     fmt::Display,
     fs,
     io::{self, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
@@ -620,12 +620,9 @@ mod commands {
                 &metrics_runtime.registry,
                 &config.contract_config.system_object,
                 &config.contract_config.staking_object,
-                WalletConfig::load_wallet_context(
-                    Some(&config.wallet_config),
-                    config.request_timeout,
-                )
-                .and_then(|mut wallet| wallet.active_address())
-                .ok(),
+                WalletConfig::load_wallet(Some(&config.wallet_config), config.request_timeout)
+                    .and_then(|mut wallet| wallet.active_address())
+                    .ok(),
             );
         }
 
@@ -919,13 +916,12 @@ mod commands {
                 "getting Sui RPC URL from wallet at '{}'",
                 wallet_config.display()
             );
-            let wallet_context = load_wallet_context_from_path(Some(&wallet_config), None)
+            let wallet = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
-            wallet_context
-                .config
-                .get_active_env()
+            #[allow(deprecated)]
+            wallet
+                .get_rpc_url()
                 .context("Unable to get the wallet's active environment")?
-                .rpc
                 .clone()
         };
 
@@ -1301,15 +1297,13 @@ impl StorageNodeRuntime {
         });
 
         let checkpoint_manager = walrus_node.checkpoint_manager();
+        let admin_cancel_token = cancel_token.child_token();
         let rest_api = RestApiServer::new(
             walrus_node,
             cancel_token.child_token(),
             RestApiConfig::from(node_config),
             &metrics_runtime.registry,
         );
-        let mut rest_api_address = node_config.rest_api_address;
-        rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-        let admin_cancel_token = cancel_token.child_token();
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api
                 .run()

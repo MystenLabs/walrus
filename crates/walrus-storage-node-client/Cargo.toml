@@ -1,5 +1,5 @@
 [package]
-name = "walrus-rest-client"
+name = "walrus-storage-node-client"
 publish = false
 authors.workspace = true
 version.workspace = true

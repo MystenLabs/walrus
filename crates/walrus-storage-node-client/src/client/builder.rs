@@ -8,18 +8,17 @@ use rustls_native_certs::CertificateResult;
 use walrus_core::NetworkPublicKey;
 use walrus_utils::metrics::Registry;
 
-use super::{HttpClientMetrics, HttpMiddleware};
+use super::{HttpClientMetrics, HttpMiddleware, StorageNodeClient, UrlEndpoints};
 use crate::{
-    client::{Client, UrlEndpoints},
     error::{BuildErrorKind, ClientBuildError},
     tls::TlsCertificateVerifier,
 };
 
-/// A builder that can be used to construct a [`Client`].
+/// A builder that can be used to construct a [`StorageNodeClient`].
 ///
-/// Can be created with [`Client::builder()`].
+/// Can be created with [`StorageNodeClient::builder()`].
 #[derive(Debug, Default)]
-pub struct ClientBuilder {
+pub struct StorageNodeClientBuilder {
     inner: ReqwestClientBuilder,
     server_public_key: Option<NetworkPublicKey>,
     roots: Vec<CertificateDer<'static>>,
@@ -28,7 +27,7 @@ pub struct ClientBuilder {
     registry: Option<Registry>,
 }
 
-impl ClientBuilder {
+impl StorageNodeClientBuilder {
     /// Default timeout that is configured for connecting to the remote server.
     ///
     /// Modern advice is that TCP implementations should have a retry timeout of 1 second
@@ -41,7 +40,7 @@ impl ClientBuilder {
     /// See RFC6298 for more information.
     const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-    /// Creates a new builder to construct a [`Client`].
+    /// Creates a new builder to construct a [`StorageNodeClient`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -121,16 +120,19 @@ impl ClientBuilder {
     /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
     ///
     /// Equivalent `self.build(&remote.to_string())`
-    pub fn build_for_remote_ip(self, remote: SocketAddr) -> Result<Client, ClientBuildError> {
+    pub fn build_for_remote_ip(
+        self,
+        remote: SocketAddr,
+    ) -> Result<StorageNodeClient, ClientBuildError> {
         self.build(&remote.to_string())
     }
 
-    /// Consume the `ClientBuilder` and return a configured [`Client`].
+    /// Consume the [`StorageNodeClientBuilder`] and return a configured [`StorageNodeClient`].
     ///
     /// This method fails if a valid URL cannot be created with the provided address, the
     /// Rustls TLS backend cannot be initialized, or the resolver cannot load the system
     /// configuration.
-    pub fn build(mut self, address: &str) -> Result<Client, ClientBuildError> {
+    pub fn build(mut self, address: &str) -> Result<StorageNodeClient, ClientBuildError> {
         #[cfg(msim)]
         {
             self = self.no_proxy();
@@ -186,7 +188,7 @@ impl ClientBuilder {
             .build()
             .map_err(ClientBuildError::reqwest)?;
 
-        Ok(Client {
+        Ok(StorageNodeClient {
             client_clone: inner.clone(),
             inner: HttpMiddleware::new(
                 inner,

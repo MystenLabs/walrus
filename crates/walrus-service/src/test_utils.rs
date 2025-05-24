@@ -47,8 +47,10 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::client::Client;
 use walrus_sdk::active_committees::ActiveCommittees;
+#[cfg(msim)]
+use walrus_sdk::config::combine_rpc_urls;
+use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
@@ -72,7 +74,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
-use crate::common::config::{SuiConfig, combine_rpc_urls};
+use crate::common::config::SuiConfig;
 #[cfg(msim)]
 use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
 use crate::node::{
@@ -88,6 +90,7 @@ use crate::node::{
         NodeCommitteeService,
     },
     config::{self, ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
+    consistency_check::StorageNodeConsistencyCheckConfig,
     contract_service::SystemContractService,
     errors::{SyncNodeConfigError, SyncShardClientError},
     events::{
@@ -167,7 +170,7 @@ pub trait StorageNodeHandleTrait {
     fn cancel(&self);
 
     /// Returns the client that can be used to communicate with the node.
-    fn client(&self) -> &Client;
+    fn client(&self) -> &StorageNodeClient;
 
     /// Builds a new storage node handle, and starts the node.
     fn build_and_run(
@@ -226,7 +229,7 @@ pub struct StorageNodeHandle {
     /// Cancellation token for the REST API.
     pub cancel: CancellationToken,
     /// Client that can be used to communicate with the node.
-    pub client: Client,
+    pub client: StorageNodeClient,
     /// The storage capability object of the node.
     pub storage_node_capability: Option<StorageNodeCap>,
     /// The handle to the node runtime.
@@ -238,7 +241,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         self.cancel.cancel();
     }
 
-    fn client(&self) -> &Client {
+    fn client(&self) -> &StorageNodeClient {
         &self.client
     }
 
@@ -572,7 +575,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         unimplemented!("cannot directly cancel a storage proactively.")
     }
 
-    fn client(&self) -> &Client {
+    fn client(&self) -> &StorageNodeClient {
         unimplemented!("simulation test does not use the pre-built storage node client.")
     }
 
@@ -967,7 +970,7 @@ impl StorageNodeHandleBuilder {
             None
         };
 
-        let client = Client::builder()
+        let client = StorageNodeClient::builder()
             .authenticate_with_public_key(network_public_key.clone())
             // Disable proxy and root certs from the OS for tests.
             .no_proxy()
@@ -1137,7 +1140,7 @@ fn randomize_sliver_recovery_additional_symbols(config: &mut StorageNodeConfig) 
 
 /// Waits until the node is ready by querying the node's health info endpoint using the node
 /// client.
-async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
+async fn wait_for_rest_api_ready(client: &StorageNodeClient) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Err(err) = client.get_server_health_info(false).await {
             tracing::trace!(%err, "node is not ready yet, retrying...");
@@ -1625,7 +1628,7 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
     }
 
     /// Returns the client for the node at the specified index.
-    pub fn client(&self, index: usize) -> &Client {
+    pub fn client(&self, index: usize) -> &StorageNodeClient {
         self.nodes[index].client()
     }
 
@@ -2402,8 +2405,12 @@ pub mod test_cluster {
                     .enumerate()
             {
                 let client = wallet
-                    .and_then_async(|wallet| {
-                        system_ctx.new_contract_client(wallet, Default::default(), None)
+                    .and_then_async(async |wallet| {
+                        #[allow(deprecated)]
+                        let rpc_urls = &[wallet.get_rpc_url()?];
+                        system_ctx
+                            .new_contract_client(wallet, rpc_urls, Default::default(), None)
+                            .await
                     })
                     .await?;
                 let temp_dir = client.temp_dir.path().to_owned();
@@ -2422,13 +2429,18 @@ pub mod test_cluster {
             let contract_config = system_ctx.contract_config();
 
             let admin_contract_client = admin_wallet
-                .and_then_async(|wallet| {
+                .and_then_async(async |wallet| {
+                    #[allow(deprecated)]
+                    let rpc_urls = &[wallet.get_rpc_url()?];
+
                     SuiContractClient::new(
                         wallet,
+                        rpc_urls,
                         &contract_config,
                         ExponentialBackoffConfig::default(),
                         None,
                     )
+                    .await
                 })
                 .await?;
 
@@ -2557,6 +2569,7 @@ pub mod test_cluster {
                 contract_config,
                 exchange_objects: vec![],
                 wallet_config: None,
+                rpc_urls: vec![],
                 communication_config: self
                     .communication_config
                     .unwrap_or_else(ClientCommunicationConfig::default_for_test),
@@ -2744,6 +2757,12 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             num_uncertified_blob_threshold: Some(3),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            // Turn on all consistency checks in integration tests.
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_consistency_check: true,
+                enable_sliver_data_existence_check: true,
+                sliver_data_existence_check_sample_rate_percentage: 100,
+            },
             checkpoint_config: Default::default(),
             admin_socket_path: None,
         },

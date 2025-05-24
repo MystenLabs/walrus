@@ -94,7 +94,7 @@ where
                 }
             }
             Err(error) => {
-                tracing::debug!("non-retriable error, returning last failure value");
+                tracing::debug!(?error, "non-retriable error, returning last failure value");
                 return Err(error);
             }
         }

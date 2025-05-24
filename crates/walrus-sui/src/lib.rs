@@ -9,6 +9,7 @@ pub mod client;
 pub mod config;
 pub mod contracts;
 pub mod system_setup;
+pub mod wallet;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

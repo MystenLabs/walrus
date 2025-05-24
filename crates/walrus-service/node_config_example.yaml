@@ -65,7 +65,7 @@ rest_server:
   http2_max_concurrent_streams: 1000
   http2_initial_stream_window_size: null
   http2_initial_connection_window_size: null
-  http2_max_pending_accept_reset_streams: 100
+  http2_max_pending_accept_reset_streams: 4294967295
   http2_adaptive_window: true
 rest_graceful_shutdown_period_secs: 60
 sui:
@@ -117,12 +117,12 @@ event_processor_config:
     scale_down_lag_threshold: 10
     scale_cooldown_secs: 10
     base_config:
-      min_retries: 10
       initial_delay_millis: 150
       max_delay_millis: 2000
     channel_config:
       work_queue_buffer_factor: 3
       result_queue_buffer_factor: 3
+    max_consecutive_pool_monitor_failures: 10
   event_stream_catchup_min_checkpoint_lag: 20000
 use_legacy_event_provider: false
 disable_event_blob_writer: false
@@ -148,6 +148,10 @@ balance_check:
 thread_pool:
   max_concurrent_tasks: null
   max_blocking_io_threads: 1024
+consistency_check:
+  enable_consistency_check: true
+  enable_sliver_data_existence_check: false
+  sliver_data_existence_check_sample_rate_percentage: 100
 checkpoint_config:
   db_checkpoint_dir: null
   max_db_checkpoints: 3
