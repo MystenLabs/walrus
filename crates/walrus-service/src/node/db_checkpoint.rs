@@ -236,6 +236,8 @@ impl DbCheckpointManager {
     const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_secs(60 * 60);
 
     /// Create a new db_checkpoint manager for RocksDB.
+    //
+    // TODO(WAL-845): Add metrics for db_checkpoint creation and restore.
     pub async fn new(
         db: Arc<RocksDB>,
         config: DbCheckpointConfig,
@@ -564,6 +566,7 @@ impl DbCheckpointManager {
     ) -> Result<BackupEngine, DbCheckpointError> {
         let env = Env::new().map_err(|e| DbCheckpointError::Other(e.into()))?;
 
+        // TODO(WAL-844): Rate limit checkpoint io.
         let mut backup_opts = BackupEngineOptions::new(db_checkpoint_dir)
             .map_err(|e| DbCheckpointError::Other(e.into()))?;
         if let Some(max_background_operations) = max_background_operations {
