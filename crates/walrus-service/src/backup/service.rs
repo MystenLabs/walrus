@@ -43,7 +43,10 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::utils::{self, MetricsAndLoggingRuntime, version},
+    common::{
+        config::combine_rpc_urls,
+        utils::{self, MetricsAndLoggingRuntime, create_walrus_client_with_refresher, version},
+    },
     node::{
         DatabaseConfig,
         events::{
@@ -626,7 +629,7 @@ async fn backup_fetcher(
                     &mut conn,
                     &backup_config,
                     &backup_metric_set,
-                    &read_client,
+                    &walrus_client,
                     blob_id,
                 )
                 .await
