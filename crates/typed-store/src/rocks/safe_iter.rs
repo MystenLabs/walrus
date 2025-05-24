@@ -6,12 +6,14 @@ use std::{fmt, marker::PhantomData, sync::Arc};
 use bincode::Options;
 use prometheus::{Histogram, HistogramTimer};
 use rocksdb::Direction;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
-use super::RocksDBRawIter;
+use super::{RocksDBRawIter, be_fix_int_ser};
 use crate::{
     TypedStoreError,
     metrics::{DBMetrics, RocksDBPerfContext},
+    rocks::errors::typed_store_err_from_bincode_err,
+    traits::SeekableIterator,
 };
 
 /// An iterator over all key-value pairs in a data map.
@@ -120,6 +122,48 @@ impl<K, V> Drop for SafeIter<'_, K, V> {
     }
 }
 
+impl<K: DeserializeOwned + Serialize, V> SeekableIterator<K> for SafeIter<'_, K, V> {
+    fn seek_to_first(&mut self) {
+        self.is_initialized = true;
+        self.db_iter.seek_to_first();
+    }
+
+    fn seek_to_last(&mut self) {
+        self.is_initialized = true;
+        self.db_iter.seek_to_last();
+    }
+
+    fn seek(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        self.is_initialized = true;
+        self.db_iter.seek(be_fix_int_ser(key)?);
+        Ok(())
+    }
+
+    fn seek_to_prev(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        self.is_initialized = true;
+        self.db_iter.seek_for_prev(be_fix_int_ser(key)?);
+        Ok(())
+    }
+
+    fn key(&self) -> Result<Option<K>, TypedStoreError> {
+        // Before getting the key, the caller must place the iterator at a valid position,
+        // by either calling SeekableIterator APIs or Iterator APIs.
+        if !self.is_initialized {
+            return Err(TypedStoreError::IteratorNotInitialized);
+        }
+
+        let raw_key = self.db_iter.key();
+        raw_key
+            .map(|data| {
+                bincode::DefaultOptions::new()
+                    .with_big_endian()
+                    .with_fixint_encoding()
+                    .deserialize(data)
+                    .map_err(typed_store_err_from_bincode_err)
+            })
+            .transpose()
+    }
+}
 /// An iterator with a reverted direction to the original. The `RevIter`
 /// is hosting an iteration which is consuming in the opposing direction.
 /// It's not possible to do further manipulation (ex re-reverse) to the

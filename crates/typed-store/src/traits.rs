@@ -16,7 +16,7 @@ where
     /// The error type for the map
     type Error: Error;
     /// The safe iterator type for the map
-    type SafeIterator: Iterator<Item = Result<(K, V), TypedStoreError>>;
+    type SafeIterator: Iterator<Item = Result<(K, V), TypedStoreError>> + SeekableIterator<K>;
 
     /// Returns true if the map contains a value for the specified key.
     fn contains_key(&self, key: &K) -> Result<bool, Self::Error>;
@@ -98,6 +98,24 @@ where
 
     /// Try to catch up with primary when running as secondary
     fn try_catch_up_with_primary(&self) -> Result<(), Self::Error>;
+}
+
+/// The trait for seekable iterator.
+pub trait SeekableIterator<K> {
+    /// Seeks to the first key in the iterator.
+    fn seek_to_first(&mut self);
+
+    /// Seeks to the last key in the iterator.
+    fn seek_to_last(&mut self);
+
+    /// Seeks to the specified key. If the key does not exist, it will seek to the next key.
+    fn seek(&mut self, key: &K) -> Result<(), TypedStoreError>;
+
+    /// Seeks to the previous key. If the key does not exist, it will seek to the previous key.
+    fn seek_to_prev(&mut self, key: &K) -> Result<(), TypedStoreError>;
+
+    /// Returns the current key.
+    fn key(&self) -> Result<Option<K>, TypedStoreError>;
 }
 
 /// The summary of the table
