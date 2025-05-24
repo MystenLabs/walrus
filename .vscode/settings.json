@@ -2,5 +2,10 @@
   "rust-analyzer.rustfmt.extraArgs": [
     "--config",
     "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
-  ]
+  ],
+  // Uncomment this option to allow rust analyzer to work with simtests.
+  // "rust-analyzer.cargo.extraEnv": {
+  //   "RUSTFLAGS": "--cfg msim",
+  //   "SIMTEST_STATIC_INIT_MOVE": "$root_dir/contracts/walrus"
+  // },
 }
