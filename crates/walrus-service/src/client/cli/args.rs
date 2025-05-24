@@ -21,7 +21,8 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
-    encoding::{EncodingConfig, EncodingConfigTrait},
+    QuiltBlobId,
+    encoding::{EncodingConfig, EncodingConfigTrait, QuiltVersionEnum},
     ensure,
 };
 use walrus_sui::{
@@ -30,7 +31,13 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
+use super::{
+    BlobIdDecimal,
+    HumanReadableBytes,
+    parse_blob_id,
+    parse_quilt_blob_id,
+    read_blob_from_file,
+};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -245,6 +252,70 @@ pub enum CliCommands {
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
+    /// Store files as a quilt.
+    #[command(alias("write-quilt"))]
+    StoreQuilt {
+        /// The path to the directory containing the quilt files, the file names will be used as
+        /// the identifiers for the files within the quilt.
+        #[arg(required = true, value_name = "PATH", alias("path-list"))]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        #[arg(long, num_args = 1..)]
+        path: Vec<PathBuf>,
+        /// The epoch argument to specify either the number of epochs to store the blob, or the
+        /// end epoch, or the earliest expiry time in rfc3339 format.
+        ///
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
+        /// Perform a dry-run of the store without performing any actions on chain.
+        ///
+        /// This assumes `--force`; i.e., it does not check the current status of the blob.
+        #[arg(long)]
+        #[serde(default)]
+        dry_run: bool,
+        /// Do not check for the blob status before storing it.
+        ///
+        /// This will create a new blob even if the blob is already certified for a sufficient
+        /// duration.
+        #[arg(long)]
+        #[serde(default)]
+        force: bool,
+        /// Ignore the storage resources owned by the wallet.
+        ///
+        /// The client will not check if it can reuse existing resources, and just check the blob
+        /// status on chain.
+        #[arg(long)]
+        #[serde(default)]
+        ignore_resources: bool,
+        /// Mark the blob as deletable.
+        ///
+        /// Deletable blobs can be removed from Walrus before their expiration time.
+        #[arg(long)]
+        #[serde(default)]
+        deletable: bool,
+        /// Whether to put the blob into a shared blob object.
+        #[arg(long)]
+        #[serde(default)]
+        share: bool,
+        /// The encoding type to use for encoding the files.
+        #[arg(long, hide = true)]
+        #[serde(default)]
+        encoding_type: Option<EncodingType>,
+    },
+    /// Construct a quilt from a folder of files.
+    ConstructQuilt {
+        /// The path to the directory containing the files to be used to construct the quilt.
+        #[arg(required = true, value_name = "PATH")]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        paths: Vec<PathBuf>,
+        /// Quilt Version.
+        #[arg(long, default_value_t = QuiltVersionEnum::V1)]
+        version: QuiltVersionEnum,
+        /// The file path where to write the quilt.
+        #[arg(long)]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
+        out: PathBuf,
+    },
     /// Read a blob from Walrus, given the blob ID.
     Read {
         /// The blob ID to be read.
@@ -260,6 +331,50 @@ pub enum CliCommands {
             deserialize_with = "walrus_utils::config::resolve_home_dir_option"
         )]
         out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// Read a blob from Walrus using either a quilt blob ID or a quilt ID with blob identifiers.
+    ReadQuilt {
+        /// The blob ID of the quilt.
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+        blob_id: Option<BlobId>,
+
+        /// The identifiers of the blobs to be read from the quilt.
+        /// Can be provided as a space-separated list (e.g., --identifiers quilt1 quilt2 quilt3).
+        #[arg(long, num_args = 1.., requires = "blob_id")]
+        #[serde(default)]
+        identifiers: Vec<String>,
+
+        /// Direct QuiltBlobId reference to a specific blob within a quilt.
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id, num_args = 0..)]
+        #[serde(default)]
+        quilt_blob_ids: Vec<QuiltBlobId>,
+
+        /// The file path where to write the blobs.
+        ///
+        /// If unset, prints the blob to stdout.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// List the blobs in a quilt.
+    ListBlobsInQuilt {
+        /// The blob ID to be read.
+        #[serde_as(as = "DisplayFromStr")]
+        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
+        blob_id: BlobId,
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]

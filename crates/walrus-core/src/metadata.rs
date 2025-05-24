@@ -24,6 +24,9 @@ use crate::{
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
+        QuiltPatchApi,
+        QuiltPatchIdV1,
+        QuiltVersionV1,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
     },
@@ -53,24 +56,31 @@ pub enum VerificationError {
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
-    /// The unencoded length of the blob.
-    pub unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
-    pub start_index: u16,
+    start_index: u16,
     /// The end sliver index of the blob.
-    pub end_index: u16,
+    end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
-    pub identifier: String,
+    identifier: String,
+}
+
+impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
+    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+        self.quilt_patch_id()
+    }
+
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
 }
 
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
+    pub fn new(identifier: String) -> Result<Self, QuiltError> {
         Self::validate_identifier(&identifier)?;
 
         Ok(Self {
-            unencoded_length,
             identifier,
             start_index: 0,
             end_index: 0,
@@ -90,6 +100,32 @@ impl QuiltPatchV1 {
             ));
         }
         Ok(())
+    }
+
+    /// The start index of the quilt patch.
+    pub fn start_index(&self) -> u16 {
+        self.start_index
+    }
+
+    /// The end index of the quilt patch.
+    pub fn end_index(&self) -> u16 {
+        self.end_index
+    }
+
+    /// The identifier of the quilt patch.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    /// Sets the range of the quilt patch.
+    pub fn set_range(&mut self, start_index: u16, end_index: u16) {
+        self.start_index = start_index;
+        self.end_index = end_index;
+    }
+
+    /// Returns the quilt patch id for the quilt patch.
+    pub fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+        QuiltPatchIdV1::new(self.start_index, self.end_index)
     }
 }
 
@@ -143,14 +179,20 @@ impl QuiltIndexV1 {
 
     /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
-        if let Some(first_patch) = self.quilt_patches.first_mut() {
-            first_patch.start_index = first_start;
+        let mut prev_end_index = first_start;
+        for i in 0..self.quilt_patches.len() {
+            let end_index = self.quilt_patches[i].end_index();
+            self.quilt_patches[i].set_range(prev_end_index, end_index);
+            prev_end_index = end_index;
         }
+    }
+}
 
-        for i in 1..self.quilt_patches.len() {
-            let prev_end_index = self.quilt_patches[i - 1].end_index;
-            self.quilt_patches[i].start_index = prev_end_index;
-        }
+impl Iterator for QuiltIndexV1 {
+    type Item = QuiltPatchV1;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.quilt_patches.pop()
     }
 }
 
