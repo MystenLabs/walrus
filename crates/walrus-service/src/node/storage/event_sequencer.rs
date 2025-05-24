@@ -57,6 +57,10 @@ impl EventSequencer {
         }
     }
 
+    /// Returns the number of events that are currently in the queue but have not yet been processed.
+    ///
+    /// This represents the count of event IDs that have been observed but are not yet contiguous
+    /// from the current `head_index`, and therefore not ready to be returned by [`ready_events`].
     pub fn remaining(&self) -> u64 {
         self.queue.len().try_into().expect("usize is at most u64")
     }
