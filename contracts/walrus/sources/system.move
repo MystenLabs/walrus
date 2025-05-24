@@ -95,6 +95,22 @@ public fun reserve_space(
     self.inner_mut().reserve_space(storage_amount, epochs_ahead, payment, ctx)
 }
 
+/// Allows buying a storage reservation for a given period of epochs.
+///
+/// Returns a storage resource for the period between `start_epoch` (inclusive) and
+/// `end_epoch` (exclusive). If `start_epoch` has already passed, reserves space starting
+/// from the current epoch.
+public fun reserve_space_for_epochs(
+    self: &mut System,
+    storage_amount: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Storage {
+    self.inner_mut().reserve_space_for_epochs(storage_amount, start_epoch, end_epoch, payment, ctx)
+}
+
 /// Registers a new blob in the system.
 /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
 /// least the size of the encoded blob.
