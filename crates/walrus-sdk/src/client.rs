@@ -329,48 +329,43 @@ impl<T: ReadClient> Client<T> {
         self.read_blob_internal(blob_id, Some(blob_status)).await
     }
 
-    /// Internal method to handle the common logic for reading blobs.
-    async fn read_blob_internal<U>(
+    /// Tries to get the blob status if not provided.
+    async fn try_get_blob_status(
         &self,
         blob_id: &BlobId,
-        blob_status: Option<BlobStatus>,
-    ) -> ClientResult<Vec<u8>>
-    where
-        U: EncodingAxis,
-        SliverData<U>: TryFrom<Sliver>,
-    {
-        tracing::debug!("starting to read blob");
-
-        self.check_blob_id(blob_id)?;
-
-        let committees = self.get_committees().await?;
-
-        let get_status_if_exists_fn = |status: Option<BlobStatus>| async move {
-            let status = if let Some(status) = status {
-                status
-            } else {
-                self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                    .await?
-            };
-
-            if BlobStatus::Nonexistent == status {
-                Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist))
-            } else {
-                Ok(status)
-            }
+        status: Option<BlobStatus>,
+    ) -> ClientResult<BlobStatus> {
+        let status = if let Some(status) = status {
+            status
+        } else {
+            self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                .await?
         };
 
+        if BlobStatus::Nonexistent == status {
+            Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist))
+        } else {
+            Ok(status)
+        }
+    }
+
+    async fn get_blob_status_and_certified_epoch(
+        &self,
+        blob_id: &BlobId,
+        known_status: Option<BlobStatus>,
+    ) -> ClientResult<(Epoch, Option<BlobStatus>)> {
+        let committees = self.get_committees().await?;
         let (epoch_to_be_read, blob_status) = if committees.is_change_in_progress() {
-            let blob_status = get_status_if_exists_fn(blob_status).await?;
+            let blob_status = self.try_get_blob_status(blob_id, known_status).await?;
             (blob_status.initial_certified_epoch(), Some(blob_status))
         } else {
             // We are not during epoch change, we can read from the current epoch directly if we do
             // not have a blob status.
             (
-                blob_status
+                known_status
                     .map(|status| status.initial_certified_epoch())
                     .unwrap_or_else(|| Some(committees.epoch())),
-                blob_status,
+                known_status,
             )
         };
 
@@ -386,6 +381,27 @@ impl<T: ReadClient> Client<T> {
             }));
         }
 
+        Ok((certified_epoch, blob_status))
+    }
+
+    /// Internal method to handle the common logic for reading blobs.
+    async fn read_blob_internal<U>(
+        &self,
+        blob_id: &BlobId,
+        blob_status: Option<BlobStatus>,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        tracing::debug!("starting to read blob");
+
+        self.check_blob_id(blob_id)?;
+
+        let (certified_epoch, blob_status) = self
+            .get_blob_status_and_certified_epoch(blob_id, blob_status)
+            .await?;
+
         // Execute the status request and the metadata/sliver request concurrently.
         //
         // If the status request fails, the metadata/sliver request will be cancelled. If the status
@@ -395,7 +411,7 @@ impl<T: ReadClient> Client<T> {
         // In the unlikely event that the status request takes longer than reading the
         // metadata/slivers, the status request will be dropped.
         match select(
-            pin!(get_status_if_exists_fn(blob_status)),
+            pin!(self.try_get_blob_status(blob_id, blob_status)),
             pin!(self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)),
         )
         .await
@@ -638,6 +654,7 @@ impl<T: ReadClient> Client<T> {
                     }
                 }
                 Err(e) => {
+                    // TODO(heliu): if the error is not retriable, return the error immediately.
                     tracing::warn!("Error retrieving slivers: {:?}", e);
                     tokio::time::sleep(Duration::from_millis(retry_delay_ms * 2)).await;
                 }
@@ -704,7 +721,7 @@ impl<T: ReadClient> Client<T> {
     ///
     /// Returns the retrieved slivers or an error if they cannot be found.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    pub async fn retrieve_slivers<'a, E: EncodingAxis>(
+    async fn retrieve_slivers<'a, E: EncodingAxis>(
         &self,
         metadata: &'a VerifiedBlobMetadataWithId,
         sliver_indices: &[SliverIndex],
@@ -2293,14 +2310,14 @@ impl<T> Client<T> {
     }
 }
 
-/// A facade for Quilt-related operations
+/// A thin wrapper around the client for Quilt-related operations.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
     client: &'a Client<T>,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
-    /// Creates a new QuiltClient for the given client.
+    /// Creates a new QuiltClient.
     pub fn new(client: &'a Client<T>) -> Self {
         Self { client }
     }
