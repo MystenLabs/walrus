@@ -268,13 +268,10 @@ impl WriteClientPool {
     pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
-        let client = self
-            .pool
+        self.pool
             .get(cur_idx)
             .expect("the index is computed modulo the length and clients cannot be removed")
-            .clone();
-
-        client
+            .clone()
     }
 }
 
