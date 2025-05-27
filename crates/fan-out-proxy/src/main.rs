@@ -34,7 +34,10 @@ use walrus_core::{
     metadata::BlobMetadataWithId,
 };
 use walrus_sdk::{
-    SuiReadClient, client::Client, config::ClientConfig,
+    SuiReadClient,
+    client::Client,
+    config::ClientConfig,
+    core_utils::load_from_yaml,
     sui::client::retry_client::RetriableSuiClient,
 };
 
