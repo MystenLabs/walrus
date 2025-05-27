@@ -887,7 +887,9 @@ impl ClientCommandRunner {
         let quilt_read_client = read_client.quilt_client();
         let retrieved_blobs = if let Some(blob_id) = blob_id {
             let identifiers = identifiers.iter().map(|id| id.as_str()).collect::<Vec<_>>();
-            quilt_read_client.get_blobs(&blob_id, &identifiers).await?
+            quilt_read_client
+                .get_blobs_by_identifiers(&blob_id, &identifiers)
+                .await?
         } else if !quilt_blob_ids.is_empty() {
             quilt_read_client.get_blobs_by_ids(&quilt_blob_ids).await?
         } else {

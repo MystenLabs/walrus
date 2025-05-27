@@ -26,6 +26,7 @@ use crate::{
         QuiltError,
         QuiltPatchApi,
         QuiltPatchIdV1,
+        QuiltVersion,
         QuiltVersionV1,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
@@ -136,6 +137,13 @@ pub enum QuiltIndex {
     V1(QuiltIndexV1),
 }
 
+impl QuiltIndex {
+    /// Returns the quilt index v1.
+    pub fn new<V: QuiltVersion>(quilt_index: V::QuiltIndex) -> QuiltIndex {
+        quilt_index.into()
+    }
+}
+
 /// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
 ///
 /// Each quilt patch represents a blob stored in the quilt. And each patch is
@@ -145,6 +153,12 @@ pub enum QuiltIndex {
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
     pub quilt_patches: Vec<QuiltPatchV1>,
+}
+
+impl From<QuiltIndexV1> for QuiltIndex {
+    fn from(quilt_index: QuiltIndexV1) -> Self {
+        QuiltIndex::V1(quilt_index)
+    }
 }
 
 impl QuiltIndexV1 {

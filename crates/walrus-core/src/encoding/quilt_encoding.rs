@@ -64,7 +64,7 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt.
     type Quilt: QuiltApi<Self>;
     /// The type of the quilt index.
-    type QuiltIndex: Clone + Iterator<Item = Self::QuiltPatch>;
+    type QuiltIndex: Clone + Iterator<Item = Self::QuiltPatch> + Into<QuiltIndex>;
     /// The type of the quilt patch.
     type QuiltPatch: Clone + QuiltPatchApi<Self>;
     /// The type of the quilt patch id.
