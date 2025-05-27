@@ -1,6 +1,10 @@
 #!/bin/bash
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
+# This script allows creating unsigned transactions for operations that need to be signed
+# by a Walrus multisig address.
+# Intended to be used using the github workflow defined in
+# `../.github/workflows/create-tx-for-multisig.yml`
 
 GAS_OBJECT_ID=""
 TX_TYPE=""
@@ -83,7 +87,11 @@ case "$TX_TYPE" in
   migrate-subsidies)
     migrate_subsidies
     ;;
+  "")
+    echo "Error: The transaction type must be specified" >&2
+    exit 1
+    ;;
   *)
-    echo "Invalid transaction type \"$TX_TYPE\"" >&2
+    echo "Error: Invalid transaction type \"$TX_TYPE\"" >&2
     exit 1
 esac
