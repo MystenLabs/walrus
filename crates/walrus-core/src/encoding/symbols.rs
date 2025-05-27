@@ -12,7 +12,6 @@ use core::{
     slice::{Chunks, ChunksMut},
 };
 
-use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 use serde_with::{Bytes, serde_as};
 
@@ -300,11 +299,6 @@ pub struct DecodingSymbol<T> {
 }
 
 impl<T: EncodingAxis> DecodingSymbol<T> {
-    /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
-    pub fn into_encoding_packet(self) -> EncodingPacket {
-        EncodingPacket::new(PayloadId::new(0, self.index.into()), self.data)
-    }
-
     /// Returns the symbol size in bytes.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -814,9 +808,6 @@ mod tests {
 
     param_test! {
         test_recovery_symbol_proof -> TestResult: [
-            raptorq: (
-                EncodingType::RedStuffRaptorQ,
-            ),
             reed_solomon: (
                 EncodingType::RS2,
             ),

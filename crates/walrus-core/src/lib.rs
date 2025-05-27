@@ -82,34 +82,8 @@ pub type Epoch = u32;
 pub type EpochCount = u32;
 
 /// A tuple containing the list of supported encodings, and the default encoding type.
-const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) = {
-    #[cfg(all(feature = "rs2", feature = "raptorq"))]
-    {
-        (
-            &[EncodingType::RS2, EncodingType::RedStuffRaptorQ],
-            EncodingType::RS2,
-        )
-    }
-
-    #[cfg(all(feature = "raptorq", not(feature = "rs2")))]
-    {
-        (
-            &[EncodingType::RedStuffRaptorQ],
-            EncodingType::RedStuffRaptorQ,
-        )
-    }
-
-    #[cfg(all(feature = "rs2", not(feature = "raptorq")))]
-    {
-        (&[EncodingType::RS2], EncodingType::RS2)
-    }
-
-    #[cfg(not(any(feature = "raptorq", feature = "rs2")))]
-    {
-        // If nothing is specified, default to RS2.
-        (&[EncodingType::RS2], EncodingType::RS2)
-    }
-};
+const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) =
+    (&[EncodingType::RS2], EncodingType::RS2);
 
 /// The encoding types supported for this build.
 pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = SUPPORTED_AND_DEFAULT_ENCODING.0;
@@ -676,8 +650,6 @@ pub struct InvalidEncodingType;
 #[repr(u8)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum EncodingType {
-    /// Original RedStuff encoding using the RaptorQ erasure code.
-    RedStuffRaptorQ = 0,
     /// RedStuff using the Reed-Solomon erasure code.
     RS2 = 1,
 }
@@ -693,7 +665,6 @@ impl TryFrom<u8> for EncodingType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(EncodingType::RedStuffRaptorQ),
             1 => Ok(EncodingType::RS2),
             _ => Err(InvalidEncodingType),
         }
@@ -705,7 +676,6 @@ impl FromStr for EncodingType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
-            "redstuff/raptorq" | "raptorq" | "redstuffraptorq" => Ok(Self::RedStuffRaptorQ),
             "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
             _ => Err(InvalidEncodingType),
         }
@@ -714,19 +684,17 @@ impl FromStr for EncodingType {
 
 impl EncodingType {
     /// Returns the required alignment of symbols for the encoding type.
-    pub fn required_alignment(&self) -> u64 {
+    pub fn required_alignment(&self) -> u16 {
         match self {
-            EncodingType::RedStuffRaptorQ => 1,
             EncodingType::RS2 => 2,
         }
     }
 
     /// Returns the maximum size of a symbol for the encoding type.
-    pub fn max_symbol_size(&self) -> u64 {
+    pub fn max_symbol_size(&self) -> u16 {
         match self {
-            EncodingType::RedStuffRaptorQ => u16::MAX.into(),
             // TODO (WAL-611): Probably we can support larger symbols for Reed-Solomon.
-            EncodingType::RS2 => (u16::MAX - 1).into(),
+            EncodingType::RS2 => u16::MAX - 1,
         }
     }
 
@@ -739,7 +707,6 @@ impl EncodingType {
 impl Display for EncodingType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EncodingType::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
             EncodingType::RS2 => write!(f, "RedStuff/Reed-Solomon"),
         }
     }
