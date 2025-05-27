@@ -61,7 +61,7 @@ jobs:
           cat artifacts/tx-data.txt
 
       - name: Upload Transaction Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@v4
         with:
           name: transaction-data
           path: artifacts/tx-data.txt
