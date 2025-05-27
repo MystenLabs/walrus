@@ -8,7 +8,7 @@
 
 # Stage 1: Base Build Environment + Builder
 # -------------------------------------
-FROM rust:1.86-bookworm AS builder
+FROM rust:1.87-bookworm AS builder
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/walrus"
