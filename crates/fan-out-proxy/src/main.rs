@@ -63,7 +63,7 @@ enum Command {
         context: Option<String>,
         /// The file path to the Walrus read client configuration.
         #[arg(long, global = true)]
-        config_path: PathBuf,
+        walrus_config: PathBuf,
         /// The address to listen on. Defaults to 0.0.0.0:57391.
         #[arg(long, global = true)]
         server_address: Option<SocketAddr>,
@@ -117,17 +117,17 @@ async fn main() -> Result<()> {
     match args.command {
         Command::Proxy {
             context,
-            config_path,
+            walrus_config,
             server_address,
             tip_config,
         } => {
             // Create a client we can use to communicate with the Sui network, which is used to
             // coordinate the Walrus network.
-            let client = get_client(context.as_deref(), config_path.as_path()).await?;
+            let client = get_client(context.as_deref(), walrus_config.as_path()).await?;
 
             let n_shards = client.get_committees().await?.n_shards();
             let encoding_config = Arc::new(EncodingConfig::new(n_shards));
-            let tip_config: TipConfig = walrus_sdk::core_utils::load_from_yaml(tip_config)?;
+            let tip_config: TipConfig = load_from_yaml(tip_config)?;
             let checker = TipChecker::new(
                 tip_config,
                 client.sui_client().sui_client().clone(), // TODO: lol this naming?
@@ -152,8 +152,9 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<SuiReadClient>> {
-    let config: ClientConfig = walrus_sdk::config::load_configuration(Some(config_path), context)?;
+async fn get_client(context: Option<&str>, walrus_config: &Path) -> Result<Client<SuiReadClient>> {
+    let config: ClientConfig =
+        walrus_sdk::config::load_configuration(Some(walrus_config), context)?;
     tracing::debug!(?config, "loaded client config");
 
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
