@@ -349,9 +349,8 @@ impl QuiltVersionV1 {
         );
 
         let mut offset = Self::BLOB_HEADER_SIZE;
-        let mut blob_bytes_size = usize::try_from(blob_header.length).map_err(|e| {
-            QuiltError::Other(format!("Blob length exceeds maximum allowed value: {}", e))
-        })?;
+        let mut blob_bytes_size =
+            usize::try_from(blob_header.length).expect("length should fit in usize");
 
         let (identifier, bytes_consumed) =
             Self::decode_blob_identifier(data_source, start_col, end_col, offset)?;
@@ -888,7 +887,7 @@ impl<'a> QuiltEncoderV1<'a> {
     fn add_blob_to_quilt(
         data: &mut [u8],
         blob: &QuiltStoreBlob,
-        is_meta_blob: bool,
+        is_meta_blob: bool, // True if `blob` is the quilt index.
         current_col: usize,
         column_size: usize,
         row_size: usize,
