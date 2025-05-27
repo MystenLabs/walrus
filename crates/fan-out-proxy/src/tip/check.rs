@@ -87,6 +87,9 @@ impl TipChecker {
         tx_bytes: Base64,
         signatures: Vec<Base64>,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        // NOTE: From Hayes, weird edge cases exist when re-submitting already executed
+        // transactions. We should either validate that running a tx on another node returns all
+        // required data, or we should just wait for the tx on the proxy, and get events from that.
         self.sui_client
             .execute_transaction_from_bytes(
                 tx_bytes,
