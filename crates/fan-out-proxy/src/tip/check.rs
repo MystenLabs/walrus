@@ -7,7 +7,7 @@
 //! transaction to the full nodes for execution, finally verifying that the tip amount was
 //! correctly provided.
 
-use std::str::FromStr;
+use std::{fmt::Debug, num::NonZeroU16, str::FromStr, sync::Arc};
 
 use fastcrypto::encoding::Base64;
 use sui_sdk::{
@@ -15,7 +15,11 @@ use sui_sdk::{
     rpc_types::{SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions},
 };
 use sui_types::{TypeTag, quorum_driver_types::ExecuteTransactionRequestType};
-use walrus_core::BlobId;
+use walrus_core::{
+    BlobId,
+    encoding::{self, DataTooLargeError, EncodingConfig, EncodingConfigTrait, SliverPair},
+    metadata::VerifiedBlobMetadataWithId,
+};
 use walrus_sui::{
     client::{SuiClientResult, retry_client::RetriableSuiClient},
     types::{BlobEvent, BlobRegistered},
@@ -24,15 +28,61 @@ use walrus_sui::{
 use crate::tip::{config::TipConfig, error::TipError};
 
 /// Checks that the submitted transactions are valid and contain a sufficient tip.
+#[derive(Clone)]
 pub(crate) struct TipChecker {
     config: TipConfig,
     sui_client: RetriableSuiClient,
+    n_shards: NonZeroU16,
+}
+
+impl Debug for TipChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TipChecker")
+            .field("config", &self.config)
+            .field("n_shards", &self.n_shards)
+            .finish()
+    }
 }
 
 impl TipChecker {
     /// Creates a new checker.
-    pub(crate) fn new(config: TipConfig, sui_client: RetriableSuiClient) -> Self {
-        Self { config, sui_client }
+    pub(crate) fn new(
+        config: TipConfig,
+        sui_client: RetriableSuiClient,
+        n_shards: NonZeroU16,
+    ) -> Self {
+        Self {
+            config,
+            sui_client,
+            n_shards,
+        }
+    }
+
+    /// Checks the transaction correctly registers the blob of given ID and tips the proxy.
+    pub(crate) async fn execute_and_check_transaction(
+        &self,
+        tx_bytes: Base64,
+        signatures: Vec<Base64>,
+        expected_blob_id: BlobId,
+    ) -> Result<BlobRegistered, TipError> {
+        let response = self
+            .execute_transaction_from_bytes(tx_bytes, signatures)
+            .await?;
+
+        // Check that the transaction has registered the blob ID.
+        let registration =
+            self.blob_registration_from_response(response.clone(), expected_blob_id)?;
+
+        // Check that the transaction contains an appropriate tip.
+        let encoded_size = encoding::encoded_blob_length_for_n_shards(
+            self.n_shards,
+            registration.size,
+            registration.encoding_type,
+        )
+        .ok_or(TipError::EncodedBlobLengthFailed)?;
+        self.check_response_tip(&response, encoded_size)?;
+
+        Ok(registration)
     }
 
     /// Submits the transaction received from the client for execution to the full nodes.

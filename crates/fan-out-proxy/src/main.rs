@@ -183,6 +183,7 @@ async fn fan_out_blob_slivers(
     tracing::info!(?params, "fan_out_blob_slivers");
 
     // TODO: add this parameter to the API?
+    // Not necessary.
     let blob_persistence_type: BlobPersistenceType = BlobPersistenceType::Permanent;
 
     let blob_id: BlobId = params.blob_id.parse()?;
