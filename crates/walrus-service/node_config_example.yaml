@@ -4,6 +4,7 @@ blocklist_path: null
 db_config:
   global:
     max_open_files: 512000
+    max_total_wal_size: 10737418240
     keep_log_file_num: 50
     wal_ttl_seconds: 172800
     wal_size_limit_mb: 10240

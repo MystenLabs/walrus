@@ -262,8 +262,11 @@ impl DatabaseTableOptions {
 pub struct GlobalDatabaseOptions {
     /// The maximum number of open files
     pub max_open_files: Option<i32>,
+    /// The maximum total size for all WALs in bytes.
+    pub max_total_wal_size: Option<u64>,
     /// The number of log files to keep.
     pub keep_log_file_num: Option<usize>,
+    /// Below two options are only control the behavior of archived WALs.
     /// The TTL for the WAL in seconds.
     pub wal_ttl_seconds: Option<u64>,
     /// The size limit for the WAL in MB.
@@ -274,6 +277,7 @@ impl Default for GlobalDatabaseOptions {
     fn default() -> Self {
         Self {
             max_open_files: Some(512_000),
+            max_total_wal_size: Some(10 * 1024 * 1024 * 1024), // 10 GB,
             keep_log_file_num: Some(50),
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
@@ -287,6 +291,10 @@ impl From<&GlobalDatabaseOptions> for Options {
 
         if let Some(max_files) = value.max_open_files {
             options.set_max_open_files(max_files);
+        }
+
+        if let Some(max_total_wal_size) = value.max_total_wal_size {
+            options.set_max_total_wal_size(max_total_wal_size);
         }
 
         if let Some(keep_log_file_num) = value.keep_log_file_num {
