@@ -34,10 +34,8 @@ use walrus_core::{
     metadata::BlobMetadataWithId,
 };
 use walrus_sdk::{
-    SuiReadClient,
-    client::Client,
-    config::{ClientConfig, combine_rpc_urls},
-    sui::{client::retry_client::RetriableSuiClient, config::WalletConfig, wallet::Wallet},
+    SuiReadClient, client::Client, config::ClientConfig,
+    sui::client::retry_client::RetriableSuiClient,
 };
 
 use crate::error::FanOutError;
@@ -69,6 +67,8 @@ enum Command {
         /// The address to listen on. Defaults to 0.0.0.0:57391.
         #[arg(long, global = true)]
         server_address: Option<SocketAddr>,
+        #[arg(long, global = true)]
+        tip_config: PathBuf,
     },
 }
 
@@ -119,6 +119,7 @@ async fn main() -> Result<()> {
             context,
             config_path,
             server_address,
+            tip_config,
         } => {
             // Create a client we can use to communicate with the Sui network, which is used to
             // coordinate the Walrus network.
@@ -126,8 +127,9 @@ async fn main() -> Result<()> {
 
             let n_shards = client.get_committees().await?.n_shards();
             let encoding_config = Arc::new(EncodingConfig::new(n_shards));
+            let tip_config: TipConfig = walrus_sdk::core_utils::load_from_yaml(tip_config)?;
             let checker = TipChecker::new(
-                TipConfig::NoTip,                         // TODO: configurable.
+                tip_config,
                 client.sui_client().sui_client().clone(), // TODO: lol this naming?
                 n_shards,
             );
@@ -152,23 +154,10 @@ async fn main() -> Result<()> {
 
 async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<SuiReadClient>> {
     let config: ClientConfig = walrus_sdk::config::load_configuration(Some(config_path), context)?;
-    // TODO: allow configuration of wallet.
-    // NOTE(giac): do we need a wallet at all? the fanout does not need to do any writes -> i would
-    // remove the wallet entirely and only configure the RPCs.
-    let wallet: Wallet = WalletConfig::load_wallet(None, None)?;
-
-    #[allow(deprecated)]
-    let rpc_url = wallet.get_rpc_url()?;
-
-    tracing::debug!(
-        ?wallet,
-        rpc_url = rpc_url.as_str(),
-        ?config,
-        "loaded wallet and client config"
-    );
+    tracing::debug!(?config, "loaded client config");
 
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &combine_rpc_urls(rpc_url, &config.rpc_urls),
+        &config.rpc_urls,
         config.backoff_config().clone(),
         None,
     )
