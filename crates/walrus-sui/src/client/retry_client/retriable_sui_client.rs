@@ -15,12 +15,14 @@ use std::{
 };
 
 use anyhow::Context;
+use fastcrypto::encoding::Base64;
 use futures::{Stream, StreamExt, future, stream};
 use rand::{
     Rng as _,
     rngs::{StdRng, ThreadRng},
 };
 use serde::{Serialize, de::DeserializeOwned};
+use sui_json_rpc_api::WriteApiClient;
 use sui_sdk::{
     SuiClient,
     SuiClientBuilder,
@@ -52,7 +54,7 @@ use sui_types::{
     TypeTag,
     base_types::{ObjectID, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
-    quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
+    quorum_driver_types::ExecuteTransactionRequestType::{self, WaitForLocalExecution},
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
 };
@@ -1067,6 +1069,59 @@ impl RetriableSuiClient {
             retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), transaction.clone()),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, method)
+            .await
+    }
+
+    /// Lower-level primitive, executes a transaction from it bytes representation.
+    ///
+    /// This function does not wait for the local execution on the full node. It is equivalent to
+    /// calling `execute_transaction_block` with
+    /// `ExecuteTransactionRequestType::WaitForEffectsCert`.
+    #[tracing::instrument(err, skip(self))]
+    pub async fn execute_transaction_from_bytes(
+        &self,
+        tx_bytes: Base64,
+        signatures: Vec<Base64>,
+        options: SuiTransactionBlockResponseOptions,
+        request_type: Option<ExecuteTransactionRequestType>,
+        method: &'static str,
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        async fn make_request(
+            client: Arc<SuiClient>,
+            tx_bytes: Base64,
+            signatures: Vec<Base64>,
+            options: SuiTransactionBlockResponseOptions,
+            request_type: Option<ExecuteTransactionRequestType>,
+        ) -> SuiClientResult<SuiTransactionBlockResponse> {
+            Ok(client
+                .http()
+                .execute_transaction_block(tx_bytes, signatures, Some(options), request_type)
+                .await
+                .map_err(SuiSdkError::RpcError)?)
+        }
+        let request = move |client: Arc<SuiClient>, method| {
+            let tx_bytes = tx_bytes.clone();
+            let signatures = signatures.clone();
+            let options = options.clone();
+            let request_type = request_type.clone();
+            // Retry here must use the exact same transaction to avoid locked objects.
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    make_request(
+                        client.clone(),
+                        tx_bytes.clone(),
+                        signatures.clone(),
+                        options.clone(),
+                        request_type.clone(),
+                    )
+                },
                 self.metrics.clone(),
                 method,
             )

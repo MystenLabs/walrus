@@ -891,6 +891,7 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::EpochChangeDone => Ok(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeDone(value.try_into()?),
             )),
+
             contracts::events::ShardsReceived => Ok(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::ShardsReceived(value.try_into()?),
             )),
