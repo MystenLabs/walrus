@@ -23,6 +23,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+utoipa.workspace = true
 walrus-core.workspace = true
 walrus-sdk.workspace = true
 walrus-sui.workspace = true

@@ -7,7 +7,7 @@
 //! transaction to the full nodes for execution, finally verifying that the tip amount was
 //! correctly provided.
 
-use std::{fmt::Debug, num::NonZeroU16, str::FromStr, sync::Arc};
+use std::{fmt::Debug, num::NonZeroU16, str::FromStr};
 
 use fastcrypto::encoding::Base64;
 use sui_sdk::{
@@ -15,11 +15,7 @@ use sui_sdk::{
     rpc_types::{SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions},
 };
 use sui_types::{TypeTag, quorum_driver_types::ExecuteTransactionRequestType};
-use walrus_core::{
-    BlobId,
-    encoding::{self, DataTooLargeError, EncodingConfig, EncodingConfigTrait, SliverPair},
-    metadata::VerifiedBlobMetadataWithId,
-};
+use walrus_core::{BlobId, encoding};
 use walrus_sui::{
     client::{SuiClientResult, retry_client::RetriableSuiClient},
     types::{BlobEvent, BlobRegistered},

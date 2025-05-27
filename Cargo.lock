@@ -3369,6 +3369,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "utoipa",
  "walrus-core",
  "walrus-sdk",
  "walrus-sui",

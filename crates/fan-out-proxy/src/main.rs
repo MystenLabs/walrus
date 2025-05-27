@@ -5,7 +5,6 @@
 use std::{
     env,
     net::SocketAddr,
-    num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -20,13 +19,14 @@ use axum::{
     routing::post,
 };
 use clap::{Parser, Subcommand};
+use fastcrypto::encoding::Base64;
 use serde::{Deserialize, Serialize};
-use tip::{TipChecker, TipConfig, TipKind};
+use tip::{TipChecker, TipConfig};
 use tokio::time::Instant;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
+// use utoipa::IntoParams;
 use walrus_core::{
     BlobId,
-    EncodingType,
     encoding::{EncodingConfig, EncodingConfigTrait as _, SliverPair},
     messages::{BlobPersistenceType, ConfirmationCertificate},
     metadata::BlobMetadataWithId,
@@ -178,9 +178,13 @@ async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
-#[derive(Debug, Deserialize)]
+/// The query parameters for the fanout proxy.
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 struct Params {
-    blob_id: String,
+    blob_id: BlobId,
+    tx_bytes: Base64,
+    signature: Base64,
 }
 
 #[derive(Serialize)]
@@ -196,20 +200,24 @@ async fn fan_out_blob_slivers(
 ) -> Result<impl IntoResponse, FanOutError> {
     tracing::info!(?params, "fan_out_blob_slivers");
 
-    // TODO: add this parameter to the API?
-    // Not necessary.
-    let blob_persistence_type: BlobPersistenceType = BlobPersistenceType::Permanent;
+    let Params {
+        blob_id,
+        tx_bytes,
+        signature,
+    } = params;
 
-    let blob_id: BlobId = params.blob_id.parse()?;
-    let blob = body.as_ref();
-    let encoding_type: EncodingType = EncodingType::RS2;
+    let registration = controller
+        .checker
+        .execute_and_check_transaction(tx_bytes, vec![signature], blob_id)
+        .await?;
 
     let encode_start_timer = Instant::now();
     let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = controller
         .encoding_config
-        .get_for_type(encoding_type)
-        .encode_with_metadata(blob)?;
+        .get_for_type(registration.encoding_type)
+        .encode_with_metadata(body.as_ref())?;
     let duration = encode_start_timer.elapsed();
+
     if *metadata.blob_id() != blob_id {
         return Err(FanOutError::BadRequest(format!(
             "Blob ID mismatch [expected={}, actual={}]",
@@ -232,9 +240,16 @@ async fn fan_out_blob_slivers(
     );
 
     // Attempt to upload the slivers.
+    let blob_persistence = if registration.deletable {
+        BlobPersistenceType::Deletable {
+            object_id: registration.object_id.into(),
+        }
+    } else {
+        BlobPersistenceType::Permanent
+    };
     let confirmation_certificate: ConfirmationCertificate = controller
         .client
-        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence_type, None)
+        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence, None)
         .await?;
 
     // Reply with the confirmation certificate.

@@ -11,6 +11,8 @@ use thiserror::Error;
 use walrus_core::{BlobIdParseError, encoding::DataTooLargeError};
 use walrus_sdk::error::ClientError;
 
+use crate::tip::TipError;
+
 /// Fan-out Proxy Errors
 #[derive(Debug, Error)]
 pub(crate) enum FanOutError {
@@ -30,6 +32,10 @@ pub(crate) enum FanOutError {
     #[error(transparent)]
     BlobIdParseError(#[from] BlobIdParseError),
 
+    /// Error in processing the transaction or the tip
+    #[error(transparent)]
+    TipError(#[from] TipError),
+
     /// Internal server error.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -48,6 +54,9 @@ impl IntoResponse for FanOutError {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }
             FanOutError::BlobIdParseError(error) => {
+                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+            }
+            FanOutError::TipError(error) => {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }
             FanOutError::Other(error) => {

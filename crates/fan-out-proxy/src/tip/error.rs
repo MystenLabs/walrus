@@ -4,7 +4,7 @@
 //! Errors for the tipping system.
 
 use thiserror;
-use walrus_core::{BlobId, encoding::DataTooLargeError};
+use walrus_core::BlobId;
 use walrus_sui::client::SuiClientError;
 
 /// An error that occurs while the proxy is executing or checking a transaction.

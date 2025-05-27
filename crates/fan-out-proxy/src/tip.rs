@@ -8,5 +8,5 @@ mod config;
 mod error;
 
 pub(crate) use check::TipChecker;
-pub(crate) use config::{TipConfig, TipKind};
+pub(crate) use config::TipConfig;
 pub(crate) use error::TipError;
