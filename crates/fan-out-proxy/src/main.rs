@@ -132,6 +132,7 @@ async fn main() -> Result<()> {
             let n_shards = client.get_committees().await?.n_shards();
             let encoding_config = Arc::new(EncodingConfig::new(n_shards));
             let tip_config: TipConfig = load_from_yaml(tip_config)?;
+            tracing::debug!(?tip_config, "loaded tip config");
             let checker = TipChecker::new(
                 tip_config,
                 client.sui_client().sui_client().clone(), // TODO: lol this naming?
@@ -278,9 +279,7 @@ mod tests {
 
         let uri_str = format!(
             "http://localhost/v1/blob-fan-out?blob_id={}&tx_bytes={}&signature={}",
-            blob_id_str,
-            tx_bytes.to_string(),
-            signature.to_string(),
+            blob_id_str, tx_bytes, signature,
         );
         dbg!(&uri_str);
 
