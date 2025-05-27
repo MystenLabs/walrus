@@ -3356,6 +3356,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.1",
  "axum-server 0.7.2",
+ "base64 0.22.1",
  "clap",
  "clap_complete",
  "fastcrypto",

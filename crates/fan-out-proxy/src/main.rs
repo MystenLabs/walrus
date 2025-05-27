@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Walrus Fan-out Proxy entry point.
+
 use std::{
     env,
     net::SocketAddr,
@@ -20,8 +21,8 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use fastcrypto::encoding::Base64;
-use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
+use params::Params;
+use serde::Serialize;
 use tip::{TipChecker, TipConfig};
 use tokio::time::Instant;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
@@ -42,6 +43,7 @@ use walrus_sdk::{
 use crate::error::FanOutError;
 
 mod error;
+mod params;
 mod tip;
 
 const DEFAULT_SERVER_ADDRESS: &'static str = "0.0.0.0:57391";
@@ -151,6 +153,8 @@ async fn main() -> Result<()> {
 async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<SuiReadClient>> {
     let config: ClientConfig = walrus_sdk::config::load_configuration(Some(config_path), context)?;
     // TODO: allow configuration of wallet.
+    // NOTE(giac): do we need a wallet at all? the fanout does not need to do any writes -> i would
+    // remove the wallet entirely and only configure the RPCs.
     let wallet: Wallet = WalletConfig::load_wallet(None, None)?;
 
     #[allow(deprecated)]
@@ -179,17 +183,6 @@ async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
-/// The query parameters for the fanout proxy.
-#[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct Params {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    tx_bytes: Base64,
-    signature: Base64,
-}
-
 /// The response of the fanout proxy, containing the blob ID and the corresponding certificate.
 #[derive(Serialize)]
 struct ResponseType {
@@ -212,7 +205,13 @@ async fn fan_out_blob_slivers(
 
     let registration = controller
         .checker
-        .execute_and_check_transaction(tx_bytes, vec![signature], blob_id)
+        .execute_and_check_transaction(
+            // Convert to the non-URL encoded version of the bytes, which is required by the
+            // API endpoint.
+            Base64::from_bytes(tx_bytes.bytes()),
+            vec![Base64::from_bytes(signature.bytes())],
+            blob_id,
+        )
         .await?;
 
     let encode_start_timer = Instant::now();
@@ -238,8 +237,8 @@ async fn fan_out_blob_slivers(
 
     tracing::info!(
         symbol_size,
-        primary_sliver_size = pair.primary.symbols.len() * usize::from(symbol_size),
-        secondary_sliver_size = pair.secondary.symbols.len() * usize::from(symbol_size),
+        primary_sliver_size = pair.primary.symbols.data().len(),
+        secondary_sliver_size = pair.secondary.symbols.data().len(),
         ?duration,
         "encoded sliver pairs and metadata"
     );
@@ -269,23 +268,28 @@ async fn fan_out_blob_slivers(
 #[cfg(test)]
 mod tests {
 
+    use std::str::FromStr;
+
     use axum::{extract::Query, http::Uri};
-    use fastcrypto::encoding::Base64;
     use walrus_core::BlobId;
 
-    use crate::Params;
+    use crate::{Params, params::B64UrlEncodedBytes};
 
     #[test]
     fn test_parse_fanout_query() {
-        let blob_id = BlobId([123u8; 32]);
-        let tx_bytes = Base64::from_bytes(&[13; 50]);
-        let signature = Base64::from_bytes(&[42; 20]);
+        let blob_id_str = "efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y";
+        let blob_id = BlobId::from_str(blob_id_str).expect("valid blob id");
+        let tx_bytes = B64UrlEncodedBytes::new(vec![13; 50]);
+        let signature = B64UrlEncodedBytes::new(vec![42; 20]);
+
         let uri_str = format!(
             "http://localhost/v1/blob-fan-out?blob_id={}&tx_bytes={}&signature={}",
-            blob_id,
-            tx_bytes.encoded(),
-            signature.encoded(),
+            blob_id_str,
+            tx_bytes.to_string(),
+            signature.to_string(),
         );
+        dbg!(&uri_str);
+
         let uri: Uri = uri_str.parse().expect("valid uri");
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
         assert_eq!(blob_id, result.blob_id);
