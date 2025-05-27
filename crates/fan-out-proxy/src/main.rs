@@ -40,6 +40,7 @@ use walrus_sdk::{
 use crate::error::FanOutError;
 
 mod error;
+mod tip;
 
 const DEFAULT_SERVER_ADDRESS: &'static str = "0.0.0.0:57391";
 
