@@ -135,31 +135,39 @@ impl TipChecker {
             ));
         };
 
-        let Some(expected_tip) = self.config.tip.compute_tip(encoded_size) else {
-            // `None` means no tip is required, and we are always ok.
-            return Ok(());
-        };
-        let expected_tip = expected_tip as i128;
+        match &self.config {
+            TipConfig::NoTip => {
+                // `TipConfig::Notip` means no tip is required, and we are always ok.
+                Ok(())
+            }
+            TipConfig::SendTip { address, kind } => {
+                let expected_tip = kind.compute_tip(encoded_size) as i128;
 
-        for change in balance_changes.iter() {
-            let owner_address = change.owner.get_address_owner_address().map_err(|_| {
-                TipError::UnexpectedResponse("could not extract the owner address".to_owned())
-            })?;
+                // Go across all balance changes, looking for one that says the sui for the current
+                // address have increased of at least the expected tip.
+                for change in balance_changes.iter() {
+                    let owner_address = change.owner.get_address_owner_address().map_err(|_| {
+                        TipError::UnexpectedResponse(
+                            "could not extract the owner address".to_owned(),
+                        )
+                    })?;
 
-            if owner_address == self.config.address
-                && change.coin_type
-                    == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI is always valid")
-            {
-                if change.amount >= expected_tip {
-                    return Ok(());
-                } else {
-                    return Err(TipError::InsufficientTip(change.amount, expected_tip));
-                };
-            } else {
-                continue;
+                    if owner_address == *address
+                        && change.coin_type
+                            == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI is always valid")
+                    {
+                        if change.amount >= expected_tip {
+                            return Ok(());
+                        } else {
+                            return Err(TipError::InsufficientTip(change.amount, expected_tip));
+                        };
+                    } else {
+                        continue;
+                    }
+                }
+                Err(TipError::NoTipSent)
             }
         }
-        Err(TipError::NoTipSent)
     }
 }
 

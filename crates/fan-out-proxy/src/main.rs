@@ -21,6 +21,7 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use tip::{TipChecker, TipConfig, TipKind};
 use tokio::time::Instant;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
 use walrus_core::{
@@ -87,12 +88,21 @@ fn init_logging() {
 #[allow(dead_code)]
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
-    pub(crate) n_shards: NonZeroU16,
+    pub(crate) encoding_config: Arc<EncodingConfig>,
+    pub(crate) checker: TipChecker,
 }
 
 impl Controller {
-    fn new(client: Client<SuiReadClient>, n_shards: NonZeroU16) -> Self {
-        Self { client, n_shards }
+    fn new(
+        client: Client<SuiReadClient>,
+        encoding_config: Arc<EncodingConfig>,
+        checker: TipChecker,
+    ) -> Self {
+        Self {
+            client,
+            encoding_config,
+            checker,
+        }
     }
 }
 
@@ -111,14 +121,18 @@ async fn main() -> Result<()> {
             // coordinate the Walrus network.
             let client = get_client(context.as_deref(), config_path.as_path()).await?;
 
-            // Get the n_shards constant for the given network. It will not change over the lifetime
-            // of the fan-out-proxy.
             let n_shards = client.get_committees().await?.n_shards();
+            let encoding_config = Arc::new(EncodingConfig::new(n_shards));
+            let checker = TipChecker::new(
+                TipConfig::NoTip,                         // TODO: configurable.
+                client.sui_client().sui_client().clone(), // TODO: lol this naming?
+                n_shards,
+            );
 
             // Build our HTTP application to handle the blob fan-out operations.
             let app = Router::new()
                 .route("/v1/blob-fan-out", post(fan_out_blob_slivers))
-                .with_state(Arc::new(Controller::new(client, n_shards)));
+                .with_state(Arc::new(Controller::new(client, encoding_config, checker)));
 
             let addr: SocketAddr = if let Some(socket_addr) = server_address {
                 socket_addr
@@ -189,10 +203,10 @@ async fn fan_out_blob_slivers(
     let blob_id: BlobId = params.blob_id.parse()?;
     let blob = body.as_ref();
     let encoding_type: EncodingType = EncodingType::RS2;
-    let n_shards = controller.n_shards;
-    let encoding_config = EncodingConfig::new(n_shards);
+
     let encode_start_timer = Instant::now();
-    let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = encoding_config
+    let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = controller
+        .encoding_config
         .get_for_type(encoding_type)
         .encode_with_metadata(blob)?;
     let duration = encode_start_timer.elapsed();
