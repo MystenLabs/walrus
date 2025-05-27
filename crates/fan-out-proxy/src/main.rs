@@ -21,6 +21,7 @@ use axum::{
 use clap::{Parser, Subcommand};
 use fastcrypto::encoding::Base64;
 use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 use tip::{TipChecker, TipConfig};
 use tokio::time::Instant;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
@@ -179,17 +180,20 @@ async fn get_client(context: Option<&str>, config_path: &Path) -> Result<Client<
 }
 
 /// The query parameters for the fanout proxy.
+#[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Params {
+    #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
     tx_bytes: Base64,
     signature: Base64,
 }
 
+/// The response of the fanout proxy, containing the blob ID and the corresponding certificate.
 #[derive(Serialize)]
 struct ResponseType {
-    blob_id: String,
+    blob_id: BlobId,
     confirmation_certificate: ConfirmationCertificate,
 }
 
@@ -212,6 +216,7 @@ async fn fan_out_blob_slivers(
         .await?;
 
     let encode_start_timer = Instant::now();
+    // TODO: encoding should probably be done on a separate thread pool.
     let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = controller
         .encoding_config
         .get_for_type(registration.encoding_type)
@@ -254,9 +259,37 @@ async fn fan_out_blob_slivers(
 
     // Reply with the confirmation certificate.
     let response = ResponseType {
-        blob_id: blob_id.to_string(),
+        blob_id: blob_id,
         confirmation_certificate,
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use axum::{extract::Query, http::Uri};
+    use fastcrypto::encoding::Base64;
+    use walrus_core::BlobId;
+
+    use crate::Params;
+
+    #[test]
+    fn test_parse_fanout_query() {
+        let blob_id = BlobId([123u8; 32]);
+        let tx_bytes = Base64::from_bytes(&[13; 50]);
+        let signature = Base64::from_bytes(&[42; 20]);
+        let uri_str = format!(
+            "http://localhost/v1/blob-fan-out?blob_id={}&tx_bytes={}&signature={}",
+            blob_id,
+            tx_bytes.encoded(),
+            signature.encoded(),
+        );
+        let uri: Uri = uri_str.parse().expect("valid uri");
+        let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
+        assert_eq!(blob_id, result.blob_id);
+        assert_eq!(tx_bytes, result.tx_bytes);
+        assert_eq!(signature, result.signature);
+    }
 }
