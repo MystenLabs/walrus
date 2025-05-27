@@ -57,7 +57,7 @@ impl TipChecker {
     }
 
     /// Returns the blob registration for the given blob ID.
-    /// //
+    ///
     /// If the expected registration is found, the function will return the registration
     /// information. Otherwise, it will return an error.
     pub(crate) fn blob_registration_from_response(
