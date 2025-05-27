@@ -1,0 +1,827 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Walrus general terms of service - Walrus</title>
+
+
+        <!-- Custom HTML head -->
+        <script type="text/javascript">
+          // Hacky check to only load Amplitude in production since we don't have environments:
+          const localAddresses = ['localhost', '127.0.0.1', '[::1]'];
+          if (localAddresses.indexOf(document.location.hostname) === -1) {
+            !function(){"use strict";!function(e,t){var r=e.amplitude||{_q:[],_iq:{}};if(r.invoked)e.console&&console.error&&console.error("Amplitude snippet has been loaded.");else{var n=function(e,t){e.prototype[t]=function(){return this._q.push({name:t,args:Array.prototype.slice.call(arguments,0)}),this}},s=function(e,t,r){return function(n){e._q.push({name:t,args:Array.prototype.slice.call(r,0),resolve:n})}},o=function(e,t,r){e._q.push({name:t,args:Array.prototype.slice.call(r,0)})},i=function(e,t,r){e[t]=function(){if(r)return{promise:new Promise(s(e,t,Array.prototype.slice.call(arguments)))};o(e,t,Array.prototype.slice.call(arguments))}},a=function(e){for(var t=0;t<g.length;t++)i(e,g[t],!1);for(var r=0;r<m.length;r++)i(e,m[r],!0)};r.invoked=!0;var c=t.createElement("script");c.type="text/javascript",c.integrity="sha384-pY2pkwHaLM/6UIseFHVU3hOKr6oAvhLcdYkoRZyaMDWLjpM6B7nTxtOdE823WAOQ",c.crossOrigin="anonymous",c.async=!0,c.src="https://cdn.amplitude.com/libs/analytics-browser-2.11.0-min.js.gz",c.onload=function(){e.amplitude.runQueuedFunctions||console.log("[Amplitude] Error: could not load SDK")};var u=t.getElementsByTagName("script")[0];u.parentNode.insertBefore(c,u);for(var p=function(){return this._q=[],this},l=["add","append","clearAll","prepend","set","setOnce","unset","preInsert","postInsert","remove","getUserProperties"],d=0;d<l.length;d++)n(p,l[d]);r.Identify=p;for(var f=function(){return this._q=[],this},v=["getEventProperties","setProductId","setQuantity","setPrice","setRevenue","setRevenueType","setEventProperties"],y=0;y<v.length;y++)n(f,v[y]);r.Revenue=f;var g=["getDeviceId","setDeviceId","getSessionId","setSessionId","getUserId","setUserId","setOptOut","setTransport","reset","extendSession"],m=["init","add","remove","track","logEvent","identify","groupIdentify","setGroup","revenue","flush"];a(r),r.createInstance=function(e){return r._iq[e]={_q:[]},a(r._iq[e]),r._iq[e]},e.amplitude=r}}(window,document)}();
+            amplitude.init('f60df2d0d709d50faa2ffda153a84bc0', { identityStorage:'none', defaultTracking: true });
+          }
+        </script>
+        
+        <script>
+            function initAskCookbook() {
+              // It's a public API key, so it's safe to expose it here
+              const PUBLIC_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzU4Y2YyODM4NTcxODU5MjU0MGIyMDciLCJpYXQiOjE3MzM4NzM0NDgsImV4cCI6MjA0OTQ0OTQ0OH0.Z3cv3HuMkYq3aYZYzCKkkYuM5LI3KG-kuA0R-GaSMV4";
+        
+              let cookbookContainer = document.getElementById("__cookbook");
+              if (!cookbookContainer) {
+                cookbookContainer = document.createElement("div");
+                cookbookContainer.id = "__cookbook";
+                cookbookContainer.dataset.apiKey = PUBLIC_API_KEY;
+                document.body.appendChild(cookbookContainer);
+              }
+        
+              let cookbookScript = document.getElementById("__cookbook-script");
+              if (!cookbookScript) {
+                cookbookScript = document.createElement("script");
+                cookbookScript.id = "__cookbook-script";
+                cookbookScript.src = "https://cdn.jsdelivr.net/npm/@cookbookdev/docsbot/dist/standalone/index.cjs.js";
+                cookbookScript.async = true;
+                document.head.appendChild(cookbookScript);
+              }
+        
+        
+              const keyPressPropagationBlocker = function (e) {
+                e.stopPropagation();
+              };
+              document.addEventListener("cookbook:modal:state:change", function (e) {
+                const isOpen = e.detail.isOpen;
+                if (isOpen) {
+                  document.body.addEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                } else {
+                  document.body.removeEventListener("keydown", keyPressPropagationBlocker, { capture: true });
+                }
+              });
+            }
+        
+            // Check if the document is already loaded and if so, initialize the script, otherwise wait for the load event
+            if (document.readyState === "complete") {
+              initAskCookbook();
+            } else {
+              window.addEventListener("load", initAskCookbook);
+            }
+          </script>
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../docs/mdbook-admonish.css">
+        <link rel="stylesheet" href="../docs/theme/tabs.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Walrus</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Dev Blog</li><li class="chapter-item expanded "><a href="../blog/00_intro.html"><strong aria-hidden="true">1.</strong> Blog Preface</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../blog/01_announcing_walrus.html"><strong aria-hidden="true">1.1.</strong> Announcing Walrus</a></li><li class="chapter-item expanded "><a href="../blog/02_devnet_update.html"><strong aria-hidden="true">1.2.</strong> Devnet Update</a></li><li class="chapter-item expanded "><a href="../blog/03_whitepaper.html"><strong aria-hidden="true">1.3.</strong> Announcing the Walrus Whitepaper</a></li><li class="chapter-item expanded "><a href="../blog/04_testnet_update.html"><strong aria-hidden="true">1.4.</strong> Announcing Testnet</a></li><li class="chapter-item expanded "><a href="../blog/05_testnet_redeployment.html"><strong aria-hidden="true">1.5.</strong> Announcing Testnet v2</a></li><li class="chapter-item expanded "><a href="../blog/06_mainnet.html"><strong aria-hidden="true">1.6.</strong> Announcing Mainnet</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Usage</li><li class="chapter-item expanded "><a href="../usage/started.html"><strong aria-hidden="true">2.</strong> Getting started</a></li><li class="chapter-item expanded "><a href="../usage/setup.html"><strong aria-hidden="true">3.</strong> Setup</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/networks.html"><strong aria-hidden="true">3.1.</strong> Available networks</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/interacting.html"><strong aria-hidden="true">4.</strong> Interacting with Walrus</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../usage/client-cli.html"><strong aria-hidden="true">4.1.</strong> Using the client CLI</a></li><li class="chapter-item expanded "><a href="../usage/json-api.html"><strong aria-hidden="true">4.2.</strong> Using the client JSON API</a></li><li class="chapter-item expanded "><a href="../usage/web-api.html"><strong aria-hidden="true">4.3.</strong> Using the client HTTP API</a></li><li class="chapter-item expanded "><a href="../usage/sdks.html"><strong aria-hidden="true">4.4.</strong> SDKs and other tools</a></li></ol></li><li class="chapter-item expanded "><a href="../dev-guide/dev-guide.html"><strong aria-hidden="true">5.</strong> Developer guide</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../dev-guide/components.html"><strong aria-hidden="true">5.1.</strong> Components</a></li><li class="chapter-item expanded "><a href="../dev-guide/dev-operations.html"><strong aria-hidden="true">5.2.</strong> Operations</a></li><li class="chapter-item expanded "><a href="../dev-guide/costs.html"><strong aria-hidden="true">5.3.</strong> Storage costs</a></li><li class="chapter-item expanded "><a href="../dev-guide/sui-struct.html"><strong aria-hidden="true">5.4.</strong> Sui structures</a></li><li class="chapter-item expanded "><a href="../dev-guide/data-security.html"><strong aria-hidden="true">5.5.</strong> Data security</a></li></ol></li><li class="chapter-item expanded "><a href="../operator-guide/aggregator.html"><strong aria-hidden="true">6.</strong> Operating an aggregator or publisher</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../operator-guide/auth-publisher.html"><strong aria-hidden="true">6.1.</strong> The authenticated Publisher</a></li></ol></li><li class="chapter-item expanded "><a href="../usage/stake.html"><strong aria-hidden="true">7.</strong> Staking and unstaking</a></li><li class="chapter-item expanded "><a href="../usage/examples.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li class="chapter-item expanded "><a href="../usage/troubleshooting.html"><strong aria-hidden="true">9.</strong> Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Sites</li><li class="chapter-item expanded "><a href="../walrus-sites/intro.html"><strong aria-hidden="true">10.</strong> Introduction to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial.html"><strong aria-hidden="true">11.</strong> Your first Walrus Site</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-install.html"><strong aria-hidden="true">11.1.</strong> Installing the site builder</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-publish.html"><strong aria-hidden="true">11.2.</strong> Publishing a Walrus Site</a></li><li class="chapter-item expanded "><a href="../walrus-sites/tutorial-suins.html"><strong aria-hidden="true">11.3.</strong> Set a SuiNS name</a></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/advanced.html"><strong aria-hidden="true">12.</strong> Advanced functionality</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/commands.html"><strong aria-hidden="true">12.1.</strong> Site builder commands</a></li><li class="chapter-item expanded "><a href="../walrus-sites/builder-config.html"><strong aria-hidden="true">12.2.</strong> Advanced site-builder configuration</a></li><li class="chapter-item expanded "><a href="../walrus-sites/routing.html"><strong aria-hidden="true">12.3.</strong> Specifying headers, routing, and metadata</a></li><li class="chapter-item expanded "><a href="../walrus-sites/linking.html"><strong aria-hidden="true">12.4.</strong> Linking from and to Walrus Sites</a></li><li class="chapter-item expanded "><a href="../walrus-sites/redirects.html"><strong aria-hidden="true">12.5.</strong> Redirecting objects to Walrus Sites</a></li></ol></li><li class="chapter-item expanded "><a href="../walrus-sites/overview.html"><strong aria-hidden="true">13.</strong> Technical overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../walrus-sites/portal.html"><strong aria-hidden="true">13.1.</strong> The Walrus Sites portal</a></li><li class="chapter-item expanded "><a href="../walrus-sites/bring-your-own-domain.html"><strong aria-hidden="true">13.2.</strong> Bring your own domain</a></li><li class="chapter-item expanded "><a href="../walrus-sites/authentication.html"><strong aria-hidden="true">13.3.</strong> Site data authentication</a></li><li class="chapter-item expanded "><a href="../walrus-sites/restrictions.html"><strong aria-hidden="true">13.4.</strong> Known restrictions</a></li></ol></li><li class="chapter-item expanded "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Design</li><li class="chapter-item expanded "><a href="../design/objectives_use_cases.html"><strong aria-hidden="true">14.</strong> Objectives and use cases</a></li><li class="chapter-item expanded "><a href="../design/overview.html"><strong aria-hidden="true">15.</strong> Overview</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/architecture.html"><strong aria-hidden="true">15.1.</strong> Architecture</a></li><li class="chapter-item expanded "><a href="../design/encoding.html"><strong aria-hidden="true">15.2.</strong> Encoding</a></li></ol></li><li class="chapter-item expanded "><a href="../design/operations.html"><strong aria-hidden="true">16.</strong> Operations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../design/operations-sui.html"><strong aria-hidden="true">16.1.</strong> Sui operations</a></li><li class="chapter-item expanded "><a href="../design/operations-off-chain.html"><strong aria-hidden="true">16.2.</strong> Off-chain operations</a></li></ol></li><li class="chapter-item expanded "><a href="../design/properties.html"><strong aria-hidden="true">17.</strong> Properties</a></li><li class="chapter-item expanded "><a href="../design/future.html"><strong aria-hidden="true">18.</strong> Future discussion</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="../glossary.html">Glossary</a></li><li class="chapter-item expanded affix "><a href="../legal/testnet_tos.html">Testnet terms of service</a></li><li class="chapter-item expanded affix "><a href="../legal/privacy.html">Privacy policy</a></li><li class="chapter-item expanded affix "><a href="../legal/walrus_general_tos.html" class="active">Walrus general terms of service</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Walrus</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+<!-- markdownlint-disable proper-names -->
+<h1 id="walrus-general-terms-of-services"><a class="header" href="#walrus-general-terms-of-services">Walrus General Terms of Services</a></h1>
+<p>Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
+govern your use of the website, the user interface, and other offerings located at walrus.xyz, (the
+“Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”). To make these Terms easier
+to read, the Site and our services (including Beta Services) are collectively called the
+“Interface.” The Interface may facilitate interaction with the Walrus decentralized cryptographic
+protocols, maintained by third party open source communities, which we do not own or control (the
+“Protocol”) allowing for activities such as the creation of non-fungible tokens (“NFTs”), blockchain
+games, DeFi apps, marketplaces, automated market makers, website hosting, data storage providers,
+and wallets. BY USING THESE SERVICES, YOU REPRESENT THAT YOU ARE NOT A PERSON OR ENTITY WHO IS
+RESIDENT IN, A CITIZEN OF, IS LOCATED IN, IS INCORPORATED IN, OR HAS A REGISTERED OFFICE IN ANY
+RESTRICTED TERRITORY, AS DEFINED BELOW (ANY SUCH PERSON OR ENTITY FROM A RESTRICTED TERRITORY, ARE
+REFERRED TO HEREIN AS A “RESTRICTED PERSON”).WHEN YOU AGREE TO THESE TERMS, YOU ARE AGREEING (WITH
+LIMITED EXCEPTION) TO RESOLVE ANY DISPUTE BETWEEN YOU AND WALRUS FOUNDATION THROUGH BINDING,
+INDIVIDUAL ARBITRATION RATHER THAN IN COURT. PLEASE REVIEW CAREFULLY SECTION 15 “DISPUTE RESOLUTION”
+BELOW FOR DETAILS REGARDING ARBITRATION. HOWEVER, IF YOU ARE A RESIDENT OF A JURISDICTION WHERE
+APPLICABLE LAW PROHIBITS ARBITRATION OF DISPUTES, THE AGREEMENT TO ARBITRATE IN SECTION 16 WILL NOT
+APPLY TO YOU, BUT THE PROVISIONS OF SECTION 15 (GOVERNING LAW) WILL APPLY INSTEAD.</p>
+<ol>
+<li>
+<p>Agreement to Terms</p>
+<p>By using our Interface, you agree to be bound by these Terms. If you don’t agree to be bound by
+the Terms, do not use the Interface.</p>
+</li>
+<li>
+<p>Privacy Policy</p>
+<p>Please review our Privacy Policy, which also governs your use of the Interface, for information
+on how we collect, use and share your information.</p>
+</li>
+<li>
+<p>Changes to these Terms or the Interface</p>
+<p>We may update the Terms, including any addendum terms, from time to time in our sole discretion.
+If we do, we’ll let you know by posting the updated Terms on the Site and/or may also send other
+communications. It’s important that you review the Terms whenever we update them or you use the
+Interface. If you continue to use the Interface after we have posted updated Terms it means that
+you accept and agree to the changes. If you don’t agree to be bound by the changes, you may not
+use the Interface anymore. Because our Interface is evolving over time we may change or
+discontinue all or any part of the Interface, at any time and without notice, at our sole
+discretion.</p>
+</li>
+<li>
+<p>Interface Use Eligibility</p>
+<p>a) Eligibility. The Interface is only available to users in certain jurisdictions that are at
+least 18 years old, capable of forming a binding contract with the Walrus Foundation and not
+otherwise barred from using the Interface as permitted under Applicable Law. You may not attempt
+to access or use the Interface if you are not permitted to do so.</p>
+<p>b) Compliance. You certify that you will comply with all Applicable Law when using the
+Interface. You are solely responsible for ensuring that your access and use of the Interface in
+such country, territory, or jurisdiction does not violate any applicable laws. You must not use
+any software or networking techniques, including use of a virtual private network (“VPN”) to
+circumvent or attempt to circumvent this prohibition. We reserve the right to monitor the
+locations from which our Interface is accessed. Furthermore, we reserve the right, at any time,
+in our sole discretion, to block access to the Interface, in whole or in part, from any
+geographic location, IP addresses, and unique device identifiers, or to any user who we believe
+is in breach of these Terms.</p>
+</li>
+<li>
+<p>Use of the Interface</p>
+<p>a) User Representations and Warranties. As a condition to accessing or using the Interface, you
+represent and warrant to the Walrus Foundation the following:</p>
+<p>(i) if you are entering into these Terms as an individual, then you are of legal age in the
+jurisdiction in which you reside and you have the legal capacity to enter into these Terms and
+be bound by them and if you are entering into these Terms as an entity, then you must have the
+legal authority to accept these Terms on that entity’s behalf, in which case “you” (except as
+used in this paragraph) will mean that entity;</p>
+<p>(ii) you are in or residing in Cuba, Iran, North Korea, Syria, Belarus, Russia, and the Crimea,
+Luhansk, Donetsk, Zaporizhzhia, and Kherson regions of Ukraine, or any other country or
+jurisdiction to which the Cayman Islands, the United Kingdom, United States, the United Nations
+Security Council, or the European Union embargoes goods or imposes similar sanctions
+(collectively, “Restricted Territories”);</p>
+<p>(iii) you are not on any sanctions list or equivalent maintained by the Cayman Islands, the
+United Kingdom, United States, the United Nations Security Council, or the European Union
+(collectively, “Sanctions Lists Persons”) and you do not intend to transact with any Restricted
+Person or Sanctions List Person;</p>
+<p>(iv) you do not, and will not, use VPN software or any other privacy or anonymization tools or
+techniques to circumvent, or attempt to circumvent, any restrictions that apply to the
+Interface;</p>
+<p>(v) you have obtained all required consents from any individual whose personal information you
+transfer to us in connection with your use of the Interface; and</p>
+<p>(vi) your access to the Interface is not: (a) prohibited by and does not otherwise violate or
+assist you to violate any domestic or foreign law, rule, statute, regulation, by-law, order,
+protocol, code, decree, or another directive, requirement, or guideline, published or in force
+that applies to or is otherwise intended to govern or regulate any person, property,
+transaction, activity, event or other matter, including any rule, order, judgment, directive or
+other requirement or guideline issued by any federal, provincial or state, municipal, local or
+other governmental, regulatory, judicial or administrative authority having jurisdiction over
+Walrus Foundation, you, the Site or the Interface, or as otherwise duly enacted, enforceable by
+law, the common law or equity (collectively, “Applicable Laws”); or (b) contribute to or
+facilitate any illegal activity.</p>
+<p>b) Limitations. As a condition to accessing or using the Interface or the Site, you acknowledge,
+understand, and agree to the following:</p>
+<p>(i) from time to time the Site and the Interface may be inaccessible or inoperable for any
+reason, including, without limitation: (a) equipment malfunctions; (b) periodic maintenance
+procedures or repairs that Walrus Foundation or any of its suppliers or contractors may
+undertake from time to time; (c) causes beyond Walrus Foundation’s control or that Walrus
+Foundation could not reasonably foresee; (d) disruptions and temporary or permanent
+unavailability of underlying blockchain infrastructure; or (e) unavailability of third-party
+service providers or external partners for any reason;</p>
+<p>(ii) the Site and the Interface may evolve, which means Walrus Foundation may apply changes,
+replace, or discontinue (temporarily or permanently) the Interface at any time in its sole
+discretion;</p>
+<p>(iii) Walrus Foundation does not act as an agent for you or any other user of the Site or the
+Interface;</p>
+<p>(iv) you are solely responsible for your use of the Interface; and</p>
+<p>(v) we owe no fiduciary duties or liabilities to you or any other party, and that to the extent
+any such duties or liabilities may exist at law or in equity, you hereby irrevocably disclaim,
+waive, and eliminate those duties and liabilities.</p>
+<p>c) Certifications. As a condition to accessing or using the Interface, you covenant to Walrus
+Foundation the following:</p>
+<p>(i) you will comply with all Applicable Laws in connection with using the Interface, and you
+will not use the Site or the Interface if the laws of your country, or any other Applicable Law,
+prohibit you from doing so; and</p>
+<p>(ii) in addition to complying with all restrictions, prohibitions, and other provisions of these
+Terms, you will ensure that, at all times, all information that you provide through the
+Interface is current, complete, and accurate and you will maintain the security and
+confidentiality of your private keys associated with your public wallet address, passwords, API
+keys, private keys associated with your Interface account and other related credentials.</p>
+<p>d) Tax Records and Reporting. You are solely responsible for all costs incurred by you in using
+the Interface, and for determining, collecting, reporting, and paying all applicable Taxes that
+you may be required by law to collect and remit to any governmental or regulatory agencies.  As
+used herein, “Taxes” means the taxes, duties, levies, tariffs, and other charges imposed by any
+federal, state, multinational or local governmental or regulatory authority. We reserve the
+right to report any activity occurring using the Interface to relevant tax authorities as
+required under Applicable Law. You are solely responsible for maintaining all relevant Tax
+records and complying with any reporting requirements you may have as related to our Interface.
+You are further solely responsible for independently maintaining the accuracy of any record
+submitted to any tax authority including any information derived from the Interface.</p>
+<p>e) Costs and Fees. Each party shall be responsible for all Taxes imposed on its income or
+property. In addition, you agree to pay any applicable fees, including Gas Fees and hosting
+fees, in connection with transactions on the Interface. “Gas Fees” mean the fees that fund the
+network of computers that run the decentralized blockchain network, meaning that you will need
+to pay a Gas Fee for each transaction that occurs via the blockchain network.</p>
+<p>f) Suspensions or Terminations. In addition to the other suspension and termination rights in
+these Terms, we may suspend or terminate your access to the Interface at any time in connection
+with any transaction as required by Applicable Law, any governmental authority, or if we in our
+sole and reasonable discretion determine you are violating the terms of any third-party service
+provider or these Terms, including, without limitation, if we reasonably believe any of your
+representations and warranties may be untrue or inaccurate or you are violating or have violated
+any of the geographical restrictions that apply to the Interface, and we will not be liable to
+you for any losses or damages you may suffer as a result of or in connection with the Site or
+the Interface being inaccessible to you at any time or for any reason. Such suspension or
+termination shall not constitute a breach of these Terms by Walrus Foundation. In accordance
+with its anti-money laundering, anti-terrorism, anti-fraud, and other compliance policies and
+practices, we may impose limitations and controls on the ability of you or any beneficiary to
+utilize the Interface. Such limitations may include rejecting transaction requests, freezing
+funds, or otherwise restricting you from using the Interface, all to the extent of our ability
+to do so.</p>
+</li>
+<li>
+<p>Beta Services</p>
+<p>a) We may offer some of the Services, including without limitation the testnet or devnet
+environments (“Testnet” and “Devnet”), in beta version (collectively, “Beta Services”). You
+acknowledge and agree that: (a) the Beta Services may not operate properly, be in final form or
+be fully functional; (b) the Beta Services may contain errors, design flaws or other problems;
+(c) it may not be possible to make the Beta Services fully functional; (d) the information
+obtained using the Beta Services may not be accurate; (e) use of the Beta Services may result in
+unexpected results, loss of data or communications, project delays or other unpredictable damage
+or loss; (f) we are under no obligation to release a live, commercial or public version of the
+Beta Services; (g) we have the right to unilaterally to abandon development of the Beta
+Services, at any time and without any obligation or liability to you; and (h) we may decide to
+modify, delete, remove or wipe the functionality, content or data contained within the Beta
+Services in our sole discretion at any time without notice or liability to you.</p>
+<p>b) In your use of the Testnet or Devnet, you may accumulate Testnet or Devnet tokens
+(collectively, “Beta Tokens”) such as through a faucet, which are not, and shall never convert
+to or accrue to become any other tokens or virtual assets outside of the respective Testnet or
+Devnet on which such Beta Tokens were issued. Beta Tokens are virtual items with no monetary
+value. Beta Tokens do not constitute any currency or property of any type and are not
+redeemable, refundable, or eligible for any fiat or virtual currency (including any rewards
+offered by Walrus Foundation) or anything else of value. Walrus Foundation does not guarantee
+that Beta Tokens will continue to be offered for a specific length of time and you may not rely
+upon the continued availability of any Beta Tokens. You acknowledge that you have no property
+interest in the Beta Tokens.  If the Beta Services expire, you acknowledge and agree that your
+access to and use of your Beta Tokens will be removed, and all accrued Beta Tokens will be
+deleted from the Beta Service environments. Beta Tokens are not transferable between users
+outside of the respective Testnet or Devnet on which such Beta Tokens were issued, and you may
+not attempt to sell, trade, or transfer any Tokens outside of that respective Testnet or Devnet,
+or obtain any manner of credit using any Beta Tokens. Any attempt to sell, trade, or transfer
+any Beta Tokens outside of the respective Testnet or Devnet will be null and void.</p>
+</li>
+<li>
+<p>Your Content</p>
+<p>a) User Content. Our Interface may allow you to store or share content such as text (in posts or
+communications with others), files, documents, graphics, images, music, software, code, audio
+and video. Anything (other than Feedback) that you post or otherwise make available through the
+Interface is referred to as “User Content.” Walrus Foundation does not claim any ownership
+rights in any Walrus Content and nothing in these Terms will be deemed to restrict any rights
+that you may have to your User Content.</p>
+<p>b) Permissions to Your User Content. By making any Walrus Content available through the
+Interface you hereby grant to Walrus Foundation a non-exclusive, transferable, worldwide,
+royalty-free license, with the right to sublicense, to use, copy, modify, create derivative
+works based upon, distribute, publicly display, and publicly perform your User Content in
+connection with operating, providing, and improving the Interface.</p>
+<p>c) Your Responsibility for User Content. You are solely responsible for all your User Content.
+You represent and warrant that you have (and will have) all rights that are necessary to grant
+us the license rights in your User Content under these Terms. You represent and warrant that
+neither your User Content, nor your use and provision of your User Content to be made available
+through the Interface, nor any use of your User Content by Walrus Foundation on or through the
+Interface will infringe, misappropriate or violate a third party’s intellectual property rights,
+or rights of publicity or privacy, or result in the violation of any Applicable Law or
+regulation.</p>
+<p>d) Removal of User Content. You can remove certain elements of your User Content by specifically
+deleting it. You should know that in certain instances, some of your User Content (such as posts
+or comments you make) may not be completely removed and copies of your User Content may continue
+to exist on the Interface. To the maximum extent permitted by law, we are not responsible or
+liable for the removal or deletion of (or the failure to remove or delete) any of your User
+Content.</p>
+<p>e) Walrus Foundation's Intellectual Property. We may make available through the Interface
+content that is subject to intellectual property rights. We retain all rights to that content.</p>
+<p>f) Feedback. We appreciate feedback, comments, ideas, proposals and suggestions for improvements
+to the Interface (“Feedback”). If you choose to submit Feedback, you agree that we are free to
+use it (and permit others to use it) without any restriction or compensation to you.</p>
+</li>
+<li>
+<p>General Prohibitions and Walrus Foundation’s Enforcement Rights.</p>
+<p>You agree not to do any of the following:</p>
+<ul>
+<li>
+<p>Post, upload, publish, submit or transmit any User Content that:</p>
+<ul>
+<li>
+<p>(i) infringes, misappropriates or violates a third party’s patent, copyright, trademark,
+trade secret, moral rights or other intellectual property rights, or rights of publicity
+or privacy;</p>
+</li>
+<li>
+<p>(ii) violates, or encourages any conduct that would violate, any Applicable Law or
+regulation or would give rise to civil liability;</p>
+</li>
+<li>
+<p>(iii) is fraudulent, false, misleading or deceptive;</p>
+</li>
+<li>
+<p>(iv) is defamatory, obscene, pornographic, vulgar or offensive;</p>
+</li>
+<li>
+<p>(v) promotes discrimination, bigotry, racism, hatred, harassment or harm against any
+individual or group;</p>
+</li>
+<li>
+<p>(vi) is violent or threatening or promotes violence or actions that are threatening to any
+person or entity; or</p>
+</li>
+<li>
+<p>(vii) promotes illegal or harmful activities or substances;</p>
+</li>
+</ul>
+</li>
+<li>
+<p>Engage in or induce others to engage in any form of unauthorized access, hacking, or social
+engineering, including without limitation any distributed denial or service or DDoS attack, of
+Walrus Foundation, the Interface, or any users of the foregoing;</p>
+</li>
+<li>
+<p>Use, display, mirror or frame the Interface or any individual element within the Interface,
+Walrus Foundation’s name, any Walrus Foundation trademark, logo or other proprietary
+information, or the layout and design of any page or form contained on a page, without Walrus
+Foundation’s express written consent;</p>
+</li>
+<li>
+<p>Access, tamper with, or use non-public areas of the Interface, Walrus Foundation’s computer
+systems, or the technical delivery systems of Walrus Foundation’s providers;</p>
+</li>
+<li>
+<p>Attempt to probe, scan or test the vulnerability of any Walrus Foundation system or network or
+breach any security or authentication measures;</p>
+</li>
+<li>
+<p>Avoid, bypass, remove, deactivate, impair, descramble or otherwise circumvent any
+technological measure implemented by Walrus Foundation or any of Walrus Foundation’s providers
+or any other third party (including another user) to protect the Interface;</p>
+</li>
+<li>
+<p>Attempt to access or search the Interface or download content from the Interface using any
+engine, software, tool, agent, device or mechanism (including spiders, robots, crawlers, data
+mining tools or the like) other than the software and/or search agents provided by Walrus
+Foundation or other generally available third-party web browsers;</p>
+</li>
+<li>
+<p>Send any unsolicited or unauthorized advertising, promotional materials, email, junk mail,
+spam, chain letters or other form of solicitation;</p>
+</li>
+<li>
+<p>Use any meta tags or other hidden text or metadata utilizing a Walrus Foundation trademark,
+logo, URL or product name without Walrus Foundation’s express written consent;</p>
+</li>
+<li>
+<p>Forge any TCP/IP packet header or any part of the header information in any email or newsgroup
+posting, or in any way use the Interface to send altered, deceptive or false
+source-identifying information;</p>
+</li>
+<li>
+<p>Attempt to decipher, decompile, disassemble or reverse engineer any of the software used to
+provide the Interface;</p>
+</li>
+<li>
+<p>Interfere with, or attempt to interfere with, the access of any user, host or network,
+including, without limitation, sending a virus, exploiting any bug, overloading, flooding,
+spamming, or mail-bombing the Interface;</p>
+</li>
+<li>
+<p>Use the Interface for benchmarking or analysis in a manner that could, directly or indirectly,
+interfere with, detract from, or otherwise harm the Interface or the Protocol;</p>
+</li>
+<li>
+<p>Collect or store any personally identifiable information from the Interface from other users
+of the Interface without their express permission;</p>
+</li>
+<li>
+<p>Impersonate or misrepresent your affiliation with any person or entity;</p>
+</li>
+<li>
+<p>Create or list any counterfeit items (including digital assets);</p>
+</li>
+<li>
+<p>Fabricate in any way any transaction or process related thereto;</p>
+</li>
+<li>
+<p>Engage or assist in any activity that violates any law, statute, ordinance, regulation, or
+sanctions program, including but not limited to the U.S. Department of Treasury’s Office of
+Foreign Assets Control (“OFAC”), or that involves proceeds of any unlawful activity (including
+but not limited to money laundering, terrorist financing or deliberately engaging in
+activities designed to adversely affect the performance of the Interface);</p>
+</li>
+<li>
+<p>Engage in wash trading or other deceptive or manipulative trading activities;</p>
+</li>
+<li>
+<p>Disguise or interfere in any way with the IP address of the computer you are using to access
+or use the Interface or that otherwise prevents us from correctly identifying the IP address
+of the computer you are using to access the Interface;</p>
+</li>
+<li>
+<p>Transmit, exchange, or otherwise support the direct or indirect proceeds of criminal or
+fraudulent activity; or</p>
+</li>
+<li>
+<p>Violate any Applicable Law or regulation</p>
+</li>
+</ul>
+<p>Walrus Foundation is not obligated to monitor access to or use of the Interface or to review or
+edit any content. However, we have the right to do so for the purpose of operating the
+Interface, to ensure compliance with these Terms and to comply with Applicable Law or other
+legal requirements. We reserve the right, but are not obligated, to remove or disable access to
+any content, including User Content, at any time and without notice, including, but not limited
+to, if we, at our sole discretion, consider it objectionable or in violation of these Terms. We
+have the right to investigate violations of these Terms or conduct that affects the Interface.
+We may also consult and cooperate with law enforcement authorities to prosecute users who
+violate the law.</p>
+</li>
+<li>
+<p>Links to Third Party Websites or Resources</p>
+<p>The Interface may allow you to access third-party websites, integrations, or other resources,
+including the Protocol and any bridge between the Protocol and third party protocols
+(collectively, “Third Party Resources”). We provide access only as a convenience and are not
+responsible for the content, products or services on or available from those resources or links
+displayed on such websites. You acknowledge sole responsibility for and assume all risk arising
+from your use of any third-party resources. Our provision of access to any Third Party Resources
+does not constitute approval, endorsement, or control of such Third Party Resources.</p>
+</li>
+<li>
+<p>Termination</p>
+<p>We may suspend or terminate your access to and use of the Interface, including suspending access
+to or terminating your account, at our sole discretion, at any time and without notice to you.
+You acknowledge and agree that we shall have no liability or obligation to you in such event and
+that you will not be entitled to a refund of any amounts that you have already paid to us or any
+third party, to the fullest extent permitted by Applicable Law. Upon any termination,
+discontinuation or cancellation of the Interface or your account, the following Sections will
+survive: 5(f), 7(b), 7(c), 7(e), 7(f), 8, 10 and 11-17.</p>
+</li>
+<li>
+<p>Warranty Disclaimers</p>
+<p>THE INTERFACE AND ANY CONTENT CONTAINED THEREIN IS PROVIDED “AS IS,” WITHOUT WARRANTY OF ANY
+KIND. WITHOUT LIMITING THE FOREGOING, WE EXPLICITLY DISCLAIM ANY IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT AND NON-INFRINGEMENT, AND ANY
+WARRANTIES ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE. WE MAKE NO WARRANTY THAT THE
+INTERFACE WILL MEET YOUR REQUIREMENTS, BE AVAILABLE ON AN UNINTERRUPTED, SECURE, OR ERROR-FREE
+BASIS. WE MAKE NO WARRANTY REGARDING THE QUALITY, ACCURACY, TIMELINESS, TRUTHFULNESS,
+COMPLETENESS OR RELIABILITY OF ANY INFORMATION OR CONTENT ON THE INTERFACE. WALRUS FOUNDATION
+FURTHER EXPRESSLY DISCLAIMS ALL LIABILITY OR RESPONSIBILITY IN CONNECTION WITH THIRD PARTY
+SERVICES. NOTHING HEREIN NOR ANY USE OF OUR INTERFACE IN CONNECTION WITH THIRD PARTY SERVICES
+CONSTITUTES OUR ENDORSEMENT, RECOMMENDATION OR ANY OTHER AFFILIATION OF OR WITH ANY THIRD PARTY
+SERVICES.</p>
+<p>WALRUS FOUNDATION DOES NOT REPRESENT OR WARRANT THAT ANY CONTENT ON THE INTERFACE IS ACCURATE,
+COMPLETE, RELIABLE, CURRENT OR ERROR-FREE. WE WILL NOT BE LIABLE FOR ANY LOSS OF ANY KIND FROM
+ANY ACTION TAKEN OR TAKEN IN RELIANCE ON MATERIAL OR INFORMATION CONTAINED ON THE INTERFACE.
+WALRUS FOUNDATION CANNOT AND DOES NOT REPRESENT OR WARRANT THAT THE INTERFACE, ANY CONTENT
+THEREIN, OR OUR SERVERS ARE FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS. WE CANNOT GUARANTEE THE
+SECURITY OF ANY DATA THAT YOU DISCLOSE ONLINE. YOU ACCEPT THE INHERENT SECURITY RISKS OF
+PROVIDING INFORMATION AND DEALING ONLINE OVER THE INTERNET AND WILL NOT HOLD US RESPONSIBLE FOR
+ANY BREACH OF SECURITY.</p>
+<p>WALRUS FOUNDATION WILL NOT BE RESPONSIBLE OR LIABLE TO YOU FOR ANY LOSS AND TAKES NO
+RESPONSIBILITY FOR, AND WILL NOT BE LIABLE TO YOU FOR, ANY USE OF THE INTERFACE, INCLUDING BUT
+NOT LIMITED TO ANY LOSSES, DAMAGES OR CLAIMS ARISING FROM: (I) USER ERROR SUCH AS FORGOTTEN
+PASSWORDS, INCORRECTLY CONSTRUCTED TRANSACTIONS, EXCEEDING TRANSFER LIMITS OF THIRD PARTY
+RESOURCES OR THE PROTOCOL, OR MISTYPED WALLET ADDRESSES; (II) SERVER FAILURE OR DATA LOSS; (III)
+BLOCKCHAIN NETWORKS, CRYPTOCURRENCY WALLETS, CORRUPT FILES, SOFTWARE ERRORS, OR BUGS; (IV)
+UNAUTHORIZED ACCESS TO THE INTERFACE; OR (V) ANY THIRD PARTY ACTIVITIES, INCLUDING WITHOUT
+LIMITATION THE USE OF VIRUSES, PHISHING, BRUTEFORCING OR OTHER MEANS OF ATTACK AGAINST ANY
+BLOCKCHAIN NETWORK UNDERLYING THE INTERFACE.</p>
+<p>THE INTERFACE MAY NOT BE AVAILABLE DUE TO ANY NUMBER OF FACTORS INCLUDING, BUT NOT LIMITED TO,
+PERIODIC SYSTEM MAINTENANCE, SCHEDULED OR UNSCHEDULED, ACTS OF GOD, UNAUTHORIZED ACCESS,
+VIRUSES, DENIAL OF SERVICE OR OTHER ATTACKS, TECHNICAL FAILURE OF THE INTERFACE AND/OR
+TELECOMMUNICATIONS INFRASTRUCTURE OR DISRUPTION, AND THEREFORE WE EXPRESSLY DISCLAIM ANY EXPRESS
+OR IMPLIED WARRANTY REGARDING THE USE AND/OR AVAILABILITY, ACCESSIBILITY, SECURITY OR
+PERFORMANCE OF THE INTERFACE CAUSED BY SUCH FACTORS. WE DO NOT MAKE ANY REPRESENTATIONS OR
+WARRANTIES AGAINST THE POSSIBILITY OF DELETION, MISDELIVERY OR FAILURE TO STORE COMMUNICATIONS,
+PERSONALIZED SETTINGS OR OTHER DATA. SOME JURISDICTIONS DO NOT ALLOW THE EXCLUSION OF CERTAIN
+WARRANTIES. ACCORDINGLY, SOME OF THE ABOVE DISCLAIMERS OF WARRANTIES MAY NOT APPLY TO YOU BUT
+OTHERS REMAIN IN EFFECT.</p>
+</li>
+<li>
+<p>Assumption of Risk</p>
+<p>You are solely responsible for determining what, if any, Taxes and Gas Fees apply to your
+transactions through the Interface. Neither Walrus Foundation nor any Walrus Foundation
+affiliates or service providers are responsible for determining the Taxes that apply to such
+transactions.</p>
+<p>A lack of use or public interest in the creation and development of distributed ecosystems could
+negatively impact the development of those ecosystems and related applications, and could
+therefore also negatively impact the potential utility or value of User Content or certain
+digital assets. By accessing and using the Interface, you represent that you understand the
+inherent risks associated with using cryptographic and blockchain-based systems, and that you
+have a working knowledge of their usage and intricacies.</p>
+<p>You further understand that the markets for tokens and NFTs can be highly volatile due to
+factors including (but not limited to) adoption, speculation, technology, security, and
+regulation.</p>
+<p>You acknowledge that the cost and speed of transacting with cryptographic and blockchain-based
+systems are variable and may increase at any time. Accordingly, you understand and agree to
+assume full responsibility for all of the risks of accessing and using and interacting with the
+Interface.</p>
+</li>
+<li>
+<p>Indemnity</p>
+<p>You will indemnify, defend (at Walrus Foundation’s option) and hold Walrus Foundation and its
+affiliates and their respective officers, directors, employees and agents, harmless from and
+against any claims, disputes, demands, liabilities, damages, losses, and costs and expenses,
+including, without limitation, reasonable legal and accounting fees arising out of or in any way
+connected with: (a) your access to or use of the Interface, (b) your User Content, or (c) your
+violation of these Terms. You may not settle or otherwise compromise any claim subject to this
+Section without Walrus Foundation’s prior written approval.</p>
+</li>
+<li>
+<p>Limitation of Liability</p>
+<p>TO THE MAXIMUM EXTENT PERMITTED BY LAW, NEITHER WALRUS FOUNDATION NOR ITS SERVICE PROVIDERS
+INVOLVED IN CREATING, PRODUCING, OR DELIVERING THE INTERFACE WILL BE LIABLE FOR ANY INCIDENTAL,
+SPECIAL, EXEMPLARY OR CONSEQUENTIAL DAMAGES, OR DAMAGES FOR LOST PROFITS, LOST REVENUES, LOST
+SAVINGS, LOST BUSINESS OPPORTUNITY, LOSS OF DATA OR GOODWILL, SERVICE INTERRUPTION, COMPUTER
+DAMAGE OR SYSTEM FAILURE OR THE COST OF SUBSTITUTE SERVICES OF ANY KIND ARISING OUT OF OR IN
+CONNECTION WITH THESE TERMS OR FROM THE USE OF OR INABILITY TO USE THE INTERFACE, WHETHER BASED
+ON WARRANTY, CONTRACT, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY OR ANY OTHER LEGAL THEORY,
+AND WHETHER OR NOT WALRUS FOUNDATION OR ITS SERVICE PROVIDERS HAS BEEN INFORMED OF THE
+POSSIBILITY OF SUCH DAMAGE, EVEN IF A LIMITED REMEDY SET FORTH HEREIN IS FOUND TO HAVE FAILED OF
+ITS ESSENTIAL PURPOSE. TO THE MAXIMUM EXTENT PERMITTED BY THE LAW, IN NO EVENT WILL WALRUS
+FOUNDATION’S TOTAL LIABILITY ARISING OUT OF OR IN CONNECTION WITH THESE TERMS OR FROM THE USE OF
+OR INABILITY TO USE THE INTERFACE EXCEED ONE HUNDRED DOLLARS ($100).THE EXCLUSIONS AND
+LIMITATIONS OF DAMAGES SET FORTH ABOVE ARE FUNDAMENTAL ELEMENTS OF THE BASIS OF THE BARGAIN
+BETWEEN WALRUS FOUNDATION AND YOU.</p>
+</li>
+<li>
+<p>Governing Law and Forum Choice</p>
+<p>These Terms will be governed by and construed in accordance with the laws of the Cayman Islands
+without regard to its conflict of laws provisions.</p>
+</li>
+<li>
+<p>dispute Resolution</p>
+<p>a) Mandatory Arbitration of Disputes. We each agree that any dispute, claim or controversy
+arising out of or relating to these Terms or the breach, termination, enforcement,
+interpretation or validity thereof or the use of the Interface (collectively, “Disputes”) will
+be resolved solely by binding, individual arbitration and not in a class, representative or
+consolidated action or proceeding. You and Walrus Foundation agree that the Cayman Islands
+Arbitration Law governs the interpretation and enforcement of these Terms, and that you and
+Walrus Foundation are each waiving the right to a trial by jury or to participate in a class
+action. This arbitration provision shall survive termination of these Terms.</p>
+<p>b) Exceptions. The Parties retain the right to seek injunctive or other equitable relief from a
+court to prevent (or enjoin) the infringement or misappropriation of our intellectual property
+rights.</p>
+<p>c) Conducting Arbitration and Arbitration Rules. These Terms will be governed by and construed
+in accordance with the laws of the Cayman Islands, without regard to or application of conflicts
+of law rules or principles.  Any dispute, controversy, difference or claim arising out of or
+relating to this Agreement, including the formation, interpretation, breach or termination
+thereof, including whether the claims asserted are arbitrable, will be referred to and finally
+resolved by binding arbitration to be administered by the Cayman Islands International Centre
+(CIAC) and governed by the Arbitration Act (as amended) of the Cayman Islands.  The arbitration
+shall be conducted in the English language and the place of arbitration shall be in the Cayman
+Islands.  The number of arbitrators shall be one.  The place of arbitration will be George Town,
+Cayman Islands.  The decision of the sole arbitrator to any such dispute, controversy,
+difference or claim shall be final and binding upon both parties.  If any litigation or
+arbitration is necessary to enforce the terms of this Agreement, the prevailing party will be
+entitled to have their attorney fees paid by the other party.  Each party waives any right it
+may have to assert the doctrine of forum non conveniens, to assert that it is not subject to the
+jurisdiction of such arbitration or courts or to object to venue to the extent any proceeding is
+brought in accordance herewith. Injunctive and Declaratory Relief. Except as provided in Section
+16(b) above, the arbitrator shall determine all issues of liability on the merits of any claim
+asserted by either party and may award declaratory or injunctive relief only in favor of the
+individual party seeking relief and only to the extent necessary to provide relief warranted by
+that party’s individual claim. To the extent that you or we prevail on a claim and seek public
+injunctive relief (that is, injunctive relief that has the primary purpose and effect of
+prohibiting unlawful acts that threaten future injury to the public), the entitlement to and
+extent of such relief must be litigated in a civil court of competent jurisdiction and not in
+arbitration. The parties agree that litigation of any issues of public injunctive relief shall
+be stayed pending the outcome of the merits of any individual claims in arbitration.</p>
+<p>d) Class Action Waiver. YOU AND WALRUS FOUNDATION AGREE THAT EACH MAY BRING CLAIMS AGAINST THE
+OTHER ONLY IN YOUR OR ITS INDIVIDUAL CAPACITY, AND NOT AS A PLAINTIFF OR CLASS MEMBER IN ANY
+PURPORTED CLASS OR REPRESENTATIVE PROCEEDING. Further, if the parties’ Dispute is resolved
+through arbitration, the arbitrator may not consolidate another person’s claims with your
+claims, and may not otherwise preside over any form of a representative or class proceeding. If
+this specific provision is found to be unenforceable, then the entirety of this Dispute
+Resolution section shall be null and void.</p>
+<p>e) Severability. With the exception of any of the provisions in Section 16(d) of these Terms
+(“Class Action Waiver”), if an arbitrator or court of competent jurisdiction decides that any
+part of these Terms is invalid or unenforceable, the other parts of these Terms will still
+apply.</p>
+</li>
+<li>
+<p>General Terms</p>
+<p>a) Reservation of Rights. Walrus Foundation and its licensors exclusively own all right, title
+and interest in and to the Interface, including all associated intellectual property rights. You
+acknowledge that the Interface is protected by copyright, trademark, and other laws of the
+United States and foreign countries. You agree not to remove, alter or obscure any copyright,
+trademark, service mark or other proprietary rights notices incorporated in or accompanying the
+Interface.</p>
+<p>b) Entire Agreement. These Terms, including any addendum terms, constitute the entire and
+exclusive understanding and agreement between Walrus Foundation and you regarding the Interface,
+and these Terms supersede and replace all prior oral or written understandings or agreements
+between Walrus Foundation and you regarding the Interface. If any provision of these Terms is
+held invalid or unenforceable by an arbitrator or a court of competent jurisdiction, that
+provision will be enforced to the maximum extent permissible and the other provisions of these
+Terms will remain in full force and effect.</p>
+<p>c) Assignment. Except where provided by Applicable Law in your jurisdiction, you may not assign
+or transfer these Terms, by operation of law or otherwise, without Walrus Foundation’s prior
+written consent. Any attempt by you to assign or transfer these Terms absent our consent or your
+statutory right, will be null. Walrus Foundation may freely assign or transfer these Terms
+without restriction. Subject to the foregoing, these Terms will bind and inure to the benefit of
+the parties, their successors and permitted assigns.</p>
+<p>d) Notices. Any notices or other communications provided by Walrus Foundation under these Terms
+will be given: (i) via email; or (ii) by posting to the Interface. For notices made by email,
+the date of receipt will be deemed the date on which such notice is transmitted. Waiver of
+Rights. Walrus Foundation’s failure to enforce any right or provision of these Terms will not be
+considered a waiver of such right or provision. The waiver of any such right or provision will
+be effective only if in writing and signed by a duly authorized representative of Walrus
+Foundation. Except as expressly set forth in these Terms, the exercise by either party of any of
+its remedies under these Terms will be without prejudice to its other remedies under these Terms
+or otherwise.</p>
+</li>
+<li>
+<p>Contact Information</p>
+<p>If you have any questions about these Terms or the Interface, please contact Walrus Foundation
+at <a href="mailto:notices@walrus.xyz">notices@walrus.xyz</a>.</p>
+</li>
+</ol>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../legal/privacy.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../legal/privacy.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/theme/tabs.js"></script>
+
+
+    </div>
+    </body>
+</html>
