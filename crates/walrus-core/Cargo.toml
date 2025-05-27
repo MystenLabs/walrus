@@ -7,9 +7,6 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["rs2"]
-raptorq = []
-rs2 = []
 sui-types = ["dep:sui-types"]
 test-utils = ["walrus-test-utils"]
 
@@ -21,7 +18,6 @@ fastcrypto.workspace = true
 hex.workspace = true
 p256 = { workspace = true, features = ["pem", "pkcs8"] }
 rand.workspace = true
-raptorq.workspace = true
 reed-solomon-simd.workspace = true
 serde.workspace = true
 serde_with.workspace = true

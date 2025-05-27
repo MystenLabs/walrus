@@ -8,6 +8,8 @@
 //!
 //! Additionally provides the [`by_axis::flat_map`][`flat_map`] macro that can be used to apply
 //! the same operation to the value stored in the primary or secondary variants of [`ByAxis`].
+
+#[cfg(feature = "utoipa")]
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Display};
 

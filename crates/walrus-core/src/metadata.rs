@@ -269,7 +269,7 @@ impl VerifiedBlobMetadataWithId {
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
         let encoding_type = self.metadata.encoding_type();
-        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards(), encoding_type);
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
         let config = config.get_for_type(encoding_type);
 
         self.n_shards() == config.n_shards()

@@ -1,30 +1,22 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::vec::Vec;
 use core::num::{NonZeroU16, NonZeroU32};
 
-use raptorq::{EncodingPacket, ObjectTransmissionInformation};
-
 use super::DataTooLargeError;
-
-/// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
-pub fn get_transmission_info(symbol_size: NonZeroU16) -> ObjectTransmissionInformation {
-    ObjectTransmissionInformation::new(0, symbol_size.get(), 0, 1, 1)
-}
 
 /// Computes the correct symbol size given the data length and the number of source symbols.
 #[inline]
 pub fn compute_symbol_size(
     data_length: u64,
     n_symbols: NonZeroU32,
-    required_alignment: u64,
+    required_alignment: u16,
 ) -> Result<NonZeroU16, DataTooLargeError> {
     // Use a 1-byte symbol size for the empty blob.
     let data_length = data_length.max(1);
     let symbol_size = data_length
         .div_ceil(u64::from(n_symbols.get()))
-        .next_multiple_of(required_alignment);
+        .next_multiple_of(required_alignment.into());
 
     Ok(
         NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| DataTooLargeError)?)
@@ -37,7 +29,7 @@ pub fn compute_symbol_size(
 pub fn compute_symbol_size_from_usize(
     data_length: usize,
     n_symbols: NonZeroU32,
-    required_alignment: u64,
+    required_alignment: u16,
 ) -> Result<NonZeroU16, DataTooLargeError> {
     compute_symbol_size(
         data_length.try_into().map_err(|_| DataTooLargeError)?,
@@ -57,27 +49,11 @@ pub fn source_symbols_per_blob(
         .expect("product of two u16 always fits into a u32")
 }
 
-#[inline]
-pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
-    packet.split().1
-}
-
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
-
-    param_test! {
-        get_transmission_info_succeeds: [
-            symbol_size_1: (1),
-            symbol_size_random: (42),
-            max_symbol_size: (u16::MAX),
-        ]
-    }
-    fn get_transmission_info_succeeds(symbol_size: u16) {
-        get_transmission_info(NonZeroU16::new(symbol_size).unwrap());
-    }
 
     param_test! {
         compute_symbol_size_matches_expectation: [
@@ -98,7 +74,7 @@ mod tests {
     fn compute_symbol_size_matches_expectation(
         data_length: u64,
         n_symbols: u32,
-        required_alignment: u64,
+        required_alignment: u16,
         expected_result: u16,
     ) {
         assert_eq!(
