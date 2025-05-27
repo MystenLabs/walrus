@@ -15,6 +15,7 @@ theme = "docs/theme"
 
 [output.linkcheck]
 exclude = [
+  'faucet\.sui\.io',
   'github\.com',
   'google\.com',
   'x\.com',
