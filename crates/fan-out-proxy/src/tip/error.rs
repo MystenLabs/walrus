@@ -3,7 +3,6 @@
 
 //! Errors for the tipping system.
 
-use thiserror;
 use walrus_core::BlobId;
 use walrus_sui::client::SuiClientError;
 

@@ -47,7 +47,7 @@ mod error;
 mod params;
 mod tip;
 
-const DEFAULT_SERVER_ADDRESS: &'static str = "0.0.0.0:57391";
+const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -252,7 +252,7 @@ async fn fan_out_blob_slivers(
 
     // Reply with the confirmation certificate.
     let response = ResponseType {
-        blob_id: blob_id,
+        blob_id,
         confirmation_certificate,
     };
 
