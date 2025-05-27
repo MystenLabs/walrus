@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BlobId,
     EncodingType,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     encoding::{
@@ -172,6 +173,22 @@ impl QuiltIndexV1 {
             .iter()
             .find(|patch| patch.identifier == identifier)
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
+
+    /// Returns the sliver indices of the quilt patch with the given identifier.
+    pub fn get_sliver_indices_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        let patches = identifiers
+            .iter()
+            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(patches
+            .iter()
+            .flat_map(|patch| (patch.start_index()..patch.end_index()).map(SliverIndex::new))
+            .collect())
     }
 
     /// Returns an iterator over the identifiers of the blobs in the quilt.
