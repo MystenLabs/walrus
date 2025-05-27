@@ -43,10 +43,11 @@ impl B64UrlEncodedBytes {
     pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.0
     }
+}
 
-    /// Returns the base 64 url encoded and without padding.
-    pub(crate) fn to_string(&self) -> String {
-        URL_SAFE_NO_PAD.encode(&self.0)
+impl std::fmt::Display for B64UrlEncodedBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", URL_SAFE_NO_PAD.encode(&self.0))
     }
 }
 

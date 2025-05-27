@@ -26,5 +26,5 @@ pub(crate) enum TipError {
     EncodedBlobLengthFailed,
     /// Error in the Sui client.
     #[error(transparent)]
-    SuiClient(#[from] SuiClientError),
+    SuiClient(#[from] Box<SuiClientError>),
 }

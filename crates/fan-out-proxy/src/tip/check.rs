@@ -63,7 +63,8 @@ impl TipChecker {
     ) -> Result<BlobRegistered, TipError> {
         let response = self
             .execute_transaction_from_bytes(tx_bytes, signatures)
-            .await?;
+            .await
+            .map_err(Box::new)?;
 
         // Check that the transaction has registered the blob ID.
         let registration =
