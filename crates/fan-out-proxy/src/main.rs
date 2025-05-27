@@ -70,6 +70,7 @@ enum Command {
         /// The address to listen on. Defaults to 0.0.0.0:57391.
         #[arg(long, global = true)]
         server_address: Option<SocketAddr>,
+        /// The file path to the Tip configuration.
         #[arg(long, global = true)]
         tip_config: PathBuf,
     },
