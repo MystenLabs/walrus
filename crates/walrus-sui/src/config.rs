@@ -15,6 +15,8 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
 use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir, resolve_home_dir_option};
 
+use crate::wallet::Wallet;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 /// The wallet configuration is a mechanism for specifying the sui wallet config, with a potential
@@ -51,8 +53,8 @@ pub enum WalletConfig {
 pub fn load_wallet_context_from_path(
     wallet_path: Option<impl AsRef<Path>>,
     request_timeout: Option<Duration>,
-) -> Result<WalletContext> {
-    WalletConfig::load_wallet_context(
+) -> Result<Wallet> {
+    WalletConfig::load_wallet(
         wallet_path.map(WalletConfig::from_path).as_ref(),
         request_timeout,
     )
@@ -96,10 +98,10 @@ impl WalletConfig {
     /// then from the standard Sui configuration directory.
     // NB: When making changes to the logic, make sure to update the argument docs in
     // `crates/walrus-service/bin/client.rs`.
-    pub fn load_wallet_context(
+    pub fn load_wallet(
         wallet_config: Option<&WalletConfig>,
         request_timeout: Option<Duration>,
-    ) -> Result<WalletContext> {
+    ) -> Result<Wallet> {
         let mut default_paths = vec!["./sui_config.yaml".into()];
         if let Some(home_dir) = home::home_dir() {
             default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
@@ -108,7 +110,10 @@ impl WalletConfig {
         let path = path_or_defaults_if_exist(wallet_config.and_then(|c| c.path()), &default_paths)
             .ok_or(anyhow!("could not find a valid wallet config file"))?;
         tracing::info!("using Sui wallet configuration from '{}'", path.display());
-        let mut wallet_context: WalletContext = WalletContext::new(&path, request_timeout, None)?;
+        let mut wallet_context: WalletContext = WalletContext::new(&path)?;
+        if let Some(request_timeout) = request_timeout {
+            wallet_context = wallet_context.with_request_timeout(request_timeout);
+        }
         if let Some(active_env) = wallet_config.and_then(|wallet_config| wallet_config.active_env())
         {
             if !wallet_context
@@ -132,8 +137,7 @@ impl WalletConfig {
                 .config
                 .keystore
                 .addresses()
-                .iter()
-                .any(|address| *address == active_address)
+                .contains(&active_address)
             {
                 return Err(anyhow!(
                     "Address '{}' not found in wallet keystore for file '{}'.",
@@ -144,7 +148,7 @@ impl WalletConfig {
 
             wallet_context.config.active_address = Some(active_address);
         }
-        Ok(wallet_context)
+        Ok(Wallet::new(wallet_context))
     }
 }
 

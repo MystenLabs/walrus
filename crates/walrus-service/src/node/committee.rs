@@ -65,12 +65,15 @@ pub enum BeginCommitteeChangeError {
     /// the past.
     ///
     /// The caller is lagging in its expectation as to what is the current epoch.
-    #[error("the provided epoch is less than the expected epoch: {actual} ({expected})")]
+    #[error(
+        "the provided epoch is less than the latest epoch from committee: \
+        {requested_epoch} ({latest_epoch})"
+    )]
     EpochIsLess {
-        /// The expected next epoch based on the state of the committee service.
-        expected: Epoch,
+        /// The latest epoch from the committee.
+        latest_epoch: Epoch,
         /// The epoch provided by the caller.
-        actual: Epoch,
+        requested_epoch: Epoch,
     },
     /// Error returned when the caller requests to begin a committee change to the current epoch.
     #[error("the provided epoch is the same as the current epoch")]

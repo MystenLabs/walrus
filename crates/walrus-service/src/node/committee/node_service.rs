@@ -93,7 +93,8 @@ pub(crate) enum Request {
 pub(crate) enum Response {
     VerifiedMetadata(VerifiedBlobMetadataWithId),
     VerifiedRecoverySymbol(DefaultRecoverySymbol),
-    InvalidBlobAttestation(InvalidBlobIdAttestation),
+    // Wrapped in a `Box` as this variant is very large and rarely used.
+    InvalidBlobAttestation(Box<InvalidBlobIdAttestation>),
     ShardSlivers(Vec<(BlobId, Sliver)>),
     VerifiedRecoverySymbols(Vec<GeneralRecoverySymbol>),
 }
@@ -145,8 +146,29 @@ impl_response_conversion!(
     Vec<GeneralRecoverySymbol>,
     Response::VerifiedRecoverySymbols
 );
-impl_response_conversion!(InvalidBlobIdAttestation, Response::InvalidBlobAttestation);
+impl_response_conversion!(
+    Box<InvalidBlobIdAttestation>,
+    Response::InvalidBlobAttestation
+);
 impl_response_conversion!(Vec<(BlobId, Sliver)>, Response::ShardSlivers);
+
+impl TryFrom<Response> for InvalidBlobIdAttestation {
+    type Error = InvalidResponseVariant;
+
+    fn try_from(value: Response) -> Result<Self, Self::Error> {
+        if let Response::InvalidBlobAttestation(inner) = value {
+            Ok(*inner)
+        } else {
+            Err(InvalidResponseVariant)
+        }
+    }
+}
+
+impl From<InvalidBlobIdAttestation> for Response {
+    fn from(value: InvalidBlobIdAttestation) -> Self {
+        Response::InvalidBlobAttestation(Box::new(value))
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum NodeServiceError {

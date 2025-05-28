@@ -604,7 +604,7 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
             let attestation = node::sign_message(message, arbitrary_key_pair).await?;
 
             service_map.insert_ready(node.public_key.clone(), move |_request| {
-                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+                Ok(attestation.clone().into())
             });
         }
     }
@@ -669,7 +669,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
             let attestation = node::sign_message(message, arbitrary_key_pair).await?;
 
             service_map.insert_ready(node.public_key.clone(), move |_request| {
-                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+                Ok(attestation.clone().into())
             });
         }
     }

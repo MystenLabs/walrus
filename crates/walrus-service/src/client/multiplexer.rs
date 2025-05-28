@@ -11,11 +11,7 @@ use std::{
     },
 };
 
-use sui_sdk::{
-    sui_client_config::SuiEnv,
-    types::base_types::SuiAddress,
-    wallet_context::WalletContext,
-};
+use sui_sdk::{sui_client_config::SuiEnv, types::base_types::SuiAddress};
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_sdk::{
@@ -40,6 +36,7 @@ use walrus_sui::{
     config::load_wallet_context_from_path,
     types::move_structs::BlobWithAttribute,
     utils::create_wallet,
+    wallet::Wallet,
 };
 use walrus_utils::metrics::Registry;
 
@@ -59,13 +56,13 @@ pub struct ClientMultiplexer {
 
 impl ClientMultiplexer {
     pub async fn new(
-        wallet: WalletContext,
+        wallet: Wallet,
         config: &ClientConfig,
         gas_budget: Option<u64>,
         prometheus_registry: &Registry,
         args: &PublisherArgs,
     ) -> anyhow::Result<Self> {
-        let sui_env = wallet.config.get_active_env()?.clone();
+        let sui_env = wallet.get_active_env()?.clone();
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
         let main_address = contract_client.address();
 
@@ -271,13 +268,10 @@ impl WriteClientPool {
     pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
-        let client = self
-            .pool
+        self.pool
             .get(cur_idx)
             .expect("the index is computed modulo the length and clients cannot be removed")
-            .clone();
-
-        client
+            .clone()
     }
 }
 
@@ -357,7 +351,7 @@ impl<'a> SubClientLoader<'a> {
     /// file. Otherwise, it creates a new wallet and saves it to the file.
     ///
     /// The corresponding keystore files are named `sui_<sub_wallet_idx>.keystore`.
-    fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<WalletContext> {
+    fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<Wallet> {
         let wallet_config_path = self
             .sub_wallets_dir
             .join(format!("sui_client_{}.yaml", sub_wallet_idx));
@@ -383,15 +377,22 @@ impl<'a> SubClientLoader<'a> {
     /// Ensures the wallet has at least 1 coin of at least`min_balance` SUI and WAL.
     async fn top_up_if_necessary(
         &self,
-        wallet: &'a mut WalletContext,
+        wallet: &'a mut Wallet,
         min_balance: u64,
     ) -> anyhow::Result<()> {
         let wal_coin_type = self.refiller.wal_coin_type();
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
-        let sui_client =
-            RetriableSuiClient::new_from_wallet(wallet, self.config.backoff_config().clone())
-                .await?;
+
+        #[allow(deprecated)]
+        let rpc_urls = &[wallet.get_rpc_url()?];
+
+        let sui_client = RetriableSuiClient::new_for_rpc_urls(
+            rpc_urls,
+            self.config.backoff_config().clone(),
+            self.config.communication_config.sui_client_request_timeout,
+        )
+        .await?;
 
         if should_refill(&sui_client, address, None, min_balance).await {
             self.refiller.send_gas_request(address).await?;

@@ -19,7 +19,7 @@ use anyhow::anyhow;
 use serde::Serialize;
 #[cfg(msim)]
 use sui_config::local_ip_utils;
-use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
+use sui_sdk::sui_client_config::SuiEnv;
 #[cfg(msim)]
 use sui_simulator::runtime::NodeHandle;
 use sui_types::{
@@ -66,6 +66,7 @@ use crate::{
         StorageNode,
     },
     utils::create_wallet,
+    wallet::Wallet,
 };
 
 /// Default gas budget for some transactions in tests and benchmarks.
@@ -95,6 +96,8 @@ pub fn object_id_for_testing() -> ObjectID {
 }
 
 /// Represents a test cluster running within this process or as a separate process.
+// Allowing a large enum variant as this is anyway just used in tests.
+#[allow(clippy::large_enum_variant)]
 pub enum LocalOrExternalTestCluster {
     /// A test cluster running within this process.
     Local {
@@ -384,7 +387,7 @@ pub mod using_tokio {
 pub fn temp_dir_wallet(
     request_timeout: Option<Duration>,
     env: SuiEnv,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
+) -> anyhow::Result<WithTempDir<Wallet>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let wallet = create_wallet(
         &temp_dir.path().join("wallet_config.yaml"),
@@ -436,7 +439,7 @@ pub mod using_msim {
 pub async fn create_and_fund_wallets_on_cluster(
     sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
     n_wallets: usize,
-) -> anyhow::Result<Vec<WithTempDir<WalletContext>>> {
+) -> anyhow::Result<Vec<WithTempDir<Wallet>>> {
     let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
@@ -466,7 +469,7 @@ pub async fn create_and_fund_wallets_on_cluster(
 /// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
+) -> anyhow::Result<WithTempDir<Wallet>> {
     let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
@@ -486,13 +489,17 @@ pub async fn new_contract_client_on_sui_test_cluster(
     let contract_config = existing_client.read_client().contract_config();
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
-        .and_then_async(|wallet| {
+        .and_then_async(async |wallet| {
+            #[allow(deprecated)]
+            let rpc_urls = &[wallet.get_rpc_url()?];
             SuiContractClient::new(
                 wallet,
+                rpc_urls,
                 &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 None,
             )
+            .await
         })
         .await?;
     Ok(walrus_client)
@@ -510,14 +517,14 @@ pub async fn sui_test_cluster() -> TestCluster {
 /// Creates a wallet for testing in the same network as `funding_wallet`, funded by
 /// `funding_wallet` by transferring at least two gas objects.
 pub async fn wallet_for_testing(
-    funding_wallet: &mut WalletContext,
+    funding_wallet: &mut Wallet,
     funded: bool,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
+) -> anyhow::Result<WithTempDir<Wallet>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
 
     let mut wallet = create_wallet(
         &temp_dir.path().join("wallet_config.yaml"),
-        funding_wallet.config.get_active_env()?.to_owned(),
+        funding_wallet.get_active_env()?.to_owned(),
         None,
         None,
     )?;
@@ -535,12 +542,13 @@ pub async fn wallet_for_testing(
 /// Funds the `recipients` with gas objects with `amount` or with [`DEFAULT_FUNDING_PER_COIN`]
 /// SUI each if no amount is provided.
 pub async fn fund_addresses(
-    funding_wallet: &mut WalletContext,
+    funding_wallet: &mut Wallet,
     recipients: Vec<SuiAddress>,
     amount: Option<u64>,
 ) -> anyhow::Result<()> {
     let sender = funding_wallet.active_address()?;
 
+    #[allow(deprecated)]
     let gas_coin = funding_wallet
         .gas_for_owner_budget(sender, DEFAULT_GAS_BUDGET, BTreeSet::new())
         .await?
@@ -553,13 +561,17 @@ pub async fn fund_addresses(
     let amounts = vec![amount; recipients.len()];
     ptb.pay_sui(recipients, amounts)?;
 
+    #[allow(deprecated)]
+    let reference_gas_price = funding_wallet.get_reference_gas_price().await?;
+
     let transaction = TransactionData::new_programmable(
         sender,
         vec![gas_coin],
         ptb.finish(),
         DEFAULT_GAS_BUDGET,
-        funding_wallet.get_reference_gas_price().await?,
+        reference_gas_price,
     );
+    #[allow(deprecated)]
     funding_wallet
         .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction))
         .await?;

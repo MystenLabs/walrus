@@ -54,7 +54,7 @@ use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
-use walrus_utils::metrics::Registry;
+use walrus_utils::metrics::{Registry, monitored_scope};
 
 use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
 
@@ -243,6 +243,8 @@ impl MetricsAndLoggingRuntime {
     pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
+
+        monitored_scope::init_monitored_scope_metrics(&walrus_registry);
 
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
@@ -524,6 +526,10 @@ pub async fn generate_sui_wallet(
         path.display()
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
+    #[allow(deprecated)]
+    let rpc_urls = &[wallet.get_rpc_url()?];
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
+
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
@@ -531,11 +537,7 @@ pub async fn generate_sui_wallet(
         tracing::info!("attempting to get SUI from faucet...");
         match tokio::time::timeout(
             faucet_timeout,
-            walrus_sui::utils::request_sui_from_faucet(
-                wallet_address,
-                &sui_network,
-                &wallet.get_client().await?,
-            ),
+            walrus_sui::utils::request_sui_from_faucet(wallet_address, &sui_network, &client),
         )
         .await
         {

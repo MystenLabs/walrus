@@ -322,6 +322,11 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                         .get_current_rpc_url()
                         .await
                         .unwrap_or_else(|error| error.to_string());
+                    tracing::warn!(
+                        "RPC to endpoint {:?} failed with error: {:?}, fetching next client",
+                        failed_rpc_url,
+                        error
+                    );
                     match self.fetch_next_client(&mut tried_client_indices).await {
                         Ok(next_client) => {
                             client = next_client;
