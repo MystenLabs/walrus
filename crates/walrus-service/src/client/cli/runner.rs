@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use fastcrypto::encoding::Encoding;
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
@@ -1136,10 +1137,11 @@ impl ClientCommandRunner {
                     .compute_package_digest(package_path.clone())
                     .await?;
                 println!(
-                    "{} Digest for package '{}': 0x{}",
+                    "{} Digest for package '{}':\n  Hex: 0x{}\n  Base64: {}",
                     success(),
                     package_path.display(),
-                    digest.iter().map(|b| format!("{:02x}", b)).join("")
+                    digest.iter().map(|b| format!("{:02x}", b)).join(""),
+                    fastcrypto::encoding::Base64::encode(digest)
                 );
             }
         }
