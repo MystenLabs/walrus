@@ -19,6 +19,7 @@ use walrus_core::{
     EpochCount,
     QuiltBlobId,
     ShardIndex,
+    Sliver,
     SliverIndex,
     encoding::{
         EncodingAxis,
@@ -35,12 +36,11 @@ use walrus_core::{
         QuiltPatchIdApi,
         QuiltPatchIdV1,
         QuiltStoreBlob,
-        QuiltV1,
         QuiltVersion,
         QuiltVersionEnum,
+        QuiltVersionV1,
         Secondary,
         SliverData,
-        get_quilt_version_enum,
     },
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
@@ -192,7 +192,9 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 "failed to get quilt metadata from slivers, trying to get quilt {}",
                 quilt_id
             );
-            self.get_quilt_enum(quilt_id).await?.get_quilt_index()?
+            self.get_quilt_enum(&metadata, certified_epoch)
+                .await?
+                .get_quilt_index()?
         };
 
         match quilt_index {
@@ -229,27 +231,30 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data())?;
         match quilt_version {
             QuiltVersionEnum::V1 => {
-                self.get_quilt_index_v1(metadata, certified_epoch, &slivers)
+                self.get_quilt_index::<QuiltVersionV1>(metadata, certified_epoch, &slivers)
                     .await
             }
         }
     }
 
-    async fn get_quilt_index_v1(
+    async fn get_quilt_index<V: QuiltVersion>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
-        slivers: &[SliverData<Secondary>],
-    ) -> ClientResult<QuiltIndex> {
-        let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
-        let mut decoder = QuiltDecoderV1::new(&sliver_refs);
-
-        match decoder.get_or_decode_quilt_index() {
-            Ok(quilt_index) => Ok(quilt_index.clone().into()),
+        slivers: &[SliverData<V::SliverAxis>],
+    ) -> ClientResult<QuiltIndex>
+    where
+        SliverData<V::SliverAxis>: TryFrom<Sliver>,
+    {
+        let mut all_slivers = slivers.to_vec();
+        match V::QuiltConfig::get_decoder(&slivers.iter().collect::<Vec<_>>())
+            .get_or_decode_quilt_index()
+        {
+            Ok(quilt_index) => Ok(quilt_index),
             Err(QuiltError::MissingSlivers(indices)) => {
-                let slivers = self
+                let additional_slivers = self
                     .client
-                    .retrieve_slivers_with_retry::<Secondary>(
+                    .retrieve_slivers_with_retry::<V::SliverAxis>(
                         metadata,
                         &indices,
                         certified_epoch,
@@ -257,12 +262,10 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         None,
                     )
                     .await?;
-                let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
-                decoder.add_slivers(&sliver_refs);
-                decoder
-                    .get_or_decode_quilt_index()
-                    .map_err(ClientError::other)
-                    .map(|q| q.clone().into())
+                all_slivers.extend(additional_slivers);
+                let refs = all_slivers.iter().collect::<Vec<_>>();
+                let mut decoder = V::QuiltConfig::get_decoder(&refs);
+                Ok(decoder.get_or_decode_quilt_index()?)
             }
             Err(e) => Err(e.into()),
         }
@@ -278,32 +281,37 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         match metadata {
             QuiltMetadata::V1(metadata) => {
-                self.get_blobs_by_identifiers_v1(quilt_id, identifiers, &metadata)
-                    .await
+                self.get_blobs_by_identifiers_internal::<QuiltVersionV1>(
+                    &metadata.get_verified_metadata(),
+                    &metadata.index.into(),
+                    identifiers,
+                )
+                .await
             }
         }
     }
 
     /// Retrieves blobs from QuiltV1 by identifiers.
-    async fn get_blobs_by_identifiers_v1(
+    async fn get_blobs_by_identifiers_internal<V: QuiltVersion>(
         &self,
-        quilt_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
+        index: &QuiltIndex,
         identifiers: &[&str],
-        metadata: &QuiltMetadataV1,
-    ) -> ClientResult<Vec<QuiltBlobOwned>> {
-        let sliver_indices = metadata
-            .index
-            .get_sliver_indices_by_identifiers(identifiers)?;
+    ) -> ClientResult<Vec<QuiltBlobOwned>>
+    where
+        SliverData<V::SliverAxis>: TryFrom<Sliver>,
+    {
+        let sliver_indices = index.get_sliver_indices_by_identifiers(identifiers)?;
 
         // Retrieve slivers.
         let (certified_epoch, _) = self
             .client
-            .get_blob_status_and_certified_epoch(quilt_id, None)
+            .get_blob_status_and_certified_epoch(metadata.blob_id(), None)
             .await?;
         let retrieve_slivers = self
             .client
-            .retrieve_slivers_with_retry::<Secondary>(
-                &metadata.get_verified_metadata(),
+            .retrieve_slivers_with_retry::<V::SliverAxis>(
+                metadata,
                 &sliver_indices,
                 certified_epoch,
                 Some(2),
@@ -312,9 +320,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await;
 
         if let Ok(slivers) = retrieve_slivers {
-            let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
-            let decoder =
-                QuiltDecoderV1::new_with_quilt_index(&sliver_refs, metadata.index.clone());
+            let sliver_refs: Vec<&SliverData<V::SliverAxis>> = slivers.iter().collect();
+            let decoder = V::QuiltConfig::get_decoder_with_quilt_index(&sliver_refs, index);
             identifiers
                 .iter()
                 .map(|identifier| {
@@ -324,7 +331,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 })
                 .collect::<Result<Vec<_>, _>>()
         } else {
-            let quilt = futures::executor::block_on(self.get_quilt_enum(quilt_id))?;
+            let quilt = self.get_quilt_enum(metadata, certified_epoch).await?;
             identifiers
                 .iter()
                 .map(|identifier| {
@@ -392,7 +399,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         })
                         .collect::<Result<Vec<_>, _>>()
                 } else {
-                    let quilt = self.get_quilt_enum(&quilt_id).await?;
+                    let quilt = self.get_quilt_enum(&metadata, certified_epoch).await?;
                     let QuiltEnum::V1(quilt_v1) = quilt;
                     quilt_blob_ids
                         .iter()
@@ -432,31 +439,20 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         Ok(results.into_iter().flatten().collect())
     }
 
-    async fn get_quilt_enum(&self, quilt_id: &BlobId) -> ClientResult<QuiltEnum> {
-        self.client.check_blob_id(quilt_id)?;
-        let (certified_epoch, _) = self
-            .client
-            .get_blob_status_and_certified_epoch(quilt_id, None)
-            .await?;
-        let metadata = self
-            .client
-            .retrieve_metadata(certified_epoch, quilt_id)
-            .await?;
+    async fn get_quilt_enum(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<QuiltEnum> {
         let quilt_blob = self
             .client
-            .read_blob_retry_committees::<Primary>(quilt_id)
+            .request_slivers_and_decode::<Primary>(certified_epoch, metadata)
             .await?;
-        let quilt_version_enum = get_quilt_version_enum(&quilt_blob)?;
         let encoding_config_enum = self
             .client
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
-        match quilt_version_enum {
-            QuiltVersionEnum::V1 => {
-                let quilt = QuiltV1::new_from_quilt_blob(quilt_blob, &encoding_config_enum)?;
-                Ok(QuiltEnum::V1(quilt))
-            }
-        }
+        QuiltEnum::new(quilt_blob, &encoding_config_enum).map_err(ClientError::other)
     }
 }
 

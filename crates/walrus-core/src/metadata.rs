@@ -143,6 +143,18 @@ impl QuiltIndex {
     pub fn new<V: QuiltVersion>(quilt_index: V::QuiltIndex) -> QuiltIndex {
         quilt_index.into()
     }
+
+    /// Returns the sliver indices of the quilt patch with the given identifiers.
+    pub fn get_sliver_indices_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        match self {
+            QuiltIndex::V1(quilt_index) => {
+                quilt_index.get_sliver_indices_by_identifiers(identifiers)
+            }
+        }
+    }
 }
 
 /// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
@@ -159,6 +171,12 @@ pub struct QuiltIndexV1 {
 impl From<QuiltIndexV1> for QuiltIndex {
     fn from(quilt_index: QuiltIndexV1) -> Self {
         QuiltIndex::V1(quilt_index)
+    }
+}
+
+impl From<&QuiltIndexV1> for QuiltIndex {
+    fn from(quilt_index: &QuiltIndexV1) -> Self {
+        QuiltIndex::V1(quilt_index.clone())
     }
 }
 
