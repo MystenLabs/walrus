@@ -28,7 +28,7 @@ pub(crate) struct B64UrlEncodedBytes(Vec<u8>);
 
 impl B64UrlEncodedBytes {
     /// Creates a new B64 wrapper for bytes.
-    #[cfg(test)]
+    #[cfg(feature = "test-client")]
     pub(crate) fn new(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }

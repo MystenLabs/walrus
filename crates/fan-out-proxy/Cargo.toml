@@ -15,6 +15,7 @@ clap.workspace = true
 clap_complete.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
@@ -28,3 +29,7 @@ utoipa.workspace = true
 walrus-core.workspace = true
 walrus-sdk.workspace = true
 walrus-sui.workspace = true
+
+[features]
+default = ["test-client"] # TODO: Remove this eventually.
+test-client = []

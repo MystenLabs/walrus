@@ -70,10 +70,12 @@ impl TipChecker {
             .execute_transaction_from_bytes(tx_bytes, signatures)
             .await
             .map_err(Box::new)?;
+        tracing::debug!(?response, "transaction executed");
 
         // Check that the transaction has registered the blob ID.
         let registration =
             self.blob_registration_from_response(response.clone(), expected_blob_id)?;
+        tracing::debug!("blob registration check succeeded");
 
         // Check that the transaction contains an appropriate tip.
         let encoded_size = encoding::encoded_blob_length_for_n_shards(
@@ -83,6 +85,7 @@ impl TipChecker {
         )
         .ok_or(TipError::EncodedBlobLengthFailed)?;
         self.check_response_tip(&response, encoded_size)?;
+        tracing::debug!("tip check succeeded; transaction execution and checks are ok");
 
         Ok(registration)
     }
@@ -101,12 +104,10 @@ impl TipChecker {
                 tx_bytes,
                 signatures,
                 SuiTransactionBlockResponseOptions::new()
-                    // We only need events and balance changes.
+                    .with_effects()
                     .with_events()
                     .with_balance_changes(),
                 Some(ExecuteTransactionRequestType::WaitForEffectsCert),
-                // TODO: is this the right way of using `method`?
-                "execute_transaction",
             )
             .await
     }
@@ -135,6 +136,7 @@ impl TipChecker {
         encoded_size: u64,
     ) -> Result<(), TipError> {
         let Some(balance_changes) = response.balance_changes.as_ref() else {
+            tracing::debug!("no balance changes found");
             return Err(TipError::UnexpectedResponse(
                 "no balance changes in the provided transaction".to_owned(),
             ));
@@ -147,6 +149,7 @@ impl TipChecker {
             }
             TipConfig::SendTip { address, kind } => {
                 let expected_tip = kind.compute_tip(encoded_size) as i128;
+                tracing::debug!(%expected_tip, "checking tip");
 
                 // Go across all balance changes, looking for one that says the sui for the current
                 // address have increased of at least the expected tip.
@@ -157,6 +160,8 @@ impl TipChecker {
                         )
                     })?;
 
+                    tracing::debug!(%owner_address, "checking balance changes for address");
+
                     if owner_address == *address
                         && change.coin_type
                             == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI is always valid")
@@ -164,6 +169,7 @@ impl TipChecker {
                         if change.amount >= expected_tip {
                             return Ok(());
                         } else {
+                            tracing::debug!("insufficient tip");
                             return Err(TipError::InsufficientTip(change.amount, expected_tip));
                         };
                     } else {

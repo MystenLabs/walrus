@@ -447,6 +447,7 @@ impl UpgradeType {
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
 /// Client implementation for interacting with the Walrus smart contracts.
+
 pub struct SuiContractClient {
     /// SuiContractClientInner executes Sui transactions in a mutually exclusive manner. It makes
     /// sure that only one transaction is executed at a time, which prevents race conditions in

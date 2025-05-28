@@ -1005,7 +1005,7 @@ impl RetriableSuiClient {
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
     /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
-    pub(crate) async fn estimate_gas_budget(
+    pub async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
@@ -1036,7 +1036,7 @@ impl RetriableSuiClient {
 
     /// Executes a transaction.
     #[tracing::instrument(err, skip(self))]
-    pub(crate) async fn execute_transaction(
+    pub async fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,
@@ -1090,7 +1090,6 @@ impl RetriableSuiClient {
         signatures: Vec<Base64>,
         options: SuiTransactionBlockResponseOptions,
         request_type: Option<ExecuteTransactionRequestType>,
-        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         async fn make_request(
             client: Arc<SuiClient>,
@@ -1105,6 +1104,7 @@ impl RetriableSuiClient {
                 .await
                 .map_err(SuiSdkError::RpcError)?)
         }
+        let method = "execute_tx_from_bytes";
         let request = move |client: Arc<SuiClient>, method| {
             let tx_bytes = tx_bytes.clone();
             let signatures = signatures.clone();

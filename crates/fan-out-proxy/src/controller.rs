@@ -1,3 +1,6 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 //! The poxy's main controller logic.
 
 use std::{
@@ -16,7 +19,7 @@ use axum::{
     routing::{get, post},
 };
 use fastcrypto::encoding::Base64;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use walrus_core::{
     BlobId,
@@ -24,6 +27,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate},
 };
 use walrus_sdk::{
+    ObjectID,
     SuiReadClient,
     client::Client,
     config::ClientConfig,
@@ -34,8 +38,8 @@ use walrus_sdk::{
 use crate::{TipConfig, error::FanOutError, params::Params, tip::TipChecker};
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
-const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
-const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
+pub(crate) const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
+pub(crate) const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
 
 /// The controller for the fanout proxy.
 ///
@@ -54,10 +58,11 @@ impl Controller {
 }
 
 /// The response of the fanout proxy, containing the blob ID and the corresponding certificate.
-#[derive(Serialize)]
-struct ResponseType {
-    blob_id: BlobId,
-    confirmation_certificate: ConfirmationCertificate,
+#[derive(Serialize, Debug, Deserialize)]
+pub(crate) struct ResponseType {
+    pub blob_id: BlobId,
+    pub blob_object: ObjectID,
+    pub confirmation_certificate: ConfirmationCertificate,
 }
 
 /// Runs the proxy.
@@ -112,7 +117,7 @@ pub(crate) async fn fan_out_blob_slivers(
     Query(params): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
-    tracing::info!(?params, "fan_out_blob_slivers");
+    tracing::debug!(?params, "fan_out_blob_slivers");
 
     let Params {
         blob_id,
@@ -140,6 +145,12 @@ pub(crate) async fn fan_out_blob_slivers(
         .encode_with_metadata(body.as_ref())?;
     let duration = encode_start_timer.elapsed();
 
+    tracing::debug!(
+        computed_blob_id=%metadata.blob_id(),
+        expected_blob_id=%blob_id,
+        "blob id computed"
+    );
+
     if *metadata.blob_id() != blob_id {
         return Err(FanOutError::BadRequest(format!(
             "Blob ID mismatch [expected={}, actual={}]",
@@ -153,7 +164,7 @@ pub(crate) async fn fan_out_blob_slivers(
         .expect("the encoding produces sliver pairs");
     let symbol_size = pair.primary.symbols.symbol_size().get();
 
-    tracing::info!(
+    tracing::debug!(
         symbol_size,
         primary_sliver_size = pair.primary.symbols.data().len(),
         secondary_sliver_size = pair.secondary.symbols.data().len(),
@@ -177,6 +188,7 @@ pub(crate) async fn fan_out_blob_slivers(
     // Reply with the confirmation certificate.
     let response = ResponseType {
         blob_id,
+        blob_object: registration.object_id.into(),
         confirmation_certificate,
     };
 
@@ -216,7 +228,7 @@ mod tests {
     use axum::{extract::Query, http::Uri};
     use walrus_core::BlobId;
 
-    use crate::{Params, params::B64UrlEncodedBytes};
+    use crate::params::{B64UrlEncodedBytes, Params};
 
     #[test]
     fn test_parse_fanout_query() {
