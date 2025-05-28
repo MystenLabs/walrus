@@ -6,19 +6,23 @@ use std::str::FromStr;
 use base64::{DecodeError, Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use serde_with::{DisplayFromStr, serde_as};
+use utoipa::IntoParams;
 use walrus_core::BlobId;
 
 /// The query parameters for the fanout proxy.
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, IntoParams)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Params {
     /// The blob ID of the blob to be sent to the storage nodes.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
-    /// The bytes of the transaction that registers the blob and sends the tip to the proxy.
+    /// The bytes (encoded as Base64URL) of the transaction that registers the blob and sends
+    /// the tip to the proxy.
+    #[param(value_type = String)]
     pub tx_bytes: B64UrlEncodedBytes,
-    /// The bytes of the signature over the transaction.
+    /// The bytes (encoded as Base64URL) of the signature over the transaction.
+    #[param(value_type = String)]
     pub signature: B64UrlEncodedBytes,
 }
 

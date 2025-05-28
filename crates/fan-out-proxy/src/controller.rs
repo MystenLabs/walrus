@@ -21,6 +21,8 @@ use axum::{
 use fastcrypto::encoding::Base64;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+use utoipa::OpenApi;
+use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{
     BlobId,
     encoding::EncodingConfigTrait as _,
@@ -40,6 +42,7 @@ use crate::{TipConfig, error::FanOutError, params::Params, tip::TipChecker};
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 pub(crate) const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
 pub(crate) const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
+pub(crate) const API_DOCS: &str = "/v1/api";
 
 /// The controller for the fanout proxy.
 ///
@@ -87,6 +90,7 @@ pub(crate) async fn run_proxy(
 
     // Build our HTTP application to handle the blob fan-out operations.
     let app = Router::new()
+        .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
         .with_state(Arc::new(Controller::new(client, checker)));
@@ -102,6 +106,14 @@ pub(crate) async fn run_proxy(
     Ok(axum::serve(listener, app).await?)
 }
 
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "Walrus Fan-out Proxy"),
+    paths(fan_out_blob_slivers),
+    components(schemas(BlobId,))
+)]
+pub(super) struct FanOutApiDoc;
+
 /// Returns the tip configuration for the current fanout proxy.
 ///
 /// Allows clients to refresh their configuration of the proxy's address and tip amounts.
@@ -111,7 +123,21 @@ pub(crate) async fn send_tip_config(
     Ok((StatusCode::OK, Json(controller.checker.config())).into_response())
 }
 
-/// Checks and fulfills a request to store slivers.
+/// Upload a Blob to the Walrus Network
+///
+/// Note that the Blob must have previously been registered.
+///
+/// This endpoint checks that any required Tip has been supplied, then fulfills a request to store
+/// slivers.
+#[utoipa::path(
+    get,
+    path = BLOB_FAN_OUT_ROUTE,
+    request_body = &[u8],
+    params(Params),
+    responses(
+        (status = 200, description = "The blob was fanned-out to the Walrus Network successfully"),
+    ),
+)]
 pub(crate) async fn fan_out_blob_slivers(
     State(controller): State<Arc<Controller>>,
     Query(params): Query<Params>,
