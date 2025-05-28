@@ -844,7 +844,6 @@ mod commands {
             );
             let wallet = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
-            #[allow(deprecated)]
             wallet
                 .get_rpc_url()
                 .context("Unable to get the wallet's active environment")?

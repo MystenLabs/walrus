@@ -477,7 +477,6 @@ mod commands {
             load_wallet_context_from_path(admin_wallet_path, sui_client_request_timeout)
                 .context("unable to load admin wallet")?;
 
-        #[allow(deprecated)]
         let rpc_urls = &[admin_wallet.get_rpc_url()?];
 
         let mut admin_contract_client = testbed_config
@@ -572,7 +571,6 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        #[allow(deprecated)]
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let contract_client =

@@ -416,7 +416,6 @@ pub async fn get_sui_from_wallet_or_faucet(
     let one_sui = 1_000_000_000;
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.get_rpc_url()?];
     let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
     let balance = client.get_balance(sender, None).await?;
