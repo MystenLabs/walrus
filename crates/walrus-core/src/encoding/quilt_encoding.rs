@@ -87,7 +87,7 @@ pub trait QuiltApi<V: QuiltVersion> {
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Returns the quilt index.
-    fn quilt_index(&self) -> &V::QuiltIndex;
+    fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
 
     /// Returns the data of the quilt.
     fn data(&self) -> &[u8];
@@ -223,7 +223,7 @@ impl QuiltEnum {
     /// Returns the quilt index.
     pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
         match self {
-            QuiltEnum::V1(quilt_v1) => Ok(QuiltIndex::V1(quilt_v1.quilt_index.clone())),
+            QuiltEnum::V1(quilt_v1) => Ok(QuiltIndex::V1(quilt_v1.quilt_index()?.clone())),
         }
     }
 }
@@ -310,6 +310,49 @@ pub struct QuiltVersionV1;
 impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x01;
     const BLOB_HEADER_SIZE: usize = 6;
+
+    pub fn decode_quilt_index<T>(
+        data_source: &T,
+        column_size: usize,
+    ) -> Result<QuiltIndexV1, QuiltError>
+    where
+        T: QuiltColumnRangeReader,
+    {
+        let quilt_version_bytes =
+            data_source.range_read_from_columns(0, 0, QUILT_VERSION_BYTES_LENGTH)?;
+        assert!(quilt_version_bytes.len() == QUILT_VERSION_BYTES_LENGTH);
+        utils::check_quilt_version::<QuiltVersionV1>(&quilt_version_bytes)?;
+
+        let size_bytes = data_source.range_read_from_columns(
+            0,
+            QUILT_VERSION_BYTES_LENGTH,
+            QUILT_INDEX_SIZE_BYTES_LENGTH,
+        )?;
+        assert!(size_bytes.len() == QUILT_INDEX_SIZE_BYTES_LENGTH);
+
+        let index_size = usize::try_from(u32::from_le_bytes(
+            size_bytes
+                .try_into()
+                .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
+        ))
+        .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?;
+
+        let index_bytes =
+            data_source.range_read_from_columns(0, QUILT_INDEX_PREFIX_SIZE, index_size)?;
+        assert!(index_bytes.len() == index_size);
+
+        // Decode the QuiltIndexV1.
+        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&index_bytes)
+            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
+
+        let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
+        let columns_needed = total_size.div_ceil(column_size);
+        quilt_index.populate_start_indices(
+            u16::try_from(columns_needed).expect("columns_needed should fit in u16"),
+        );
+
+        Ok(quilt_index)
+    }
 
     /// Returns the total size of the serialized blob.
     pub fn serialized_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
@@ -513,7 +556,7 @@ pub struct QuiltV1 {
     /// The size of each symbol in bytes.
     symbol_size: usize,
     /// The internal structure of the quilt.
-    quilt_index: QuiltIndexV1,
+    quilt_index: Option<QuiltIndexV1>,
 }
 
 impl QuiltApi<QuiltVersionV1> for QuiltV1 {
@@ -546,15 +589,15 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             data: quilt_blob,
             row_size,
             symbol_size,
-            quilt_index: QuiltIndexV1::default(),
+            quilt_index: None,
         };
-        quilt.get_or_decode_quilt_index()?;
+        quilt.quilt_index = Some(quilt.get_or_decode_quilt_index()?);
 
         Ok(quilt)
     }
 
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
-        self.quilt_index
+        self.quilt_index()?
             .get_quilt_patch_by_identifier(identifier)
             .and_then(|quilt_patch| {
                 let start_col = usize::from(quilt_patch.start_index);
@@ -562,8 +605,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             })
     }
 
-    fn quilt_index(&self) -> &QuiltIndexV1 {
-        &self.quilt_index
+    fn quilt_index(&self) -> Result<&QuiltIndexV1, QuiltError> {
+        self.quilt_index
+            .as_ref()
+            .ok_or(QuiltError::MissingQuiltIndex)
     }
 
     fn data(&self) -> &[u8] {
@@ -633,37 +678,8 @@ impl QuiltColumnRangeReader for QuiltV1 {
 
 impl QuiltV1 {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndexV1, QuiltError> {
-        assert!(self.data.len() % self.row_size == 0);
-
-        let size_bytes = self.range_read_from_columns(
-            0,
-            QUILT_VERSION_BYTES_LENGTH,
-            QUILT_INDEX_SIZE_BYTES_LENGTH,
-        )?;
-        assert!(size_bytes.len() == QUILT_INDEX_SIZE_BYTES_LENGTH);
-
-        let index_size = usize::try_from(u32::from_le_bytes(
-            size_bytes
-                .try_into()
-                .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?,
-        ))
-        .map_err(|_| QuiltError::FailedToExtractQuiltIndexSize)?;
-
-        let index_bytes = self.range_read_from_columns(0, QUILT_INDEX_PREFIX_SIZE, index_size)?;
-        assert!(index_bytes.len() == index_size);
-
-        // Decode the QuiltIndexV1.
-        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&index_bytes)
-            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
-
-        let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
-        let columns_needed =
-            total_size.div_ceil(self.data.len() / self.row_size * self.symbol_size);
-        quilt_index.populate_start_indices(
-            u16::try_from(columns_needed).expect("columns_needed should fit in u16"),
-        );
-
-        Ok(quilt_index)
+        let columns_size = self.data.len() / self.row_size * self.symbol_size;
+        QuiltVersionV1::decode_quilt_index(self, columns_size)
     }
 }
 
@@ -685,7 +701,7 @@ impl fmt::Debug for QuiltV1 {
 
         ds.field(
             "quilt_index",
-            &format_args!("\n{:#?}", DebugQuiltIndex(&self.quilt_index)),
+            &format_args!("\n{:#?}", DebugQuiltIndex(self.quilt_index().ok())),
         );
 
         ds.field("symbol_size", &self.symbol_size).finish()?;
@@ -752,18 +768,25 @@ impl fmt::Debug for DebugRow<'_> {
     }
 }
 
-struct DebugQuiltIndex<'a>(&'a QuiltIndexV1);
+struct DebugQuiltIndex<'a>(Option<&'a QuiltIndexV1>);
 
 impl fmt::Debug for DebugQuiltIndex<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut list = f.debug_list();
-        for patch in self.0.quilt_patches.iter() {
-            list.entry(&format_args!(
-                "\nQuiltPatch {{\n    end_index: {}\n    identifier: {:?}\n}}",
-                patch.end_index, patch.identifier
-            ));
+        match self.0 {
+            Some(quilt_index) => {
+                let mut list = f.debug_list();
+                for patch in quilt_index.quilt_patches.iter() {
+                    list.entry(&format_args!(
+                        "\nQuiltPatch {{\n    end_index: {}\n    identifier: {:?}\n}}",
+                        patch.end_index, patch.identifier
+                    ));
+                }
+                list.finish()?;
+            }
+            None => {
+                writeln!(f, "index does not exist")?;
+            }
         }
-        list.finish()?;
         writeln!(f)
     }
 }
@@ -1061,7 +1084,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         Ok(QuiltV1 {
             data,
             row_size,
-            quilt_index,
+            quilt_index: Some(quilt_index),
             symbol_size,
         })
     }
@@ -1096,7 +1119,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             quilt_blob_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
-                quilt_patches: quilt.quilt_index().quilt_patches.clone(),
+                quilt_patches: quilt.quilt_index()?.quilt_patches.clone(),
             },
         });
 
@@ -1117,48 +1140,15 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             return Ok(self.quilt_index.as_ref().expect("quilt index should exist"));
         }
         self.check_missing_slivers(0, 1)?;
-        let first_sliver = self
+        let column_size = self
             .slivers
             .get(&SliverIndex(0))
-            .expect("first sliver should exist");
-        utils::check_quilt_version::<QuiltVersionV1>(first_sliver.symbols.data())?;
+            .expect("first sliver should exist")
+            .symbols
+            .data()
+            .len();
 
-        let index_size_bytes = self.range_read_from_columns(
-            0,
-            QUILT_VERSION_BYTES_LENGTH,
-            QUILT_INDEX_SIZE_BYTES_LENGTH,
-        )?;
-        assert_eq!(index_size_bytes.len(), QUILT_INDEX_SIZE_BYTES_LENGTH);
-        let index_size = usize::try_from(u32::from_le_bytes(
-            index_size_bytes
-                .try_into()
-                .expect("index size prefix should be 8 bytes"),
-        ))
-        .expect("index size should fit in usize");
-
-        let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
-
-        let combined_data = self.range_read_from_columns(0, QUILT_INDEX_PREFIX_SIZE, index_size)?;
-        assert_eq!(combined_data.len(), index_size);
-
-        // Decode the QuiltIndexV1 from the collected data.
-        let mut index: QuiltIndexV1 = bcs::from_bytes(&combined_data)
-            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
-
-        // After successful deserialization, sort the patches by end_index.
-        #[cfg(debug_assertions)]
-        for i in 1..index.quilt_patches.len() {
-            assert!(index.quilt_patches[i].end_index >= index.quilt_patches[i - 1].end_index);
-        }
-        // Calculate how many slivers we need based on the data size.
-        let num_slivers_needed = total_size.div_ceil(first_sliver.symbols.data().len());
-        self.check_missing_slivers(1, num_slivers_needed)?;
-
-        index.populate_start_indices(
-            u16::try_from(num_slivers_needed).expect("num_slivers_needed should fit in u16"),
-        );
-
-        self.quilt_index = Some(index);
+        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, column_size)?);
 
         Ok(self
             .quilt_index
@@ -1617,6 +1607,7 @@ mod tests {
 
             let quilt_patch = quilt
                 .quilt_index()
+                .expect("Quilt index should exist")
                 .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Patch should exist for this blob ID");
             assert_eq!(
@@ -1630,7 +1621,14 @@ mod tests {
             assert_eq!(blob_by_identifier, *quilt_store_blob);
         }
 
-        assert_eq!(quilt.quilt_index().len(), quilt_store_blobs.len());
+        assert_eq!(
+            quilt
+                .quilt_index()
+                .expect("Quilt index should exist")
+                .quilt_patches
+                .len(),
+            quilt_store_blobs.len()
+        );
     }
 
     #[test]
