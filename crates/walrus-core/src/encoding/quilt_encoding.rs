@@ -311,6 +311,7 @@ impl QuiltVersionV1 {
     const QUILT_VERSION_BYTE: u8 = 0x01;
     const BLOB_HEADER_SIZE: usize = 6;
 
+    /// Decodes the quilt index from a column data source.
     pub fn decode_quilt_index<T>(
         data_source: &T,
         column_size: usize,
@@ -829,7 +830,7 @@ impl<'a> QuiltEncoderV1<'a> {
         }
     }
 
-    /// Returns the extension bytes of the blob.
+    /// Returns the header and extension bytes of the blob.
     pub fn get_header_and_extension_bytes(blob: &QuiltStoreBlob) -> Result<Vec<u8>, QuiltError> {
         let mut identifier_bytes = Vec::new();
         let mut extension_bytes = Vec::new();
