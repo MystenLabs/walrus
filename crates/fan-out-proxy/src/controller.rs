@@ -13,7 +13,7 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::post,
+    routing::{get, post},
 };
 use fastcrypto::encoding::Base64;
 use serde::Serialize;
@@ -35,6 +35,7 @@ use crate::{TipConfig, error::FanOutError, params::Params, tip::TipChecker};
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
+const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
 
 /// The controller for the fanout proxy.
 ///
@@ -81,6 +82,7 @@ pub(crate) async fn run_proxy(
 
     // Build our HTTP application to handle the blob fan-out operations.
     let app = Router::new()
+        .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
         .with_state(Arc::new(Controller::new(client, checker)));
 
@@ -93,6 +95,15 @@ pub(crate) async fn run_proxy(
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(?addr, n_shards, "Serving fan-out proxy");
     Ok(axum::serve(listener, app).await?)
+}
+
+/// Returns the tip configuration for the current fanout proxy.
+///
+/// Allows clients to refresh their configuration of the proxy's address and tip amounts.
+pub(crate) async fn send_tip_config(
+    State(controller): State<Arc<Controller>>,
+) -> Result<impl IntoResponse, FanOutError> {
+    Ok((StatusCode::OK, Json(controller.checker.config())).into_response())
 }
 
 /// Checks and fulfills a request to store slivers.

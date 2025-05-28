@@ -54,6 +54,11 @@ impl TipChecker {
         }
     }
 
+    /// Returns the configuration for the checker.
+    pub(crate) fn config(&self) -> &TipConfig {
+        &self.config
+    }
+
     /// Checks the transaction correctly registers the blob of given ID and tips the proxy.
     pub(crate) async fn execute_and_check_transaction(
         &self,
