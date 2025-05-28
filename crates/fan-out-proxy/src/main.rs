@@ -29,9 +29,8 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::Subs
 // use utoipa::IntoParams;
 use walrus_core::{
     BlobId,
-    encoding::{EncodingConfig, EncodingConfigTrait as _, SliverPair},
+    encoding::EncodingConfigTrait as _,
     messages::{BlobPersistenceType, ConfirmationCertificate},
-    metadata::BlobMetadataWithId,
 };
 use walrus_sdk::{
     SuiReadClient,
@@ -95,21 +94,12 @@ fn init_logging() {
 #[allow(dead_code)]
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
-    pub(crate) encoding_config: Arc<EncodingConfig>,
     pub(crate) checker: TipChecker,
 }
 
 impl Controller {
-    fn new(
-        client: Client<SuiReadClient>,
-        encoding_config: Arc<EncodingConfig>,
-        checker: TipChecker,
-    ) -> Self {
-        Self {
-            client,
-            encoding_config,
-            checker,
-        }
+    fn new(client: Client<SuiReadClient>, checker: TipChecker) -> Self {
+        Self { client, checker }
     }
 }
 
@@ -130,7 +120,6 @@ async fn main() -> Result<()> {
             let client = get_client(context.as_deref(), walrus_config.as_path()).await?;
 
             let n_shards = client.get_committees().await?.n_shards();
-            let encoding_config = Arc::new(EncodingConfig::new(n_shards));
             let tip_config: TipConfig = load_from_yaml(tip_config)?;
             tracing::debug!(?tip_config, "loaded tip config");
             let checker = TipChecker::new(
@@ -142,7 +131,7 @@ async fn main() -> Result<()> {
             // Build our HTTP application to handle the blob fan-out operations.
             let app = Router::new()
                 .route("/v1/blob-fan-out", post(fan_out_blob_slivers))
-                .with_state(Arc::new(Controller::new(client, encoding_config, checker)));
+                .with_state(Arc::new(Controller::new(client, checker)));
 
             let addr: SocketAddr = if let Some(socket_addr) = server_address {
                 socket_addr
@@ -211,8 +200,9 @@ async fn fan_out_blob_slivers(
 
     let encode_start_timer = Instant::now();
     // TODO: encoding should probably be done on a separate thread pool.
-    let (sliver_pairs, metadata): (Vec<SliverPair>, BlobMetadataWithId<true>) = controller
-        .encoding_config
+    let (sliver_pairs, metadata) = controller
+        .client
+        .encoding_config()
         .get_for_type(registration.encoding_type)
         .encode_with_metadata(body.as_ref())?;
     let duration = encode_start_timer.elapsed();
