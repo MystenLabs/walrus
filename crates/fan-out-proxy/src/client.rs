@@ -37,6 +37,7 @@ use crate::{
 };
 
 /// Runs the test client.
+#[cfg(feature = "test-client")]
 pub(crate) async fn run_client(
     file: PathBuf,
     context: Option<String>,
@@ -116,6 +117,7 @@ async fn get_tip_config(server_url: &Url) -> Result<TipConfig> {
 }
 
 /// Gets a Walrus contract client from the configuration.
+#[cfg(feature = "test-client")]
 async fn contract_client_from_args(
     walrus_config: Option<impl AsRef<Path>>,
     context: Option<&str>,
@@ -123,8 +125,7 @@ async fn contract_client_from_args(
     gas_budget: Option<u64>,
 ) -> Result<WalrusClient<SuiContractClient>> {
     // NOTE: This is taken from `walrus_sdk::client::cli::ClientCommandRunner::new`.
-    let walrus_config =
-        walrus_sdk::config::load_configuration(walrus_config.as_ref(), context.as_deref());
+    let walrus_config = walrus_sdk::config::load_configuration(walrus_config.as_ref(), context);
 
     let wallet_config = wallet.map(WalletConfig::from_path).or(walrus_config
         .as_ref()
@@ -138,11 +139,12 @@ async fn contract_client_from_args(
             .ok()
             .and_then(|config| config.communication_config.sui_client_request_timeout),
     );
-    Ok(get_contract_client(walrus_config?, wallet, gas_budget).await?)
+    get_contract_client(walrus_config?, wallet, gas_budget).await
 }
 
 /// Creates a [`Client<SuiContractClient>`] based on the provided [`WalrusConfig`] with
 /// write access to Sui.
+#[cfg(feature = "test-client")]
 pub async fn get_contract_client(
     walrus_config: WalrusConfig,
     wallet: Result<Wallet>,
@@ -242,11 +244,10 @@ impl<T> FanOutClient<T> {
     }
 
     pub(crate) fn active_address(&mut self) -> Result<SuiAddress> {
-        Ok(self
-            .walrus_client
+        self.walrus_client
             .sui_client_mut()
             .wallet_mut()
-            .active_address()?)
+            .active_address()
     }
 
     pub(crate) fn encoded_size(&self, unencoded_length: u64) -> Option<u64> {
@@ -290,7 +291,7 @@ impl<T> FanOutClient<T> {
 impl FanOutClient<WalrusPtbBuilder> {
     /// Adds a transaction to buy and register the blob to the PTB builder.
     // NOTE: for now, this _always_ buys new storage, and registers a new non-deletable blob.
-    pub(crate) async fn add_buy_and_register<'a>(
+    pub(crate) async fn add_buy_and_register(
         mut self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
@@ -313,7 +314,7 @@ impl FanOutClient<WalrusPtbBuilder> {
     }
 
     /// Adds a call to send a tip to the fanout proxy.
-    pub(crate) async fn add_tip<'a>(mut self, encoded_size: u64) -> Result<Self> {
+    pub(crate) async fn add_tip(mut self, encoded_size: u64) -> Result<Self> {
         if let TipConfig::SendTip { address, kind } = &self.tip_config {
             let tip_amount = kind.compute_tip(encoded_size);
             self.pt_builder.pay_sui(*address, tip_amount).await?;

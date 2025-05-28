@@ -188,7 +188,7 @@ pub(crate) async fn fan_out_blob_slivers(
     // Reply with the confirmation certificate.
     let response = ResponseType {
         blob_id,
-        blob_object: registration.object_id.into(),
+        blob_object: registration.object_id,
         confirmation_certificate,
     };
 

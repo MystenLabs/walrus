@@ -7,9 +7,11 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+#[cfg(feature = "test-client")]
 use reqwest::Url;
 use tip::TipConfig;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
+#[cfg(feature = "test-client")]
 use walrus_core::EpochCount;
 
 #[cfg(feature = "test-client")]
@@ -61,10 +63,10 @@ enum Command {
         #[arg(long, global = true)]
         walrus_config: Option<PathBuf>,
         /// The url of the proxy server the client will use.
-        #[arg(long, global = true)]
+        #[arg(long)]
         server_url: Url,
         /// The number of epochs for which to store the blob.
-        #[arg(long, global = true)]
+        #[arg(long)]
         epochs: EpochCount,
         /// The path to the Sui wallet configuration file.
         ///
