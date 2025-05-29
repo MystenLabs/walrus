@@ -7,6 +7,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -21,6 +22,7 @@ use axum::{
 use fastcrypto::encoding::Base64;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+use tower_http::cors::{Any, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{
@@ -170,7 +172,8 @@ pub(crate) async fn run_proxy(
         .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
-        .with_state(Arc::new(Controller::new(client, checker)));
+        .with_state(Arc::new(Controller::new(client, checker)))
+        .layer(cors_layer());
 
     let addr: SocketAddr = if let Some(socket_addr) = server_address {
         socket_addr
@@ -181,6 +184,15 @@ pub(crate) async fn run_proxy(
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(?addr, n_shards, "Serving fan-out proxy");
     Ok(axum::serve(listener, app).await?)
+}
+
+/// Returns a `CorsLayer` for the controller enpoints.
+pub(crate) fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .max_age(Duration::from_secs(86400))
+        .allow_headers(Any)
 }
 
 #[derive(OpenApi)]
