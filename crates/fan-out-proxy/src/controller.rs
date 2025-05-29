@@ -37,7 +37,12 @@ use walrus_sdk::{
     sui::client::retry_client::RetriableSuiClient,
 };
 
-use crate::{TipConfig, error::FanOutError, params::Params, tip::TipChecker};
+use crate::{
+    TipConfig,
+    error::FanOutError,
+    params::{B64UrlEncodedBytes, Params},
+    tip::TipChecker,
+};
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 pub(crate) const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
@@ -57,6 +62,78 @@ impl Controller {
     /// Creates a new controller.
     pub(crate) fn new(client: Client<SuiReadClient>, checker: TipChecker) -> Self {
         Self { client, checker }
+    }
+
+    /// Checks the request and fans out the data to the storage nodes.
+    pub(crate) async fn fan_out(
+        &self,
+        body: Bytes,
+        blob_id: BlobId,
+        tx_bytes: B64UrlEncodedBytes,
+        signature: B64UrlEncodedBytes,
+    ) -> Result<ResponseType, FanOutError> {
+        let registration = self
+            .checker
+            .execute_and_check_transaction(
+                // Convert to the non-URL encoded version of the bytes, which is required by the
+                // API endpoint.
+                Base64::from_bytes(tx_bytes.bytes()),
+                vec![Base64::from_bytes(signature.bytes())],
+                blob_id,
+            )
+            .await?;
+
+        let encode_start_timer = Instant::now();
+        // TODO: encoding should probably be done on a separate thread pool.
+        let (sliver_pairs, metadata) = self
+            .client
+            .encoding_config()
+            .get_for_type(registration.encoding_type)
+            .encode_with_metadata(body.as_ref())?;
+        let duration = encode_start_timer.elapsed();
+
+        tracing::debug!(
+            computed_blob_id=%metadata.blob_id(),
+            expected_blob_id=%blob_id,
+            "blob id computed"
+        );
+
+        if *metadata.blob_id() != blob_id {
+            return Err(FanOutError::BlobIdMismatch);
+        }
+
+        let pair = sliver_pairs
+            .first()
+            .expect("the encoding produces sliver pairs");
+        let symbol_size = pair.primary.symbols.symbol_size().get();
+
+        tracing::debug!(
+            symbol_size,
+            primary_sliver_size = pair.primary.symbols.data().len(),
+            secondary_sliver_size = pair.secondary.symbols.data().len(),
+            ?duration,
+            "encoded sliver pairs and metadata"
+        );
+
+        // Attempt to upload the slivers.
+        let blob_persistence = if registration.deletable {
+            BlobPersistenceType::Deletable {
+                object_id: registration.object_id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        };
+        let confirmation_certificate: ConfirmationCertificate = self
+            .client
+            .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence, None)
+            .await?;
+
+        // Reply with the confirmation certificate.
+        Ok(ResponseType {
+            blob_id,
+            blob_object: registration.object_id,
+            confirmation_certificate,
+        })
     }
 }
 
@@ -117,10 +194,22 @@ pub(super) struct FanOutApiDoc;
 /// Returns the tip configuration for the current fanout proxy.
 ///
 /// Allows clients to refresh their configuration of the proxy's address and tip amounts.
+#[utoipa::path(
+    get,
+    path = TIP_CONFIG_ROUTE,
+    params(),
+    responses(
+        (
+            status = 200,
+            description = "The tip configuration was retrieved successfully",
+            body = TipConfig
+        ),
+    ),
+)]
 pub(crate) async fn send_tip_config(
     State(controller): State<Arc<Controller>>,
-) -> Result<impl IntoResponse, FanOutError> {
-    Ok((StatusCode::OK, Json(controller.checker.config())).into_response())
+) -> impl IntoResponse {
+    (StatusCode::OK, Json(controller.checker.config())).into_response()
 }
 
 /// Upload a Blob to the Walrus Network
@@ -136,6 +225,7 @@ pub(crate) async fn send_tip_config(
     params(Params),
     responses(
         (status = 200, description = "The blob was fanned-out to the Walrus Network successfully"),
+        // FanOutError, // TODO: add the FanOutError IntoResponses implementation
     ),
 )]
 pub(crate) async fn fan_out_blob_slivers(
@@ -151,72 +241,9 @@ pub(crate) async fn fan_out_blob_slivers(
         signature,
     } = params;
 
-    let registration = controller
-        .checker
-        .execute_and_check_transaction(
-            // Convert to the non-URL encoded version of the bytes, which is required by the
-            // API endpoint.
-            Base64::from_bytes(tx_bytes.bytes()),
-            vec![Base64::from_bytes(signature.bytes())],
-            blob_id,
-        )
+    let response = controller
+        .fan_out(body, blob_id, tx_bytes, signature)
         .await?;
-
-    let encode_start_timer = Instant::now();
-    // TODO: encoding should probably be done on a separate thread pool.
-    let (sliver_pairs, metadata) = controller
-        .client
-        .encoding_config()
-        .get_for_type(registration.encoding_type)
-        .encode_with_metadata(body.as_ref())?;
-    let duration = encode_start_timer.elapsed();
-
-    tracing::debug!(
-        computed_blob_id=%metadata.blob_id(),
-        expected_blob_id=%blob_id,
-        "blob id computed"
-    );
-
-    if *metadata.blob_id() != blob_id {
-        return Err(FanOutError::BadRequest(format!(
-            "Blob ID mismatch [expected={}, actual={}]",
-            blob_id,
-            metadata.blob_id()
-        )));
-    }
-
-    let pair = sliver_pairs
-        .first()
-        .expect("the encoding produces sliver pairs");
-    let symbol_size = pair.primary.symbols.symbol_size().get();
-
-    tracing::debug!(
-        symbol_size,
-        primary_sliver_size = pair.primary.symbols.data().len(),
-        secondary_sliver_size = pair.secondary.symbols.data().len(),
-        ?duration,
-        "encoded sliver pairs and metadata"
-    );
-
-    // Attempt to upload the slivers.
-    let blob_persistence = if registration.deletable {
-        BlobPersistenceType::Deletable {
-            object_id: registration.object_id.into(),
-        }
-    } else {
-        BlobPersistenceType::Permanent
-    };
-    let confirmation_certificate: ConfirmationCertificate = controller
-        .client
-        .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence, None)
-        .await?;
-
-    // Reply with the confirmation certificate.
-    let response = ResponseType {
-        blob_id,
-        blob_object: registration.object_id,
-        confirmation_certificate,
-    };
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

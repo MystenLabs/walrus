@@ -31,6 +31,7 @@ utoipa-redoc.workspace = true
 walrus-core.workspace = true
 walrus-proc-macros.workspace = true
 walrus-sdk.workspace = true
+walrus-storage-node-client.workspace = true
 walrus-sui.workspace = true
 
 [features]

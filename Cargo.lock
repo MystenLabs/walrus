@@ -3377,6 +3377,7 @@ dependencies = [
  "walrus-core",
  "walrus-proc-macros",
  "walrus-sdk",
+ "walrus-storage-node-client",
  "walrus-sui",
 ]
 

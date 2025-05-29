@@ -13,14 +13,14 @@ use walrus_sdk::error::ClientError;
 
 use crate::tip::TipError;
 
-/// Fan-out Proxy Errors
+/// Fan-out Proxy Errors.
 #[derive(Debug, Error)]
 pub(crate) enum FanOutError {
-    /// Invalid input error.
-    #[error("Bad input: {0}")]
-    BadRequest(String),
+    /// The provided  blob ID and the blob ID resulting from the blob encoding do not match.
+    #[error("the provided  blob ID and the blob ID resulting from the blob encoding do not match")]
+    BlobIdMismatch,
 
-    /// A Sui ClientError occurred.
+    /// A Walrus client error occurred.
     #[error(transparent)]
     ClientError(#[from] ClientError),
 
@@ -41,14 +41,17 @@ pub(crate) enum FanOutError {
     Other(#[from] anyhow::Error),
 }
 
+// TODO: Implement this using the `RestApiError` proc macro when fixed.
 impl IntoResponse for FanOutError {
     fn into_response(self) -> Response {
         match self {
-            FanOutError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
-            FanOutError::ClientError(error) => {
-                // REVIEW: Unclear immediately whether this is really a 400, but for now let's treat
-                // it as such.
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+            FanOutError::BlobIdMismatch => (
+                StatusCode::BAD_REQUEST,
+                FanOutError::BlobIdMismatch.to_string(),
+            )
+                .into_response(),
+            FanOutError::ClientError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
             }
             FanOutError::DataTooLargeError(error) => {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()

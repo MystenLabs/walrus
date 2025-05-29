@@ -5,9 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
+use utoipa::ToSchema;
+use walrus_sui::SuiAddressSchema;
 
 /// The kinds of tip that the proxy can choose to configure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TipKind {
     /// A constant tip.
@@ -31,11 +33,15 @@ impl TipKind {
 }
 
 /// The configuration for the tips of to the proxy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TipConfig {
     /// The publisher does not require tips.
     NoTip,
     /// The address to which to pay the tip, and the tip computation.
-    SendTip { address: SuiAddress, kind: TipKind },
+    SendTip {
+        #[schema(value_type = SuiAddressSchema)]
+        address: SuiAddress,
+        kind: TipKind,
+    },
 }
