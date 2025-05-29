@@ -23,6 +23,7 @@ use fastcrypto::encoding::Base64;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::Level;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{
@@ -67,6 +68,7 @@ impl Controller {
     }
 
     /// Checks the request and fans out the data to the storage nodes.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn fan_out(
         &self,
         body: Bytes,
@@ -186,7 +188,7 @@ pub(crate) async fn run_proxy(
     Ok(axum::serve(listener, app).await?)
 }
 
-/// Returns a `CorsLayer` for the controller enpoints.
+/// Returns a `CorsLayer` for the controller endpoints.
 pub(crate) fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
@@ -218,9 +220,11 @@ pub(super) struct FanOutApiDoc;
         ),
     ),
 )]
+#[tracing::instrument(level = Level::ERROR, skip_all)]
 pub(crate) async fn send_tip_config(
     State(controller): State<Arc<Controller>>,
 ) -> impl IntoResponse {
+    tracing::debug!("returning tip config");
     (StatusCode::OK, Json(controller.checker.config())).into_response()
 }
 
@@ -240,23 +244,20 @@ pub(crate) async fn send_tip_config(
         // FanOutError, // TODO: add the FanOutError IntoResponses implementation
     ),
 )]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 pub(crate) async fn fan_out_blob_slivers(
     State(controller): State<Arc<Controller>>,
-    Query(params): Query<Params>,
-    body: Bytes,
-) -> Result<impl IntoResponse, FanOutError> {
-    tracing::debug!(?params, "fan_out_blob_slivers");
-
-    let Params {
+    Query(Params {
         blob_id,
         tx_bytes,
         signature,
-    } = params;
-
+    }): Query<Params>,
+    body: Bytes,
+) -> Result<impl IntoResponse, FanOutError> {
+    tracing::debug!("starting to process a fan-out request");
     let response = controller
         .fan_out(body, blob_id, tx_bytes, signature)
         .await?;
-
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 

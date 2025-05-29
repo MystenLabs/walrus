@@ -15,6 +15,7 @@ use sui_sdk::{
     rpc_types::{SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions},
 };
 use sui_types::{TypeTag, quorum_driver_types::ExecuteTransactionRequestType};
+use tracing::Level;
 use walrus_core::{BlobId, encoding};
 use walrus_sui::{
     client::{SuiClientResult, retry_client::RetriableSuiClient},
@@ -60,6 +61,7 @@ impl TipChecker {
     }
 
     /// Checks the transaction correctly registers the blob of given ID and tips the proxy.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn execute_and_check_transaction(
         &self,
         tx_bytes: Base64,
@@ -70,7 +72,7 @@ impl TipChecker {
             .execute_transaction_from_bytes(tx_bytes, signatures)
             .await
             .map_err(Box::new)?;
-        tracing::debug!(?response, "transaction executed");
+        tracing::debug!("the received transaction was executed");
 
         // Check that the transaction has registered the blob ID.
         let registration =
@@ -91,6 +93,7 @@ impl TipChecker {
     }
 
     /// Submits the transaction received from the client for execution to the full nodes.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn execute_transaction_from_bytes(
         &self,
         tx_bytes: Base64,
