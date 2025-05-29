@@ -21,16 +21,25 @@ mod controller;
 mod error;
 mod params;
 mod tip;
+mod utils;
 
-#[derive(Parser)]
-#[command(author, version, about)]
+const VERSION: &str = utils::version!();
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    author,
+    about = "The Walrus fan-out proxy",
+    long_about = None,
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+)]
 struct Args {
     /// Subcommand to run.
     #[command(subcommand)]
     command: Command,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Clone, Subcommand)]
 #[command(rename_all = "kebab-case")]
 enum Command {
     /// Run the Walrus Fan-out Proxy.

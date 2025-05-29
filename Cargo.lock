@@ -3361,6 +3361,7 @@ dependencies = [
  "clap_complete",
  "fastcrypto",
  "futures",
+ "git-version",
  "reqwest",
  "serde",
  "serde_json",
