@@ -25,11 +25,14 @@ use crate::{
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
-        QuiltPatchApi,
-        QuiltPatchIdApi,
-        QuiltVersion,
-        QuiltVersionV1,
         encoded_blob_length_for_n_shards,
+        quilt_encoding::{
+            QuiltIndexApi,
+            QuiltPatchApi,
+            QuiltPatchIdApi,
+            QuiltVersion,
+            QuiltVersionV1,
+        },
         source_symbols_for_n_shards,
     },
     merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode},
@@ -217,35 +220,6 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexV1 {
-    /// Returns the quilt patch with the given blob identifier.
-    // TODO(WAL-829): Consider storing the quilt patch in a hashmap for O(1) lookup.
-    pub fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_patches
-            .iter()
-            .find(|patch| patch.identifier == identifier)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
-    }
-
-    /// Returns an iterator over the identifiers of the blobs in the quilt.
-    pub fn identifiers(&self) -> impl Iterator<Item = &str> {
-        self.quilt_patches
-            .iter()
-            .map(|patch| patch.identifier.as_str())
-    }
-
-    /// Returns the number of patches in the quilt.
-    pub fn len(&self) -> usize {
-        self.quilt_patches.len()
-    }
-
-    /// Returns true if the quilt index is empty.
-    pub fn is_empty(&self) -> bool {
-        self.quilt_patches.is_empty()
-    }
-
     /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
         let mut prev_end_index = first_start;
@@ -254,21 +228,47 @@ impl QuiltIndexV1 {
             prev_end_index = self.quilt_patches[i].end_index;
         }
     }
+}
 
-    /// Returns the sliver indices of the quilt patch with the given identifier.
-    pub fn get_sliver_indices_by_identifiers(
+impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
+    fn get_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
+        self.quilt_patches
+            .iter()
+            .find(|patch| patch.identifier == identifier)
+            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
+
+    fn get_sliver_indices_by_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError> {
         let patches = identifiers
             .iter()
-            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
+            .map(|identifier| self.get_patch_by_identifier(identifier))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(patches
             .iter()
             .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
             .collect())
+    }
+
+    fn patches(&self) -> &[QuiltPatchV1] {
+        &self.quilt_patches
+    }
+
+    fn identifiers(&self) -> impl Iterator<Item = &str> {
+        self.quilt_patches
+            .iter()
+            .map(|patch| patch.identifier.as_str())
+    }
+
+    fn len(&self) -> usize {
+        self.quilt_patches.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.quilt_patches.is_empty()
     }
 }
 

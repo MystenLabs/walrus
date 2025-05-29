@@ -30,13 +30,13 @@ use encoding::{
     PrimaryRecoverySymbol,
     PrimarySliver,
     QuiltError,
-    QuiltVersionEnum,
     RecoverySymbolError,
     Secondary,
     SecondaryRecoverySymbol,
     SecondarySliver,
     SliverVerificationError,
     WrongSliverVariantError,
+    quilt_encoding::QuiltVersionEnum,
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
