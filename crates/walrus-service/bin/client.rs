@@ -13,7 +13,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use walrus_service::{
     client::cli::{App, ClientCommandRunner, Commands, error},
-    utils::{self, MetricsAndLoggingRuntime},
+    utils::{self, modname::MetricsAndLoggingRuntime},
 };
 use walrus_sui::client::retry_client::RetriableRpcError;
 
@@ -81,7 +81,7 @@ fn client() -> Result<()> {
         Commands::Daemon(command) => {
             let metrics_address = command.get_metrics_address();
 
-            let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
+            let runtime = modname::MetricsAndLoggingRuntime::start(metrics_address)?;
             utils::export_build_info(&runtime.registry, VERSION);
 
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");

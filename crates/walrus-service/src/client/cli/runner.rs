@@ -117,7 +117,7 @@ use crate::{
             WalletOutput,
         },
     },
-    utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
+    utils::{self, generate_sui_wallet, modname::MetricsAndLoggingRuntime},
 };
 
 /// A helper struct to run commands for the Walrus client.

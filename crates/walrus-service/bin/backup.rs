@@ -15,7 +15,7 @@ use walrus_service::{
         start_backup_garbage_collector,
         start_backup_orchestrator,
     },
-    common::utils::MetricsAndLoggingRuntime,
+    common::utils::modname::MetricsAndLoggingRuntime,
 };
 use walrus_utils::load_from_yaml;
 
@@ -69,7 +69,7 @@ fn main() {
     let rt = tokio::runtime::Runtime::new().expect("creating tokio runtime");
     let _guard = rt.enter();
 
-    let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)
+    let metrics_runtime = modname::MetricsAndLoggingRuntime::new(config.metrics_address, None)
         .expect("starting metrics runtime");
 
     // Run migrations before starting the backup node.

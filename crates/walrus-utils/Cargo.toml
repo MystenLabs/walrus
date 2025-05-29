@@ -11,7 +11,7 @@ config = ["dep:anyhow", "dep:home", "dep:serde", "dep:tracing"]
 default = []
 http = ["dep:bytes", "dep:http-body", "dep:pin-project"]
 log = ["dep:humantime", "dep:once_cell", "dep:tracing"]
-metrics = ["dep:prometheus", "dep:tap", "dep:thiserror"]
+metrics = ["dep:hostname", "dep:prometheus", "dep:tap", "dep:telemetry-subscribers", "dep:thiserror"]
 test-utils = ["dep:tempfile", "tokio/sync"]
 tokio-metrics = ["dep:tokio-metrics"]
 
@@ -19,6 +19,7 @@ tokio-metrics = ["dep:tokio-metrics"]
 anyhow = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 home = { workspace = true, optional = true }
+hostname = { workspace = true, optional = true }
 http-body = { version = "1", optional = true }
 humantime = { workspace = true, optional = true }
 once_cell = { workspace = true, optional = true }
@@ -30,6 +31,7 @@ serde_json = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 serde_yaml = { workspace = true }
 tap = { workspace = true, optional = true }
+telemetry-subscribers = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }

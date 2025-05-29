@@ -4,10 +4,21 @@
 use std::{
     any::Any,
     collections::HashMap,
+    net::SocketAddr,
     sync::{Arc, Mutex},
+    time::{Duration, UNIX_EPOCH},
 };
 
 use prometheus::{IntGauge, core::Collector, proto::MetricFamily};
+use telemetry_subscribers::{TelemetryGuards, TracingHandle};
+use tokio::{runtime::Runtime, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
+use typed_store::DBMetrics;
+use walrus_utils::metrics::Registry;
+
+use crate::node::config::MetricsPushConfig;
+
+mod config;
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
@@ -136,6 +147,220 @@ impl Registry {
     }
 }
 
+/// A runtime for metrics and logging.
+#[allow(missing_debug_implementations)]
+pub struct MetricsAndLoggingRuntime {
+    /// The Prometheus registry.
+    pub registry: Registry,
+    pub(crate) _telemetry_guards: TelemetryGuards,
+    pub(crate) _tracing_handle: TracingHandle,
+    /// The runtime for metrics and logging.
+    // INV: Runtime must be dropped last.
+    pub runtime: Option<Runtime>,
+}
+
+impl MetricsAndLoggingRuntime {
+    /// Start metrics and log collection in a new runtime
+    pub fn start(metrics_address: SocketAddr) -> anyhow::Result<Self> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("metrics-runtime")
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("metrics runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        Self::new(metrics_address, Some(runtime))
+    }
+
+    /// Create a new runtime for metrics and logging.
+    pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
+        let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
+        let walrus_registry = registry_service.default_registry();
+
+        monitored_scope::init_monitored_scope_metrics(&walrus_registry);
+
+        // Initialize logging subscriber
+        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+            .with_env()
+            .with_prom_registry(&walrus_registry)
+            .with_json()
+            .init();
+
+        // Initialize metrics to track db usage before we create any db instances.
+        DBMetrics::init(&walrus_registry);
+
+        Ok(Self {
+            runtime,
+            registry: Registry::new(walrus_registry),
+            _telemetry_guards: telemetry_guards,
+            _tracing_handle: tracing_handle,
+        })
+    }
+}
+
+/// A config struct to initialize the push metrics. Some binaries that depend on
+/// MetricPushRuntime do not need nor is it appropriate to have push metrics.
+#[derive(Debug)]
+pub struct EnableMetricsPush {
+    /// token that is used to gracefully shut down the metrics push process
+    pub cancel: CancellationToken,
+    /// the network keys we use to identify the client using this push config
+    pub network_key_pair: Arc<Secp256r1KeyPair>,
+    /// the url, timeouts, etc used to push the metrics
+    pub config: MetricsPushConfig,
+}
+
+/// MetricPushRuntime to manage the metric push task.
+/// We run this in a dedicated runtime to avoid being blocked by others.
+#[allow(missing_debug_implementations)]
+pub struct MetricPushRuntime {
+    pub(crate) metric_push_handle: JoinHandle<anyhow::Result<()>>,
+    // INV: Runtime must be dropped last.
+    pub(crate) runtime: Runtime,
+}
+
+impl MetricPushRuntime {
+    /// Starts a task to periodically push metrics to a configured endpoint
+    /// if a metrics push endpoint is configured.
+    pub fn start(registry: Registry, mp_config: EnableMetricsPush) -> anyhow::Result<Self> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("metric-push-runtime")
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .context("metric push runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        let metric_push_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(mp_config.config.push_interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut client = create_push_client();
+            tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(error) = push_metrics(
+                            mp_config.network_key_pair.as_ref(),
+                            &client,
+                            &mp_config.config.push_url,
+                            &registry,
+                            // clone because we serialize this with our metrics
+                            mp_config.config.labels.clone(),
+                        ).await {
+                            tracing::warn!(?error, "unable to push metrics");
+                            client = create_push_client();
+                        }
+                    }
+                    _ = mp_config.cancel.cancelled() => {
+                        tracing::info!("received cancellation request, shutting down metrics push");
+                        return Ok(());
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            runtime,
+            metric_push_handle,
+        })
+    }
+
+    /// join handle for the task
+    pub fn join(&mut self) -> Result<(), anyhow::Error> {
+        tracing::debug!("waiting for the metric push to shutdown...");
+        self.runtime.block_on(&mut self.metric_push_handle)?
+    }
+}
+
+/// Create a request client builder that is used to push metrics to mimir.
+pub(crate) fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("unable to build client")
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+/// MetricPayload holds static labels and metric data
+/// the static labels are always sent and will be merged within the proxy
+pub struct MetricPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// static labels defined in config, eg host, network, etc
+    pub labels: Option<HashMap<String, String>>,
+    /// protobuf encoded metric families. these must be decoded on the proxy side
+    pub buf: Vec<u8>,
+}
+
+/// Responsible for sending data to walrus-proxy, used within the async scope of
+/// MetricPushRuntime::start.
+pub(crate) async fn push_metrics(
+    network_key_pair: &Secp256r1KeyPair,
+    client: &reqwest::Client,
+    push_url: &str,
+    registry: &Registry,
+    labels: Option<HashMap<String, String>>,
+) -> Result<(), anyhow::Error> {
+    tracing::debug!(push_url, "pushing metrics to remote");
+
+    // now represents a collection timestamp for all of the metrics we send to the proxy.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut metric_families = registry.gather();
+    for mf in metric_families.iter_mut() {
+        for m in mf.mut_metric() {
+            m.set_timestamp_ms(now);
+        }
+    }
+
+    let mut buf: Vec<u8> = vec![];
+    let encoder = prometheus::ProtobufEncoder::new();
+    encoder.encode(&metric_families, &mut buf)?;
+
+    // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
+    let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
+        tracing::warn!(?error, "unable to serialize MetricPayload to JSON");
+    })?;
+
+    let mut s = snap::raw::Encoder::new();
+    let compressed = s.compress_vec(&serialized).inspect_err(|error| {
+        tracing::warn!(?error, "unable to snappy encode metrics");
+    })?;
+
+    let uid = Uuid::now_v7();
+    let uids = uid.simple().to_string();
+    let signature = network_key_pair.sign_recoverable(uid.as_bytes());
+    let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
+    let auth_encoded_with_scheme = format!(
+        "Secp256k1-recoverable: {}",
+        Base64::from_bytes(auth.to_string().as_bytes()).encoded()
+    );
+    let response = client
+        .post(push_url)
+        .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
+        .header(reqwest::header::CONTENT_ENCODING, "snappy")
+        .body(compressed)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => format!("couldn't decode response body; {error}"),
+        };
+        return Err(anyhow::anyhow!(
+            "metrics push failed: [{}]:{}",
+            status,
+            body
+        ));
+    }
+    tracing::debug!("successfully pushed metrics to {push_url}");
+    Ok(())
+}
 /// Defines a set of prometheus metrics.
 ///
 /// # Example

@@ -45,10 +45,8 @@ use walrus_service::{
     utils::{
         self,
         ByteCount,
-        EnableMetricsPush,
         MAX_NODE_NAME_LENGTH,
-        MetricPushRuntime,
-        MetricsAndLoggingRuntime,
+        modname::{EnableMetricsPush, MetricPushRuntime, MetricsAndLoggingRuntime},
         version,
         wait_until_terminated,
     },
@@ -509,7 +507,7 @@ mod commands {
             }
         }
 
-        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+        let metrics_runtime = modname::MetricsAndLoggingRuntime::start(config.metrics_address)?;
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime
             .runtime
@@ -561,12 +559,12 @@ mod commands {
                 mc.set_name_and_host_label(&config.name);
                 mc.set_role_label(ServiceRole::StorageNode);
                 let network_key_pair = network_key_pair.0.clone();
-                let mp_config = EnableMetricsPush {
+                let mp_config = modname::EnableMetricsPush {
                     cancel: cancel_token.child_token(),
                     network_key_pair,
                     config: mc,
                 };
-                Some(MetricPushRuntime::start(
+                Some(modname::MetricPushRuntime::start(
                     metrics_push_registry_clone,
                     mp_config,
                 )?)
@@ -612,7 +610,7 @@ mod commands {
     fn monitor_runtimes(
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
-        metrics_push_runtime: Option<MetricPushRuntime>,
+        metrics_push_runtime: Option<modname::MetricPushRuntime>,
         exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -649,7 +647,7 @@ mod commands {
     fn monitor_runtimes(
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
-        metrics_push_runtime: Option<MetricPushRuntime>,
+        metrics_push_runtime: Option<modname::MetricPushRuntime>,
         exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -1128,7 +1126,7 @@ struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), anyhow::Error>>,
     // Preserve the metrics runtime to keep the runtime alive
-    metrics_runtime: MetricsAndLoggingRuntime,
+    metrics_runtime: modname::MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
 }
@@ -1136,7 +1134,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
-        metrics_runtime: MetricsAndLoggingRuntime,
+        metrics_runtime: modname::MetricsAndLoggingRuntime,
         exit_notifier: oneshot::Sender<()>,
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
