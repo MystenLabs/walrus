@@ -4,7 +4,7 @@
 //! Client for interacting with Walrus quilt.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     marker::PhantomData,
     num::NonZeroU16,
@@ -24,14 +24,14 @@ use walrus_core::{
         EncodingAxis,
         Primary,
         QuiltApi,
-        QuiltStoreBlobOwned,
         QuiltConfigApi,
         QuiltDecoderApi,
-        QuiltDecoderV1,
         QuiltEncoderApi,
         QuiltEnum,
         QuiltError,
+        QuiltPatchApi,
         QuiltStoreBlob,
+        QuiltStoreBlobOwned,
         QuiltVersion,
         QuiltVersionEnum,
         QuiltVersionV1,
@@ -339,102 +339,6 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
-    /// Retrieves the list of blobs contained in a quilt.
-    pub async fn get_blobs_from_quilt(
-        &self,
-        quilt_blob_ids: &[QuiltBlobId],
-    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
-        assert!(!quilt_blob_ids.is_empty());
-        let quilt_blob_id = quilt_blob_ids.first().expect("no quilt blob id provided");
-        let version_enum = quilt_blob_id.version_enum()?;
-        let quilt_id = quilt_blob_id.quilt_id;
-
-        debug_assert!(
-            quilt_blob_ids
-                .iter()
-                .all(|quilt_blob_id| quilt_blob_id.quilt_id == quilt_id)
-        );
-
-        let (certified_epoch, _) = self
-            .client
-            .get_blob_status_and_certified_epoch(&quilt_id, None)
-            .await?;
-        let metadata = self
-            .client
-            .retrieve_metadata(certified_epoch, &quilt_id)
-            .await?;
-
-        match version_enum {
-            QuiltVersionEnum::V1 => {
-                let mut sliver_indices = Vec::new();
-                for quilt_blob_id in quilt_blob_ids {
-                    let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
-                    sliver_indices.extend((id.start_index..id.end_index).map(SliverIndex::new));
-                }
-                let retrieve_slivers = self
-                    .client
-                    .retrieve_slivers_with_retry::<Secondary>(
-                        &metadata,
-                        &sliver_indices,
-                        certified_epoch,
-                        Some(2),
-                        None,
-                    )
-                    .await;
-
-                if let Ok(slivers) = retrieve_slivers {
-                    let sliver_refs: Vec<&SliverData<Secondary>> = slivers.iter().collect();
-                    let decoder = QuiltDecoderV1::new(&sliver_refs);
-                    quilt_blob_ids
-                        .iter()
-                        .map(|quilt_blob_id| {
-                            let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
-                            decoder
-                                .get_blob_by_range(id.start_index as usize, id.end_index as usize)
-                                .map_err(ClientError::other)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                } else {
-                    let quilt = self.get_quilt_enum(&metadata, certified_epoch).await?;
-                    let QuiltEnum::V1(quilt_v1) = quilt;
-                    quilt_blob_ids
-                        .iter()
-                        .map(|quilt_blob_id| {
-                            let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
-                            quilt_v1
-                                .get_blob_by_range(id.start_index as usize, id.end_index as usize)
-                                .map_err(ClientError::other)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                }
-            }
-        }
-    }
-
-    /// Retrieves the list of blobs contained in a quilt.
-    pub async fn get_blobs_by_ids(
-        &self,
-        quilt_blob_ids: &[QuiltBlobId],
-    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
-        let mut grouped_quilt_blob_ids = HashMap::new();
-        for quilt_blob_id in quilt_blob_ids {
-            let quilt_id = quilt_blob_id.quilt_id;
-            grouped_quilt_blob_ids
-                .entry(quilt_id)
-                .or_insert_with(Vec::new)
-                .push(quilt_blob_id.clone());
-        }
-
-        let mut futures = Vec::new();
-        for quilt_blob_ids in grouped_quilt_blob_ids.values() {
-            futures.push(self.get_blobs_from_quilt(quilt_blob_ids));
-        }
-
-        let results = futures::future::try_join_all(futures).await?;
-
-        Ok(results.into_iter().flatten().collect())
-    }
-
     async fn get_quilt_enum(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -592,8 +496,8 @@ impl QuiltClient<'_, SuiContractClient> {
         let blob_store_result = result.first().unwrap().clone();
         let blob_id = blob_store_result.blob_id().unwrap();
         let mut stored_quilt_blobs = Vec::new();
-        let index = quilt.quilt_index().clone();
-        for patch in index {
+        let index = quilt.quilt_index()?;
+        for patch in index.as_ref().iter() {
             stored_quilt_blobs.push(StoredQuiltBlob::new(
                 blob_id,
                 patch.identifier(),

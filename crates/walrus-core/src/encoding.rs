@@ -18,7 +18,6 @@ pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 mod quilt_encoding;
 pub use quilt_encoding::{
     QuiltApi,
-    QuiltStoreBlobOwned,
     QuiltConfigApi,
     QuiltConfigV1,
     QuiltDecoderApi,
@@ -26,7 +25,11 @@ pub use quilt_encoding::{
     QuiltEncoderApi,
     QuiltEncoderV1,
     QuiltEnum,
+    QuiltPatchApi,
+    QuiltPatchIdApi,
+    QuiltPatchIdV1,
     QuiltStoreBlob,
+    QuiltStoreBlobOwned,
     QuiltV1,
     QuiltVersion,
     QuiltVersionEnum,
