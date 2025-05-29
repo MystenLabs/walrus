@@ -197,30 +197,63 @@ public(package) fun reserve_space(
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
     assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
-    // Pay rewards for each future epoch into the future accounting.
-    self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
-
-    self.reserve_space_without_payment(storage_amount, epochs_ahead, true, ctx)
+    let start_epoch = self.epoch();
+    let end_epoch = start_epoch + epochs_ahead;
+    self.reserve_space_for_epochs(storage_amount, start_epoch, end_epoch, payment, ctx)
 }
 
-/// Allow buying a storage reservation for a given period of epochs without
-/// payment.
+/// Allows buying a storage reservation for a given period of epochs.
+///
+/// Returns a storage resource for the period between `start_epoch` (inclusive) and
+/// `end_epoch` (exclusive). If `start_epoch` has already passed, reserves space starting
+/// from the current epoch.
+public(package) fun reserve_space_for_epochs(
+    self: &mut SystemStateInnerV1,
+    storage_amount: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Storage {
+    let current_epoch = self.epoch();
+    // If the start epoch has already passed, reserve space starting at the current epoch.
+    let start_epoch = start_epoch.max(current_epoch);
+    let start_offset = start_epoch - current_epoch;
+
+    // Check that the interval is non-empty.
+    assert!(end_epoch > start_epoch, EInvalidEpochsAhead);
+
+    let end_offset = end_epoch - current_epoch;
+
+    // Check the period is within the allowed range.
+    assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+
+    // Pay rewards for each future epoch into the future accounting.
+    self.process_storage_payments(storage_amount, start_offset, end_offset, payment);
+
+    // Reserve the space
+    self.reserve_space_without_payment(storage_amount, start_offset, end_offset, true, ctx)
+}
+
+/// Allow obtaining a storage reservation for a given period of epochs without
+/// payment. The epochs are provided as offsets from the current epoch.
 fun reserve_space_without_payment(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
-    epochs_ahead: u32,
+    start_epoch_offset: u32,
+    end_epoch_offset: u32,
     check_capacity: bool,
     ctx: &mut TxContext,
 ): Storage {
     // Check the period is within the allowed range.
-    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
-    assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+    assert!(end_epoch_offset - start_epoch_offset > 0, EInvalidEpochsAhead);
+    assert!(end_epoch_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Check that the storage has a non-zero size.
     assert!(storage_amount > 0, EInvalidResourceSize);
 
-    // Account the space to reclaim in the future.
-    epochs_ahead.do!(|i| {
+    // Account for the used capacity for all epochs.
+    start_epoch_offset.range_do!(end_epoch_offset, |i| {
         let used_capacity = self
             .future_accounting
             .ring_lookup_mut(i)
@@ -234,11 +267,13 @@ fun reserve_space_without_payment(
         assert!(!check_capacity || used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
-    let self_epoch = self.epoch();
+    let current_epoch = self.epoch();
+    let start_epoch = current_epoch + start_epoch_offset;
+    let end_epoch = current_epoch + end_epoch_offset;
 
     storage_resource::create_storage(
-        self_epoch,
-        self_epoch + epochs_ahead,
+        start_epoch,
+        end_epoch,
         storage_amount,
         ctx,
     )
@@ -478,6 +513,7 @@ public(package) fun certify_event_blob(
     let epochs_ahead = self.future_accounting.max_epochs_ahead();
     let storage = self.reserve_space_without_payment(
         encoded_blob_length(size, encoding_type, num_shards),
+        0,
         epochs_ahead,
         false, // Do not check total capacity, event blobs are certified already at this point.
         ctx,

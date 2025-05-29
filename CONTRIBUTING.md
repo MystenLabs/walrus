@@ -70,8 +70,18 @@ stable toolchain when specified via the `--config` command-line option. This is 
 [CI](.github/workflows/code.yml) and in our [pre-commit hooks](.pre-commit-config.yaml) (see also
 [above](#pre-commit-hooks)).
 
-Note that this repo includes a `.vscode/settings.json` file which aims to provide for the correct
-formatting behavior from mainstream Rust LSP configurations.
+If your editor supports reading `rust-analyzer` preferences from `.vscode/settings.json`, you may want
+to add the following configuration to that file to setup autoformatting. Note that this repo ignores
+`.vscode/*` to allow you to further customize your workspace settings.
+
+```json
+{
+  "rust-analyzer.rustfmt.extraArgs": [
+    "--config",
+    "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
+  ]
+}
+```
 
 Also make sure you use the correct version of Rustfmt. See
 [`rust-toolchain.toml`](rust-toolchain.toml) for the current version. This also impacts other checks,
