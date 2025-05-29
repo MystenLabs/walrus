@@ -115,11 +115,6 @@ impl Wallet {
     }
 
     /// Get the rpc_url for the active environment.
-    #[deprecated(
-        note = "Avoid calling this method as it relies on the Wallet configuration for rpc urls. \
-        It's better to pass rpc urls directly to the location where they are needed, from Walrus \
-        configuration."
-    )]
     pub fn get_rpc_url(&self) -> Result<String, WalletError> {
         Ok(self.wallet_context.config.get_active_env()?.rpc.clone())
     }
