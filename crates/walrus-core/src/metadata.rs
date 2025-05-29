@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BlobId,
     EncodingType,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     encoding::{
@@ -24,6 +25,9 @@ use crate::{
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
+        QuiltPatchApi,
+        QuiltPatchIdV1,
+        QuiltVersionV1,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
     },
@@ -60,6 +64,16 @@ pub struct QuiltPatchV1 {
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     pub identifier: String,
+}
+
+impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
+    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+        QuiltPatchIdV1::new(self.start_index, self.end_index)
+    }
+
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
 }
 
 impl QuiltPatchV1 {
@@ -101,6 +115,20 @@ impl QuiltPatchV1 {
 pub enum QuiltIndex {
     /// QuiltIndexV1.
     V1(QuiltIndexV1),
+}
+
+impl QuiltIndex {
+    /// Returns the sliver indices of the quilt patch with the given identifiers.
+    pub fn get_sliver_indices_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        match self {
+            QuiltIndex::V1(quilt_index) => {
+                quilt_index.get_sliver_indices_by_identifiers(identifiers)
+            }
+        }
+    }
 }
 
 /// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
@@ -151,6 +179,40 @@ impl QuiltIndexV1 {
             self.quilt_patches[i].start_index = prev_end_index;
             prev_end_index = self.quilt_patches[i].end_index;
         }
+    }
+
+    /// Returns the sliver indices of the quilt patch with the given identifier.
+    pub fn get_sliver_indices_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        let patches = identifiers
+            .iter()
+            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(patches
+            .iter()
+            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
+            .collect())
+    }
+}
+
+impl From<QuiltIndexV1> for QuiltIndex {
+    fn from(quilt_index: QuiltIndexV1) -> Self {
+        QuiltIndex::V1(quilt_index)
+    }
+}
+
+impl From<&QuiltIndexV1> for QuiltIndex {
+    fn from(quilt_index: &QuiltIndexV1) -> Self {
+        QuiltIndex::V1(quilt_index.clone())
+    }
+}
+
+impl AsRef<[QuiltPatchV1]> for QuiltIndexV1 {
+    fn as_ref(&self) -> &[QuiltPatchV1] {
+        &self.quilt_patches
     }
 }
 

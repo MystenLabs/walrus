@@ -25,6 +25,7 @@ use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
     SliverIndex,
     encoding::{
+        EncodingAxis,
         MAX_SYMBOL_SIZE,
         QuiltError,
         blob_encoding::BlobEncoder,
@@ -67,9 +68,15 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt.
     type Quilt: QuiltApi<Self>;
     /// The type of the quilt index.
-    type QuiltIndex: Clone;
+    type QuiltIndex: Clone + Into<QuiltIndex> + AsRef<[Self::QuiltPatch]>;
+    /// The type of the quilt patch.
+    type QuiltPatch: Clone + QuiltPatchApi<Self>;
+    /// The type of the quilt patch id.
+    type QuiltPatchId: QuiltPatchIdApi;
     /// The type of the quilt metadata.
     type QuiltMetadata;
+    /// The type of the quilt store blob.
+    type SliverAxis: EncodingAxis;
 
     /// The serialized bytes of the quilt type.
     fn quilt_version_byte() -> u8;
@@ -96,6 +103,23 @@ pub trait QuiltApi<V: QuiltVersion> {
     fn symbol_size(&self) -> usize;
 }
 
+/// API for QuiltPatch.
+pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
+    /// Returns the quilt patch id.
+    fn quilt_patch_id(&self) -> V::QuiltPatchId;
+
+    /// Returns the identifier of the quilt patch.
+    fn identifier(&self) -> &str;
+}
+/// API for QuiltPatchId.
+pub trait QuiltPatchIdApi: Clone {
+    /// The serialized bytes of the quilt patch id.
+    fn to_bytes(&self) -> Vec<u8>;
+
+    /// Deserializes the quilt patch id from bytes.
+    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError>;
+}
+
 /// The configuration of the quilt.
 pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     /// Returns a new encoder for the given configuration and blobs.
@@ -105,7 +129,13 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
     ) -> V::QuiltEncoder<'a>;
 
     /// Returns a new decoder for the given slivers.
-    fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> V::QuiltDecoder<'a>;
+    fn get_decoder(slivers: &'a [&'a SliverData<V::SliverAxis>]) -> V::QuiltDecoder<'a>;
+
+    /// Returns a new decoder for the given slivers and quilt index.
+    fn get_decoder_with_quilt_index(
+        slivers: &'a [&'a SliverData<V::SliverAxis>],
+        quilt_index: &'a QuiltIndex,
+    ) -> V::QuiltDecoder<'a>;
 }
 
 /// Encoder to construct a quilt and encode the blobs into slivers.
@@ -126,13 +156,13 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ///
     /// The decoded quilt index is stored in the decoder and can be retrieved
     /// using the `get_quilt_index` method after this method returns.
-    fn get_or_decode_quilt_index(&mut self) -> Result<&V::QuiltIndex, QuiltError>;
+    fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.
-    fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]);
+    fn add_slivers(&mut self, slivers: &'a [&'a SliverData<V::SliverAxis>]);
 }
 
 /// A trait to read bytes from quilt columns.
@@ -210,6 +240,19 @@ pub enum QuiltEnum {
 }
 
 impl QuiltEnum {
+    /// Construct a new `QuiltEnum`.
+    pub fn new(
+        quilt_blob: Vec<u8>,
+        encoding_config: &EncodingConfigEnum<'_>,
+    ) -> Result<QuiltEnum, QuiltError> {
+        let quilt_version = QuiltVersionEnum::new_from_sliver(&quilt_blob)?;
+        match quilt_version {
+            QuiltVersionEnum::V1 => {
+                QuiltV1::new_from_quilt_blob(quilt_blob, encoding_config).map(QuiltEnum::V1)
+            }
+        }
+    }
+
     /// Returns the blob identified by the given identifier.
     pub fn get_blob_by_identifier(
         &self,
@@ -456,10 +499,86 @@ impl QuiltVersion for QuiltVersionV1 {
     type QuiltDecoder<'a> = QuiltDecoderV1<'a>;
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
+    type QuiltPatch = QuiltPatchV1;
+    type QuiltPatchId = QuiltPatchIdV1;
     type QuiltMetadata = QuiltMetadataV1;
+    type SliverAxis = Secondary;
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
+    }
+}
+
+/// QuiltPatchIdV1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltPatchIdV1 {
+    /// The start index of the patch.
+    pub start_index: u16,
+    /// The end index of the patch.
+    pub end_index: u16,
+}
+
+/// Definition of the layout of the quilt patch id in QuiltVersionV1.
+///
+/// ```text
+///┌─────────────┬──────────────────┬──────────────────┐
+///│    Byte 0   │     Byte 1-2     │     Byte 3-4     │
+///├─────────────┼──────────────────┼──────────────────┤
+///│  Version    │   start_index    │    end_index     │
+///│    Byte     │   (16 bits LE)   │   (16 bits LE)   │
+///├─────────────┼──────────────────┼──────────────────┤
+///│     8 bits  │     16 bits      │     16 bits      │
+///└─────────────┴──────────────────┴──────────────────┘
+/// ```
+impl QuiltPatchIdApi for QuiltPatchIdV1 {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(5);
+
+        // First byte is the version byte.
+        bytes.push(QuiltVersionV1::quilt_version_byte());
+
+        bytes.extend_from_slice(&u16::to_le_bytes(self.start_index));
+        bytes.extend_from_slice(&u16::to_le_bytes(self.end_index));
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
+        if bytes.len() != 5 {
+            return Err(QuiltError::Other(
+                "QuiltPatchIdV1 requires 5 bytes".to_string(),
+            ));
+        }
+
+        // Check version byte.
+        if bytes[0] != QuiltVersionV1::quilt_version_byte() {
+            return Err(QuiltError::QuiltVersionMismatch(
+                bytes[0],
+                QuiltVersionV1::quilt_version_byte(),
+            ));
+        }
+        let start_index = u16::from_le_bytes(
+            bytes[1..3]
+                .try_into()
+                .expect("start_bytes should be 2 bytes"),
+        );
+        let end_index =
+            u16::from_le_bytes(bytes[3..5].try_into().expect("end_bytes should be 2 bytes"));
+
+        Ok(Self {
+            start_index,
+            end_index,
+        })
+    }
+}
+
+impl QuiltPatchIdV1 {
+    /// Creates a new quilt patch id.
+    pub fn new(start_index: u16, end_index: u16) -> Self {
+        Self {
+            start_index,
+            end_index,
+        }
     }
 }
 
@@ -807,6 +926,14 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
     fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> QuiltDecoderV1<'a> {
         QuiltDecoderV1::new(slivers)
     }
+
+    fn get_decoder_with_quilt_index(
+        slivers: &'a [&'a SliverData<Secondary>],
+        quilt_index: &QuiltIndex,
+    ) -> QuiltDecoderV1<'a> {
+        let QuiltIndex::V1(quilt_index) = quilt_index;
+        QuiltDecoderV1::new_with_quilt_index(slivers, quilt_index.clone())
+    }
 }
 
 /// EncoderV1.
@@ -1136,9 +1263,13 @@ pub struct QuiltDecoderV1<'a> {
 }
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
-    fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
+    fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError> {
         if self.quilt_index.is_some() {
-            return Ok(self.quilt_index.as_ref().expect("quilt index should exist"));
+            return Ok(self
+                .quilt_index
+                .as_ref()
+                .expect("quilt index should exist")
+                .into());
         }
         self.check_missing_slivers(0, 1)?;
         let column_size = self
@@ -1154,7 +1285,8 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         Ok(self
             .quilt_index
             .as_ref()
-            .expect("quilt index should be decoded"))
+            .expect("quilt index should be decoded")
+            .into())
     }
 
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
@@ -1721,7 +1853,7 @@ mod tests {
         quilt_decoder.add_slivers(&sliver_vec);
         assert_eq!(
             quilt_decoder.get_or_decode_quilt_index(),
-            Ok(&quilt_metadata_v1.index)
+            Ok(quilt_metadata_v1.index.into())
         );
 
         let identifier = quilt_store_blobs
@@ -1729,9 +1861,10 @@ mod tests {
             .expect("Test requires at least one blob")
             .identifier
             .as_str();
-        let patch = quilt_decoder
+        let QuiltIndex::V1(quilt_index_v1) = quilt_decoder
             .get_or_decode_quilt_index()
-            .expect("quilt index should exist")
+            .expect("quilt index should exist");
+        let patch = quilt_index_v1
             .get_quilt_patch_by_identifier(identifier)
             .expect("quilt patch should exist");
         assert_eq!(patch.identifier, identifier);

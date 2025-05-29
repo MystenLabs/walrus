@@ -3,7 +3,7 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
+use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, encoding::QuiltError};
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
@@ -111,6 +111,12 @@ impl ClientError {
 impl From<ClientErrorKind> for ClientError {
     fn from(kind: ClientErrorKind) -> Self {
         Box::new(kind).into()
+    }
+}
+
+impl From<QuiltError> for ClientError {
+    fn from(value: QuiltError) -> Self {
+        ClientError::other(value)
     }
 }
 

@@ -29,6 +29,8 @@ use encoding::{
     Primary,
     PrimaryRecoverySymbol,
     PrimarySliver,
+    QuiltError,
+    QuiltVersionEnum,
     RecoverySymbolError,
     Secondary,
     SecondaryRecoverySymbol,
@@ -212,6 +214,105 @@ impl Display for BlobId {
 impl Debug for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlobId({self})")
+    }
+}
+
+/// A QuiltBlobId is a global identifier for a blob within a quilt.
+///
+/// It is a combination of a BlobId and a serialized patch id.
+/// The patch id is a unique identifier for a patch within a quilt.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+pub struct QuiltBlobId {
+    /// The BlobId of the quilt as a Walrus blob.
+    pub quilt_id: BlobId,
+    /// The patch id of the quilt.
+    pub patch_id_bytes: Vec<u8>,
+}
+
+impl QuiltBlobId {
+    /// Create a new QuiltBlobId.
+    pub fn new(quilt_id: BlobId, patch_id_bytes: Vec<u8>) -> Self {
+        Self {
+            quilt_id,
+            patch_id_bytes,
+        }
+    }
+
+    /// Serializes the QuiltBlobId to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.quilt_id.0);
+        bytes.extend_from_slice(&self.patch_id_bytes);
+        bytes
+    }
+
+    /// Deserializes the QuiltBlobId from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BlobIdParseError> {
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
+        Ok(Self {
+            quilt_id,
+            patch_id_bytes,
+        })
+    }
+
+    /// Returns a zero-initialized QuiltBlobId.
+    pub fn zero() -> Self {
+        Self {
+            quilt_id: BlobId::ZERO,
+            patch_id_bytes: Vec::new(),
+        }
+    }
+
+    /// Returns the version of the quilt.
+    pub fn version_enum(&self) -> Result<QuiltVersionEnum, QuiltError> {
+        QuiltVersionEnum::try_from(
+            *self
+                .patch_id_bytes
+                .first()
+                .ok_or_else(|| QuiltError::Other(String::from("Patch ID bytes are empty")))?,
+        )
+    }
+}
+
+impl Display for QuiltBlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Base64Display::new(&self.to_bytes(), &URL_SAFE_NO_PAD).fmt(f)
+    }
+}
+
+impl Debug for QuiltBlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BlobId({}), patch_id_bytes({:?})",
+            self.quilt_id, self.patch_id_bytes
+        )
+    }
+}
+
+impl FromStr for QuiltBlobId {
+    type Err = BlobIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Decode from Base64.
+        let bytes = URL_SAFE_NO_PAD.decode(s).map_err(|_| BlobIdParseError)?;
+
+        // Must have at least BlobId.LENGTH + 1 bytes (quilt_id + version).
+        if bytes.len() < BlobId::LENGTH + 1 {
+            return Err(BlobIdParseError);
+        }
+
+        // Extract quilt_id (first 32 bytes).
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+
+        // Extract patch_id (remaining bytes).
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
+
+        Ok(Self {
+            quilt_id,
+            patch_id_bytes,
+        })
     }
 }
 
