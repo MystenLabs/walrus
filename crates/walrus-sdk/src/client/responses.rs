@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
 
-use super::{client_types::StoredQuiltBlob, resource::RegisterBlobOp};
+use super::resource::RegisterBlobOp;
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -55,7 +55,7 @@ pub struct BlobStoreResultWithPath {
 
 /// Result when attempting to store a blob.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the
@@ -139,16 +139,4 @@ impl BlobStoreResult {
     pub fn is_not_stored(&self) -> bool {
         matches!(self, Self::MarkedInvalid { .. } | Self::Error { .. })
     }
-}
-
-/// Result when attempting to store a quilt.
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct QuiltStoreResult {
-    /// The result of storing the quilt data as a blob.
-    pub blob_store_result: BlobStoreResult,
-    /// The structure of the quilt.
-    pub stored_quilt_blobs: Vec<StoredQuiltBlob>,
-    /// Path to the directory containing the blobs.
-    pub path: Option<PathBuf>,
 }

@@ -6,6 +6,8 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    marker::PhantomData,
+    num::NonZeroU16,
     path::PathBuf,
     pin::pin,
     sync::Arc,
@@ -13,6 +15,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use bimap::BiMap;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
 use futures::{
@@ -65,7 +68,6 @@ use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 use self::{
     communication::NodeResult,
-    quilt_client::{QuiltClient, SliverSelector},
     refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
     responses::{BlobStoreResult, BlobStoreResultWithPath},
@@ -86,10 +88,57 @@ pub use crate::{
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
-pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+
+/// A set of slivers to be retrieved from Walrus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SliverSelector<E: EncodingAxis> {
+    indices_and_shards: BiMap<SliverIndex, ShardIndex>,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EncodingAxis> SliverSelector<E> {
+    /// Creates a new sliver selector.
+    pub fn new(sliver_indices: Vec<SliverIndex>, n_shards: NonZeroU16, blob_id: &BlobId) -> Self {
+        let indices_and_shards = sliver_indices
+            .into_iter()
+            .map(|sliver_index| {
+                let pair_index = sliver_index.to_pair_index::<E>(n_shards);
+                let shard_index = pair_index.to_shard_index(n_shards, blob_id);
+                (sliver_index, shard_index)
+            })
+            .collect::<BiMap<_, _>>();
+
+        Self {
+            indices_and_shards,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the number of slivers.
+    pub fn num_slivers(&self) -> usize {
+        self.indices_and_shards.len()
+    }
+
+    /// Returns true if no slivers are left.
+    pub fn is_complete(&self) -> bool {
+        self.indices_and_shards.is_empty()
+    }
+
+    /// Returns true if the shard contains one of the slivers.
+    pub fn should_read_from_shard(&self, shard_index: &ShardIndex) -> bool {
+        self.indices_and_shards.contains_right(shard_index)
+    }
+
+    /// Sliver is complete.
+    pub fn complete_sliver(&mut self, sliver_index: &SliverIndex) -> bool {
+        self.indices_and_shards
+            .remove_by_left(sliver_index)
+            .is_some()
+    }
+}
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -2112,11 +2161,6 @@ impl<T> Client<T> {
     pub async fn get_price_computation(&self) -> ClientResult<PriceComputation> {
         let (_, price_computation) = self.get_committees_and_price().await?;
         Ok(price_computation)
-    }
-
-    /// Returns a new QuiltClient for storing quilt blobs.
-    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
-        QuiltClient::new(self)
     }
 }
 

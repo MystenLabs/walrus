@@ -6,13 +6,11 @@
 use std::{fmt::Debug, sync::Arc};
 
 use enum_dispatch::enum_dispatch;
-use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use walrus_core::{
     BlobId,
-    QuiltBlobId,
-    encoding::{QuiltPatchIdApi, SliverPair},
+    encoding::SliverPair,
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
@@ -28,25 +26,6 @@ use super::{
 
 /// The log level for all WalrusStoreBlob spans.
 pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
-
-/// A stored blob in a quilt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredQuiltBlob {
-    /// The quilt blob.
-    pub identifier: String,
-    /// The quilt blob id.
-    pub quilt_blob_id: QuiltBlobId,
-}
-
-impl StoredQuiltBlob {
-    /// Create a new stored quilt blob.
-    pub fn new<T: QuiltPatchIdApi>(blob_id: BlobId, identifier: &str, patch_id: T) -> Self {
-        Self {
-            identifier: identifier.to_string(),
-            quilt_blob_id: QuiltBlobId::new(blob_id, patch_id.to_bytes()),
-        }
-    }
-}
 
 /// API for a blob that is being stored to Walrus.
 #[enum_dispatch]
@@ -158,7 +137,9 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
 }
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
-/// TODO(WAL-755): Use a enum to represent the result of each transition.
+// TODO(WAL-755): Use a enum to represent the result of each transition.
+// TODO(WAL-755): Remove the clippy exception during the refactoring.
+#[allow(clippy::large_enum_variant)]
 #[enum_dispatch(WalrusStoreBlobApi<T>)]
 #[derive(Clone, Debug)]
 pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {

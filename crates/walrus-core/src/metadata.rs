@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BlobId,
     EncodingType,
-    SliverIndex,
     SliverPairIndex,
     SliverType,
     encoding::{
@@ -25,9 +24,6 @@ use crate::{
         EncodingConfig,
         EncodingConfigTrait as _,
         QuiltError,
-        QuiltPatchApi,
-        QuiltPatchIdV1,
-        QuiltVersionV1,
         encoded_blob_length_for_n_shards,
         source_symbols_for_n_shards,
     },
@@ -57,6 +53,8 @@ pub enum VerificationError {
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
+    /// The unencoded length of the blob.
+    pub unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
@@ -66,22 +64,13 @@ pub struct QuiltPatchV1 {
     pub identifier: String,
 }
 
-impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
-    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
-        QuiltPatchIdV1::new(self.start_index, self.end_index)
-    }
-
-    fn identifier(&self) -> &str {
-        &self.identifier
-    }
-}
-
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(identifier: String) -> Result<Self, QuiltError> {
+    pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
         Self::validate_identifier(&identifier)?;
 
         Ok(Self {
+            unencoded_length,
             identifier,
             start_index: 0,
             end_index: 0,
@@ -102,12 +91,6 @@ impl QuiltPatchV1 {
         }
         Ok(())
     }
-
-    /// Sets the range of the quilt patch.
-    pub fn set_range(&mut self, start_index: u16, end_index: u16) {
-        self.start_index = start_index;
-        self.end_index = end_index;
-    }
 }
 
 /// A enum wrapper around the quilt index.
@@ -115,20 +98,6 @@ impl QuiltPatchV1 {
 pub enum QuiltIndex {
     /// QuiltIndexV1.
     V1(QuiltIndexV1),
-}
-
-impl QuiltIndex {
-    /// Returns the sliver indices of the quilt patch with the given identifiers.
-    pub fn get_sliver_indices_by_identifiers(
-        &self,
-        identifiers: &[&str],
-    ) -> Result<Vec<SliverIndex>, QuiltError> {
-        match self {
-            QuiltIndex::V1(quilt_index) => {
-                quilt_index.get_sliver_indices_by_identifiers(identifiers)
-            }
-        }
-    }
 }
 
 /// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
@@ -174,45 +143,14 @@ impl QuiltIndexV1 {
 
     /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
-        let mut prev_end_index = first_start;
-        for i in 0..self.quilt_patches.len() {
-            self.quilt_patches[i].start_index = prev_end_index;
-            prev_end_index = self.quilt_patches[i].end_index;
+        if let Some(first_patch) = self.quilt_patches.first_mut() {
+            first_patch.start_index = first_start;
         }
-    }
 
-    /// Returns the sliver indices of the quilt patch with the given identifier.
-    pub fn get_sliver_indices_by_identifiers(
-        &self,
-        identifiers: &[&str],
-    ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let patches = identifiers
-            .iter()
-            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(patches
-            .iter()
-            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect())
-    }
-}
-
-impl From<QuiltIndexV1> for QuiltIndex {
-    fn from(quilt_index: QuiltIndexV1) -> Self {
-        QuiltIndex::V1(quilt_index)
-    }
-}
-
-impl From<&QuiltIndexV1> for QuiltIndex {
-    fn from(quilt_index: &QuiltIndexV1) -> Self {
-        QuiltIndex::V1(quilt_index.clone())
-    }
-}
-
-impl AsRef<[QuiltPatchV1]> for QuiltIndexV1 {
-    fn as_ref(&self) -> &[QuiltPatchV1] {
-        &self.quilt_patches
+        for i in 1..self.quilt_patches.len() {
+            let prev_end_index = self.quilt_patches[i - 1].end_index;
+            self.quilt_patches[i].start_index = prev_end_index;
+        }
     }
 }
 
