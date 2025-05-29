@@ -16,7 +16,23 @@ mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
 mod quilt_encoding;
-pub use quilt_encoding::{QuiltDecoderV1, QuiltEncoderV1, QuiltV1};
+pub use quilt_encoding::{
+    QuiltApi,
+    QuiltStoreBlobOwned,
+    QuiltConfigApi,
+    QuiltConfigV1,
+    QuiltDecoderApi,
+    QuiltDecoderV1,
+    QuiltEncoderApi,
+    QuiltEncoderV1,
+    QuiltEnum,
+    QuiltStoreBlob,
+    QuiltV1,
+    QuiltVersion,
+    QuiltVersionEnum,
+    QuiltVersionV1,
+    get_quilt_version_enum,
+};
 
 mod common;
 pub use common::{EncodingAxis, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE, Primary, Secondary};
