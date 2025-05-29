@@ -36,7 +36,7 @@ use crate::{
         QuiltIndexV1,
         QuiltMetadata,
         QuiltMetadataV1,
-        QuiltPatchIdV1,
+        QuiltPatchInternalIdV1,
         QuiltPatchV1,
     },
 };
@@ -79,10 +79,10 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt patch.
     type QuiltPatch: Clone + QuiltPatchApi<Self>;
     /// The type of the quilt patch id.
-    type QuiltPatchId: QuiltPatchIdApi;
+    type QuiltPatchInternalId: QuiltPatchInternalIdApi;
     /// The type of the quilt metadata.
     type QuiltMetadata;
-    /// The type of the quilt store blob.
+    /// The type of the slivers, primary or secondary.
     type SliverAxis: EncodingAxis;
 
     /// The serialized bytes of the quilt type.
@@ -115,13 +115,13 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
     fn get_patch_by_identifier(&self, identifier: &str) -> Result<&V::QuiltPatch, QuiltError>;
 
-    /// Returns the indices of the quilt patches by their identifiers.
+    /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_by_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError>;
 
-    /// Returns the quilt index.
+    /// Returns the quilt patches.
     fn patches(&self) -> &[V::QuiltPatch];
 
     /// Returns the identifiers of the quilt patches.
@@ -130,20 +130,20 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the number of quilt patches.
     fn len(&self) -> usize;
 
-    /// Returns true if the quilt index is empty.
+    /// Returns true if the quilt index has no patches.
     fn is_empty(&self) -> bool;
 }
 
 /// API for QuiltPatch.
 pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
     /// Returns the quilt patch id.
-    fn quilt_patch_id(&self) -> V::QuiltPatchId;
+    fn quilt_patch_internal_id(&self) -> V::QuiltPatchInternalId;
 
     /// Returns the identifier of the quilt patch.
     fn identifier(&self) -> &str;
 }
-/// API for QuiltPatchId.
-pub trait QuiltPatchIdApi: Clone {
+/// API for QuiltPatchInternalId.
+pub trait QuiltPatchInternalIdApi: Clone {
     /// The serialized bytes of the quilt patch id.
     fn to_bytes(&self) -> Vec<u8>;
 
@@ -531,7 +531,7 @@ impl QuiltVersion for QuiltVersionV1 {
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
     type QuiltPatch = QuiltPatchV1;
-    type QuiltPatchId = QuiltPatchIdV1;
+    type QuiltPatchInternalId = QuiltPatchInternalIdV1;
     type QuiltMetadata = QuiltMetadataV1;
     type SliverAxis = Secondary;
 

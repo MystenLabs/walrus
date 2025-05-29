@@ -29,7 +29,7 @@ use crate::{
         quilt_encoding::{
             QuiltIndexApi,
             QuiltPatchApi,
-            QuiltPatchIdApi,
+            QuiltPatchInternalIdApi,
             QuiltVersion,
             QuiltVersionV1,
         },
@@ -71,8 +71,8 @@ pub struct QuiltPatchV1 {
 }
 
 impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
-    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
-        QuiltPatchIdV1::new(self.start_index, self.end_index)
+    fn quilt_patch_internal_id(&self) -> QuiltPatchInternalIdV1 {
+        QuiltPatchInternalIdV1::new(self.start_index, self.end_index)
     }
 
     fn identifier(&self) -> &str {
@@ -135,9 +135,9 @@ impl QuiltIndex {
     }
 }
 
-/// QuiltPatchIdV1.
+/// QuiltPatchInternalIdV1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuiltPatchIdV1 {
+pub struct QuiltPatchInternalIdV1 {
     /// The start index of the patch.
     pub start_index: u16,
     /// The end index of the patch.
@@ -156,7 +156,7 @@ pub struct QuiltPatchIdV1 {
 ///│     8 bits  │     16 bits      │     16 bits      │
 ///└─────────────┴──────────────────┴──────────────────┘
 /// ```
-impl QuiltPatchIdApi for QuiltPatchIdV1 {
+impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(5);
 
@@ -172,7 +172,7 @@ impl QuiltPatchIdApi for QuiltPatchIdV1 {
     fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
         if bytes.len() != 5 {
             return Err(QuiltError::Other(
-                "QuiltPatchIdV1 requires 5 bytes".to_string(),
+                "QuiltPatchInternalIdV1 requires 5 bytes".to_string(),
             ));
         }
 
@@ -198,7 +198,7 @@ impl QuiltPatchIdApi for QuiltPatchIdV1 {
     }
 }
 
-impl QuiltPatchIdV1 {
+impl QuiltPatchInternalIdV1 {
     /// Creates a new quilt patch id.
     pub fn new(start_index: u16, end_index: u16) -> Self {
         Self {
