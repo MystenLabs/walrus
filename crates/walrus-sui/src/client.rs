@@ -118,8 +118,9 @@ pub enum SuiClientError {
     #[error(transparent)]
     SuiSdkError(#[from] sui_sdk::error::Error),
     /// Other errors resulting from Sui crates.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
-    SuiError(#[from] sui_types::error::SuiError),
+    SuiError(#[from] Box<sui_types::error::SuiError>),
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(MoveExecutionError),
@@ -131,16 +132,15 @@ pub enum SuiClientError {
     NoCompatibleGasCoins(Option<u128>),
     /// The Walrus system object does not exist.
     #[error(
-        "the specified Walrus system object {0} does not exist
-        or is incompatible with this binary;\n\
-        make sure you have the latest binary and configuration,
-        and the correct Sui network is activated \
-        in your Sui wallet"
+        "the specified Walrus system object {0} does not exist or is incompatible with this \
+        binary;\n\
+        make sure you have the latest binary and configuration, and the correct Sui network is  \
+        activated in your Sui wallet"
     )]
     WalrusSystemObjectDoesNotExist(ObjectID),
     /// The specified Walrus package could not be found.
     #[error(
-        "the specified Walrus package {0} could not be found\n\
+        "the specified Walrus package {0} could not be found;\n\
         make sure you have the latest binary and configuration, and the correct Sui network is \
         activated in your Sui wallet"
     )]
@@ -165,7 +165,7 @@ pub enum SuiClientError {
     MultipleStorageNodeCapabilities,
     /// The storage capability object already exists in the account and cannot register another.
     #[error(
-        "storage capability object already exists in the account and cannot register another\n\
+        "storage capability object already exists in the account and cannot register another \
         object ID: {0}"
     )]
     CapabilityObjectAlreadyExists(ObjectID),
@@ -194,6 +194,12 @@ pub enum SuiClientError {
         merging the coins in the wallet and retrying"
     )]
     InsufficientFundsWithMaxCoins(String),
+}
+
+impl From<sui_types::error::SuiError> for SuiClientError {
+    fn from(error: sui_types::error::SuiError) -> Self {
+        Self::SuiError(Box::new(error))
+    }
 }
 
 impl SuiClientError {
@@ -2648,6 +2654,7 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        // TODO(WAL-835): buy single storage resource to extend multiple blobs
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,
@@ -2672,6 +2679,7 @@ impl SuiContractClientInner {
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        // TODO(WAL-835): buy single storage resource to extend multiple blobs
         self.certify_and_extend_blobs_impl(
             blobs_with_certificates,
             post_store,

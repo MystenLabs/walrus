@@ -149,11 +149,11 @@
       },
       "https://walrus-mainnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs"
@@ -187,7 +187,7 @@
       },
       "https://walrus-mainnet-aggregator.trusted-point.com": {
         "operator": "TrustedPoint",
-        "cache": false
+        "cache": true
       },
       "https://walrus.aggregator.stakepool.dev.br": {
         "operator": "StakePool",

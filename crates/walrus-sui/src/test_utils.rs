@@ -96,6 +96,8 @@ pub fn object_id_for_testing() -> ObjectID {
 }
 
 /// Represents a test cluster running within this process or as a separate process.
+// Allowing a large enum variant as this is anyway just used in tests.
+#[allow(clippy::large_enum_variant)]
 pub enum LocalOrExternalTestCluster {
     /// A test cluster running within this process.
     Local {

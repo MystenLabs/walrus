@@ -47,8 +47,9 @@ pub type ClientResult<T> = Result<T, ClientError>;
 #[error(transparent)]
 pub struct ClientError {
     /// The inner kind of the error.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error.
     #[from]
-    kind: ClientErrorKind,
+    kind: Box<ClientErrorKind>,
 }
 
 impl ClientError {
@@ -63,34 +64,34 @@ impl ClientError {
         E: std::error::Error + Send + Sync + 'static,
     {
         ClientError {
-            kind: ClientErrorKind::Other(err.into()),
+            kind: Box::new(ClientErrorKind::Other(err.into())),
         }
     }
 
     /// Constructs a [`ClientError`] with `kind` [`ClientErrorKind::StoreBlobInternal`].
     pub fn store_blob_internal(err: String) -> Self {
         ClientError {
-            kind: ClientErrorKind::StoreBlobInternal(err),
+            kind: Box::new(ClientErrorKind::StoreBlobInternal(err)),
         }
     }
 
     /// Whether the error is an out-of-gas error.
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
-            &self.kind,
+            self.kind.as_ref(),
             ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
         )
     }
 
     /// Returns `true` if the error is a `NoValidStatusReceived` error.
     pub fn is_no_valid_status_received(&self) -> bool {
-        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
+        matches!(self.kind.as_ref(), ClientErrorKind::NoValidStatusReceived)
     }
 
     /// Returns `true` if the error may have been caused by epoch change.
     pub fn may_be_caused_by_epoch_change(&self) -> bool {
         matches!(
-            &self.kind,
+            self.kind.as_ref(),
             // Cannot get confirmations.
             ClientErrorKind::NotEnoughConfirmations(_, _)
                 // Cannot certify the blob on chain.
@@ -113,6 +114,12 @@ impl From<QuiltError> for ClientError {
     }
 }
 
+impl From<ClientErrorKind> for ClientError {
+    fn from(kind: ClientErrorKind) -> Self {
+        Box::new(kind).into()
+    }
+}
+
 impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
@@ -125,7 +132,7 @@ impl From<SuiClientError> for ClientError {
             }
             error => ClientErrorKind::Other(error.into()),
         };
-        Self { kind }
+        kind.into()
     }
 }
 
