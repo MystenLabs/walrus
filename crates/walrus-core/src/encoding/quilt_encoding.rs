@@ -56,8 +56,8 @@ const MAX_BLOB_IDENTIFIER_BYTES_LENGTH: usize = (1 << (8 * BLOB_IDENTIFIER_SIZE_
 /// The number of bytes stored before the quilt index data.
 const QUILT_INDEX_PREFIX_SIZE: usize = QUILT_INDEX_SIZE_BYTES_LENGTH + QUILT_VERSION_BYTES_LENGTH;
 
-/// The maximum number of columns a quilt index can have.
-const MAX_NUM_COLUMNS_FOR_QUILT_INDEX: usize = 1;
+/// The maximum number of slivers a quilt index can be stored in.
+const MAX_NUM_SLIVERS_FOR_QUILT_INDEX: usize = 10;
 
 /// Gets the quilt version enum from the data.
 pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
@@ -78,7 +78,7 @@ pub trait QuiltVersion: Sized {
     type QuiltIndex: QuiltIndexApi<Self>;
     /// The type of the quilt patch.
     type QuiltPatch: Clone + QuiltPatchApi<Self>;
-    /// The type of the quilt patch id.
+    /// The type of the quilt patch internal id.
     type QuiltPatchInternalId: QuiltPatchInternalIdApi;
     /// The type of the quilt metadata.
     type QuiltMetadata;
@@ -136,18 +136,22 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
 
 /// API for QuiltPatch.
 pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
-    /// Returns the quilt patch id.
+    /// Returns the quilt patch internal id.
     fn quilt_patch_internal_id(&self) -> V::QuiltPatchInternalId;
 
     /// Returns the identifier of the quilt patch.
     fn identifier(&self) -> &str;
 }
 /// API for QuiltPatchInternalId.
+///
+/// A quilt patch internal id is a unique identifier for a quilt patch.
+/// It can be used to identify the quilt patch in a quilt, and when combined with the quilt
+/// id, it can be used to identify the quilt patch in Walrus.
 pub trait QuiltPatchInternalIdApi: Clone {
-    /// The serialized bytes of the quilt patch id.
+    /// The serialized bytes of the quilt patch internal id.
     fn to_bytes(&self) -> Vec<u8>;
 
-    /// Deserializes the quilt patch id from bytes.
+    /// Deserializes the quilt patch internal id from bytes.
     fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError>;
 }
 
@@ -620,7 +624,7 @@ impl BlobHeaderV1 {
 ///   length of the [`QuiltIndexV1`]. It is guaranteed the column size is more than
 ///   `QUILT_INDEX_SIZE_BYTES_LENGTH`.
 /// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, up to
-///   `MAX_NUM_COLUMNS_FOR_QUILT_INDEX`.
+///   `MAX_NUM_SLIVERS_FOR_QUILT_INDEX`.
 /// - The blob layout is defined by the [`QuiltIndexV1`].
 ///
 // INV:
@@ -1115,7 +1119,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             &all_sizes,
             n_columns,
             n_rows,
-            MAX_NUM_COLUMNS_FOR_QUILT_INDEX,
+            MAX_NUM_SLIVERS_FOR_QUILT_INDEX,
             required_alignment,
         )?;
 
@@ -1125,7 +1129,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // Calculate columns needed for the index.
         let column_size = symbol_size * n_rows;
         let index_cols_needed = index_total_size.div_ceil(column_size);
-        assert!(index_cols_needed <= MAX_NUM_COLUMNS_FOR_QUILT_INDEX);
+        assert!(index_cols_needed <= MAX_NUM_SLIVERS_FOR_QUILT_INDEX);
         let mut current_col = index_cols_needed;
 
         // Fill data with actual blobs and populate quilt patches.
@@ -1229,6 +1233,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
                 .quilt_index
                 .as_ref()
                 .expect("quilt index should exist")
+                .clone()
                 .into());
         }
         self.check_missing_slivers(0, 1)?;
@@ -1246,6 +1251,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .quilt_index
             .as_ref()
             .expect("quilt index should be decoded")
+            .clone()
             .into())
     }
 
@@ -1517,22 +1523,23 @@ mod tests {
 
     param_test! {
         test_quilt_find_min_length: [
-            case_1: (&[2, 1, 2, 1], 3, 3, 1, Err(QuiltError::TooManyBlobs(3, 2))),
-            case_2: (&[1000, 1, 1], 4, 7, 2, Ok(144)),
+            case_1: (&[2, 1, 2, 1], 3, 3, 1, 1, Err(QuiltError::TooManyBlobs(3, 2))),
+            case_2: (&[1000, 1, 1], 4, 7, 2, 2, Ok(72)),
             case_3: (
                 &[],
                 3,
                 1,
                 1,
+                1,
                 Err(QuiltError::EmptyInput("blobs".to_string())),
             ),
-            case_4: (&[1], 3, 2, 1, Ok(3)),
-            case_5: (&[115, 80, 4], 17, 9, 1, Ok(13)),
-            case_6: (&[20, 20, 20], 3, 5, 1, Ok(4)),
-            case_7: (&[5, 5, 5], 5, 1, 2, Ok(6)),
-            case_8: (&[25, 35, 45], 200, 1, 2, Ok(26)),
-            case_9: (&[10, 0, 0, 0], 17, 9, 1, Ok(2)),
-            case_10: (&[10, 0, 0, 0], 17, 9, 2, Ok(2)),
+            case_4: (&[1], 3, 2, 1, 1, Ok(3)),
+            case_5: (&[115, 80, 4], 17, 9, 3, 1, Ok(5)),
+            case_6: (&[20, 20, 20], 3, 5, 2, 1, Ok(4)),
+            case_7: (&[5, 5, 5], 5, 1, 1, 2, Ok(6)),
+            case_8: (&[25, 35, 45], 200, 1, 3, 2, Ok(10)),
+            case_9: (&[10, 0, 0, 0], 17, 9, 2, 1, Ok(1)),
+            case_10: (&[10, 0, 0, 0], 17, 9, 2, 2, Ok(2)),
             case_11: (
                 &[
                     416, 253, 258, 384, 492, 303, 276, 464, 143, 251, 388, 263, 515, 433, 505,
@@ -1540,6 +1547,7 @@ mod tests {
                 ],
                 34,
                 16,
+                3,
                 1,
                 Ok(31)
             ),
@@ -1549,6 +1557,7 @@ mod tests {
         blobs: &[usize],
         n_columns: usize,
         n_rows: usize,
+        max_num_slivers_for_quilt_index: usize,
         required_alignment: usize,
         expected: Result<usize, QuiltError>,
     ) {
@@ -1558,7 +1567,7 @@ mod tests {
             blobs,
             n_columns,
             n_rows,
-            MAX_NUM_COLUMNS_FOR_QUILT_INDEX,
+            max_num_slivers_for_quilt_index,
             required_alignment,
         );
         assert_eq!(res, expected);
@@ -1751,6 +1760,7 @@ mod tests {
             case_2: (3, 1024, 10240, 7),
             case_3: (1, 10, 1000, 7),
             case_4: (60, 1, 1000, 100),
+            case_5: (2, 1, 5, 100),
         ]
     }
     fn test_quilt_encoder_and_decoder(
@@ -1759,6 +1769,8 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
+        let _guard = tracing_subscriber::fmt().try_init();
+
         let quilt_store_blobs = generate_random_blobs(num_blobs, max_blob_size, min_blob_size);
 
         let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -1803,17 +1815,37 @@ mod tests {
         let quilt_version =
             get_quilt_version_enum(first_sliver.symbols.data()).expect("Should get quilt version");
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
+
         let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
+        let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         assert!(matches!(
-            quilt_decoder.get_or_decode_quilt_index(),
+            decode_index_result,
             Err(QuiltError::MissingSlivers(_))
         ));
 
-        let sliver_vec = vec![*first_sliver];
-        quilt_decoder.add_slivers(&sliver_vec);
+        let first_sliver_vec = vec![*first_sliver];
+        quilt_decoder.add_slivers(&first_sliver_vec);
+        let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
+        let missing_slivers =
+            if let Err(QuiltError::MissingSlivers(missing_indices)) = decode_index_result {
+                tracing::info!("missing_indices: {:?}", missing_indices);
+                slivers
+                    .iter()
+                    .filter(|sliver| missing_indices.contains(&sliver.index))
+                    .copied()
+                    .collect()
+            } else {
+                vec![]
+            };
+
+        if !missing_slivers.is_empty() {
+            quilt_decoder.add_slivers(&missing_slivers);
+            assert!(quilt_decoder.get_or_decode_quilt_index().is_ok());
+        }
+
         assert_eq!(
             quilt_decoder.get_or_decode_quilt_index(),
-            Ok(quilt_metadata_v1.index.into())
+            Ok(quilt_metadata_v1.index.clone().into())
         );
 
         let identifier = quilt_store_blobs
@@ -1834,11 +1866,38 @@ mod tests {
             .collect();
         assert_eq!(
             quilt_decoder.get_blob_by_identifier(identifier),
-            Err(QuiltError::MissingSlivers(missing_indices))
+            Err(QuiltError::MissingSlivers(missing_indices.clone()))
         );
+
+        let required_indices = quilt_index_v1
+            .get_sliver_indices_by_identifiers(&[identifier])
+            .expect("Should get sliver indices by identifiers");
+        assert_eq!(required_indices, missing_indices);
+
+        // Add only the missing slivers needed for this blob.
+        let missing_slivers: Vec<&SliverData<Secondary>> = slivers
+            .iter()
+            .filter(|sliver| missing_indices.contains(&sliver.index))
+            .copied()
+            .collect();
+        quilt_decoder.add_slivers(&missing_slivers);
+
+        // Check we can decode the blob with the slivers we added.
+        let decoded_blob = quilt_decoder
+            .get_blob_by_identifier(identifier)
+            .expect("Should be able to decode blob after adding missing slivers");
+        let expected_blob = quilt_store_blobs
+            .iter()
+            .find(|blob| blob.identifier == identifier)
+            .expect("Should find blob in test data");
+        assert_eq!(decoded_blob, *expected_blob);
 
         // Now, add all slivers to the decoder, all the blobs should be reconstructed.
         quilt_decoder.add_slivers(&slivers);
+        assert_eq!(
+            quilt_decoder.get_or_decode_quilt_index(),
+            Ok(quilt_metadata_v1.index.into())
+        );
 
         for quilt_store_blob in quilt_store_blobs {
             tracing::debug!("decoding blob {}", quilt_store_blob.identifier);

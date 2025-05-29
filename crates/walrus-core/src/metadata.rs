@@ -144,7 +144,7 @@ pub struct QuiltPatchInternalIdV1 {
     pub end_index: u16,
 }
 
-/// Definition of the layout of the quilt patch id in QuiltVersionV1.
+/// Definition of the layout of the quilt patch internal id in QuiltVersionV1.
 ///
 /// ```text
 ///┌─────────────┬──────────────────┬──────────────────┐
@@ -275,18 +275,6 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
 impl From<QuiltIndexV1> for QuiltIndex {
     fn from(quilt_index: QuiltIndexV1) -> Self {
         QuiltIndex::V1(quilt_index)
-    }
-}
-
-impl From<&QuiltIndexV1> for QuiltIndex {
-    fn from(quilt_index: &QuiltIndexV1) -> Self {
-        QuiltIndex::V1(quilt_index.clone())
-    }
-}
-
-impl AsRef<[QuiltPatchV1]> for QuiltIndexV1 {
-    fn as_ref(&self) -> &[QuiltPatchV1] {
-        &self.quilt_patches
     }
 }
 
