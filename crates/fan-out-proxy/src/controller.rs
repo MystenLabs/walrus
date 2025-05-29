@@ -36,13 +36,14 @@ use walrus_sdk::{
     SuiReadClient,
     client::Client,
     config::ClientConfig,
-    core_utils::load_from_yaml,
+    core_utils::{load_from_yaml, metrics::Registry},
     sui::client::retry_client::RetriableSuiClient,
 };
 
 use crate::{
     TipConfig,
     error::FanOutError,
+    metrics::FanOutProxyMetricSet,
     params::{B64UrlEncodedBytes, Params},
     tip::TipChecker,
 };
@@ -59,12 +60,21 @@ pub(crate) const API_DOCS: &str = "/v1/api";
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
     pub(crate) checker: TipChecker,
+    pub(crate) metric_set: FanOutProxyMetricSet,
 }
 
 impl Controller {
     /// Creates a new controller.
-    pub(crate) fn new(client: Client<SuiReadClient>, checker: TipChecker) -> Self {
-        Self { client, checker }
+    pub(crate) fn new(
+        client: Client<SuiReadClient>,
+        checker: TipChecker,
+        metric_set: FanOutProxyMetricSet,
+    ) -> Self {
+        Self {
+            client,
+            checker,
+            metric_set,
+        }
     }
 
     /// Checks the request and fans out the data to the storage nodes.
@@ -132,6 +142,8 @@ impl Controller {
             .send_blob_data_and_get_certificate(&metadata, &sliver_pairs, &blob_persistence, None)
             .await?;
 
+        self.metric_set.blobs_uploaded.inc();
+
         // Reply with the confirmation certificate.
         Ok(ResponseType {
             blob_id,
@@ -155,7 +167,10 @@ pub(crate) async fn run_proxy(
     walrus_config: PathBuf,
     server_address: Option<SocketAddr>,
     tip_config: PathBuf,
+    registry: Registry,
 ) -> Result<()> {
+    let metric_set = FanOutProxyMetricSet::new(&registry);
+
     // Create a client we can use to communicate with the Sui network, which is used to
     // coordinate the Walrus network.
     let client = get_client(context.as_deref(), walrus_config.as_path()).await?;
@@ -174,7 +189,7 @@ pub(crate) async fn run_proxy(
         .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
-        .with_state(Arc::new(Controller::new(client, checker)))
+        .with_state(Arc::new(Controller::new(client, checker, metric_set)))
         .layer(cors_layer());
 
     let addr: SocketAddr = if let Some(socket_addr) = server_address {
