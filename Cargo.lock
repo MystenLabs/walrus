@@ -1474,12 +1474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bimap"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
-
-[[package]]
 name = "bin-version"
 version = "1.49.1"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.49.1#3b1d6b3bd63f175b774da557f89af3619b74d783"
@@ -12663,7 +12657,6 @@ name = "walrus-sdk"
 version = "1.27.0"
 dependencies = [
  "anyhow",
- "bimap",
  "chrono",
  "enum_dispatch",
  "fastcrypto",

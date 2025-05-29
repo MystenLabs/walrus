@@ -27,7 +27,6 @@ pub use quilt_encoding::{
     QuiltEnum,
     QuiltPatchApi,
     QuiltPatchIdApi,
-    QuiltPatchIdV1,
     QuiltStoreBlob,
     QuiltStoreBlobOwned,
     QuiltV1,

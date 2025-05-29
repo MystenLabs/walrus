@@ -12,7 +12,6 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
-bimap = "0.6.3"
 chrono.workspace = true
 enum_dispatch.workspace = true
 fastcrypto.workspace = true

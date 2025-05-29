@@ -31,7 +31,14 @@ use crate::{
         blob_encoding::BlobEncoder,
         config::EncodingConfigTrait as _,
     },
-    metadata::{QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1, QuiltPatchV1},
+    metadata::{
+        QuiltIndex,
+        QuiltIndexV1,
+        QuiltMetadata,
+        QuiltMetadataV1,
+        QuiltPatchIdV1,
+        QuiltPatchV1,
+    },
 };
 
 /// The number of bytes to store the size of the quilt index.
@@ -506,79 +513,6 @@ impl QuiltVersion for QuiltVersionV1 {
 
     fn quilt_version_byte() -> u8 {
         QuiltVersionV1::QUILT_VERSION_BYTE
-    }
-}
-
-/// QuiltPatchIdV1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuiltPatchIdV1 {
-    /// The start index of the patch.
-    pub start_index: u16,
-    /// The end index of the patch.
-    pub end_index: u16,
-}
-
-/// Definition of the layout of the quilt patch id in QuiltVersionV1.
-///
-/// ```text
-///┌─────────────┬──────────────────┬──────────────────┐
-///│    Byte 0   │     Byte 1-2     │     Byte 3-4     │
-///├─────────────┼──────────────────┼──────────────────┤
-///│  Version    │   start_index    │    end_index     │
-///│    Byte     │   (16 bits LE)   │   (16 bits LE)   │
-///├─────────────┼──────────────────┼──────────────────┤
-///│     8 bits  │     16 bits      │     16 bits      │
-///└─────────────┴──────────────────┴──────────────────┘
-/// ```
-impl QuiltPatchIdApi for QuiltPatchIdV1 {
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(5);
-
-        // First byte is the version byte.
-        bytes.push(QuiltVersionV1::quilt_version_byte());
-
-        bytes.extend_from_slice(&u16::to_le_bytes(self.start_index));
-        bytes.extend_from_slice(&u16::to_le_bytes(self.end_index));
-
-        bytes
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
-        if bytes.len() != 5 {
-            return Err(QuiltError::Other(
-                "QuiltPatchIdV1 requires 5 bytes".to_string(),
-            ));
-        }
-
-        // Check version byte.
-        if bytes[0] != QuiltVersionV1::quilt_version_byte() {
-            return Err(QuiltError::QuiltVersionMismatch(
-                bytes[0],
-                QuiltVersionV1::quilt_version_byte(),
-            ));
-        }
-        let start_index = u16::from_le_bytes(
-            bytes[1..3]
-                .try_into()
-                .expect("start_bytes should be 2 bytes"),
-        );
-        let end_index =
-            u16::from_le_bytes(bytes[3..5].try_into().expect("end_bytes should be 2 bytes"));
-
-        Ok(Self {
-            start_index,
-            end_index,
-        })
-    }
-}
-
-impl QuiltPatchIdV1 {
-    /// Creates a new quilt patch id.
-    pub fn new(start_index: u16, end_index: u16) -> Self {
-        Self {
-            start_index,
-            end_index,
-        }
     }
 }
 
