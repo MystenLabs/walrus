@@ -84,6 +84,8 @@ pub trait QuiltApi<V: QuiltVersion> {
     ) -> Result<V::Quilt, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
+    ///
+    /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Returns the quilt index.
@@ -343,8 +345,7 @@ impl QuiltVersionV1 {
         assert!(index_bytes.len() == index_size);
 
         // Decode the QuiltIndexV1.
-        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&index_bytes)
-            .map_err(|e| QuiltError::QuiltIndexSerDerError(e.to_string()))?;
+        let mut quilt_index: QuiltIndexV1 = bcs::from_bytes(&index_bytes)?;
 
         let total_size = index_size + QUILT_INDEX_PREFIX_SIZE;
         let columns_needed = total_size.div_ceil(column_size);
@@ -592,7 +593,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             symbol_size,
             quilt_index: None,
         };
-        quilt.quilt_index = Some(quilt.get_or_decode_quilt_index()?);
+        let _quilt_index = quilt.get_or_decode_quilt_index()?;
 
         Ok(quilt)
     }
@@ -678,9 +679,23 @@ impl QuiltColumnRangeReader for QuiltV1 {
 }
 
 impl QuiltV1 {
-    fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndexV1, QuiltError> {
+    /// Returns the quilt index.
+    ///
+    /// If the quilt index is not set, it will decode it from the quilt data, and set it.
+    fn get_or_decode_quilt_index(&mut self) -> Result<&QuiltIndexV1, QuiltError> {
+        if self.quilt_index.is_some() {
+            return Ok(self
+                .quilt_index
+                .as_ref()
+                .expect("quilt index should be set"));
+        }
+
         let columns_size = self.data.len() / self.row_size * self.symbol_size;
-        QuiltVersionV1::decode_quilt_index(self, columns_size)
+        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, columns_size)?);
+        Ok(self
+            .quilt_index
+            .as_ref()
+            .expect("quilt index should be set"))
     }
 }
 
@@ -1000,13 +1015,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         let mut quilt_index = QuiltIndexV1 { quilt_patches };
 
         // Get the serialized quilt index size.
-        let serialized_index_size =
-            u32::try_from(bcs::serialized_size(&quilt_index).map_err(|e| {
-                QuiltError::QuiltIndexSerDerError(format!(
-                    "failed to serialize quilt index: {:?}",
-                    e
-                ))
-            })?)
+        let serialized_index_size = u32::try_from(bcs::serialized_size(&quilt_index)?)
             .expect("serialized_index_size should fit in u32");
 
         // Calculate total size including the size prefix and the quilt type.
@@ -1133,6 +1142,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 pub struct QuiltDecoderV1<'a> {
     slivers: HashMap<SliverIndex, &'a SliverData<Secondary>>,
     quilt_index: Option<QuiltIndexV1>,
+    column_size: Option<usize>,
 }
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
@@ -1141,14 +1151,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             return Ok(self.quilt_index.as_ref().expect("quilt index should exist"));
         }
         self.check_missing_slivers(0, 1)?;
-        let column_size = self
-            .slivers
-            .get(&SliverIndex(0))
-            .expect("first sliver should exist")
-            .symbols
-            .data()
-            .len();
-
+        let column_size = self.column_size.expect("column size should be set");
         self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, column_size)?);
 
         Ok(self
@@ -1172,6 +1175,8 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
 
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]) {
         for sliver in slivers {
+            self.column_size
+                .get_or_insert_with(|| sliver.symbols.data().len());
             self.slivers.insert(sliver.index, sliver);
         }
     }
@@ -1186,13 +1191,7 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
         mut bytes_to_return: usize,
     ) -> Result<Vec<u8>, QuiltError> {
         self.check_missing_slivers(start_col, start_col + 1)?;
-        let column_size = self
-            .slivers
-            .get(&SliverIndex(start_col as u16))
-            .expect("sliver should exist")
-            .symbols
-            .data()
-            .len();
+        let column_size = self.column_size.expect("column size should be set");
         let end_col = start_col + (bytes_to_skip + bytes_to_return).div_ceil(column_size);
         self.check_missing_slivers(start_col, end_col)?;
 
@@ -1237,12 +1236,14 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
 impl<'a> QuiltDecoderV1<'a> {
     /// Creates a new QuiltDecoderV1 with the given slivers.
     pub fn new(slivers: &'a [&'a SliverData<Secondary>]) -> Self {
+        let column_size = slivers.first().map(|s| s.symbols.data().len());
         Self {
             slivers: slivers
                 .iter()
                 .map(|s| (s.index, *s))
                 .collect::<HashMap<_, _>>(),
             quilt_index: None,
+            column_size,
         }
     }
 
@@ -1251,9 +1252,11 @@ impl<'a> QuiltDecoderV1<'a> {
         slivers: &'a [&'a SliverData<Secondary>],
         quilt_index: QuiltIndexV1,
     ) -> Self {
+        let column_size = slivers.first().map(|s| s.symbols.data().len());
         Self {
             slivers: slivers.iter().map(|s| (s.index, *s)).collect(),
             quilt_index: Some(quilt_index),
+            column_size,
         }
     }
 
