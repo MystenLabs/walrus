@@ -39,6 +39,7 @@ pub(crate) struct FallbackClient {
     skip_rpc_for_checkpoint_duration: Duration,
     min_failures_to_start_fallback: usize,
     failure_window_to_start_fallback_duration: Duration,
+    consecutive_failures: usize,
 }
 
 impl FallbackClient {
@@ -49,6 +50,7 @@ impl FallbackClient {
         skip_rpc_for_checkpoint_duration: Duration,
         min_failures_to_start_fallback: usize,
         failure_window_to_start_fallback_duration: Duration,
+        consecutive_failures: usize,
     ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -60,6 +62,7 @@ impl FallbackClient {
             skip_rpc_for_checkpoint_duration,
             min_failures_to_start_fallback,
             failure_window_to_start_fallback_duration,
+            consecutive_failures,
         }
     }
 
@@ -91,12 +94,15 @@ impl FallbackClient {
         error: &RetriableClientError,
         last_success: Instant,
         num_failures: usize,
+        last_failed: u64,
+        consecutive_failures: usize,
     ) -> bool {
         if error.is_eligible_for_fallback_immediately(next_checkpoint) {
             return true;
         }
 
         self.is_failure_window_exceeded(last_success, num_failures)
+            || (consecutive_failures >= self.consecutive_failures && last_failed == next_checkpoint)
     }
 
     /// Returns `true` if the failure window has been exceeded. Failure window is exceeded if

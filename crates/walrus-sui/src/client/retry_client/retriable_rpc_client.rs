@@ -9,7 +9,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -193,6 +193,8 @@ pub struct RetriableRpcClient {
     last_success: Arc<AtomicInstant>,
     num_failures: Arc<AtomicUsize>,
     skip_rpc_for_checkpoint_until: Arc<AtomicInstant>,
+    last_failed_checkpoint: Arc<AtomicU64>,
+    consecutive_failures: Arc<AtomicUsize>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
@@ -226,6 +228,7 @@ impl RetriableRpcClient {
                 config.skip_rpc_for_checkpoint_duration,
                 config.min_failures_to_start_fallback,
                 config.failure_window_to_start_fallback_duration,
+                config.max_consecutive_failures,
             )
         });
 
@@ -238,6 +241,8 @@ impl RetriableRpcClient {
             last_success: Arc::new(AtomicInstant::new(Instant::now())),
             num_failures: Arc::new(AtomicUsize::new(0)),
             skip_rpc_for_checkpoint_until: Arc::new(AtomicInstant::new(Instant::now())),
+            last_failed_checkpoint: Arc::new(AtomicU64::new(0)),
+            consecutive_failures: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -373,25 +378,52 @@ impl RetriableRpcClient {
             let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
                 Ok(checkpoint) => {
                     self.reset_fullnode_failure_metrics();
+                    self.reset_fullnode_failure_metrics_for_sequence(sequence_number);
                     return Ok(checkpoint);
                 }
                 Err(error) => error,
             };
 
             self.num_failures.fetch_add(1, Ordering::Relaxed);
-            tracing::debug!(?error, "primary client error while fetching checkpoint");
+
+            let last_failed = self.last_failed_checkpoint.load(Ordering::Relaxed);
+            if last_failed == sequence_number {
+                self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
+            } else if last_failed == 0 {
+                // Only start tracking consecutive failures for a sequence number if we are
+                // not already tracking it for another sequence number.
+                self.consecutive_failures.store(1, Ordering::Relaxed);
+                self.last_failed_checkpoint
+                    .store(sequence_number, Ordering::Relaxed);
+            }
+
+            tracing::debug!(
+                ?error,
+                consecutive_failures = self.consecutive_failures.load(Ordering::Relaxed),
+                "primary client error while fetching checkpoint"
+            );
 
             let last_success = self.last_success.load(Ordering::Relaxed);
             let num_failures = self.num_failures.load(Ordering::Relaxed);
+            let consecutive_failures = self.consecutive_failures.load(Ordering::Relaxed);
+
             if self.fallback_client.is_none()
-                || !self
+                || (!self
                     .fallback_client
                     .as_ref()
                     .unwrap()
-                    .is_eligible_for_fallback(sequence_number, &error, last_success, num_failures)
+                    .is_eligible_for_fallback(
+                        sequence_number,
+                        &error,
+                        last_success,
+                        num_failures,
+                        last_failed,
+                        consecutive_failures,
+                    ))
             {
                 tracing::debug!(
                     fallback_client_set = ?self.fallback_client.is_some(),
+                    consecutive_failures,
                     "primary client error while fetching checkpoint is not eligible for fallback, \
                     since last_success: {:?}, num_failures: {:?}",
                     last_success.elapsed(),
@@ -407,6 +439,7 @@ impl RetriableRpcClient {
             .expect("fallback client must set");
         self.get_checkpoint_from_fallback(sequence_number, fallback_client)
             .await
+            .inspect(|_| self.reset_fullnode_failure_metrics_for_sequence(sequence_number))
     }
 
     /// Gets the full checkpoint data for the given sequence number from the fallback archival.
@@ -574,6 +607,13 @@ impl RetriableRpcClient {
     fn reset_fullnode_failure_metrics(&self) {
         self.last_success.store(Instant::now(), Ordering::Relaxed);
         self.num_failures.store(0, Ordering::Relaxed);
+    }
+
+    fn reset_fullnode_failure_metrics_for_sequence(&self, sequence_number: u64) {
+        if self.last_failed_checkpoint.load(Ordering::Relaxed) == sequence_number {
+            self.last_failed_checkpoint.store(0, Ordering::Relaxed);
+            self.consecutive_failures.store(0, Ordering::Relaxed);
+        }
     }
 }
 
