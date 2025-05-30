@@ -142,7 +142,7 @@ async fn contract_client_from_args(
     get_contract_client(walrus_config?, wallet, gas_budget).await
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`WalrusConfig`] with
+/// Creates a [`WalrusClient<SuiContractClient>`] based on the provided [`WalrusConfig`] with
 /// write access to Sui.
 #[cfg(feature = "test-client")]
 pub async fn get_contract_client(
