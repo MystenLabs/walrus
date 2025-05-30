@@ -388,7 +388,6 @@ pub async fn deploy_walrus_contract(
         // Try to flush output
         let _ = std::io::stdout().flush();
 
-        #[allow(deprecated)]
         let rpc_url = admin_wallet.get_rpc_url()?;
 
         // Get coins from faucet for the wallet.
@@ -433,7 +432,6 @@ pub async fn deploy_walrus_contract(
 
     tracing::debug!("Retrieved contract configuration from system context");
 
-    #[allow(deprecated)]
     let rpc_urls = &[admin_wallet.get_rpc_url()?];
 
     let contract_client = SuiContractClient::new(
@@ -807,11 +805,12 @@ pub async fn create_storage_node_configs(
                 enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            checkpoint_config: Default::default(),
+            admin_socket_path: Some(working_dir.join(format!("admin-{}.sock", node_index))),
         });
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
-        #[allow(deprecated)]
         let rpc_urls = &[wallet
             .get_rpc_url()
             .expect("wallet environment should contain an rpc url")];

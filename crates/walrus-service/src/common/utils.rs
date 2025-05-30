@@ -526,7 +526,6 @@ pub async fn generate_sui_wallet(
         path.display()
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.get_rpc_url()?];
     let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
 

@@ -384,7 +384,6 @@ impl<'a> SubClientLoader<'a> {
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
 
-        #[allow(deprecated)]
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let sui_client = RetriableSuiClient::new_for_rpc_urls(

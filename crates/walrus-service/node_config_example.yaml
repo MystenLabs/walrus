@@ -4,6 +4,10 @@ blocklist_path: null
 db_config:
   global:
     max_open_files: 512000
+    max_total_wal_size: 10737418240
+    keep_log_file_num: 50
+    wal_ttl_seconds: 172800
+    wal_size_limit_mb: 10240
   standard:
     enable_blob_files: false
     min_blob_size: 0
@@ -16,7 +20,7 @@ db_config:
     write_buffer_size: 67108864
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
-    block_cache_size: 67108864
+    block_cache_size: 268435456
     pin_l0_filter_and_index_blocks_in_block_cache: true
   optimized_for_blobs:
     enable_blob_files: true
@@ -28,12 +32,20 @@ db_config:
     blob_garbage_collection_force_threshold: 0.5
     blob_compaction_read_ahead_size: 10485760
     write_buffer_size: 268435456
-    target_file_size_base: 67108864
-    max_bytes_for_level_base: 536870912
+    target_file_size_base: 268435456
+    max_bytes_for_level_base: 2147483648
     block_cache_size: 268435456
     pin_l0_filter_and_index_blocks_in_block_cache: true
   node_status: null
-  metadata: null
+  metadata:
+    enable_blob_files: false
+    blob_compression_type: zstd
+    write_buffer_size: 536870912
+    target_file_size_base: 536870912
+    max_bytes_for_level_base: 5368709120
+    block_cache_size: 536870912
+    pin_l0_filter_and_index_blocks_in_block_cache: true
+    hard_pending_compaction_bytes_limit: 0
   blob_info:
     block_cache_size: 536870912
   per_object_blob_info:
@@ -152,3 +164,12 @@ consistency_check:
   enable_consistency_check: true
   enable_sliver_data_existence_check: false
   sliver_data_existence_check_sample_rate_percentage: 100
+checkpoint_config:
+  max_db_checkpoints: 3
+  db_checkpoint_interval:
+    secs: 86400
+    nanos: 0
+  sync: true
+  max_background_operations: 1
+  periodic_db_checkpoints: false
+admin_socket_path: null

@@ -490,7 +490,6 @@ pub async fn new_contract_client_on_sui_test_cluster(
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(async |wallet| {
-            #[allow(deprecated)]
             let rpc_urls = &[wallet.get_rpc_url()?];
             SuiContractClient::new(
                 wallet,

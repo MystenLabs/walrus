@@ -219,17 +219,6 @@ pub struct QuiltIndexV1 {
     pub quilt_patches: Vec<QuiltPatchV1>,
 }
 
-impl QuiltIndexV1 {
-    /// Populate start_indices of the patches, since the start index is not stored in wire format.
-    pub fn populate_start_indices(&mut self, first_start: u16) {
-        let mut prev_end_index = first_start;
-        for i in 0..self.quilt_patches.len() {
-            self.quilt_patches[i].start_index = prev_end_index;
-            prev_end_index = self.quilt_patches[i].end_index;
-        }
-    }
-}
-
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
     fn get_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_patches
@@ -275,6 +264,17 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
 impl From<QuiltIndexV1> for QuiltIndex {
     fn from(quilt_index: QuiltIndexV1) -> Self {
         QuiltIndex::V1(quilt_index)
+    }
+}
+
+impl QuiltIndexV1 {
+    /// Populate start_indices of the patches, since the start index is not stored in wire format.
+    pub fn populate_start_indices(&mut self, first_start: u16) {
+        let mut prev_end_index = first_start;
+        for i in 0..self.quilt_patches.len() {
+            self.quilt_patches[i].start_index = prev_end_index;
+            prev_end_index = self.quilt_patches[i].end_index;
+        }
     }
 }
 
