@@ -43,8 +43,10 @@ jobs:
                   WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
             - name: "Publish the site"
               run: >
-                  RUST_LOG=site_builder=debug,walrus=debug,info site-builder --context=testnet update dist/ \
-                  ${{ vars.WALRUS_SITE_OBJECT }} --epochs=180 --force
+                site-builder update ${{ env.BUILD_DIR }}
+                --context=${{ env.CONTEXT }}
+                --epochs ${{ env.EPOCHS }}
+                --check-extend
 ```
 
 ## Environment variables and secrets
@@ -55,6 +57,9 @@ Variables:
 
 - `SUI_ADDRESS`: The address of the Sui wallet you want to use to deploy the site.
 - `WALRUS_CONFIG`: The configuration of the Walrus Site you want to deploy.
+- `BUILD_DIR`: The directory where the built site is located (e.g. `dist` or `build`).
+- `CONTEXT`: Define the context of the site you want to deploy (`mainnet` or `testnet`).
+- `EPOCHS`: The number of epochs to deploy the site.
 
 Secrets:
 
