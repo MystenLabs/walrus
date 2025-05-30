@@ -1659,10 +1659,14 @@ view this in the browser, for example, at <a href="https://aggregator.walrus-tes
 <h3 id="store"><a class="header" href="#store">Store</a></h3>
 <p>You can interact with the daemon through simple HTTP PUT requests. For example, with
 <a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
-<pre><code class="language-sh">curl -X PUT "$PUBLISHER/v1/blobs" -d "some string" # store the string `some string` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file" # store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file" # store file `some/file` as a deletable blob, instead of a permanent one
+<pre><code class="language-sh"># store the string `some string` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+# store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+# store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file"
 </code></pre>
 <p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a <code>newlyCreated</code> field contains information about the
@@ -3591,8 +3595,10 @@ jobs:
                   WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
             - name: "Publish the site"
               run: &gt;
-                  RUST_LOG=site_builder=debug,walrus=debug,info site-builder --context=testnet update dist/ \
-                  ${{ vars.WALRUS_SITE_OBJECT }} --epochs=180 --force
+                site-builder update ${{ env.BUILD_DIR }}
+                --context=${{ env.CONTEXT }}
+                --epochs ${{ env.EPOCHS }}
+                --check-extend
 </code></pre>
 <h2 id="environment-variables-and-secrets"><a class="header" href="#environment-variables-and-secrets">Environment variables and secrets</a></h2>
 <p>For the above workflow will have to set the following environment variables and secrets:</p>
@@ -3600,11 +3606,21 @@ jobs:
 <ul>
 <li><code>SUI_ADDRESS</code>: The address of the Sui wallet you want to use to deploy the site.</li>
 <li><code>WALRUS_CONFIG</code>: The configuration of the Walrus Site you want to deploy.</li>
+<li><code>BUILD_DIR</code>: The directory where the built site is located (e.g. <code>dist</code> or <code>build</code>).</li>
+<li><code>CONTEXT</code>: Define the context of the site you want to deploy (<code>mainnet</code> or <code>testnet</code>).</li>
+<li><code>EPOCHS</code>: The number of epochs to deploy the site.</li>
 </ul>
 <p>Secrets:</p>
 <ul>
 <li><code>SUI_KEYSTORE</code>: The keystore of the Sui wallet you want to use to deploy the site.</li>
 </ul>
+<h2 id="additional-examples"><a class="header" href="#additional-examples">Additional Examples</a></h2>
+<p>You can find more examples of GitHub workflows here:</p>
+<ol>
+<li><a href="https://github.com/MystenLabs/walrus/blob/main/.github/workflows/publish-docs.yaml">Workflow for Deploying Walrus Documentation</a></li>
+<li><a href="https://github.com/sui-potatoes/app/blob/main/.github/workflows/walrus.yml">Sui Potatoes Deployment Workflow</a></li>
+<li><a href="https://github.com/zktx-io/walrus-sites-provenance">Community-Driven Walrus Sites Provenance</a></li>
+</ol>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="technical-overview"><a class="header" href="#technical-overview">Technical Overview</a></h1>
 <p>In the following sections, we delve deeper in the technical specification of Walrus Sites.</p>
