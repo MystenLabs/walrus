@@ -973,6 +973,18 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Sends `amount` of SUI to `recipient, splitting the amount off of the gas coin.
+    pub async fn pay_sui(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
+        let amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self
+            .pt_builder
+            .command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
+        self.transfer(Some(recipient), once(split_coin.into()))
+            .await?;
+        self.tx_sui_cost += amount;
+        Ok(())
+    }
+
     /// Authenticates the sender address. Returns an `Authenticated` Move type as result argument.
     pub fn authenticate_sender(&mut self) -> SuiClientResult<Argument> {
         let result_arg = self.walrus_move_call(contracts::auth::authenticate_sender, vec![])?;

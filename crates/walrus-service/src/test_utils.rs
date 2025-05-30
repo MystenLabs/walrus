@@ -2406,7 +2406,6 @@ pub mod test_cluster {
             {
                 let client = wallet
                     .and_then_async(async |wallet| {
-                        #[allow(deprecated)]
                         let rpc_urls = &[wallet.get_rpc_url()?];
                         system_ctx
                             .new_contract_client(wallet, rpc_urls, Default::default(), None)
@@ -2430,7 +2429,6 @@ pub mod test_cluster {
 
             let admin_contract_client = admin_wallet
                 .and_then_async(async |wallet| {
-                    #[allow(deprecated)]
                     let rpc_urls = &[wallet.get_rpc_url()?];
 
                     SuiContractClient::new(

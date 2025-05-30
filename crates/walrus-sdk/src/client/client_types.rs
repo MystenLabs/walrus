@@ -137,7 +137,9 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
 }
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
-/// TODO(WAL-755): Use a enum to represent the result of each transition.
+// TODO(WAL-755): Use a enum to represent the result of each transition.
+// TODO(WAL-755): Remove the clippy exception during the refactoring.
+#[allow(clippy::large_enum_variant)]
 #[enum_dispatch(WalrusStoreBlobApi<T>)]
 #[derive(Clone, Debug)]
 pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {

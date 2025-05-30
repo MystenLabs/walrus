@@ -116,6 +116,9 @@ pub enum TypedStoreError {
     /// The transaction should be retried
     #[error("Transaction should be retried")]
     RetryableTransactionError,
+    /// The iterator is not initialized
+    #[error("Iterator is not initialized")]
+    IteratorNotInitialized,
 }
 
 /// The result type for the typed store

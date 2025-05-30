@@ -268,13 +268,10 @@ impl WriteClientPool {
     pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
-        let client = self
-            .pool
+        self.pool
             .get(cur_idx)
             .expect("the index is computed modulo the length and clients cannot be removed")
-            .clone();
-
-        client
+            .clone()
     }
 }
 
@@ -387,7 +384,6 @@ impl<'a> SubClientLoader<'a> {
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
 
-        #[allow(deprecated)]
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let sui_client = RetriableSuiClient::new_for_rpc_urls(

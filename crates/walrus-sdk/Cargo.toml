@@ -40,11 +40,11 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 utoipa.workspace = true
-walrus-core.workspace = true
+walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-storage-node-client.workspace = true
-walrus-sui.workspace = true
+walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils.workspace = true
-walrus-utils.workspace = true
+walrus-utils = { workspace = true, features = ["log"] }
 
 [lints]
 workspace = true

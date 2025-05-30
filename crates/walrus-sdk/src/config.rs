@@ -168,7 +168,6 @@ impl ClientConfig {
         wallet: Wallet,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
-        #[allow(deprecated)]
         let wallet_rpc_url = wallet.get_rpc_url()?;
 
         SuiContractClient::new(

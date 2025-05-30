@@ -2223,7 +2223,6 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
         .await?;
 
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.as_ref().get_rpc_url().unwrap()];
 
     // Create a new client with the funded wallet.
