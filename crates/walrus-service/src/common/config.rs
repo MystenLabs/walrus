@@ -79,7 +79,6 @@ impl SuiConfig {
     ) -> Result<SuiContractClient, SuiClientError> {
         let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
 
-        #[allow(deprecated)]
         let rpc_urls = combine_rpc_urls(
             wallet.get_rpc_url()?,
             &combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints),

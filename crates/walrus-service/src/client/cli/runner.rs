@@ -1312,7 +1312,6 @@ async fn get_latest_checkpoint_sequence_number(
     let url = if let Some(url) = rpc_url {
         url.clone()
     } else if let Ok(wallet) = wallet {
-        #[allow(deprecated)]
         match wallet.get_rpc_url() {
             Ok(rpc) => rpc,
             Err(error) => {

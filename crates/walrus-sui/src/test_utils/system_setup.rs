@@ -351,7 +351,6 @@ pub async fn initialize_contract_and_wallet_for_testing(
     let result = admin_wallet
         .and_then_async(
             async |admin_wallet| -> anyhow::Result<(SystemContext, SuiContractClient)> {
-                #[allow(deprecated)]
                 let rpc_urls = &[admin_wallet.get_rpc_url()?];
 
                 publish_with_default_system_with_epoch_duration(

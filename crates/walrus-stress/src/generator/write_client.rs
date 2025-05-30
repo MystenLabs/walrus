@@ -246,7 +246,6 @@ async fn new_client(
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
     let sui_client = RetriableSuiClient::new(
         rpc_urls

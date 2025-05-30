@@ -164,3 +164,12 @@ consistency_check:
   enable_consistency_check: true
   enable_sliver_data_existence_check: false
   sliver_data_existence_check_sample_rate_percentage: 100
+checkpoint_config:
+  max_db_checkpoints: 3
+  db_checkpoint_interval:
+    secs: 86400
+    nanos: 0
+  sync: true
+  max_background_operations: 1
+  periodic_db_checkpoints: false
+admin_socket_path: null

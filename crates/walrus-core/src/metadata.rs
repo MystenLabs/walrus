@@ -53,8 +53,6 @@ pub enum VerificationError {
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltPatchV1 {
-    /// The unencoded length of the blob.
-    pub unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
@@ -66,11 +64,10 @@ pub struct QuiltPatchV1 {
 
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
+    pub fn new(identifier: String) -> Result<Self, QuiltError> {
         Self::validate_identifier(&identifier)?;
 
         Ok(Self {
-            unencoded_length,
             identifier,
             start_index: 0,
             end_index: 0,
@@ -90,6 +87,12 @@ impl QuiltPatchV1 {
             ));
         }
         Ok(())
+    }
+
+    /// Sets the range of the quilt patch.
+    pub fn set_range(&mut self, start_index: u16, end_index: u16) {
+        self.start_index = start_index;
+        self.end_index = end_index;
     }
 }
 
@@ -143,13 +146,10 @@ impl QuiltIndexV1 {
 
     /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
-        if let Some(first_patch) = self.quilt_patches.first_mut() {
-            first_patch.start_index = first_start;
-        }
-
-        for i in 1..self.quilt_patches.len() {
-            let prev_end_index = self.quilt_patches[i - 1].end_index;
+        let mut prev_end_index = first_start;
+        for i in 0..self.quilt_patches.len() {
             self.quilt_patches[i].start_index = prev_end_index;
+            prev_end_index = self.quilt_patches[i].end_index;
         }
     }
 }
