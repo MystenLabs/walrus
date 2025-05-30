@@ -59,6 +59,9 @@ impl IntoResponse for FanOutError {
             FanOutError::BlobIdParseError(error) => {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }
+            FanOutError::TipError(
+                error @ (TipError::NoTipSent | TipError::InsufficientTip { .. }),
+            ) => (StatusCode::PAYMENT_REQUIRED, error.to_string()).into_response(),
             FanOutError::TipError(error) => {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }

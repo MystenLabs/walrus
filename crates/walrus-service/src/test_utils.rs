@@ -2406,7 +2406,6 @@ pub mod test_cluster {
             {
                 let client = wallet
                     .and_then_async(async |wallet| {
-                        #[allow(deprecated)]
                         let rpc_urls = &[wallet.get_rpc_url()?];
                         system_ctx
                             .new_contract_client(wallet, rpc_urls, Default::default(), None)
@@ -2430,7 +2429,6 @@ pub mod test_cluster {
 
             let admin_contract_client = admin_wallet
                 .and_then_async(async |wallet| {
-                    #[allow(deprecated)]
                     let rpc_urls = &[wallet.get_rpc_url()?];
 
                     SuiContractClient::new(
@@ -2763,6 +2761,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            checkpoint_config: Default::default(),
+            admin_socket_path: None,
         },
         temp_dir,
     }

@@ -43,7 +43,7 @@ use walrus_sui::types::{
 use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
-    node::events::EventProcessorConfig,
+    node::{db_checkpoint::DbCheckpointConfig, events::EventProcessorConfig},
 };
 
 /// Configuration for the config synchronizer.
@@ -174,6 +174,17 @@ pub struct StorageNodeConfig {
     /// Configuration for the consistency check.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub consistency_check: StorageNodeConsistencyCheckConfig,
+    /// Configuration for the checkpointing task.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub checkpoint_config: DbCheckpointConfig,
+    /// Admin socket path.
+    ///
+    /// config example:
+    /// ```yaml
+    /// admin_socket_path: /var/run/walrus/admin.sock
+    /// ```
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub admin_socket_path: Option<PathBuf>,
 }
 
 impl Default for StorageNodeConfig {
@@ -213,6 +224,8 @@ impl Default for StorageNodeConfig {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             consistency_check: Default::default(),
+            checkpoint_config: Default::default(),
+            admin_socket_path: None,
         }
     }
 }

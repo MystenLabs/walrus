@@ -10,15 +10,16 @@ use clap::{Parser, Subcommand};
 #[cfg(feature = "test-client")]
 use reqwest::Url;
 use tip::TipConfig;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
 #[cfg(feature = "test-client")]
 use walrus_core::EpochCount;
+use walrus_sdk::core_utils::metrics::{Registry, monitored_scope};
 
 #[cfg(feature = "test-client")]
 mod client;
 
 mod controller;
 mod error;
+mod metrics;
 mod params;
 mod tip;
 mod utils;
@@ -37,6 +38,13 @@ struct Args {
     /// Subcommand to run.
     #[command(subcommand)]
     command: Command,
+    #[arg(
+        long,
+        short,
+        help = "Override the metrics address to use",
+        default_value = "127.0.0.1:9184"
+    )]
+    metrics_address: std::net::SocketAddr,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -100,34 +108,33 @@ enum Command {
     },
 }
 
-fn init_logging() {
-    // Use INFO level by default.
-    let directive = format!(
-        "info,{}",
-        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
-    );
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr)
-                .boxed()
-                .with_filter(EnvFilter::new(directive.clone())),
-        )
-        .init();
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    init_logging();
+    let registry_service = mysten_metrics::start_prometheus_server(args.metrics_address);
+    let walrus_registry = registry_service.default_registry();
+
+    monitored_scope::init_monitored_scope_metrics(&walrus_registry);
+
+    // Initialize logging subscriber
+    let (_telemetry_guards, _tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+        .with_env()
+        .with_prom_registry(&walrus_registry)
+        .with_json()
+        .init();
+    let registry = Registry::new(walrus_registry);
+
     match args.command {
         Command::Proxy {
             context,
             walrus_config,
             server_address,
             tip_config,
-        } => controller::run_proxy(context, walrus_config, server_address, tip_config).await,
+        } => {
+            controller::run_proxy(context, walrus_config, server_address, tip_config, registry)
+                .await
+        }
         #[cfg(feature = "test-client")]
         Command::TestClient {
             file,

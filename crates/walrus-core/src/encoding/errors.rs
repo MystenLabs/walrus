@@ -166,7 +166,7 @@ pub enum QuiltError {
     FailedToExtractQuiltIndexSize,
     /// Failed to decode the quilt index.
     #[error("failed to decode the quilt index: {0}")]
-    QuiltIndexSerDerError(String),
+    QuiltIndexSerDerError(#[from] bcs::Error),
     /// Missing slivers.
     #[error("missing slivers: {0:?}")]
     MissingSlivers(Vec<SliverIndex>),
@@ -185,6 +185,9 @@ pub enum QuiltError {
     /// Empty input.
     #[error("{0} is empty")]
     EmptyInput(String),
+    /// Invalid identifier.
+    #[error("invalid identifier: {0}")]
+    InvalidIdentifier(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

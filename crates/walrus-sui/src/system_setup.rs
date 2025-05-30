@@ -161,7 +161,6 @@ pub(crate) async fn publish_package(
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    #[allow(deprecated)]
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
@@ -463,7 +462,6 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    #[allow(deprecated)]
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
