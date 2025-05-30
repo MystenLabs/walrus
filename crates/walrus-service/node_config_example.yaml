@@ -165,7 +165,6 @@ consistency_check:
   enable_sliver_data_existence_check: false
   sliver_data_existence_check_sample_rate_percentage: 100
 checkpoint_config:
-  db_checkpoint_dir: null
   max_db_checkpoints: 3
   db_checkpoint_interval:
     secs: 86400

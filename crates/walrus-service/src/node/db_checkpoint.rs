@@ -27,6 +27,7 @@ pub struct DbCheckpointConfig {
     /// Note: It is strongly recommended to locate this directory on a separate physical disk
     /// from the main database to avoid potential I/O performance degradation.
     // TODO(WAL-843): Add a check to ensure the directory is on a separate physical disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_checkpoint_dir: Option<PathBuf>,
     /// Maximum number of db_checkpoints to keep.
     pub max_db_checkpoints: usize,
