@@ -115,7 +115,8 @@ pub trait QuiltApi<V: QuiltVersion> {
 /// API for QuiltIndex.
 pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
-    fn get_patch_by_identifier(&self, identifier: &str) -> Result<&V::QuiltPatch, QuiltError>;
+    fn get_quilt_patch_by_identifier(&self, identifier: &str)
+    -> Result<&V::QuiltPatch, QuiltError>;
 
     /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_by_identifiers(
@@ -683,7 +684,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
 
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
         self.quilt_index()?
-            .get_patch_by_identifier(identifier)
+            .get_quilt_patch_by_identifier(identifier)
             .and_then(|quilt_patch| {
                 let start_col = usize::from(quilt_patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
@@ -1262,7 +1263,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
-            .and_then(|quilt_index| quilt_index.get_patch_by_identifier(identifier))
+            .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
             .and_then(|quilt_patch| {
                 let start_idx = usize::from(quilt_patch.start_index);
                 let end_idx = usize::from(quilt_patch.end_index);
@@ -1713,7 +1714,7 @@ mod tests {
             let quilt_patch = quilt
                 .quilt_index()
                 .expect("Quilt index should exist")
-                .get_patch_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Patch should exist for this blob ID");
             assert_eq!(
                 quilt_patch.identifier, quilt_store_blob.identifier,
@@ -1860,7 +1861,7 @@ mod tests {
             .get_or_decode_quilt_index()
             .expect("quilt index should exist");
         let patch = quilt_index_v1
-            .get_patch_by_identifier(identifier)
+            .get_quilt_patch_by_identifier(identifier)
             .expect("quilt patch should exist");
         assert_eq!(patch.identifier, identifier);
 
