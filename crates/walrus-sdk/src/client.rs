@@ -99,6 +99,7 @@ pub(crate) struct SliverSelector<E: EncodingAxis> {
     _phantom: PhantomData<E>,
 }
 
+#[allow(unused)]
 impl<E: EncodingAxis> SliverSelector<E> {
     /// Creates a new sliver selector.
     pub fn new(sliver_indices: Vec<SliverIndex>, n_shards: NonZeroU16, blob_id: &BlobId) -> Self {
@@ -123,7 +124,7 @@ impl<E: EncodingAxis> SliverSelector<E> {
     }
 
     /// Returns true if no slivers are left.
-    pub fn is_complete(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.indices_and_shards.is_empty()
     }
 
@@ -513,9 +514,8 @@ impl<T: ReadClient> Client<T> {
     /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
     ///
     /// This function will keep retrying until all requested slivers are received or the maximum
-    /// number of retries is reached.
-    /// Note: it could return partial slivers.
-    pub async fn retrieve_slivers_with_retry<E: EncodingAxis>(
+    /// number of retries is reached or the timeout is reached.
+    async fn retrieve_slivers_with_retry<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         sliver_indices: &[SliverIndex],
@@ -532,12 +532,12 @@ impl<T: ReadClient> Client<T> {
             metadata.blob_id(),
         );
         let mut attempts = 0;
-        let retry_delay_ms = 100; // Fixed retry delay of 100ms
+        let retry_delay_ms = 100;
         let mut all_slivers: HashMap<SliverIndex, SliverData<E>> = HashMap::new();
         let start_time = Instant::now();
-
         let mut last_error: Option<ClientError> = None;
-        while !sliver_selector.is_complete() {
+
+        while !sliver_selector.is_empty() {
             // Check if we've exceeded the timeout or the max retries.
             if let Some(timeout_duration) = timeout_duration {
                 if start_time.elapsed() > timeout_duration {
@@ -556,7 +556,6 @@ impl<T: ReadClient> Client<T> {
             }
 
             tracing::debug!("Retrieving slivers: {:?}", sliver_selector);
-
             match self
                 .retrieve_slivers(metadata, &sliver_selector, certified_epoch)
                 .await
@@ -576,7 +575,7 @@ impl<T: ReadClient> Client<T> {
             }
 
             attempts += 1;
-            if !sliver_selector.is_complete() {
+            if !sliver_selector.is_empty() {
                 tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
             }
         }
@@ -591,12 +590,6 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Retrieves specific slivers from storage nodes based on their indices.
-    ///
-    /// This function:
-    /// 1. Maps sliver indices to the nodes that host them
-    /// 2. Retrieves the slivers from those nodes
-    ///
-    /// Returns the retrieved slivers or an error if they cannot be found.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn retrieve_slivers<'a, E: EncodingAxis>(
         &self,
