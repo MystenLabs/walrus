@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use fastcrypto::encoding::Encoding;
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
@@ -417,9 +418,7 @@ impl ClientCommandRunner {
                 Ok(())
             }
 
-            CliCommands::NodeAdmin { node_id, command } => {
-                self.run_admin_command(node_id, command).await
-            }
+            CliCommands::NodeAdmin { command } => self.run_admin_command(command).await,
         }
     }
 
@@ -1078,17 +1077,14 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    pub(crate) async fn run_admin_command(
-        self,
-        node_id: ObjectID,
-        command: NodeAdminCommands,
-    ) -> Result<()> {
+    pub(crate) async fn run_admin_command(self, command: NodeAdminCommands) -> Result<()> {
         let sui_client = self
             .config?
             .new_contract_client(self.wallet?, self.gas_budget)
             .await?;
         match command {
             NodeAdminCommands::VoteForUpgrade {
+                node_id,
                 upgrade_manager_object_id,
                 package_path,
             } => {
@@ -1101,7 +1097,10 @@ impl ClientCommandRunner {
                     digest.iter().map(|b| format!("{:02x}", b)).join("")
                 );
             }
-            NodeAdminCommands::SetCommissionAuthorized { object_or_address } => {
+            NodeAdminCommands::SetCommissionAuthorized {
+                node_id,
+                object_or_address,
+            } => {
                 let authorized: Authorized = object_or_address.try_into()?;
                 sui_client
                     .set_commission_receiver(node_id, authorized.clone())
@@ -1113,7 +1112,10 @@ impl ClientCommandRunner {
                     authorized
                 );
             }
-            NodeAdminCommands::SetGovernanceAuthorized { object_or_address } => {
+            NodeAdminCommands::SetGovernanceAuthorized {
+                node_id,
+                object_or_address,
+            } => {
                 let authorized: Authorized = object_or_address.try_into()?;
                 sui_client
                     .set_governance_authorized(node_id, authorized.clone())
@@ -1125,10 +1127,23 @@ impl ClientCommandRunner {
                     authorized
                 );
             }
-            NodeAdminCommands::CollectCommission => {
+            NodeAdminCommands::CollectCommission { node_id } => {
                 let amount =
                     HumanReadableFrost::from(sui_client.collect_commission(node_id).await?);
                 println!("{} Collected {} as commission", success(), amount);
+            }
+            NodeAdminCommands::PackageDigest { package_path } => {
+                let digest = sui_client
+                    .read_client()
+                    .compute_package_digest(package_path.clone())
+                    .await?;
+                println!(
+                    "{} Digest for package '{}':\n  Hex: 0x{}\n  Base64: {}",
+                    success(),
+                    package_path.display(),
+                    digest.iter().map(|b| format!("{:02x}", b)).join(""),
+                    fastcrypto::encoding::Base64::encode(digest)
+                );
             }
         }
         Ok(())

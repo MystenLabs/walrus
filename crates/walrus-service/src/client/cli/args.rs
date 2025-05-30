@@ -549,9 +549,6 @@ pub enum CliCommands {
     },
     /// Administration subcommands for storage node operators.
     NodeAdmin {
-        #[arg(long, global = true, required = false)]
-        /// The ID of the node for which the operation should be performed.
-        node_id: ObjectID,
         /// The specific node admin command to run.
         #[command(subcommand)]
         command: NodeAdminCommands,
@@ -595,9 +592,16 @@ pub enum InfoCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum NodeAdminCommands {
     /// Collect the commission.
-    CollectCommission,
+    CollectCommission {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
+    },
     /// Vote for a contract upgrade.
     VoteForUpgrade {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         /// The upgrade manager object ID.
         #[arg(long)]
         upgrade_manager_object_id: ObjectID,
@@ -607,15 +611,27 @@ pub enum NodeAdminCommands {
     },
     /// Set the authorized entity for governance operations.
     SetGovernanceAuthorized {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
     },
     /// Set the authorized entity for commission operations.
     SetCommissionAuthorized {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
+    },
+    /// Outputs the package digest of a sui package.
+    PackageDigest {
+        /// The path to the package directory.
+        #[arg(long)]
+        package_path: PathBuf,
     },
 }
 

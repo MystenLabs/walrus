@@ -16,7 +16,6 @@ use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
     BuildConfig,
     CompiledPackage,
-    PackageDependencies,
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
@@ -79,12 +78,12 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-/// Compiles a package and returns the dependencies, compiled package, and build config.
-pub(crate) async fn compile_package(
+/// Compiles a package and returns the compiled package, and build config.
+pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig)> {
     tokio::task::spawn_blocking(|| {
         compile_package_inner_blocking(package_path, build_config, chain_id)
     })
@@ -97,7 +96,7 @@ fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig)> {
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
@@ -150,7 +149,7 @@ fn compile_package_inner_blocking(
         )?;
     }
 
-    Ok((dependencies, compiled_package, build_config))
+    Ok((compiled_package, build_config))
 }
 
 #[tracing::instrument(err, skip(wallet, build_config))]
@@ -169,7 +168,7 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
-    let (dependencies, compiled_package, build_config) =
+    let (compiled_package, build_config) =
         compile_package(package_path, build_config, chain_id).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
@@ -184,7 +183,11 @@ pub(crate) async fn publish_package(
         .publish_tx_kind(
             sender,
             compiled_modules,
-            dependencies.published.into_values().collect(),
+            compiled_package
+                .dependency_ids
+                .published
+                .into_values()
+                .collect(),
         )
         .await?;
 
