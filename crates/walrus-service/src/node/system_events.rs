@@ -18,17 +18,11 @@ use walrus_sui::client::{ReadClient, SuiReadClient};
 use super::{STATUS_PENDING, STATUS_PERSISTED, StorageNodeInner};
 use crate::{
     common::config::SuiConfig,
-    node::{
-        events::{
-            CheckpointEventPosition,
-            EventStreamCursor,
-            InitState,
-            PositionedStreamEvent,
-            event_processor::EventProcessor,
-        },
-        metrics::STATUS_HIGHEST_FINISHED,
-        storage::EventProgress,
+    event::{
+        event_processor::processor::EventProcessor,
+        events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
+    node::{metrics::STATUS_HIGHEST_FINISHED, storage::EventProgress},
 };
 
 /// The capacity of the event channel.

@@ -7,6 +7,3 @@ pub(crate) mod api;
 pub mod config;
 pub(crate) mod telemetry;
 pub mod utils;
-
-#[cfg(feature = "client")]
-pub mod event_blob_downloader;

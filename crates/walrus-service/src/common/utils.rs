@@ -48,15 +48,12 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_core::{PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
-use walrus_sui::{
-    client::{SuiReadClient, retry_client::RetriableSuiClient},
-    utils::SuiNetwork,
-};
+use walrus_sui::{client::retry_client::RetriableSuiClient, utils::SuiNetwork};
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
+use crate::node::config::MetricsPushConfig;
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -89,8 +86,6 @@ macro_rules! version {
     }};
 }
 pub use version;
-
-use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
@@ -703,52 +698,6 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber(None)?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
-}
-
-/// Downloads event blobs for catchup purposes.
-///
-/// This function creates a client to download event blobs up to a specified
-/// checkpoint. The blobs are stored in the provided recovery path.
-#[cfg(feature = "client")]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    use walrus_sui::client::contract_config::ContractConfig;
-
-    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
-    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-
-    let walrus_client =
-        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
-            .await?;
-
-    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
-    let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path, metrics)
-        .await?;
-
-    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
-    Ok(blob_ids)
-}
-
-/// Placeholder function for when the client feature is not enabled.
-#[cfg(not(feature = "client"))]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    _metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    Ok(vec![])
 }
 
 /// Returns whether a node cursor should be repositioned.

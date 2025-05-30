@@ -44,18 +44,11 @@ use super::{
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
     common::utils::{self, MetricsAndLoggingRuntime, version},
-    node::{
-        DatabaseConfig,
-        events::{
-            CheckpointEventPosition,
-            EventStreamElement,
-            PositionedStreamEvent,
-            event_processor::EventProcessor,
-            event_processor_runtime::EventProcessorRuntime,
-        },
-        metrics::TelemetryLabel as _,
-        system_events::SystemEventProvider as _,
+    event::{
+        event_processor::{processor::EventProcessor, runtime::EventProcessorRuntime},
+        events::{CheckpointEventPosition, EventStreamElement, PositionedStreamEvent},
     },
+    node::{DatabaseConfig, metrics::TelemetryLabel as _, system_events::SystemEventProvider as _},
 };
 
 /// The version of the Walrus backup service.

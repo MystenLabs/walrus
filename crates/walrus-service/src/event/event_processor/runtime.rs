@@ -16,10 +16,12 @@ use walrus_utils::metrics::Registry;
 
 use crate::{
     common::config::SuiReaderConfig,
+    event::event_processor::{
+        config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
+        processor::EventProcessor,
+    },
     node::{
         DatabaseConfig,
-        EventProcessorConfig,
-        events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
         system_events::{EventManager, SuiSystemEventProvider},
     },
 };
@@ -60,7 +62,7 @@ impl EventProcessorRuntime {
         };
         Ok(Arc::new(
             EventProcessor::new(
-                event_processor_config,
+                event_processor_config.clone(),
                 runtime_config,
                 system_config,
                 metrics_registry,
