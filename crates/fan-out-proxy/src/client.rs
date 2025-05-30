@@ -3,17 +3,25 @@
 
 //! A client for the fanout proxy.
 
+#[cfg(feature = "test-client")]
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
-use fastcrypto::encoding::Base64;
+use fastcrypto::{
+    encoding::Base64,
+    hash::{Digest, HashFunction, Sha256},
+};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
 use sui_types::{
     base_types::SuiAddress,
+    digests::TransactionDigest,
     transaction::{Transaction, TransactionData, TransactionKind},
 };
 use walrus_core::{
@@ -36,8 +44,56 @@ use crate::{
     params::B64UrlEncodedBytes,
 };
 
+const DIGEST_LEN: usize = 32;
+
+/// The authentication structure for a blob store request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct AuthPackage {
+    blob_digest: Digest<DIGEST_LEN>,
+    nonce: [u8; DIGEST_LEN],
+    timestamp_ms: u128,
+}
+
+impl AuthPackage {
+    /// Creates an authentication package for the blob.
+    pub(crate) fn new(blob: &[u8]) -> Result<Self> {
+        let mut rng = StdRng::from_rng(&mut rand::thread_rng())?;
+        let nonce: [u8; 32] = rng.r#gen();
+
+        let mut blob_hash = Sha256::new();
+        blob_hash.update(&blob);
+        let blob_digest = blob_hash.finalize();
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the clocks are set in the present")
+            .as_millis();
+
+        Ok(Self {
+            blob_digest,
+            nonce,
+            timestamp_ms,
+        })
+    }
+
+    /// Returns the BCS-encoded bytes for the auth package.
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(bcs::to_bytes(self)?)
+    }
+
+    /// Returns the digest (SHA256) for the authentication package.
+    pub(crate) fn to_digest(&self) -> Result<Digest<DIGEST_LEN>> {
+        let mut auth_hash = Sha256::new();
+        auth_hash.update(self.to_bytes()?);
+        Ok(auth_hash.finalize())
+    }
+
+    /// Returns the URL-encoded Base64 encoding of the bytes or the package.
+    pub(crate) fn to_b64_encoded(&self) -> Result<B64UrlEncodedBytes> {
+        Ok(B64UrlEncodedBytes::new(self.to_bytes()?))
+    }
+}
+
 /// Runs the test client.
-#[cfg(feature = "test-client")]
 pub(crate) async fn run_client(
     file: PathBuf,
     context: Option<String>,
@@ -58,8 +114,13 @@ pub(crate) async fn run_client(
         .encoded_size(metadata.metadata().unencoded_length())
         .unwrap();
 
+    let auth_package = AuthPackage::new(&blob)?;
+    let auth_digest = auth_package.to_digest()?;
+
+    // Transaction creation.
     let (fanout, signed_tx) = fanout
         .with_pt_builder()?
+        .add_pure_input(auth_digest)?
         .add_buy_and_register(&metadata, epochs, encoded_size)
         .await?
         .add_tip(encoded_size)
@@ -67,11 +128,24 @@ pub(crate) async fn run_client(
         .finish_and_sign()
         .await?;
 
-    let (tx_bytes, signatures) = signed_tx.to_tx_bytes_and_signatures();
-
+    ////////////////////////////////////////////////////////////////////////////////
+    // New stuff
     let response = fanout
-        .send_to_proxy(blob, tx_bytes, signatures, *computed_blob_id)
+        .walrus_client
+        .sui_client()
+        .sui_client()
+        .execute_transaction(signed_tx, "execute_transaction")
         .await?;
+
+    anyhow::ensure!(
+        matches!(response.status_ok(), Some(true)),
+        "transaction execution failed"
+    );
+    let tx_id = response.digest;
+
+    ////////////////////////////////////////////////////////////////////////////////
+
+    let response = fanout.send_to_proxy(blob, tx_id, auth_package).await?;
 
     anyhow::ensure!(
         *computed_blob_id == response.blob_id,
@@ -117,7 +191,6 @@ async fn get_tip_config(server_url: &Url) -> Result<TipConfig> {
 }
 
 /// Gets a Walrus contract client from the configuration.
-#[cfg(feature = "test-client")]
 async fn contract_client_from_args(
     walrus_config: Option<impl AsRef<Path>>,
     context: Option<&str>,
@@ -144,7 +217,6 @@ async fn contract_client_from_args(
 
 /// Creates a [`Client<SuiContractClient>`] based on the provided [`WalrusConfig`] with
 /// write access to Sui.
-#[cfg(feature = "test-client")]
 pub async fn get_contract_client(
     walrus_config: WalrusConfig,
     wallet: Result<Wallet>,
@@ -261,20 +333,11 @@ impl<T> FanOutClient<T> {
     /// Sends the blob and the transaction to the fan-out proxy.
     pub(crate) async fn send_to_proxy(
         &self,
-        blob: Vec<u8>,
-        tx_bytes: Base64,
-        mut signatures: Vec<Base64>,
-        blob_id: BlobId,
+        tx_id: TransactionDigest,
+        auth_package: AuthPackage,
     ) -> Result<ResponseType> {
-        anyhow::ensure!(
-            signatures.len() == 1,
-            "currently the client supports only a single signature"
-        );
-        let signature = signatures
-            .pop()
-            .expect("just checked existence and uniqueness");
-        let tx_bytes = B64UrlEncodedBytes::new(tx_bytes.to_vec()?);
-        let signature = B64UrlEncodedBytes::new(signature.to_vec()?);
+        let tx_id_str = tx_id.base58_encode();
+        let auth_package_str = auth_package.to_b64_encoded()?;
 
         let post_url = fan_out_blob_url(&self.server_url, &tx_bytes, &signature, blob_id)?;
 
@@ -322,8 +385,14 @@ impl FanOutClient<WalrusPtbBuilder> {
         Ok(self)
     }
 
+    /// Adds an input without using it for anything.
+    pub(crate) fn add_pure_input<T: Serialize>(mut self, pure: T) -> Result<Self> {
+        self.pt_builder.add_pure_input(pure)?;
+        Ok(self)
+    }
+
     /// Adds a call to certify a blob
-    pub async fn certify_blob(
+    pub(crate) async fn certify_blob(
         mut self,
         blob_object: ObjectID,
         certificate: &ConfirmationCertificate,

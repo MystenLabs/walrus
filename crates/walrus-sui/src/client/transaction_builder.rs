@@ -12,6 +12,7 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
+use serde::Serialize;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
     Identifier,
@@ -1398,6 +1399,13 @@ impl WalrusPtbBuilder {
         self.transfer_remaining_outputs(None).await?;
         let sui_cost = self.tx_sui_cost;
         Ok((self.pt_builder.finish(), sui_cost))
+    }
+
+    /// Adds a pure input to the PTB, returning the created argument.
+    // TODO: THIS IS A TEST FUNCTION REMOVE OR CHECK IF WE ACTUALLY NEED IT.
+    #[deprecated] // just to make sure this is not used
+    pub fn add_pure_input<T: Serialize>(&mut self, pure: T) -> SuiClientResult<Argument> {
+        Ok(self.pt_builder.pure(pure)?)
     }
 
     /// Given the node ID, checks if the sender is authorized to perform the operation (either as
