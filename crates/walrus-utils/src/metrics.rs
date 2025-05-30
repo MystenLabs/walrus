@@ -9,14 +9,13 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
+use config::MetricsPushConfig;
 use prometheus::{IntGauge, core::Collector, proto::MetricFamily};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{runtime::Runtime, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use typed_store::DBMetrics;
 use walrus_utils::metrics::Registry;
-
-use crate::node::config::MetricsPushConfig;
 
 mod config;
 
