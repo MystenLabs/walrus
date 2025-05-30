@@ -64,3 +64,11 @@ Variables:
 Secrets:
 
 - `SUI_KEYSTORE`: The keystore of the Sui wallet you want to use to deploy the site.
+
+## Additional Examples
+
+You can find more examples of GitHub workflows here:
+
+1. [Workflow for Deploying Walrus Documentation](https://github.com/MystenLabs/walrus/blob/main/.github/workflows/publish-docs.yaml)
+1. [Sui Potatoes Deployment Workflow](https://github.com/sui-potatoes/app/blob/main/.github/workflows/walrus.yml)
+1. [Community-Driven Walrus Sites Provenance](https://github.com/zktx-io/walrus-sites-provenance)
