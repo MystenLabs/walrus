@@ -17,7 +17,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
-    QuiltBlobId,
+    QuiltPatchId,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -33,8 +33,8 @@ use walrus_core::{
         QuiltEnum,
         QuiltError,
         QuiltPatchApi,
-        QuiltPatchIdApi,
-        QuiltPatchIdV1,
+        QuiltPatchInternalIdApi,
+        QuiltPatchInternalIdV1,
         QuiltStoreBlob,
         QuiltVersion,
         QuiltVersionEnum,
@@ -346,7 +346,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the list of blobs contained in a quilt.
     pub async fn get_blobs_from_quilt(
         &self,
-        quilt_blob_ids: &[QuiltBlobId],
+        quilt_blob_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltBlobOwned>> {
         assert!(!quilt_blob_ids.is_empty());
         let quilt_blob_id = quilt_blob_ids.first().expect("no quilt blob id provided");
@@ -372,7 +372,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             QuiltVersionEnum::V1 => {
                 let mut sliver_indices = Vec::new();
                 for quilt_blob_id in quilt_blob_ids {
-                    let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
+                    let id = QuiltPatchInternalIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
                     sliver_indices.extend((id.start_index..id.end_index).map(SliverIndex::new));
                 }
                 let retrieve_slivers = self
@@ -392,7 +392,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     quilt_blob_ids
                         .iter()
                         .map(|quilt_blob_id| {
-                            let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
+                            let id =
+                                QuiltPatchInternalIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
                             decoder
                                 .get_blob_by_range(id.start_index as usize, id.end_index as usize)
                                 .map_err(ClientError::other)
@@ -404,7 +405,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     quilt_blob_ids
                         .iter()
                         .map(|quilt_blob_id| {
-                            let id = QuiltPatchIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
+                            let id =
+                                QuiltPatchInternalIdV1::from_bytes(&quilt_blob_id.patch_id_bytes)?;
                             quilt_v1
                                 .get_blob_by_range(id.start_index as usize, id.end_index as usize)
                                 .map_err(ClientError::other)
@@ -418,7 +420,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the list of blobs contained in a quilt.
     pub async fn get_blobs_by_ids(
         &self,
-        quilt_blob_ids: &[QuiltBlobId],
+        quilt_blob_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltBlobOwned>> {
         let mut grouped_quilt_blob_ids = HashMap::new();
         for quilt_blob_id in quilt_blob_ids {

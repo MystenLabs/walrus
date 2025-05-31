@@ -70,7 +70,7 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt patch.
     type QuiltPatch: Clone + QuiltPatchApi<Self>;
     /// The type of the quilt patch id.
-    type QuiltPatchId: QuiltPatchIdApi;
+    type QuiltPatchInternalId: QuiltPatchInternalIdApi;
     /// The type of the quilt metadata.
     type QuiltMetadata;
     /// The sliver type used by this quilt version.
@@ -104,13 +104,13 @@ pub trait QuiltApi<V: QuiltVersion> {
 /// API for QuiltPatch.
 pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
     /// Returns the quilt patch id.
-    fn quilt_patch_id(&self) -> V::QuiltPatchId;
+    fn quilt_patch_id(&self) -> V::QuiltPatchInternalId;
 
     /// Returns the identifier of the quilt patch.
     fn identifier(&self) -> &str;
 }
-/// API for QuiltPatchId.
-pub trait QuiltPatchIdApi: Clone {
+/// API for QuiltPatchInternalId.
+pub trait QuiltPatchInternalIdApi: Clone {
     /// The serialized bytes of the quilt patch id.
     fn to_bytes(&self) -> Vec<u8>;
 
@@ -520,7 +520,7 @@ pub struct QuiltBlobOwned {
     pub identifier: String,
     /// The attributes of the blob.
     pub attributes: HashMap<String, String>,
-    /// QuiltBlobId of the blob.
+    /// QuiltPatchId of the blob.
     pub quilt_batch_id_bytes: Vec<u8>,
 }
 
@@ -706,7 +706,7 @@ impl QuiltVersionV1 {
         let end_index = u16::try_from(end_col).map_err(|e| {
             QuiltError::Other(format!("End index exceeds maximum allowed value: {}", e))
         })?;
-        blob.quilt_batch_id_bytes = QuiltPatchIdV1::new(start_index, end_index).to_bytes();
+        blob.quilt_batch_id_bytes = QuiltPatchInternalIdV1::new(start_index, end_index).to_bytes();
 
         Ok(blob)
     }
@@ -719,7 +719,7 @@ impl QuiltVersion for QuiltVersionV1 {
     type Quilt = QuiltV1;
     type QuiltIndex = QuiltIndexV1;
     type QuiltPatch = QuiltPatchV1;
-    type QuiltPatchId = QuiltPatchIdV1;
+    type QuiltPatchInternalId = QuiltPatchInternalIdV1;
     type QuiltMetadata = QuiltMetadataV1;
     type SliverAxis = Secondary;
 
@@ -728,9 +728,9 @@ impl QuiltVersion for QuiltVersionV1 {
     }
 }
 
-/// QuiltPatchIdV1.
+/// QuiltPatchInternalIdV1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuiltPatchIdV1 {
+pub struct QuiltPatchInternalIdV1 {
     /// The start index of the patch.
     pub start_index: u16,
     /// The end index of the patch.
@@ -746,7 +746,7 @@ pub struct QuiltPatchIdV1 {
 //├─────────────┼──────────────────┼─────────────┼───────────────┼─────────────┼───────────┤
 //│     8 bits  │     8 bits       │   2 bits    │    6 bits     │   4 bits    │  4 bits   │
 //└─────────────┴──────────────────┴─────────────┴───────────────┴─────────────┴───────────┘
-impl QuiltPatchIdApi for QuiltPatchIdV1 {
+impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(4);
 
@@ -785,7 +785,7 @@ impl QuiltPatchIdApi for QuiltPatchIdV1 {
     fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
         if bytes.len() < 4 {
             return Err(QuiltError::Other(
-                "QuiltPatchIdV1 requires 4 bytes".to_string(),
+                "QuiltPatchInternalIdV1 requires 4 bytes".to_string(),
             ));
         }
 
@@ -818,7 +818,7 @@ impl QuiltPatchIdApi for QuiltPatchIdV1 {
     }
 }
 
-impl QuiltPatchIdV1 {
+impl QuiltPatchInternalIdV1 {
     /// Creates a new quilt patch id.
     pub fn new(start_index: u16, end_index: u16) -> Self {
         Self {
@@ -2358,10 +2358,10 @@ mod tests {
         ]
     }
     fn test_quilt_patch_id(start_index: u16, end_index: u16) {
-        let patch_id = QuiltPatchIdV1::new(start_index, end_index);
+        let patch_id = QuiltPatchInternalIdV1::new(start_index, end_index);
         let bytes = patch_id.to_bytes();
         let reconstructed_patch_id =
-            QuiltPatchIdV1::from_bytes(&bytes).expect("Should reconstruct patch id");
+            QuiltPatchInternalIdV1::from_bytes(&bytes).expect("Should reconstruct patch id");
         assert_eq!(patch_id, reconstructed_patch_id);
         assert_eq!(reconstructed_patch_id.start_index, start_index);
         assert_eq!(reconstructed_patch_id.end_index, end_index);

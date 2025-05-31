@@ -24,7 +24,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
-    QuiltBlobId,
+    QuiltPatchId,
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
@@ -457,18 +457,18 @@ impl ClientCommandRunner {
             CliCommands::ReadQuilt {
                 blob_id,
                 identifiers,
-                quilt_blob_ids,
+                quilt_patch_ids,
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(blob_id, identifiers, quilt_blob_ids, out, rpc_url)
+                self.read_quilt(blob_id, identifiers, quilt_patch_ids, out, rpc_url)
                     .await
             }
 
-            CliCommands::ListBlobsInQuilt {
-                blob_id,
+            CliCommands::ListPatchesInQuilt {
+                quilt_id,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.list_blobs_in_quilt(blob_id, rpc_url).await,
+            } => self.list_patches_in_quilt(quilt_id, rpc_url).await,
         }
     }
 
@@ -875,7 +875,7 @@ impl ClientCommandRunner {
         self,
         blob_id: Option<BlobId>,
         identifiers: Vec<String>,
-        quilt_blob_ids: Vec<QuiltBlobId>,
+        quilt_blob_ids: Vec<QuiltPatchId>,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
@@ -919,9 +919,9 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    pub(crate) async fn list_blobs_in_quilt(
+    pub(crate) async fn list_patches_in_quilt(
         self,
-        blob_id: BlobId,
+        quilt_id: BlobId,
         rpc_url: Option<String>,
     ) -> Result<()> {
         let config = self.config?;
@@ -930,12 +930,12 @@ impl ClientCommandRunner {
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
-        let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
+        let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
         if self.json {
             println!("{}", serde_json::to_string_pretty(&quilt_metadata)?);
         } else {
-            println!("\nQuilt Metadata for Blob ID: {}", blob_id);
+            println!("\nQuilt Metadata for Quilt ID: {}", quilt_id);
             quilt_metadata.print_cli_output();
         }
 

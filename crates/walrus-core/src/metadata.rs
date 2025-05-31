@@ -26,7 +26,7 @@ use crate::{
         EncodingConfigTrait as _,
         QuiltError,
         QuiltPatchApi,
-        QuiltPatchIdV1,
+        QuiltPatchInternalIdV1,
         QuiltVersion,
         QuiltVersionV1,
         encoded_blob_length_for_n_shards,
@@ -68,7 +68,7 @@ pub struct QuiltPatchV1 {
 }
 
 impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
-    fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
+    fn quilt_patch_id(&self) -> QuiltPatchInternalIdV1 {
         self.quilt_patch_id()
     }
 
@@ -126,8 +126,8 @@ impl QuiltPatchV1 {
     }
 
     /// Returns the quilt patch id for the quilt patch.
-    pub fn quilt_patch_id(&self) -> QuiltPatchIdV1 {
-        QuiltPatchIdV1::new(self.start_index, self.end_index)
+    pub fn quilt_patch_id(&self) -> QuiltPatchInternalIdV1 {
+        QuiltPatchInternalIdV1::new(self.start_index, self.end_index)
     }
 }
 
