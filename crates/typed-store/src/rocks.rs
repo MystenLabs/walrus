@@ -1661,8 +1661,8 @@ pub fn read_size_from_env(var_name: &str) -> Option<usize> {
 pub struct ReadWriteOptions {
     /// Whether to ignore range deletions
     pub ignore_range_deletions: bool,
-    // Whether to sync to disk on every write.
-    sync_to_disk: bool,
+    /// Whether to sync to disk on every write
+    pub sync_to_disk: bool,
 }
 
 impl ReadWriteOptions {
@@ -1692,6 +1692,16 @@ impl Default for ReadWriteOptions {
         Self {
             ignore_range_deletions: true,
             sync_to_disk: std::env::var("SUI_DB_SYNC_TO_DISK").is_ok_and(|v| v != "0"),
+        }
+    }
+}
+
+impl ReadWriteOptions {
+    /// Create a new ReadWriteOptions
+    pub fn new(sync_to_disk: bool, ignore_range_deletions: bool) -> Self {
+        Self {
+            ignore_range_deletions,
+            sync_to_disk,
         }
     }
 }
