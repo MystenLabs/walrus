@@ -56,6 +56,10 @@ To browse the site, you have the following options:
            Finally, browse it with: https://example-domain.wal.app
 ```
 
+``` admonish note
+Keep in mind that option 2 is only available on `mainnet`.
+```
+
 This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
