@@ -332,6 +332,7 @@ pub(crate) struct MetricsMiddlewareState {
 }
 
 impl MetricsMiddlewareState {
+    /// Creates a new [`MetricsMiddlewareState`] with initialized HTTP metrics and task monitors.
     pub fn new(registry: &Registry) -> Self {
         Self {
             inner: Arc::new(MetricsMiddlewareStateInner {
@@ -512,6 +513,9 @@ impl<E> BodyVisitor<Bytes, E> for ResponseBodyVisitor {
 pub(crate) struct CurrentEpochMetric(GenericGauge<AtomicU64>);
 
 impl CurrentEpochMetric {
+    /// Creates a new [`CurrentEpochMetric`] with default configuration.
+    ///
+    /// The metric records the current Walrus epoch under the name `walrus_current_epoch`.
     pub fn new() -> Self {
         Self(walrus_utils::metrics::create_metric!(
             GenericGauge<AtomicU64>,
