@@ -7,6 +7,7 @@ use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use walrus_core::{
@@ -85,13 +86,16 @@ fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<Vec<PathBuf>>
     Ok(collected_files.into_iter().collect())
 }
 
-/// A client for interacting with Walrus quilt.
+/// A facade for interacting with Walrus quilt.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
     client: &'a Client<T>,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
+    const MAX_RETRIEVE_SLIVERS_ATTEMPTS: usize = 2;
+    const TIMEOUT_DURATION: Duration = Duration::from_secs(10);
+
     /// Creates a new QuiltClient.
     pub fn new(client: &'a Client<T>) -> Self {
         Self { client }
@@ -101,7 +105,7 @@ impl<'a, T> QuiltClient<'a, T> {
 impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the [`QuiltMetadata`].
     ///
-    /// If not enough slivers can be retrieved for the index, the entire blob will be read.
+    /// If not enough slivers can be retrieved for the quilt index, the entire blob will be read.
     pub async fn get_quilt_metadata(&self, quilt_id: &BlobId) -> ClientResult<QuiltMetadata> {
         self.client.check_blob_id(quilt_id)?;
         let (certified_epoch, _) = self
@@ -113,20 +117,21 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .retrieve_metadata(certified_epoch, quilt_id)
             .await?;
 
-        let quilt_index = if let Ok(quilt_index) = self
-            .get_quilt_index_from_slivers(&metadata, certified_epoch)
-            .await
-        {
-            quilt_index
-        } else {
-            tracing::debug!(
-                "failed to get quilt metadata from slivers, trying to get quilt {}",
-                quilt_id
-            );
-            self.get_quilt_enum(&metadata, certified_epoch)
-                .await?
-                .get_quilt_index()?
-        };
+        // Try to retrieve the quilt index from the slivers.
+        let quilt_index =
+            if let Ok(quilt_index) = self.retrieve_quilt_index(&metadata, certified_epoch).await {
+                quilt_index
+            } else {
+                tracing::debug!(
+                    "failed to get quilt metadata from slivers, trying to get quilt {}",
+                    quilt_id
+                );
+                // If the quilt index cannot be retrieved from the slivers, try to retrieve the
+                // quilt.
+                self.get_quilt_enum(&metadata, certified_epoch)
+                    .await?
+                    .get_quilt_index()?
+            };
 
         match quilt_index {
             QuiltIndex::V1(quilt_index) => Ok(QuiltMetadata::V1(QuiltMetadataV1 {
@@ -137,10 +142,10 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
-    /// Decodes the [`QuiltIndex`] from the corresponding slivers.
+    /// Retrieves the necessary slivers and decodes the quilt index.
     ///
-    /// Returns error if not enough slivers can be retrieved for the index.
-    async fn get_quilt_index_from_slivers(
+    /// Returns error if not enough slivers can be retrieved for the quilt index.
+    async fn retrieve_quilt_index(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
@@ -152,50 +157,55 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 metadata,
                 &[SliverIndex::new(0)],
                 certified_epoch,
-                Some(1),
-                None,
+                Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
+                Some(Self::TIMEOUT_DURATION),
             )
             .await?;
 
-        let first_sliver = slivers.first().expect("no sliver received");
+        let first_sliver = slivers.first().expect("the first sliver should exist");
 
         let quilt_version = QuiltVersionEnum::new_from_sliver(first_sliver.symbols.data())?;
         match quilt_version {
             QuiltVersionEnum::V1 => {
-                self.get_quilt_index::<QuiltVersionV1>(metadata, certified_epoch, &slivers)
-                    .await
+                self.retrieve_quilt_index_internal::<QuiltVersionV1>(
+                    metadata,
+                    certified_epoch,
+                    &slivers,
+                )
+                .await
             }
         }
     }
 
-    async fn get_quilt_index<V: QuiltVersion>(
+    async fn retrieve_quilt_index_internal<V: QuiltVersion>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
-        slivers: &[SliverData<V::SliverAxis>],
+        first_sliver: &[SliverData<V::SliverAxis>],
     ) -> ClientResult<QuiltIndex>
     where
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
-        let mut all_slivers = slivers.to_vec();
-        match V::QuiltConfig::get_decoder(&slivers.iter().collect::<Vec<_>>())
-            .get_or_decode_quilt_index()
-        {
+        let mut all_slivers = Vec::new();
+        let mut refs = Vec::new();
+        let first_sliver_refs: Vec<_> = first_sliver.iter().collect();
+        let mut decoder = V::QuiltConfig::get_decoder(&first_sliver_refs);
+        match decoder.get_or_decode_quilt_index() {
             Ok(quilt_index) => Ok(quilt_index),
             Err(QuiltError::MissingSlivers(indices)) => {
-                let additional_slivers = self
-                    .client
-                    .retrieve_slivers_with_retry::<V::SliverAxis>(
-                        metadata,
-                        &indices,
-                        certified_epoch,
-                        Some(1),
-                        None,
-                    )
-                    .await?;
-                all_slivers.extend(additional_slivers);
-                let refs = all_slivers.iter().collect::<Vec<_>>();
-                let mut decoder = V::QuiltConfig::get_decoder(&refs);
+                all_slivers.extend(
+                    self.client
+                        .retrieve_slivers_with_retry::<V::SliverAxis>(
+                            metadata,
+                            &indices,
+                            certified_epoch,
+                            Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
+                            Some(Self::TIMEOUT_DURATION),
+                        )
+                        .await?,
+                );
+                refs.extend(all_slivers.iter());
+                decoder.add_slivers(&refs);
                 Ok(decoder.get_or_decode_quilt_index()?)
             }
             Err(e) => Err(e.into()),
