@@ -88,6 +88,7 @@ pub use crate::{
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
+pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
