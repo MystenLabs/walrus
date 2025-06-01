@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client for interacting with Walrus quilt.
+//! Client for storing and retrieving quilts.
 
 use std::{
     collections::HashSet,
@@ -31,52 +31,56 @@ use crate::{
 ///
 /// If the path is a file, it's read directly.
 /// If the path is a directory, its files are read recursively.
-/// Only regular files (not directories or other special files) are included in the result.
-/// If the provided path is unreadable, or not a file or directory, an error is returned.
+/// Returns error if path doesn't exist or is not accessible.
 pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
-    let files = get_all_files_from_paths(paths)?;
-
-    let mut collected_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-    for file_path in files {
-        let content = fs::read(&file_path).map_err(ClientError::other)?;
-        collected_files.push((file_path, content));
-    }
-
-    Ok(collected_files)
-}
-
-/// Reads all files recursively from a given path and returns them as path-content pairs.
-pub fn get_all_files_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<PathBuf>> {
-    let mut collected_files: HashSet<PathBuf> = HashSet::new();
     if paths.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut collected_dirs: HashSet<PathBuf> = HashSet::new();
+    let mut collected_files: HashSet<PathBuf> = HashSet::new();
     for path in paths {
         let path = path.as_ref();
+
+        // Validate path existence and accessibility.
+        if !path.exists() {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                format!("Path does not exist: {:?}.", path).into(),
+            )));
+        }
+
         if path.is_file() {
             collected_files.insert(path.to_path_buf());
         } else if path.is_dir() {
-            let dir_entries = fs::read_dir(path).map_err(ClientError::other)?;
-            for entry_result in dir_entries {
-                let current_entry_path = entry_result.map_err(ClientError::other)?.path();
-                if current_entry_path.is_file() {
-                    collected_files.insert(current_entry_path);
-                } else if current_entry_path.is_dir() {
-                    collected_dirs.insert(current_entry_path);
-                }
-            }
+            collected_files.extend(get_all_files_from_dir(path)?);
+        } else {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                format!("Path is neither a file nor a directory: {:?}.", path).into(),
+            )));
         }
     }
 
-    let files = get_all_files_from_paths(
-        &collected_dirs
-            .iter()
-            .map(|p| p.as_path())
-            .collect::<Vec<_>>(),
-    )?;
-    collected_files.extend(files);
+    let mut collected_files_with_content: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    for file_path in collected_files {
+        let content = fs::read(&file_path).map_err(ClientError::other)?;
+        collected_files_with_content.push((file_path, content));
+    }
+
+    Ok(collected_files_with_content)
+}
+
+/// Get all file paths from a directory recursively.
+fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<Vec<PathBuf>> {
+    let path = path.as_ref();
+    let mut collected_files: HashSet<PathBuf> = HashSet::new();
+    let dir_entries = fs::read_dir(path).map_err(ClientError::other)?;
+    for entry in dir_entries {
+        let current_entry_path = entry.map_err(ClientError::other)?.path();
+        if current_entry_path.is_file() {
+            collected_files.insert(current_entry_path);
+        } else if current_entry_path.is_dir() {
+            collected_files.extend(get_all_files_from_dir(&current_entry_path)?);
+        }
+    }
 
     Ok(collected_files.into_iter().collect())
 }
@@ -441,5 +445,112 @@ impl QuiltClient<'_, SuiContractClient> {
             stored_quilt_blobs,
             path: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use rand::{Rng, thread_rng};
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn create_random_file(dir: &Path, name: &str, size: usize) -> std::io::Result<Vec<u8>> {
+        let mut rng = thread_rng();
+        let mut content = vec![0u8; size];
+        rng.fill(&mut content[..]);
+        fs::write(dir.join(name), &content)?;
+        Ok(content)
+    }
+
+    fn create_random_dir_structure(
+        base_dir: &Path,
+        num_files: usize,
+        max_depth: usize,
+        current_depth: usize,
+    ) -> std::io::Result<HashMap<PathBuf, Vec<u8>>> {
+        let mut rng = thread_rng();
+        let mut file_contents = HashMap::new();
+
+        // Create some random subdirectories if we haven't reached max depth.
+        if current_depth < max_depth && rng.gen_bool(0.3) {
+            let num_subdirs = rng.gen_range(1..=3);
+            for i in 0..num_subdirs {
+                let subdir_name = format!("subdir_{}", i);
+                let subdir_path = base_dir.join(&subdir_name);
+                fs::create_dir_all(&subdir_path)?;
+
+                // Recursively create files in subdirectory.
+                let subdir_contents = create_random_dir_structure(
+                    &subdir_path,
+                    num_files / (current_depth + 1),
+                    max_depth,
+                    current_depth + 1,
+                )?;
+                file_contents.extend(subdir_contents);
+            }
+        }
+
+        // Create some random files in current directory.
+        let files_in_dir = if current_depth == max_depth {
+            num_files
+        } else {
+            rng.gen_range(1..=num_files / 2)
+        };
+
+        for i in 0..files_in_dir {
+            let file_name = format!("file_{}.dat", i);
+            let file_size = rng.gen_range(100..=1000);
+            let content = create_random_file(base_dir, &file_name, file_size)?;
+            file_contents.insert(base_dir.join(&file_name), content);
+        }
+
+        Ok(file_contents)
+    }
+
+    #[test]
+    fn test_read_blobs_from_paths_complex() -> ClientResult<()> {
+        // Create a temporary directory.
+        let temp_dir = TempDir::new().map_err(ClientError::other)?;
+        let base_path = temp_dir.path();
+
+        // Create a complex directory structure with random files.
+        let expected_files =
+            create_random_dir_structure(base_path, 20, 3, 0).map_err(ClientError::other)?;
+
+        // Read all files using read_blobs_from_paths.
+        let read_files = read_blobs_from_paths(&[base_path])?;
+
+        // Convert read files to HashMap for easy comparison.
+        let read_files_map: HashMap<_, _> = read_files.into_iter().collect();
+
+        // Verify all expected files were read with correct content.
+        assert_eq!(
+            read_files_map.len(),
+            expected_files.len(),
+            "Number of files read doesn't match expected."
+        );
+
+        for (path, expected_content) in &expected_files {
+            let actual_content = read_files_map.get(path).expect("File should exist");
+            assert_eq!(
+                actual_content, expected_content,
+                "Content mismatch for file: {:?}.",
+                path
+            );
+        }
+
+        // Test with empty paths.
+        let empty_result = read_blobs_from_paths::<&Path>(&[])?;
+        assert!(empty_result.is_empty());
+
+        // Test with non-existent path.
+        let non_existent = base_path.join("non_existent");
+        let result = read_blobs_from_paths(&[&non_existent]);
+        assert!(result.is_err());
+
+        Ok(())
     }
 }
