@@ -7,7 +7,7 @@
       },
       "https://aggregator.mainnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.suicore.com": {
         "operator": "Suicore",
@@ -125,7 +125,7 @@
       },
       "https://walrus-cache-mainnet.latitude.sh": {
         "operator": "Latitude",
-        "cache": true
+        "cache": false
       },
       "https://walrus-cache-mainnet.overclock.run": {
         "operator": "Overclock",
@@ -149,7 +149,7 @@
       },
       "https://walrus-mainnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
@@ -179,7 +179,8 @@
         "cache": true
       },
       "https://walrus-mainnet-aggregator.stakeengine.co.uk": {
-        "operator": "Stake Engine"
+        "operator": "Stake Engine",
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.stakingdefenseleague.com.": {
         "operator": "Staking Defense League",
@@ -223,7 +224,7 @@
       },
       "http://walrus-aggregator.winsnip.site:9000": {
         "operator": "Winsnip",
-        "cache": false
+        "cache": true
       },
       "http://walrus.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
@@ -446,7 +447,7 @@
       },
       "https://walrus-tn.juicystake.io:9443": {
         "operator": "ProStaking",
-        "cache": true
+        "cache": false
       },
       "https://walrus.testnet.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
