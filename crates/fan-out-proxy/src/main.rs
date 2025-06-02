@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use reqwest::Url;
 use tip::TipConfig;
 #[cfg(feature = "test-client")]
-use walrus_core::EpochCount;
+use walrus_sdk::core::EpochCount;
 use walrus_sdk::core_utils::metrics::{Registry, monitored_scope};
 
 #[cfg(feature = "test-client")]
@@ -24,7 +24,7 @@ mod params;
 mod tip;
 mod utils;
 
-const VERSION: &str = utils::version!();
+const VERSION: &str = self::utils::version!();
 
 #[derive(Parser, Debug, Clone)]
 #[command(

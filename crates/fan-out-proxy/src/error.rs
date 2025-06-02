@@ -8,21 +8,42 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use thiserror::Error;
-use walrus_core::{BlobIdParseError, encoding::DataTooLargeError};
-use walrus_sdk::error::ClientError;
+use walrus_sdk::{
+    core::{BlobIdParseError, encoding::DataTooLargeError},
+    error::ClientError,
+    sui::client::SuiClientError,
+};
 
 use crate::tip::TipError;
 
 /// Fan-out Proxy Errors.
 #[derive(Debug, Error)]
-pub(crate) enum FanOutError {
-    /// The provided  blob ID and the blob ID resulting from the blob encoding do not match.
-    #[error("the provided  blob ID and the blob ID resulting from the blob encoding do not match")]
+pub enum FanOutError {
+    /// The provided blob ID and the blob ID resulting from the blob encoding do not match.
+    #[error("the provided blob ID and the blob ID resulting from the blob encoding do not match")]
     BlobIdMismatch,
+
+    /// The provided blob digest and the blob digest resulting from the uploaded blob do not match.
+    #[error(
+        "the provided blob digest and the blob digest resulting from the uploaded blob do not match"
+    )]
+    BlobDigestMismatch,
+
+    /// The provided auth package and the one found in the on-chain PTB input do not match.
+    #[error("the provided auth package and the transaction's auth package hash do not match")]
+    AuthPackageMismatch,
+
+    /// The provided auth package hash is invalid.
+    #[error("the provided auth package hash is invalid")]
+    InvalidPtbAuthPackageHash,
 
     /// A Walrus client error occurred.
     #[error(transparent)]
     ClientError(#[from] ClientError),
+
+    /// A Sui client error occurred.
+    #[error(transparent)]
+    SuiClientError(#[from] SuiClientError),
 
     /// Blob is too large error.
     #[error(transparent)]
@@ -50,7 +71,8 @@ impl IntoResponse for FanOutError {
                 FanOutError::BlobIdMismatch.to_string(),
             )
                 .into_response(),
-            FanOutError::ClientError(_) => {
+            FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {
+                tracing::error!(error = ?self, "client error during fan out");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
             }
             FanOutError::DataTooLargeError(error) => {
@@ -66,7 +88,14 @@ impl IntoResponse for FanOutError {
                 (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }
             FanOutError::Other(error) => {
+                tracing::error!(?error, "unknown error during fan out");
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
+            }
+            FanOutError::AuthPackageMismatch
+            | FanOutError::BlobDigestMismatch
+            | FanOutError::InvalidPtbAuthPackageHash => {
+                tracing::error!(error = ?self, "failure relating to auth package checks");
+                (StatusCode::UNAUTHORIZED, self.to_string()).into_response()
             }
         }
     }

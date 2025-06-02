@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use utoipa::ToSchema;
-use walrus_sui::SuiAddressSchema;
+use walrus_sdk::sui::SuiAddressSchema;
 
 /// The kinds of tip that the proxy can choose to configure.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

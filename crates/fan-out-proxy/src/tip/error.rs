@@ -3,8 +3,7 @@
 
 //! Errors for the tipping system.
 
-use walrus_core::BlobId;
-use walrus_sui::client::SuiClientError;
+use walrus_sdk::{core::BlobId, sui::client::SuiClientError};
 
 /// An error that occurs while the proxy is executing or checking a transaction.
 #[derive(Debug, thiserror::Error)]

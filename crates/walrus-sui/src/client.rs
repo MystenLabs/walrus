@@ -18,6 +18,7 @@ use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
+use serde::{Deserialize, Serialize};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
@@ -298,7 +299,9 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
 }
 
 /// Represents the persistence state of a blob on Walrus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum BlobPersistence {
     /// The blob cannot be deleted.
     Permanent,

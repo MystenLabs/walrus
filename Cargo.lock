@@ -3380,11 +3380,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-redoc",
- "walrus-core",
- "walrus-proc-macros",
  "walrus-sdk",
- "walrus-storage-node-client",
- "walrus-sui",
 ]
 
 [[package]]

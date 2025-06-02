@@ -3,6 +3,8 @@
 
 //! Utilities for the fanout proxy.
 
+use fastcrypto::hash::{Digest, HashFunction as _, Sha256};
+
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
 /// We are using a macro as placing this logic into a library can result in unnecessary builds.
@@ -28,7 +30,15 @@ macro_rules! version {
         };
 
         // The version consisting of the package version and Git revision.
-        walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
+        walrus_sdk::core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
     }};
 }
 pub use version;
+
+/// Compute a SHA256 hash of a blob.
+pub fn compute_blob_digest_sha256(blob: &[u8]) -> Digest<32> {
+    let mut blob_hash = Sha256::new();
+    blob_hash.update(&blob);
+    let blob_digest = blob_hash.finalize();
+    blob_digest
+}

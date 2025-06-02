@@ -12,10 +12,8 @@ use std::{
 };
 
 use anyhow::Result;
-use fastcrypto::{
-    encoding::Base64,
-    hash::{Digest, HashFunction, Sha256},
-};
+use base64::{DecodeError, Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use fastcrypto::hash::{Digest, HashFunction, Sha256};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -24,54 +22,84 @@ use sui_types::{
     digests::TransactionDigest,
     transaction::{Transaction, TransactionData, TransactionKind},
 };
-use walrus_core::{
-    BlobId,
-    EpochCount,
-    encoding::EncodingConfigTrait,
-    messages::ConfirmationCertificate,
-    metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
-};
-use walrus_sdk::{ObjectID, client::Client as WalrusClient, config::ClientConfig as WalrusConfig};
-use walrus_sui::{
-    client::{CoinType, SuiContractClient, transaction_builder::WalrusPtbBuilder},
-    config::WalletConfig,
-    wallet::Wallet,
+use walrus_sdk::{
+    ObjectID,
+    client::Client as WalrusClient,
+    config::ClientConfig as WalrusConfig,
+    core::{
+        BlobId,
+        EncodingType,
+        EpochCount,
+        encoding::EncodingConfigTrait,
+        messages::ConfirmationCertificate,
+        metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
+    },
+    sui::{
+        client::{
+            BlobPersistence,
+            CoinType,
+            SuiContractClient,
+            transaction_builder::WalrusPtbBuilder,
+        },
+        config::WalletConfig,
+        wallet::Wallet,
+    },
 };
 
 use crate::{
     TipConfig,
     controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
     params::B64UrlEncodedBytes,
+    utils::compute_blob_digest_sha256,
 };
 
 const DIGEST_LEN: usize = 32;
+const OBJECT_ID_LEN: usize = 32;
 
 /// The authentication structure for a blob store request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub(crate) struct AuthPackage {
-    blob_digest: Digest<DIGEST_LEN>,
-    nonce: [u8; DIGEST_LEN],
-    timestamp_ms: u128,
+    /// The SHA256 hash of the blob data.
+    pub blob_digest: [u8; DIGEST_LEN],
+    /// Random bytes known only to the client. Shared with fan-out proxy to prevent malicious replay
+    /// attacks by other users.
+    pub nonce: [u8; DIGEST_LEN],
+    /// The timestamp just prior to blob registration as known to the client user. This is used to
+    /// expire fan-out requests after some time.
+    pub timestamp_ms: u64,
+    /// The blob encoding type.
+    // TODO: pull this directly from the ptb.
+    pub encoding_type: EncodingType,
+    /// The blob persistence type.
+    // TODO: pull this directly from the ptb.
+    pub blob_persistence: BlobPersistence,
 }
 
 impl AuthPackage {
     /// Creates an authentication package for the blob.
-    pub(crate) fn new(blob: &[u8]) -> Result<Self> {
-        let mut rng = StdRng::from_rng(&mut rand::thread_rng())?;
+    pub(crate) fn new(
+        blob: &[u8],
+        encoding_type: EncodingType,
+        blob_persistence: BlobPersistence,
+    ) -> Result<Self> {
+        let std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
+        let mut rng = std_rng;
         let nonce: [u8; 32] = rng.r#gen();
 
-        let mut blob_hash = Sha256::new();
-        blob_hash.update(&blob);
-        let blob_digest = blob_hash.finalize();
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the clocks are set in the present")
-            .as_millis();
+        let blob_digest = compute_blob_digest_sha256(blob);
+        let timestamp_ms = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("the clocks are set in the present")
+                .as_millis(),
+        )?;
 
         Ok(Self {
-            blob_digest,
+            blob_digest: blob_digest.into(),
             nonce,
             timestamp_ms,
+            encoding_type,
+            blob_persistence,
         })
     }
 
@@ -114,7 +142,7 @@ pub(crate) async fn run_client(
         .encoded_size(metadata.metadata().unencoded_length())
         .unwrap();
 
-    let auth_package = AuthPackage::new(&blob)?;
+    let auth_package = AuthPackage::new(&blob, EncodingType::RS2, BlobPersistence::Permanent)?;
     let auth_digest = auth_package.to_digest()?;
 
     // Transaction creation.
@@ -143,9 +171,15 @@ pub(crate) async fn run_client(
     );
     let tx_id = response.digest;
 
-    ////////////////////////////////////////////////////////////////////////////////
+    // REVIEW(wb): either get the object_id here, and send it along, or rewind some of the plumbing
+    // and pull that info from the registration event later on the fan-out server.
 
-    let response = fanout.send_to_proxy(blob, tx_id, auth_package).await?;
+    ////////////////////////////////////////////////////////////////////////////////
+    // Send the actual blob, along with the associated Auth and Tip information.
+    let response = fanout
+        .send_to_proxy(tx_id, auth_package, blob, computed_blob_id, object_id)
+        .await?;
+    ////////////////////////////////////////////////////////////////////////////////
 
     anyhow::ensure!(
         *computed_blob_id == response.blob_id,
@@ -304,7 +338,7 @@ impl<T> FanOutClient<T> {
             .walrus_client
             .encoding_config()
             // TODO: Make configurable.
-            .get_for_type(walrus_core::EncodingType::RS2)
+            .get_for_type(EncodingType::RS2)
             .compute_metadata(blob)?)
     }
 
@@ -327,7 +361,7 @@ impl<T> FanOutClient<T> {
         self.walrus_client
             .encoding_config()
             // TODO: configurable.
-            .get_for_type(walrus_core::EncodingType::RS2)
+            .get_for_type(EncodingType::RS2)
             .encoded_blob_length(unencoded_length)
     }
 
@@ -336,11 +370,11 @@ impl<T> FanOutClient<T> {
         &self,
         tx_id: TransactionDigest,
         auth_package: AuthPackage,
+        blob: Vec<u8>,
+        blob_id: BlobId,
+        object_id: ObjectID,
     ) -> Result<ResponseType> {
-        let tx_id_str = tx_id.base58_encode();
-        let auth_package_str = auth_package.to_b64_encoded()?;
-
-        let post_url = fan_out_blob_url(&self.server_url, &tx_bytes, &signature, blob_id)?;
+        let post_url = fan_out_blob_url(&self.server_url, tx_id, auth_package, blob_id, object_id)?;
 
         tracing::debug!(?post_url, %blob_id, "sending request to the fan-out proxy");
         let client = reqwest::Client::new();
@@ -370,7 +404,7 @@ impl FanOutClient<WalrusPtbBuilder> {
             .register_blob(
                 storage_argument.into(),
                 metadata.try_into()?,
-                walrus_sui::client::BlobPersistence::Permanent,
+                BlobPersistence::Permanent,
             )
             .await?;
 
@@ -473,14 +507,20 @@ impl FanOutClient<WalrusPtbBuilder> {
 
 pub(crate) fn fan_out_blob_url(
     server_url: &Url,
-    tx_bytes: &B64UrlEncodedBytes,
-    signature: &B64UrlEncodedBytes,
+    tx_id: TransactionDigest,
+    auth_package: AuthPackage,
     blob_id: BlobId,
+    object_id: ObjectID,
 ) -> Result<Url> {
     let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
     url.query_pairs_mut()
         .append_pair("blob_id", &blob_id.to_string())
-        .append_pair("tx_bytes", &tx_bytes.to_string())
-        .append_pair("signature", &signature.to_string());
+        .append_pair("tx_id", &tx_id.to_string())
+        .append_pair("object_id", &object_id.to_string())
+        .append_pair(
+            "auth_package",
+            &URL_SAFE_NO_PAD.encode(auth_package.to_bytes()?),
+        )
+        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(auth_package.nonce));
     Ok(url)
 }

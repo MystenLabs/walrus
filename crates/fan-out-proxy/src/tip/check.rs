@@ -16,10 +16,12 @@ use sui_sdk::{
 };
 use sui_types::{TypeTag, quorum_driver_types::ExecuteTransactionRequestType};
 use tracing::Level;
-use walrus_core::{BlobId, encoding};
-use walrus_sui::{
-    client::{SuiClientResult, retry_client::RetriableSuiClient},
-    types::{BlobEvent, BlobRegistered},
+use walrus_sdk::{
+    core::{BlobId, encoding},
+    sui::{
+        client::{SuiClientResult, retry_client::RetriableSuiClient},
+        types::{BlobEvent, BlobRegistered},
+    },
 };
 
 use crate::tip::{config::TipConfig, error::TipError};

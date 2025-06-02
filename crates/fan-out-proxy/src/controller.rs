@@ -5,6 +5,7 @@
 
 use std::{
     net::SocketAddr,
+    ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -19,33 +20,55 @@ use axum::{
     response::{IntoResponse, Json},
     routing::{get, post},
 };
-use fastcrypto::encoding::Base64;
+use fastcrypto::{encoding::Base64, hash::Digest};
 use serde::{Deserialize, Serialize};
+use sui_sdk::rpc_types::{
+    SuiTransactionBlockData,
+    SuiTransactionBlockDataAPI,
+    SuiTransactionBlockResponseOptions,
+};
+use sui_types::{
+    digests::TransactionDigest,
+    transaction::{
+        CallArg,
+        InputObjectKind,
+        SenderSignedData,
+        TransactionData,
+        TransactionDataAPI as _,
+        TransactionDataV1,
+        TransactionKind,
+    },
+};
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{
-    BlobId,
-    encoding::EncodingConfigTrait as _,
-    messages::{BlobPersistenceType, ConfirmationCertificate},
-};
 use walrus_sdk::{
     ObjectID,
     SuiReadClient,
     client::Client,
     config::ClientConfig,
+    core::{
+        BlobId,
+        EncodingType,
+        encoding::EncodingConfigTrait as _,
+        ensure,
+        merkle::DIGEST_LEN,
+        messages::{BlobPersistenceType, ConfirmationCertificate},
+    },
     core_utils::{load_from_yaml, metrics::Registry},
-    sui::client::retry_client::RetriableSuiClient,
+    sui::client::{BlobPersistence, retry_client::RetriableSuiClient},
 };
 
 use crate::{
     TipConfig,
+    client::AuthPackage,
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
     params::{B64UrlEncodedBytes, Params},
     tip::TipChecker,
+    utils::compute_blob_digest_sha256,
 };
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
@@ -83,26 +106,28 @@ impl Controller {
         &self,
         body: Bytes,
         blob_id: BlobId,
-        tx_bytes: B64UrlEncodedBytes,
-        signature: B64UrlEncodedBytes,
+        tx_digest: TransactionDigest,
+        auth_package: AuthPackage,
+        object_id: ObjectID,
     ) -> Result<ResponseType, FanOutError> {
-        let registration = self
-            .checker
-            .execute_and_check_transaction(
-                // Convert to the non-URL encoded version of the bytes, which is required by the
-                // API endpoint.
-                Base64::from_bytes(tx_bytes.bytes()),
-                vec![Base64::from_bytes(signature.bytes())],
-                blob_id,
-            )
-            .await?;
+        // Check authentication pre-conditions for fan-out.
+        validate_auth_package(
+            self.client.sui_client().sui_client().clone(),
+            tx_digest,
+            &auth_package,
+            body.as_ref(),
+        )
+        .await?;
+        // TODO: get the blob object from the ptb above and pull object_id, encoding_type and
+        // blob_persistence from it.
 
         let encode_start_timer = Instant::now();
-        // TODO: encoding should probably be done on a separate thread pool.
+
+        // PERF: encoding should probably be done on a separate thread pool.
         let (sliver_pairs, metadata) = self
             .client
             .encoding_config()
-            .get_for_type(registration.encoding_type)
+            .get_for_type(auth_package.encoding_type)
             .encode_with_metadata(body.as_ref())?;
         let duration = encode_start_timer.elapsed();
 
@@ -130,12 +155,11 @@ impl Controller {
         );
 
         // Attempt to upload the slivers.
-        let blob_persistence = if registration.deletable {
-            BlobPersistenceType::Deletable {
-                object_id: registration.object_id.into(),
-            }
-        } else {
-            BlobPersistenceType::Permanent
+        let blob_persistence = match auth_package.blob_persistence {
+            BlobPersistence::Deletable => BlobPersistenceType::Deletable {
+                object_id: object_id.into(),
+            },
+            BlobPersistence::Permanent => BlobPersistenceType::Permanent,
         };
         let confirmation_certificate: ConfirmationCertificate = self
             .client
@@ -147,10 +171,61 @@ impl Controller {
         // Reply with the confirmation certificate.
         Ok(ResponseType {
             blob_id,
-            blob_object: registration.object_id,
+            blob_object: object_id,
             confirmation_certificate,
         })
     }
+}
+
+async fn validate_auth_package(
+    sui_client: RetriableSuiClient,
+    tx_digest: TransactionDigest,
+    auth_package: &AuthPackage,
+    blob: &[u8],
+) -> Result<(), FanOutError> {
+    // Get transaction inputs from tx_id.
+    let tx = sui_client
+        .get_transaction_with_options(
+            tx_digest,
+            SuiTransactionBlockResponseOptions::new()
+                .with_raw_input()
+                .with_balance_changes(),
+        )
+        .await?;
+
+    // Check the tx details against the auth package.
+    let orig_tx: SenderSignedData =
+        bcs::from_bytes(&tx.raw_transaction).context("invalid raw transaction data")?;
+    let TransactionData::V1(TransactionDataV1 {
+        kind: TransactionKind::ProgrammableTransaction(ptb),
+        ..
+    }) = orig_tx.transaction_data()
+    else {
+        return Err(FanOutError::Other(anyhow::anyhow!(
+            "invalid transaction data"
+        )));
+    };
+    let Some(CallArg::Pure(auth_package_hash)) = ptb.inputs.get(0) else {
+        return Err(FanOutError::Other(anyhow::anyhow!(
+            "invalid transaction input construction"
+        )));
+    };
+    let tx_auth_package_digest = Digest::<DIGEST_LEN>::new(
+        auth_package_hash
+            .as_slice()
+            .try_into()
+            .map_err(|_| FanOutError::InvalidPtbAuthPackageHash)?,
+    );
+    ensure!(
+        tx_auth_package_digest == auth_package.to_digest()?,
+        FanOutError::AuthPackageMismatch
+    );
+    ensure!(
+        compute_blob_digest_sha256(blob).as_ref() == auth_package.blob_digest,
+        FanOutError::BlobDigestMismatch
+    );
+    // This request looks OK.
+    Ok(())
 }
 
 /// The response of the fanout proxy, containing the blob ID and the corresponding certificate.
@@ -264,14 +339,15 @@ pub(crate) async fn fan_out_blob_slivers(
     State(controller): State<Arc<Controller>>,
     Query(Params {
         blob_id,
-        tx_bytes,
-        signature,
+        tx_id,
+        auth_package,
+        object_id,
     }): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
     tracing::debug!("starting to process a fan-out request");
     let response = controller
-        .fan_out(body, blob_id, tx_bytes, signature)
+        .fan_out(body, blob_id, tx_id, auth_package, object_id)
         .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
