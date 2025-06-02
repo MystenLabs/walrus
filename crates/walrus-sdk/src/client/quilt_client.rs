@@ -212,8 +212,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
-    /// Retrieves the blobs of the given identifiers from the quilt.
-    pub async fn get_blobs_by_identifiers(
+    /// Retrieves the quilt patches of the given identifiers from the quilt.
+    pub async fn get_quilt_patches_by_identifier(
         &self,
         quilt_id: &BlobId,
         identifiers: &[&str],
@@ -222,7 +222,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         match metadata {
             QuiltMetadata::V1(metadata) => {
-                self.get_blobs_by_identifiers_internal::<QuiltVersionV1>(
+                self.get_quilt_patches_by_identifier_impl::<QuiltVersionV1>(
                     &metadata.get_verified_metadata(),
                     &metadata.index.into(),
                     identifiers,
@@ -232,8 +232,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
     }
 
-    /// Retrieves blobs from QuiltV1 by identifiers.
-    async fn get_blobs_by_identifiers_internal<V: QuiltVersion>(
+    /// Retrieves quilt patches from QuiltV1 by identifiers.
+    async fn get_quilt_patches_by_identifier_impl<V: QuiltVersion>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         index: &QuiltIndex,
@@ -242,32 +242,31 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     where
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
-        let sliver_indices = index.get_sliver_indices_by_identifiers(identifiers)?;
-
-        // Retrieve slivers.
+        // Retrieve slivers for the given identifiers.
+        let sliver_indices = index.get_sliver_indices_for_identifiers(identifiers)?;
         let (certified_epoch, _) = self
             .client
             .get_blob_status_and_certified_epoch(metadata.blob_id(), None)
             .await?;
-        let retrieve_slivers = self
+        let retrieved_slivers = self
             .client
             .retrieve_slivers_with_retry::<V::SliverAxis>(
                 metadata,
                 &sliver_indices,
                 certified_epoch,
-                Some(2),
-                None,
+                Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
+                Some(Self::TIMEOUT_DURATION),
             )
             .await;
 
-        if let Ok(slivers) = retrieve_slivers {
+        if let Ok(slivers) = retrieved_slivers {
             let sliver_refs: Vec<&SliverData<V::SliverAxis>> = slivers.iter().collect();
             let decoder = V::QuiltConfig::get_decoder_with_quilt_index(&sliver_refs, index);
             identifiers
                 .iter()
                 .map(|identifier| {
                     decoder
-                        .get_blob_by_identifier(identifier)
+                        .get_quilt_patch_by_identifier(identifier)
                         .map_err(ClientError::other)
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -277,7 +276,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 .iter()
                 .map(|identifier| {
                     quilt
-                        .get_blob_by_identifier(identifier)
+                        .get_quilt_patch_by_identifier(identifier)
                         .map_err(ClientError::other)
                 })
                 .collect::<Result<Vec<_>, _>>()
