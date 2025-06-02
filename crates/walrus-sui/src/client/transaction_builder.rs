@@ -1410,7 +1410,7 @@ impl WalrusPtbBuilder {
             self.read_client.get_system_package_id(),
             upgrade_ticket_arg,
             compiled_package
-                .dependency_ids // TODO: do we need the dependencies as returned by `compile`?
+                .dependency_ids
                 .published
                 .into_values()
                 .collect(),
@@ -1464,6 +1464,7 @@ impl WalrusPtbBuilder {
         let programmable_transaction = self.pt_builder.finish();
 
         // Get the current gas price from the network
+        // TODO(WAL-512): cache this to avoid RPC roundtrip.
         let gas_price = self.read_client.get_reference_gas_price().await?;
 
         // Estimate the gas budget unless explicitly set.
@@ -1478,13 +1479,13 @@ impl WalrusPtbBuilder {
                 .await?
         };
 
-        let min_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + self.tx_sui_cost);
+        let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + self.tx_sui_cost);
 
         // Construct the transaction with gas coins that meet the minimum balance requirement
         Ok(TransactionData::new_programmable(
             self.sender_address,
             self.read_client
-                .get_compatible_gas_coins(self.sender_address, min_gas_coin_balance)
+                .get_compatible_gas_coins(self.sender_address, minimum_gas_coin_balance)
                 .await?,
             programmable_transaction,
             gas_budget,

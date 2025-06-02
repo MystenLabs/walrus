@@ -678,7 +678,6 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        #[allow(deprecated)]
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let contract_client =
