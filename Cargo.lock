@@ -12669,6 +12669,7 @@ dependencies = [
  "fastcrypto",
  "futures",
  "home",
+ "humantime",
  "indexmap 2.9.0",
  "indicatif",
  "indoc",
