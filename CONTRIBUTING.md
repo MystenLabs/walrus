@@ -193,8 +193,7 @@ You can then run all simtests with
 cargo simtest
 ```
 
-Further information about the simtest framework is available
-[here](https://github.com/MystenLabs/sui/tree/main/crates/sui-simulator#how-to-run-sim-tests).
+See [further information about the simtest framework](https://github.com/MystenLabs/sui/tree/main/crates/sui-simulator#how-to-run-sim-tests).
 
 ## Benchmarks
 
