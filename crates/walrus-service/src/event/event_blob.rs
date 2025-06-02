@@ -20,7 +20,7 @@ use sui_types::{
 };
 use walrus_core::{BlobId, Epoch};
 
-use crate::node::events::IndexedStreamEvent;
+use crate::event::events::IndexedStreamEvent;
 
 /// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

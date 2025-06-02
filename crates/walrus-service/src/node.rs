@@ -19,7 +19,6 @@ use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::{CheckpointEventPosition, event_blob_writer::EventBlobWriter};
 use fastcrypto::traits::KeyPair;
 use futures::{
     FutureExt as _,
@@ -142,14 +141,7 @@ use self::{
         SyncNodeConfigError,
         SyncShardServiceError,
     },
-    events::{
-        EventProcessorConfig,
-        EventStreamCursor,
-        EventStreamElement,
-        PositionedStreamEvent,
-        event_blob_writer::EventBlobWriterFactory,
-        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-    },
+    event_blob_writer::EventBlobWriterFactory,
     metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
     shard_sync::ShardSyncHandler,
     storage::{
@@ -160,8 +152,21 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{config::SuiConfig, utils::should_reposition_cursor},
-    utils::ShardDiffCalculator,
+    common::config::SuiConfig,
+    event::{
+        event_processor::{
+            config::{EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
+        },
+        events::{
+            CheckpointEventPosition,
+            EventStreamCursor,
+            EventStreamElement,
+            PositionedStreamEvent,
+        },
+    },
+    node::event_blob_writer::EventBlobWriter,
+    utils::{ShardDiffCalculator, should_reposition_cursor},
 };
 
 pub(crate) mod db_checkpoint;
@@ -171,7 +176,7 @@ pub mod config;
 pub(crate) mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
-pub mod events;
+pub mod event_blob_writer;
 pub mod server;
 pub mod system_events;
 
@@ -419,7 +424,7 @@ impl StorageNodeBuilder {
                 };
                 Box::new(
                     EventProcessor::new(
-                        &config.event_processor_config,
+                        config.event_processor_config.clone(),
                         processor_config,
                         system_config,
                         &metrics_registry,

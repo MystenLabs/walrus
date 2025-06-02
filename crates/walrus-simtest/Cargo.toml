@@ -21,7 +21,7 @@ tracing.workspace = true
 walrus-core.workspace = true
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-sdk.workspace = true
-walrus-service = { workspace = true, features = ["test-utils"] }
+walrus-service = { workspace = true, features = ["node", "test-utils"] }
 walrus-storage-node-client.workspace = true
 walrus-sui.workspace = true
 walrus-test-utils.workspace = true
