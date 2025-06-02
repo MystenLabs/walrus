@@ -149,6 +149,4 @@ pub struct QuiltStoreResult {
     pub blob_store_result: BlobStoreResult,
     /// The structure of the quilt.
     pub stored_quilt_blobs: Vec<StoredQuiltPatch>,
-    /// Path to the directory containing the blobs.
-    pub path: Option<PathBuf>,
 }

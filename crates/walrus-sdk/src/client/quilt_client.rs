@@ -213,7 +213,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     }
 
     /// Retrieves the quilt patches of the given identifiers from the quilt.
-    pub async fn get_quilt_patches_by_identifier(
+    pub async fn get_blobs_by_identifiers(
         &self,
         quilt_id: &BlobId,
         identifiers: &[&str],
@@ -222,7 +222,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         match metadata {
             QuiltMetadata::V1(metadata) => {
-                self.get_quilt_patches_by_identifier_impl::<QuiltVersionV1>(
+                self.get_blobs_by_identifiers_impl::<QuiltVersionV1>(
                     &metadata.get_verified_metadata(),
                     &metadata.index.into(),
                     identifiers,
@@ -233,7 +233,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     }
 
     /// Retrieves quilt patches from QuiltV1 by identifiers.
-    async fn get_quilt_patches_by_identifier_impl<V: QuiltVersion>(
+    async fn get_blobs_by_identifiers_impl<V: QuiltVersion>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         index: &QuiltIndex,
@@ -260,13 +260,13 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await;
 
         if let Ok(slivers) = retrieved_slivers {
-            let sliver_refs: Vec<&SliverData<V::SliverAxis>> = slivers.iter().collect();
+            let sliver_refs: Vec<_> = slivers.iter().collect();
             let decoder = V::QuiltConfig::get_decoder_with_quilt_index(&sliver_refs, index);
             identifiers
                 .iter()
                 .map(|identifier| {
                     decoder
-                        .get_quilt_patch_by_identifier(identifier)
+                        .get_blob_by_identifier(identifier)
                         .map_err(ClientError::other)
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -276,19 +276,20 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 .iter()
                 .map(|identifier| {
                     quilt
-                        .get_quilt_patch_by_identifier(identifier)
+                        .get_blob_by_identifier(identifier)
                         .map_err(ClientError::other)
                 })
                 .collect::<Result<Vec<_>, _>>()
         }
     }
 
+    /// Retrieves the quilt from Walrus.
     async fn get_quilt_enum(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
     ) -> ClientResult<QuiltEnum> {
-        let quilt_blob = self
+        let quilt = self
             .client
             .request_slivers_and_decode::<Primary>(certified_epoch, metadata)
             .await?;
@@ -296,10 +297,12 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .client
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
-        QuiltEnum::new(quilt_blob, &encoding_config_enum).map_err(ClientError::other)
+
+        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::other)
     }
 }
 
+/// Stores quilts.
 impl QuiltClient<'_, SuiContractClient> {
     /// Constructs a quilt from a list of blobs.
     pub async fn construct_quilt<V: QuiltVersion>(
@@ -315,7 +318,29 @@ impl QuiltClient<'_, SuiContractClient> {
         encoder.construct_quilt().map_err(ClientError::other)
     }
 
-    /// Constructs a quilt from a folder of files.
+    /// Converts a list of blobs with paths to a list of quilt store blobs.
+    ///
+    /// The on-disk file names are used as identifiers for the quilt patches.
+    /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-<index>".
+    fn assign_identifiers_to_blobs(blobs_with_paths: &[(PathBuf, Vec<u8>)]) -> Vec<QuiltStoreBlob> {
+        blobs_with_paths
+            .iter()
+            .enumerate()
+            .map(|(i, (path, blob))| {
+                QuiltStoreBlob::new(
+                    blob,
+                    path.file_name()
+                        .and_then(|file_name| file_name.to_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| format!("unnamed-blob-{}", i)),
+                )
+            })
+            .collect()
+    }
+
+    /// Constructs a quilt from a list of paths.
+    ///
+    /// The paths are read recursively to collect all blobs.
     pub async fn construct_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
         paths: &[P],
@@ -328,24 +353,13 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = blobs_with_paths
-            .iter()
-            .map(|(path, blob)| {
-                QuiltStoreBlob::new(
-                    blob,
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default(),
-                )
-            })
-            .collect();
+        let quilt_store_blobs: Vec<_> = Self::assign_identifiers_to_blobs(&blobs_with_paths);
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
             .await
     }
 
-    /// Stores all files from a folder as a quilt, using file names as descriptions.
+    /// Stores all blobs from a list of paths as a quilt.
     #[tracing::instrument(skip_all)]
     pub async fn reserve_and_store_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
@@ -356,7 +370,7 @@ impl QuiltClient<'_, SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
-        // Read files from the folder.
+        // Read blobs from the paths.
         let blobs_with_paths = read_blobs_from_paths(paths)?;
         if blobs_with_paths.is_empty() {
             return Err(ClientError::from(ClientErrorKind::Other(
@@ -364,20 +378,9 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = blobs_with_paths
-            .iter()
-            .map(|(path, blob)| {
-                QuiltStoreBlob::new(
-                    blob,
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default(),
-                )
-            })
-            .collect();
+        let quilt_store_blobs: Vec<_> = Self::assign_identifiers_to_blobs(&blobs_with_paths);
 
-        let mut result = self
+        let result = self
             .reserve_and_store_quilt::<V>(
                 &quilt_store_blobs,
                 encoding_type,
@@ -388,14 +391,10 @@ impl QuiltClient<'_, SuiContractClient> {
             )
             .await?;
 
-        if paths.len() == 1 && paths[0].as_ref().is_dir() {
-            result.path = Some(paths[0].as_ref().to_path_buf());
-        }
-
         Ok(result)
     }
 
-    /// Encodes the blobs to a quilt and stores it.
+    /// Encodes the blobs to a quilt and stores it to Walrus.
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
@@ -418,7 +417,7 @@ impl QuiltClient<'_, SuiContractClient> {
         );
         let quilt = encoder.construct_quilt()?;
 
-        tracing::info!(
+        tracing::debug!(
             "constructed quilt, size: {:?}, symbol size: {:?}",
             quilt.data().len(),
             quilt.symbol_size()
@@ -437,22 +436,22 @@ impl QuiltClient<'_, SuiContractClient> {
             )
             .await?;
 
-        let blob_store_result = result.first().unwrap().clone();
-        let blob_id = blob_store_result.blob_id().unwrap();
-        let mut stored_quilt_blobs = Vec::new();
-        let index = quilt.quilt_index()?;
-        for patch in index.patches() {
-            stored_quilt_blobs.push(StoredQuiltPatch::new(
-                blob_id,
-                patch.identifier(),
-                patch.quilt_patch_internal_id(),
-            ));
-        }
+        let blob_store_result = result.first().expect("the first blob should exist").clone();
+        let blob_id = blob_store_result
+            .blob_id()
+            .expect("the blob should have an id");
+        let stored_quilt_blobs = quilt
+            .quilt_index()?
+            .patches()
+            .iter()
+            .map(|patch| {
+                StoredQuiltPatch::new(blob_id, patch.identifier(), patch.quilt_patch_internal_id())
+            })
+            .collect::<Vec<_>>();
 
         Ok(QuiltStoreResult {
             blob_store_result,
             stored_quilt_blobs,
-            path: None,
         })
     }
 }

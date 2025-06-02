@@ -100,10 +100,7 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// Gets a blob by its identifier from the quilt.
     ///
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
-    fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
@@ -118,8 +115,7 @@ pub trait QuiltApi<V: QuiltVersion> {
 /// API for QuiltIndex.
 pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
-    fn get_quilt_patch_by_identifier(&self, identifier: &str)
-    -> Result<&V::QuiltPatch, QuiltError>;
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<&V::QuiltPatch, QuiltError>;
 
     /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_for_identifiers(
@@ -200,10 +196,7 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
-    fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<V::SliverAxis>]);
@@ -298,12 +291,12 @@ impl QuiltEnum {
     }
 
     /// Returns the blob identified by the given identifier.
-    pub fn get_quilt_patch_by_identifier(
+    pub fn get_blob_by_identifier(
         &self,
         identifier: &str,
     ) -> Result<QuiltStoreBlobOwned, QuiltError> {
         match self {
-            QuiltEnum::V1(quilt_v1) => quilt_v1.get_quilt_patch_by_identifier(identifier),
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
         }
     }
 
@@ -688,12 +681,9 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         Ok(quilt)
     }
 
-    fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
         self.quilt_index()?
-            .get_quilt_patch_by_identifier(identifier)
+            .get_blob_by_identifier(identifier)
             .and_then(|quilt_patch| {
                 let start_col = usize::from(quilt_patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
@@ -1268,14 +1258,11 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .into())
     }
 
-    fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
-            .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
+            .and_then(|quilt_index| quilt_index.get_blob_by_identifier(identifier))
             .and_then(|quilt_patch| {
                 let start_idx = usize::from(quilt_patch.start_index);
                 let end_idx = usize::from(quilt_patch.end_index);
@@ -1716,7 +1703,7 @@ mod tests {
         for quilt_store_blob in quilt_store_blobs {
             // Verify blob data matches.
             let extracted_blob = quilt
-                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Patch should exist for this blob identifier");
             assert_eq!(
                 extracted_blob, *quilt_store_blob,
@@ -1726,7 +1713,7 @@ mod tests {
             let quilt_patch = quilt
                 .quilt_index()
                 .expect("Quilt index should exist")
-                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Patch should exist for this blob ID");
             assert_eq!(
                 quilt_patch.identifier, quilt_store_blob.identifier,
@@ -1734,7 +1721,7 @@ mod tests {
             );
 
             let blob_by_identifier = quilt
-                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Should be able to get blob by identifier");
             assert_eq!(blob_by_identifier, *quilt_store_blob);
         }
@@ -1873,7 +1860,7 @@ mod tests {
             .get_or_decode_quilt_index()
             .expect("quilt index should exist");
         let patch = quilt_index_v1
-            .get_quilt_patch_by_identifier(identifier)
+            .get_blob_by_identifier(identifier)
             .expect("quilt patch should exist");
         assert_eq!(patch.identifier, identifier);
 
@@ -1881,7 +1868,7 @@ mod tests {
             .map(SliverIndex)
             .collect();
         assert_eq!(
-            quilt_decoder.get_quilt_patch_by_identifier(identifier),
+            quilt_decoder.get_blob_by_identifier(identifier),
             Err(QuiltError::MissingSlivers(missing_indices.clone()))
         );
 
@@ -1900,7 +1887,7 @@ mod tests {
 
         // Check we can decode the blob with the slivers we added.
         let decoded_blob = quilt_decoder
-            .get_quilt_patch_by_identifier(identifier)
+            .get_blob_by_identifier(identifier)
             .expect("Should be able to decode blob after adding missing slivers");
         let expected_blob = quilt_store_blobs
             .iter()
@@ -1918,7 +1905,7 @@ mod tests {
         for quilt_store_blob in quilt_store_blobs {
             tracing::debug!("decoding blob {}", quilt_store_blob.identifier);
             let blob = quilt_decoder
-                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
                 .expect("Should get blob by identifier");
             assert_eq!(blob, *quilt_store_blob);
         }

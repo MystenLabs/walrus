@@ -1051,7 +1051,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 
     // Fetch all blobs from the quilt once.
     let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
-        .get_quilt_patches_by_identifier(&blob_id, &identifiers_refs)
+        .get_blobs_by_identifiers(&blob_id, &identifiers_refs)
         .await?;
 
     assert_eq!(

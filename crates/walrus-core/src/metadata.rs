@@ -220,7 +220,7 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
-    fn get_quilt_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
+    fn get_blob_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_patches
             .iter()
             .find(|patch| patch.identifier == identifier)
@@ -233,7 +233,7 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
     ) -> Result<Vec<SliverIndex>, QuiltError> {
         let patches = identifiers
             .iter()
-            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
+            .map(|identifier| self.get_blob_by_identifier(identifier))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(patches
