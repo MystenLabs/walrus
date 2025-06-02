@@ -173,3 +173,5 @@ checkpoint_config:
   max_background_operations: 1
   periodic_db_checkpoints: false
 admin_socket_path: null
+node_recovery_config:
+  max_concurrent_blob_syncs_during_recovery: 1000

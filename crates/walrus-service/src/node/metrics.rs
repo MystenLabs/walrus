@@ -162,6 +162,13 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Status metric indicating the node's ID"]
         node_id: IntGaugeVec["walrus_node_id"],
+
+        #[help = "The progress of the node recovery. It is represented by the first two bytes \
+        of the blob ID since the recovery job is sequential over blob IDs."]
+        node_recovery_recover_blob_progress: IntGauge[],
+
+        #[help = "The number of ongoing blob syncs during node recovery."]
+        node_recovery_ongoing_blob_syncs: IntGauge[],
     }
 }
 

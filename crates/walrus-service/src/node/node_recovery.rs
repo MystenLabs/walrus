@@ -3,12 +3,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use futures::future::join_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
-use super::{StorageNodeInner, blob_sync::BlobSyncHandler};
+use super::{StorageNodeInner, blob_sync::BlobSyncHandler, config::NodeRecoveryConfig};
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
 #[derive(Debug, Clone)]
@@ -18,20 +18,29 @@ pub struct NodeRecoveryHandler {
 
     // There can be at most one background shard removal task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+
+    // Configuration for node recovery.
+    config: NodeRecoveryConfig,
 }
 
 impl NodeRecoveryHandler {
-    pub fn new(node: Arc<StorageNodeInner>, blob_sync_handler: Arc<BlobSyncHandler>) -> Self {
+    pub fn new(
+        node: Arc<StorageNodeInner>,
+        blob_sync_handler: Arc<BlobSyncHandler>,
+        config: NodeRecoveryConfig,
+    ) -> Self {
         Self {
             node,
             blob_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
+            config,
         }
     }
 
     /// Starts the node recovery process to recover blobs that are certified before the given epoch.
     /// For blobs that are certified after `certified_before_epoch`, the event processing is in
     /// charge of making sure the blob is stored at all shards.
+    // TODO(WAL-864): Refactor this function to make it readable.
     pub async fn start_node_recovery(
         &self,
         certified_before_epoch: Epoch,
@@ -41,10 +50,23 @@ impl NodeRecoveryHandler {
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
+        let max_concurrent_blob_syncs_during_recovery =
+            self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
             fail_point_async!("start_node_recovery_entry");
+
+            // Limit the number of concurrent blob syncs to avoid overwhelming the system.
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(
+                max_concurrent_blob_syncs_during_recovery,
+            ));
+
             loop {
-                let mut all_blob_syncs = Vec::new();
+                // Keep track of ongoing blob syncs. Note that the memory usage of this list
+                // is capped by `max_concurrent_blob_syncs_during_recovery`.
+                let mut ongoing_syncs = FuturesUnordered::new();
+
+                // Keep track of whether there are more blobs to recover.
+                let mut has_more_blobs = false;
                 tracing::info!(
                     "scanning blobs to recover certified blobs before epoch {}",
                     certified_before_epoch
@@ -60,6 +82,10 @@ impl NodeRecoveryHandler {
                             .ok()
                     })
                 {
+                    node.metrics
+                        .node_recovery_recover_blob_progress
+                        .set(blob_id.first_two_bytes() as i64);
+
                     // Note that here we need to use the current epoch to check if the blob is
                     // still certified. If the blob is retired, we don't need to recover it anymore.
                     if !blob_info.is_certified(node.current_epoch()) {
@@ -94,11 +120,27 @@ impl NodeRecoveryHandler {
                         );
                     }
 
+                    // There are more blobs to recover.
+                    has_more_blobs = true;
+
+                    // Try to acquire permit, if failed wait for one ongoing sync to complete.
+                    let permit = loop {
+                        match semaphore.clone().try_acquire_owned() {
+                            Ok(permit) => break permit,
+                            Err(_) => {
+                                debug_assert!(!ongoing_syncs.is_empty());
+                                // Wait for at least one sync to complete
+                                ongoing_syncs.next().await;
+                                continue;
+                            }
+                        }
+                    };
+
                     tracing::debug!(
                         walrus.blob_id = %blob_id,
                         "start recovery sync for blob"
                     );
-                    // TODO: rate limit start sync to avoid OOM.
+                    node.metrics.node_recovery_ongoing_blob_syncs.inc();
                     let start_sync_result = blob_sync_handler
                         .start_sync(
                             blob_id,
@@ -110,7 +152,14 @@ impl NodeRecoveryHandler {
                         .await;
                     match start_sync_result {
                         Ok(notify) => {
-                            all_blob_syncs.push(notify);
+                            let node_clone = node.clone();
+                            // Create a future that releases the permit when the sync completes
+                            let notify_with_permit = async move {
+                                let _permit = permit; // Hold permit until sync completes
+                                notify.notified().await;
+                                node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
+                            };
+                            ongoing_syncs.push(notify_with_permit);
                         }
                         Err(err) => {
                             // The only place where start_sync can fail is when marking the
@@ -124,16 +173,15 @@ impl NodeRecoveryHandler {
                     }
                 }
 
-                if all_blob_syncs.is_empty() {
+                if !has_more_blobs {
                     tracing::info!("no recovery blob found; stop recovery task");
                     break;
                 }
 
-                let notify_futures: Vec<_> = all_blob_syncs
-                    .iter()
-                    .map(|notify| notify.notified())
-                    .collect();
-                join_all(notify_futures).await;
+                // Wait for all ongoing syncs to complete
+                while (ongoing_syncs.next().await).is_some() {
+                    // Each sync completion automatically releases its permit
+                }
 
                 // TODO(WAL-669): right now, we have to do one more loop to check if all the blobs
                 // are recovered. This is not efficient because checking blob existence is

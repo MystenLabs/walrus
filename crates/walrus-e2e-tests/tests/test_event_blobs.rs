@@ -18,6 +18,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![2, 2],
+            use_legacy_event_processor: false,
             ..Default::default()
         })
         .build()
@@ -80,8 +81,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
             node_weights: vec![1, 1],
             use_legacy_event_processor: false,
             disable_event_blob_writer: true,
-            blocklist_dir: None,
-            enable_node_config_synchronizer: false,
+            ..Default::default()
         })
         .build()
         .await?;
