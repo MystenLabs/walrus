@@ -807,6 +807,7 @@ pub async fn create_storage_node_configs(
                 enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            node_recovery_config: Default::default(),
         });
     }
 

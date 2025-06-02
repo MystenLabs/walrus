@@ -1,4 +1,4 @@
-name: ''
+name: ""
 storage_path: /opt/walrus/db
 blocklist_path: null
 db_config:
@@ -132,9 +132,9 @@ voting_params:
   write_price: 20000
   node_capacity: 250000000000
 metadata:
-  image_url: ''
-  project_url: ''
-  description: ''
+  image_url: ""
+  project_url: ""
+  description: ""
   extra_fields: []
 metrics_push: null
 config_synchronizer:
@@ -152,3 +152,5 @@ consistency_check:
   enable_consistency_check: true
   enable_sliver_data_existence_check: false
   sliver_data_existence_check_sample_rate_percentage: 100
+node_recovery_config:
+  max_concurrent_blob_syncs_during_recovery: 1000
