@@ -45,6 +45,9 @@ use crate::{
     wallet::Wallet,
 };
 
+/// Max subsidy rate is 100%.
+pub const MAX_SUBSIDY_RATE: u64 = 10_000;
+
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
 // The storage unit is used in doc comments for CLI arguments in the files
 // `crates/walrus-service/bin/deploy.rs` and `crates/walrus-service/bin/node.rs`.
