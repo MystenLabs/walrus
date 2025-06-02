@@ -29,14 +29,24 @@ use walrus_core::{
     EpochCount,
     ShardIndex,
     SliverPairIndex,
-    encoding::{EncodingConfigTrait as _, Primary},
+    encoding::{
+        EncodingConfigTrait as _,
+        Primary,
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltStoreBlobOwned, QuiltVersionV1},
+    },
     merkle::Node,
     messages::BlobPersistenceType,
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{QuiltMetadata, VerifiedBlobMetadataWithId},
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
-    client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
+    client::{
+        Blocklist,
+        Client,
+        WalrusStoreBlob,
+        WalrusStoreBlobApi,
+        responses::{BlobStoreResult, QuiltStoreResult},
+    },
     error::{
         ClientError,
         ClientErrorKind::{
@@ -970,6 +980,105 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         read_result.unwrap_err().kind(),
         ClientErrorKind::BlobIdDoesNotExist,
     ));
+
+    Ok(())
+}
+
+async_param_test! {
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    test_store_quilt -> TestResult : [
+        two_blobs: (2),
+        three_blobs: (3),
+        four_blobs: (4),
+    ]
+}
+/// Tests that a quilt can be stored.
+async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let client = client.as_ref();
+    let blobs = walrus_test_utils::random_data_list(314, blobs_to_create as usize);
+    let encoding_type = DEFAULT_ENCODING;
+    let quilt_store_blobs = blobs
+        .iter()
+        .enumerate()
+        .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
+        .collect::<Vec<_>>();
+
+    // Add a blob that is not deletable.
+    let quilt_write_client = client.quilt_client();
+    let quilt = quilt_write_client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+        .await?;
+    let store_operation_result = quilt_write_client
+        .reserve_and_store_quilt::<QuiltVersionV1>(
+            &quilt_store_blobs,
+            encoding_type,
+            2,
+            StoreWhen::Always,
+            BlobPersistence::Deletable,
+            PostStoreAction::Keep,
+        )
+        .await?;
+
+    let QuiltStoreResult {
+        blob_store_result, ..
+    } = store_operation_result;
+    let blob_object = match blob_store_result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
+        _ => panic!("Expected NewlyCreated, got {:?}", blob_store_result),
+    };
+
+    let read_client = Client::new_read_client_with_refresher(
+        client.config().clone(),
+        (*client.sui_client().read_client()).clone(),
+    )
+    .await?;
+
+    let blob_id = blob_object.blob_id;
+    let quilt_read_client = read_client.quilt_client();
+    let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
+    let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
+    assert_eq!(&metadata_v1.index, quilt.quilt_index()?);
+
+    let identifiers_owned = (0..blobs_to_create as usize)
+        .map(|i| format!("test-blob-{}", i + 1))
+        .collect::<Vec<_>>();
+    let identifiers_refs: Vec<&str> = identifiers_owned.iter().map(AsRef::as_ref).collect();
+
+    // Fetch all blobs from the quilt once.
+    let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
+        .get_blobs_by_identifiers(&blob_id, &identifiers_refs)
+        .await?;
+
+    assert_eq!(
+        retrieved_quilt_blobs.len(),
+        blobs_to_create as usize,
+        "Mismatch in number of blobs retrieved from quilt"
+    );
+
+    let retrieved_map: HashMap<&str, &[u8]> = retrieved_quilt_blobs
+        .iter()
+        .map(|b| (b.identifier(), b.data()))
+        .collect();
+
+    for original_bwi in quilt_store_blobs.iter() {
+        let original_id = original_bwi.identifier();
+        let original_data = original_bwi.data();
+
+        let retrieved_data = retrieved_map
+            .get(original_id)
+            .unwrap_or_else(|| panic!("Retrieved blobs missing identifier: {}", original_id));
+
+        assert_eq!(
+            *retrieved_data, original_data,
+            "Blob data mismatch for identifier {}",
+            original_id
+        );
+    }
 
     Ok(())
 }
@@ -2223,6 +2332,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
         .await?;
 
+    #[allow(deprecated)]
     let rpc_urls = &[wallet.as_ref().get_rpc_url().unwrap()];
 
     // Create a new client with the funded wallet.
