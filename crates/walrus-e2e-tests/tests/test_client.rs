@@ -1005,9 +1005,12 @@ async fn test_blocklist() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-            .await?,
+        read_blob_with_wait_for_certification(
+            client,
+            &blob_id.expect("blob id should be present"),
+            Duration::from_secs(30)
+        )
+        .await?,
         blob
     );
 
