@@ -55,11 +55,6 @@ impl NodeRecoveryHandler {
         let task_handle = tokio::spawn(async move {
             fail_point_async!("start_node_recovery_entry");
 
-            // Limit the number of concurrent blob syncs to avoid overwhelming the system.
-            let semaphore = Arc::new(tokio::sync::Semaphore::new(
-                max_concurrent_blob_syncs_during_recovery,
-            ));
-
             loop {
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
                 // is capped by `max_concurrent_blob_syncs_during_recovery`.
@@ -123,18 +118,19 @@ impl NodeRecoveryHandler {
                     // There are more blobs to recover.
                     has_more_blobs = true;
 
-                    // Try to acquire permit, if failed wait for one ongoing sync to complete.
-                    let permit = loop {
-                        match semaphore.clone().try_acquire_owned() {
-                            Ok(permit) => break permit,
-                            Err(_) => {
-                                debug_assert!(!ongoing_syncs.is_empty());
-                                // Wait for at least one sync to complete
-                                ongoing_syncs.next().await;
-                                continue;
-                            }
+                    // Limit the number of concurrent blob syncs to avoid overwhelming the system.
+                    // Note that checking the length of `ongoing_syncs` is sufficient since the loop
+                    // adds blob sync tasks sequentially.
+                    if ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                        tracing::debug!(
+                            walrus.blob_id = %blob_id,
+                            number_of_tasks = %ongoing_syncs.len(),
+                            "max concurrent blob syncs reached; wait for one to complete"
+                        );
+                        while ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                            ongoing_syncs.next().await;
                         }
-                    };
+                    }
 
                     tracing::debug!(
                         walrus.blob_id = %blob_id,
@@ -155,7 +151,6 @@ impl NodeRecoveryHandler {
                             let node_clone = node.clone();
                             // Create a future that releases the permit when the sync completes
                             let notify_with_permit = async move {
-                                let _permit = permit; // Hold permit until sync completes
                                 notify.notified().await;
                                 node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
                             };
