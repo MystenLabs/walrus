@@ -13,6 +13,18 @@ The `deploy` command is the primary and recommended command for managing your Wa
 The command takes a directory as input and creates a new Walrus Site from the
 resources contained within, and on subsequent calls, it updates the Existing Site.
 
+### Behavior
+
+The deploy command determines whether to publish a new site or update an existing one by looking for
+a Site Object ID. It finds the ID with the following priority:
+
+- An ID provided directly via the --object-id <OBJECT_ID> command-line flag.
+- An ID found in the object_id field of the ws-resources.json file.
+- If no ID is found by either method, deploy will publish a new site.
+
+When a new site is published, its object_id is automatically saved back to ws-resources.json,
+streamlining future updates.
+
 ### Usage
 
 As shown by the command's help information, the typical usage is:
@@ -21,11 +33,11 @@ As shown by the command's help information, the typical usage is:
 site-builder deploy [OPTIONS] --epochs <EPOCHS> <DIRECTORY>
 ```
 
-The `deploy` command determines whether to publish or update based on the presence of a `site_object_id`
+The `deploy` command determines whether to publish or update based on the presence of an `object_id`
 field in the `ws-resources.json` file. [specifying headers and routing](./routing.md).
 
 ```admonish info
-The `site_object_id` field is automatically set by the `deploy`
+The `object_id` field is automatically set by the `deploy`
 command, when deploying a new Site, so there is no need for manually tracking the site's object ID.
 ```
 
@@ -42,20 +54,61 @@ The `--epochs` flag is required & it's value must be greater than 0.
 ```
 
 ```admonish danger title="Epoch duration on Walrus Testnet"
-On Walrus Testnet, the epoch duration is **two days**. Therefore, consider storing your site for a
+On Walrus Testnet, the epoch duration is **one day**. Therefore, consider storing your site for a
 large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 183 epochs (corresponding to one year).
+duration is set to 53 epochs.
+```
+
+```admonish danger title="Epoch duration on Walrus Mainnet"
+On Walrus Mainnet, the epoch duration is **fourteen days**. Therefore, consider storing your site for a
+large number of epochs if you want to make it available for the following months! The maximum
+duration is set to 53 epochs.
 ```
 
 If you are just uploading raw files without an `index.html`, you may want to use the
 `--list-directory` flag, which will automatically create an index page to browse the files. See for
 example <https://bin.wal.app>.
 
+### Migrating from `publish`/`update`
+
+If you have a site that was previously managed with the `publish` and `update` commands, you can
+easily switch to the `deploy` command using one of the following methods:
+
+- **Recommended**: Use the `--object-id` cli flag
+Simply run the `deploy` command and provide your existing site's Object ID via the `--object-id` flag:
+
+```sh
+site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
+```
+
+On success, this will update your site and automatically create (or update if already existing) a
+`ws-resources.json` file with the site's Object ID saved in the `object_id` field.
+Future deployments will then be as simple as:
+
+```sh
+site-builder deploy --epochs <NUMBER> ./path/to/your/site
+```
+
+- Manual `ws-resources.json` setup.
+You can manually create or update a `ws-resources.json` file in your site's root directory and add
+the `object_id` field with your existing site's Object ID.
+
+```json
+{
+  "object_id": "0x123...abc"
+}
+```
+
+Then, you can simply run:
+
+```sh
+site-builder deploy --epochs <NUMBER> ./path/to/your/site
+```
+
 ## `publish`
 
 ```admonish warning title="Soft deprecation"
-The `deploy` command is the new standard for publishing and updating your Walrus Sites. The individual
-`publish` and `update` commands are now considered soft-deprecated and may be removed in future versions.
+The `deploy` command is the new standard for publishing and updating your Walrus Sites.
 Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
 ```
 
@@ -66,9 +119,15 @@ resources contained within.
 The `--epochs` flag allows you to specify for how long the site data will be stored on Walrus.
 
 ```admonish danger title="Epoch duration on Walrus Testnet"
-On Walrus Testnet, the epoch duration is **two days**. Therefore, consider storing your site for a
+On Walrus Testnet, the epoch duration is **one day**. Therefore, consider storing your site for a
 large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 183 epochs (corresponding to one year).
+duration is set to 53 epochs.
+```
+
+```admonish danger title="Epoch duration on Walrus Mainnet"
+On Walrus Mainnet, the epoch duration is **fourteen days**. Therefore, consider storing your site for a
+large number of epochs if you want to make it available for the following months! The maximum
+duration is set to 53 epochs.
 ```
 
 If you are just uploading raw files without an `index.html`, you may want to use the
