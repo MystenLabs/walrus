@@ -981,11 +981,8 @@ async fn test_blocklist() -> TestResult {
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
-            node_weights: vec![1, 2, 3, 3, 4],
-            use_legacy_event_processor: true,
-            disable_event_blob_writer: false,
             blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
-            enable_node_config_synchronizer: false,
+            ..Default::default()
         })
         .build()
         .await?;
@@ -1008,9 +1005,12 @@ async fn test_blocklist() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-            .await?,
+        read_blob_with_wait_for_certification(
+            client,
+            &blob_id.expect("blob id should be present"),
+            Duration::from_secs(30)
+        )
+        .await?,
         blob
     );
 
@@ -1232,10 +1232,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
-            use_legacy_event_processor: true,
-            disable_event_blob_writer: false,
-            blocklist_dir: None,
-            enable_node_config_synchronizer: false,
+            ..Default::default()
         })
         .build()
         .await?;
@@ -2056,10 +2053,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
-            use_legacy_event_processor: true,
-            disable_event_blob_writer: false,
-            blocklist_dir: None,
-            enable_node_config_synchronizer: false,
+            ..Default::default()
         })
         .build()
         .await?;

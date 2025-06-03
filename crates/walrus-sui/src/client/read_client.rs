@@ -9,6 +9,7 @@ use std::{
     future::Future,
     num::NonZeroU16,
     ops::ControlFlow,
+    path::PathBuf,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Duration,
 };
@@ -50,6 +51,7 @@ use super::{
 };
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
+    system_setup::compile_package,
     types::{
         BlobEvent,
         Committee,
@@ -583,6 +585,30 @@ impl SuiReadClient {
                 },
                 err => err,
             })
+    }
+
+    /// Returns the digest of the package at `package_path` for the currently active sui network.
+    pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+        // Compile package to get the digest.
+        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        tracing::info!(?chain_id, "chain identifier");
+        let (compiled_package, _build_config) =
+            compile_package(package_path, Default::default(), chain_id).await?;
+        let digest = compiled_package.get_package_digest(false);
+        Ok(digest)
+    }
+
+    pub(crate) async fn get_compatible_gas_coins(
+        &self,
+        sender_address: SuiAddress,
+        min_balance: u64,
+    ) -> SuiClientResult<Vec<ObjectRef>> {
+        Ok(self
+            .get_coins_with_total_balance(sender_address, CoinType::Sui, min_balance, vec![])
+            .await?
+            .iter()
+            .map(Coin::object_ref)
+            .collect())
     }
 
     /// Get the reference gas price for the current epoch.
