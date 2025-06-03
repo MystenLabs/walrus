@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in tests.
+#![allow(clippy::unwrap_used)]
+
 //! Contains integration tests for the Sui bindings.
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};

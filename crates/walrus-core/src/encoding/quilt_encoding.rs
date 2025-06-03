@@ -6,7 +6,10 @@
 // Please use with caution as it is subject to change without prior notice.
 // *******************************************************************************
 
-#![allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+// TODO: remove this once follow up PRs are merged.
+#![allow(dead_code)]
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(clippy::cast_possible_truncation)]
 
 use alloc::{
     format,

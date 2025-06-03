@@ -153,7 +153,17 @@ x509-cert = "0.2.5"
 [workspace.lints.rust]
 missing_debug_implementations = "warn"
 missing_docs = "warn"
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'] }
+future_incompatible = "warn"
+nonstandard_style = "warn"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'], priority = 1 }
+unused = "warn"
+
+[workspace.lints.clippy]
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+empty_structs_with_brackets = "warn"
+unwrap_used = "warn"
 
 [profile.release]
 panic = 'abort'

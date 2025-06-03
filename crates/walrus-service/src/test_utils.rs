@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing casts and `unwrap`s in test utils.
+#![allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
+
 //! Test utilities for using storage nodes in tests.
 //!
 //! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .

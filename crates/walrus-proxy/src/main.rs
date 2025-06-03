@@ -1,8 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-//! - walrus-proxy service
-//!
-//! the walrus-proxy service acts as a relay for nodes to push metrics to and we
+
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(clippy::unwrap_used)]
+
+//! The walrus-proxy service acts as a relay for nodes to push metrics to and we
 //! in turn push them to a mimir cluster.
 
 use std::env;

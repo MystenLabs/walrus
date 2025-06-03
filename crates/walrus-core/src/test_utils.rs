@@ -1,5 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+
+// Allowing `unwrap`s in test utils.
+#![allow(clippy::unwrap_used)]
+
 //! Utility functions for tests.
 
 use alloc::{vec, vec::Vec};

@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in benchmarks.
+#![allow(clippy::unwrap_used)]
+
 //! Gas cost benchmark for `walrus-sui`.
 
 use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, time::Duration};

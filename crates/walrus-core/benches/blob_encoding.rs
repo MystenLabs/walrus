@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in benchmarks.
+#![allow(clippy::unwrap_used)]
+
 //! Benchmarks for the blob encoding and decoding with and without authentication.
 
 use core::{num::NonZeroU16, time::Duration};
