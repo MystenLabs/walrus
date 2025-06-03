@@ -52,12 +52,11 @@ use walrus_sdk::{
 };
 
 use crate::{
-    TipConfig,
     client::AuthPackage,
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
     params::Params,
-    tip::check_response_tip,
+    tip::{TipConfig, check_response_tip},
     utils::{blob_registration_from_response, compute_blob_digest_sha256},
 };
 
@@ -68,8 +67,8 @@ pub(crate) const API_DOCS: &str = "/v1/api";
 
 /// The controller for the fanout proxy.
 ///
-/// It is responsible for checking the incoming requests and pushing the slivers and metadata to the
-/// storage nodes.
+/// It is shared by all fan-out route handlers, and is responsible for checking incoming
+/// requests and pushing slivers and metadata to storage nodes.
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
     pub(crate) tip_config: TipConfig,
@@ -410,6 +409,12 @@ mod tests {
             blob_persistence: BlobPersistence::Permanent,
         };
 
+        let params = Params {
+            blob_id,
+            tx_id: TransactionDigest(),
+            auth_package: auth_package.clone(),
+        };
+        dbg!(serde_urlencoded::to_string(&params));
         let uri_str = format!(
             "http://localhost/v1/blob-fan-out?blob_id={}&tx_id={}&auth_package={}",
             blob_id_str,
