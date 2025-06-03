@@ -148,6 +148,7 @@ impl NodeRecoveryHandler {
                                 "certified blob should have an initial certified epoch set",
                             ),
                             None,
+                            None,
                         )
                         .await;
                     match start_sync_result {

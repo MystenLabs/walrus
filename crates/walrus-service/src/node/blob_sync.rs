@@ -20,6 +20,7 @@ use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore},
     task::{JoinHandle, JoinSet},
+    time::Instant,
 };
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
@@ -241,15 +242,32 @@ impl BlobSyncHandler {
         blob_id: BlobId,
         certified_epoch: Epoch,
         event_handle: Option<EventHandle>,
+        start_time: Option<Instant>,
     ) -> Result<Arc<Notify>, TypedStoreError> {
         let mut in_progress = self
             .blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock");
 
+        if start_time.is_some() {
+            self.node
+                .metrics
+                .process_certified_event_duration_milliseconds
+                .with_label_values(&["AfterLock"])
+                .observe(start_time.unwrap().elapsed().as_millis() as f64);
+        }
+
         let finish_notify = Arc::new(Notify::new());
         match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
+                if start_time.is_some() {
+                    self.node
+                        .metrics
+                        .process_certified_event_duration_milliseconds
+                        .with_label_values(&["AfterEntryLookup"])
+                        .observe(start_time.unwrap().elapsed().as_millis() as f64);
+                }
+
                 let spawned_trace = tracing::info_span!(
                     parent: &Span::current(),
                     "blob_sync",
@@ -277,6 +295,14 @@ impl BlobSyncHandler {
                     cancel_token.clone(),
                 );
 
+                if start_time.is_some() {
+                    self.node
+                        .metrics
+                        .process_certified_event_duration_milliseconds
+                        .with_label_values(&["AfterCreateTaskObj"])
+                        .observe(start_time.unwrap().elapsed().as_millis() as f64);
+                }
+
                 let notify_clone = finish_notify.clone();
                 let blob_sync_handler_clone = self.clone();
                 let permits_clone = self.permits.clone();
@@ -291,10 +317,26 @@ impl BlobSyncHandler {
                     result
                 }));
 
+                if start_time.is_some() {
+                    self.node
+                        .metrics
+                        .process_certified_event_duration_milliseconds
+                        .with_label_values(&["AfterSpawnTask"])
+                        .observe(start_time.unwrap().elapsed().as_millis() as f64);
+                }
+
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
                 });
+
+                if start_time.is_some() {
+                    self.node
+                        .metrics
+                        .process_certified_event_duration_milliseconds
+                        .with_label_values(&["AfterInsertingTask"])
+                        .observe(start_time.unwrap().elapsed().as_millis() as f64);
+                }
             }
             Entry::Occupied(_) => {
                 // A blob sync with a lower sequence number is already in progress. We can safely

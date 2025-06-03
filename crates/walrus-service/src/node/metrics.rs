@@ -169,6 +169,12 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of ongoing blob syncs during node recovery."]
         node_recovery_ongoing_blob_syncs: IntGauge[],
+
+        #[help = "Time (in milliseconds) spent processing certified events"]
+        process_certified_event_duration_milliseconds: HistogramVec {
+            labels: ["step"],
+            buckets: vec![0.001, 0.01, 0.1, 1.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 100000.0],
+        },
     }
 }
 

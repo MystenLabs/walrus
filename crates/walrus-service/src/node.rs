@@ -1290,19 +1290,37 @@ impl StorageNode {
         {
             event_handle.mark_as_complete();
 
+            self.inner
+                .metrics
+                .process_certified_event_duration_milliseconds
+                .with_label_values(&["CheckExistanceSkip"])
+                .observe(start.elapsed().as_millis() as f64);
+
             walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
 
             return Ok(());
         }
 
+        self.inner
+            .metrics
+            .process_certified_event_duration_milliseconds
+            .with_label_values(&["CheckExistanceIssue"])
+            .observe(start.elapsed().as_millis() as f64);
+
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event.blob_id, event.epoch, Some(event_handle))
+            .start_sync(event.blob_id, event.epoch, Some(event_handle), Some(start))
             .await?;
 
         walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
             .observe(start.elapsed().as_secs_f64());
+
+        self.inner
+            .metrics
+            .process_certified_event_duration_milliseconds
+            .with_label_values(&["Queued"])
+            .observe(start.elapsed().as_millis() as f64);
 
         Ok(())
     }
@@ -3933,7 +3951,7 @@ mod tests {
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 1, None)
+            .start_sync(*blob.blob_id(), 1, None, None)
             .await
             .unwrap();
 
