@@ -7,6 +7,6 @@ mod check;
 mod config;
 mod error;
 
-pub(crate) use check::TipChecker;
+pub use check::check_response_tip;
 pub(crate) use config::TipConfig;
 pub(crate) use error::TipError;

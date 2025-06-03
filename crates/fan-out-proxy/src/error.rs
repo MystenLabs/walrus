@@ -9,7 +9,7 @@ use axum::{
 };
 use thiserror::Error;
 use walrus_sdk::{
-    core::{BlobIdParseError, encoding::DataTooLargeError},
+    core::{BlobId, BlobIdParseError, encoding::DataTooLargeError},
     error::ClientError,
     sui::client::SuiClientError,
 };
@@ -33,6 +33,10 @@ pub enum FanOutError {
     #[error("the provided auth package and the transaction's auth package hash do not match")]
     AuthPackageMismatch,
 
+    /// BlobId was not registered in the given transaction.
+    #[error("blob_id {0} was not registered in the referenced transaction")]
+    BlobIdNotRegistered(BlobId),
+
     /// The provided auth package hash is invalid.
     #[error("the provided auth package hash is invalid")]
     InvalidPtbAuthPackageHash,
@@ -43,7 +47,7 @@ pub enum FanOutError {
 
     /// A Sui client error occurred.
     #[error(transparent)]
-    SuiClientError(#[from] SuiClientError),
+    SuiClientError(#[from] Box<SuiClientError>),
 
     /// Blob is too large error.
     #[error(transparent)]
@@ -93,8 +97,9 @@ impl IntoResponse for FanOutError {
             }
             FanOutError::AuthPackageMismatch
             | FanOutError::BlobDigestMismatch
+            | FanOutError::BlobIdNotRegistered(_)
             | FanOutError::InvalidPtbAuthPackageHash => {
-                tracing::error!(error = ?self, "failure relating to auth package checks");
+                tracing::error!(error = ?self, "failure relating to authentication of payload");
                 (StatusCode::UNAUTHORIZED, self.to_string()).into_response()
             }
         }

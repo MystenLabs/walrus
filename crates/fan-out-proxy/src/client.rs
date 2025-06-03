@@ -3,6 +3,7 @@
 
 //! A client for the fanout proxy.
 
+use std::num::NonZeroU16;
 #[cfg(feature = "test-client")]
 use std::{
     fs,
@@ -12,7 +13,7 @@ use std::{
 };
 
 use anyhow::Result;
-use base64::{DecodeError, Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use fastcrypto::hash::{Digest, HashFunction, Sha256};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use reqwest::Url;
@@ -49,15 +50,14 @@ use walrus_sdk::{
 use crate::{
     TipConfig,
     controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
-    params::B64UrlEncodedBytes,
     utils::compute_blob_digest_sha256,
 };
 
 const DIGEST_LEN: usize = 32;
-const OBJECT_ID_LEN: usize = 32;
 
 /// The authentication structure for a blob store request.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(crate) struct AuthPackage {
     /// The SHA256 hash of the blob data.
     pub blob_digest: [u8; DIGEST_LEN],
@@ -114,11 +114,6 @@ impl AuthPackage {
         auth_hash.update(self.to_bytes()?);
         Ok(auth_hash.finalize())
     }
-
-    /// Returns the URL-encoded Base64 encoding of the bytes or the package.
-    pub(crate) fn to_b64_encoded(&self) -> Result<B64UrlEncodedBytes> {
-        Ok(B64UrlEncodedBytes::new(self.to_bytes()?))
-    }
 }
 
 /// Runs the test client.
@@ -136,7 +131,7 @@ pub(crate) async fn run_client(
         FanOutClient::from_args(context, walrus_config, server_url, wallet, gas_budget).await?;
 
     let metadata = fanout.compute_metadata(&blob)?;
-    let computed_blob_id = metadata.blob_id();
+    let computed_blob_id = *metadata.blob_id();
 
     let encoded_size = fanout
         .encoded_size(metadata.metadata().unencoded_length())
@@ -171,18 +166,15 @@ pub(crate) async fn run_client(
     );
     let tx_id = response.digest;
 
-    // REVIEW(wb): either get the object_id here, and send it along, or rewind some of the plumbing
-    // and pull that info from the registration event later on the fan-out server.
-
     ////////////////////////////////////////////////////////////////////////////////
     // Send the actual blob, along with the associated Auth and Tip information.
     let response = fanout
-        .send_to_proxy(tx_id, auth_package, blob, computed_blob_id, object_id)
+        .send_to_proxy(tx_id, auth_package, blob, computed_blob_id)
         .await?;
     ////////////////////////////////////////////////////////////////////////////////
 
     anyhow::ensure!(
-        *computed_blob_id == response.blob_id,
+        computed_blob_id == response.blob_id,
         "the computed blob ID does not match the blob ID in the response from the proxy \
         computed={} response={}",
         computed_blob_id,
@@ -275,6 +267,8 @@ pub async fn get_contract_client(
 pub(crate) struct FanOutClient<T = ()> {
     /// The walrus client.
     pub(crate) walrus_client: WalrusClient<SuiContractClient>,
+    /// n_shards for this network.
+    n_shards: NonZeroU16,
     /// The URL of the proxy.
     server_url: Url,
     /// The tip configuration
@@ -301,9 +295,11 @@ impl FanOutClient {
             gas_budget,
         )
         .await?;
+        let n_shards = walrus_client.get_committees().await?.n_shards();
         tracing::info!(?tip_config, "fan-out client created");
         Ok(Self {
             walrus_client,
+            n_shards,
             server_url,
             tip_config,
             gas_budget,
@@ -316,6 +312,7 @@ impl FanOutClient {
         let pt_builder = self.new_transaction_builder()?;
         let Self {
             walrus_client,
+            n_shards,
             server_url,
             tip_config,
             gas_budget,
@@ -323,6 +320,7 @@ impl FanOutClient {
         } = self;
         Ok(FanOutClient {
             walrus_client,
+            n_shards,
             server_url,
             tip_config,
             gas_budget,
@@ -372,9 +370,8 @@ impl<T> FanOutClient<T> {
         auth_package: AuthPackage,
         blob: Vec<u8>,
         blob_id: BlobId,
-        object_id: ObjectID,
     ) -> Result<ResponseType> {
-        let post_url = fan_out_blob_url(&self.server_url, tx_id, auth_package, blob_id, object_id)?;
+        let post_url = fan_out_blob_url(&self.server_url, tx_id, auth_package, blob_id)?;
 
         tracing::debug!(?post_url, %blob_id, "sending request to the fan-out proxy");
         let client = reqwest::Client::new();
@@ -414,7 +411,9 @@ impl FanOutClient<WalrusPtbBuilder> {
     /// Adds a call to send a tip to the fanout proxy.
     pub(crate) async fn add_tip(mut self, encoded_size: u64) -> Result<Self> {
         if let TipConfig::SendTip { address, kind } = &self.tip_config {
-            let tip_amount = kind.compute_tip(encoded_size);
+            let tip_amount = kind
+                .compute_tip(self.n_shards, encoded_size, EncodingType::RS2)
+                .expect("tip should be computable");
             self.pt_builder.pay_sui(*address, tip_amount).await?;
         }
         Ok(self)
@@ -422,6 +421,7 @@ impl FanOutClient<WalrusPtbBuilder> {
 
     /// Adds an input without using it for anything.
     pub(crate) fn add_pure_input<T: Serialize>(mut self, pure: T) -> Result<Self> {
+        #[allow(deprecated)]
         self.pt_builder.add_pure_input(pure)?;
         Ok(self)
     }
@@ -445,6 +445,7 @@ impl FanOutClient<WalrusPtbBuilder> {
         let Self {
             mut walrus_client,
             server_url,
+            n_shards,
             tip_config,
             gas_budget,
             pt_builder,
@@ -495,6 +496,7 @@ impl FanOutClient<WalrusPtbBuilder> {
         Ok((
             FanOutClient {
                 walrus_client,
+                n_shards,
                 server_url,
                 tip_config,
                 gas_budget,
@@ -510,13 +512,11 @@ pub(crate) fn fan_out_blob_url(
     tx_id: TransactionDigest,
     auth_package: AuthPackage,
     blob_id: BlobId,
-    object_id: ObjectID,
 ) -> Result<Url> {
     let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
     url.query_pairs_mut()
         .append_pair("blob_id", &blob_id.to_string())
         .append_pair("tx_id", &tx_id.to_string())
-        .append_pair("object_id", &object_id.to_string())
         .append_pair(
             "auth_package",
             &URL_SAFE_NO_PAD.encode(auth_package.to_bytes()?),

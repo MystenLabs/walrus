@@ -3,10 +3,15 @@
 
 //! The configuration for the fan-out proxy's tipping system.
 
+use std::num::NonZeroU16;
+
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use utoipa::ToSchema;
-use walrus_sdk::sui::SuiAddressSchema;
+use walrus_sdk::{
+    core::{EncodingType, encoding::encoded_blob_length_for_n_shards},
+    sui::SuiAddressSchema,
+};
 
 /// The kinds of tip that the proxy can choose to configure.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -21,14 +26,24 @@ pub(crate) enum TipKind {
 
 impl TipKind {
     /// Returns the tip required for a blob of the given size, or `None` if no tip is required.
-    pub(crate) fn compute_tip(&self, encoded_size: u64) -> u64 {
-        match self {
+    ///
+    /// Returns None if the blob size cannot be computed.
+    pub(crate) fn compute_tip(
+        &self,
+        n_shards: NonZeroU16,
+        unencoded_length: u64,
+        encoding_type: EncodingType,
+    ) -> Option<u64> {
+        Some(match self {
             TipKind::Const(constant) => *constant,
             TipKind::Linear {
                 base,
                 encoded_size_mul,
-            } => base + encoded_size * encoded_size_mul,
-        }
+            } => {
+                base + encoded_blob_length_for_n_shards(n_shards, unencoded_length, encoding_type)?
+                    * encoded_size_mul
+            }
+        })
     }
 }
 

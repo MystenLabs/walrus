@@ -3,7 +3,7 @@
 
 //! Errors for the tipping system.
 
-use walrus_sdk::{core::BlobId, sui::client::SuiClientError};
+use walrus_sdk::sui::client::SuiClientError;
 
 /// An error that occurs while the proxy is executing or checking a transaction.
 #[derive(Debug, thiserror::Error)]
@@ -17,9 +17,6 @@ pub(crate) enum TipError {
     /// There was no transfer to the proxy account.
     #[error("no tip was transferred to the proxy account")]
     NoTipSent,
-    /// The blob ID of the blob that was sent was not registered.
-    #[error("the blob ID ({0}) for the data provided was not registered")]
-    BlobIdNotRegistered(BlobId),
     /// The encoded blob length cannot be computed.
     #[error("the encoded blob length cannot be computed")]
     EncodedBlobLengthFailed,

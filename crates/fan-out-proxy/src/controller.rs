@@ -5,7 +5,7 @@
 
 use std::{
     net::SocketAddr,
-    ops::Deref,
+    num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -20,24 +20,12 @@ use axum::{
     response::{IntoResponse, Json},
     routing::{get, post},
 };
-use fastcrypto::{encoding::Base64, hash::Digest};
+use fastcrypto::hash::Digest;
 use serde::{Deserialize, Serialize};
-use sui_sdk::rpc_types::{
-    SuiTransactionBlockData,
-    SuiTransactionBlockDataAPI,
-    SuiTransactionBlockResponseOptions,
-};
+use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::{
     digests::TransactionDigest,
-    transaction::{
-        CallArg,
-        InputObjectKind,
-        SenderSignedData,
-        TransactionData,
-        TransactionDataAPI as _,
-        TransactionDataV1,
-        TransactionKind,
-    },
+    transaction::{CallArg, SenderSignedData, TransactionData, TransactionDataV1, TransactionKind},
 };
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
@@ -51,14 +39,16 @@ use walrus_sdk::{
     config::ClientConfig,
     core::{
         BlobId,
-        EncodingType,
         encoding::EncodingConfigTrait as _,
         ensure,
         merkle::DIGEST_LEN,
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::{load_from_yaml, metrics::Registry},
-    sui::client::{BlobPersistence, retry_client::RetriableSuiClient},
+    sui::{
+        client::{BlobPersistence, retry_client::RetriableSuiClient},
+        types::BlobRegistered,
+    },
 };
 
 use crate::{
@@ -66,9 +56,9 @@ use crate::{
     client::AuthPackage,
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
-    params::{B64UrlEncodedBytes, Params},
-    tip::TipChecker,
-    utils::compute_blob_digest_sha256,
+    params::Params,
+    tip::check_response_tip,
+    utils::{blob_registration_from_response, compute_blob_digest_sha256},
 };
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
@@ -82,7 +72,8 @@ pub(crate) const API_DOCS: &str = "/v1/api";
 /// storage nodes.
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
-    pub(crate) checker: TipChecker,
+    pub(crate) tip_config: TipConfig,
+    pub(crate) n_shards: NonZeroU16,
     pub(crate) metric_set: FanOutProxyMetricSet,
 }
 
@@ -90,12 +81,14 @@ impl Controller {
     /// Creates a new controller.
     pub(crate) fn new(
         client: Client<SuiReadClient>,
-        checker: TipChecker,
+        n_shards: NonZeroU16,
+        tip_config: TipConfig,
         metric_set: FanOutProxyMetricSet,
     ) -> Self {
         Self {
             client,
-            checker,
+            tip_config,
+            n_shards,
             metric_set,
         }
     }
@@ -108,11 +101,13 @@ impl Controller {
         blob_id: BlobId,
         tx_digest: TransactionDigest,
         auth_package: AuthPackage,
-        object_id: ObjectID,
     ) -> Result<ResponseType, FanOutError> {
         // Check authentication pre-conditions for fan-out.
-        validate_auth_package(
+        let blob_registered = validate_auth_package(
             self.client.sui_client().sui_client().clone(),
+            self.n_shards,
+            &self.tip_config,
+            blob_id,
             tx_digest,
             &auth_package,
             body.as_ref(),
@@ -157,7 +152,7 @@ impl Controller {
         // Attempt to upload the slivers.
         let blob_persistence = match auth_package.blob_persistence {
             BlobPersistence::Deletable => BlobPersistenceType::Deletable {
-                object_id: object_id.into(),
+                object_id: blob_registered.object_id.into(),
             },
             BlobPersistence::Permanent => BlobPersistenceType::Permanent,
         };
@@ -171,7 +166,7 @@ impl Controller {
         // Reply with the confirmation certificate.
         Ok(ResponseType {
             blob_id,
-            blob_object: object_id,
+            blob_object: blob_registered.object_id,
             confirmation_certificate,
         })
     }
@@ -179,10 +174,13 @@ impl Controller {
 
 async fn validate_auth_package(
     sui_client: RetriableSuiClient,
+    n_shards: NonZeroU16,
+    tip_config: &TipConfig,
+    blob_id: BlobId,
     tx_digest: TransactionDigest,
     auth_package: &AuthPackage,
     blob: &[u8],
-) -> Result<(), FanOutError> {
+) -> Result<BlobRegistered, FanOutError> {
     // Get transaction inputs from tx_id.
     let tx = sui_client
         .get_transaction_with_options(
@@ -191,7 +189,18 @@ async fn validate_auth_package(
                 .with_raw_input()
                 .with_balance_changes(),
         )
-        .await?;
+        .await
+        .map_err(Box::new)?;
+
+    let blob_registered = blob_registration_from_response(tx.clone(), blob_id)?;
+
+    check_response_tip(
+        tip_config,
+        &tx,
+        blob_registered.size,
+        n_shards,
+        blob_registered.encoding_type,
+    )?;
 
     // Check the tx details against the auth package.
     let orig_tx: SenderSignedData =
@@ -205,7 +214,7 @@ async fn validate_auth_package(
             "invalid transaction data"
         )));
     };
-    let Some(CallArg::Pure(auth_package_hash)) = ptb.inputs.get(0) else {
+    let Some(CallArg::Pure(auth_package_hash)) = ptb.inputs.first() else {
         return Err(FanOutError::Other(anyhow::anyhow!(
             "invalid transaction input construction"
         )));
@@ -225,7 +234,7 @@ async fn validate_auth_package(
         FanOutError::BlobDigestMismatch
     );
     // This request looks OK.
-    Ok(())
+    Ok(blob_registered)
 }
 
 /// The response of the fanout proxy, containing the blob ID and the corresponding certificate.
@@ -253,18 +262,15 @@ pub(crate) async fn run_proxy(
     let n_shards = client.get_committees().await?.n_shards();
     let tip_config: TipConfig = load_from_yaml(tip_config)?;
     tracing::debug!(?tip_config, "loaded tip config");
-    let checker = TipChecker::new(
-        tip_config,
-        client.sui_client().sui_client().clone(), // TODO: lol this naming?
-        n_shards,
-    );
 
     // Build our HTTP application to handle the blob fan-out operations.
     let app = Router::new()
         .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
-        .with_state(Arc::new(Controller::new(client, checker, metric_set)))
+        .with_state(Arc::new(Controller::new(
+            client, n_shards, tip_config, metric_set,
+        )))
         .layer(cors_layer());
 
     let addr: SocketAddr = if let Some(socket_addr) = server_address {
@@ -315,7 +321,7 @@ pub(crate) async fn send_tip_config(
     State(controller): State<Arc<Controller>>,
 ) -> impl IntoResponse {
     tracing::debug!("returning tip config");
-    (StatusCode::OK, Json(controller.checker.config())).into_response()
+    (StatusCode::OK, Json(&controller.tip_config)).into_response()
 }
 
 /// Upload a Blob to the Walrus Network
@@ -341,13 +347,12 @@ pub(crate) async fn fan_out_blob_slivers(
         blob_id,
         tx_id,
         auth_package,
-        object_id,
     }): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
     tracing::debug!("starting to process a fan-out request");
     let response = controller
-        .fan_out(body, blob_id, tx_id, auth_package, object_id)
+        .fan_out(body, blob_id, tx_id, auth_package)
         .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -383,27 +388,40 @@ mod tests {
     use std::str::FromStr;
 
     use axum::{extract::Query, http::Uri};
-    use walrus_core::BlobId;
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use walrus_sdk::{
+        core::{BlobId, EncodingType},
+        sui::client::BlobPersistence,
+    };
 
-    use crate::params::{B64UrlEncodedBytes, Params};
+    use crate::{client::AuthPackage, params::Params, utils::compute_blob_digest_sha256};
 
     #[test]
     fn test_parse_fanout_query() {
         let blob_id_str = "efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y";
         let blob_id = BlobId::from_str(blob_id_str).expect("valid blob id");
-        let tx_bytes = B64UrlEncodedBytes::new(vec![13; 50]);
-        let signature = B64UrlEncodedBytes::new(vec![42; 20]);
+        let tx_id = vec![13; 50];
+        let tx_id_str = URL_SAFE_NO_PAD.encode(&tx_id);
+        let auth_package = AuthPackage {
+            blob_digest: compute_blob_digest_sha256(&[0, 1, 2]).into(),
+            nonce: [1u8; 32],
+            timestamp_ms: 1748969702013,
+            encoding_type: EncodingType::RS2,
+            blob_persistence: BlobPersistence::Permanent,
+        };
 
         let uri_str = format!(
-            "http://localhost/v1/blob-fan-out?blob_id={}&tx_bytes={}&signature={}",
-            blob_id_str, tx_bytes, signature,
+            "http://localhost/v1/blob-fan-out?blob_id={}&tx_id={}&auth_package={}",
+            blob_id_str,
+            tx_id_str,
+            URL_SAFE_NO_PAD.encode(bcs::to_bytes(&auth_package).expect("should be bcs encodable")),
         );
         dbg!(&uri_str);
 
         let uri: Uri = uri_str.parse().expect("valid uri");
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
         assert_eq!(blob_id, result.blob_id);
-        assert_eq!(tx_bytes, result.tx_bytes);
-        assert_eq!(signature, result.signature);
+        assert_eq!(tx_id, result.tx_id.inner());
+        assert_eq!(auth_package, result.auth_package);
     }
 }
