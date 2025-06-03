@@ -255,7 +255,7 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 </div>
 <div>
 <p>Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.</p>
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
 <p>The end of the output should look like the following:</p>
@@ -280,7 +280,8 @@ To browse the site, you have the following options:
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
-browse the site.</p>
+browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json</p>
 <p>Note here that we are implicitly using the default <code>sites-config.yaml</code> as the config for the site
 builder that we set up previously on the <a href="./tutorial-install.html">installation section</a>. The
 configuration file is necessary to ensure that the <code>site-builder</code> knows the correct Sui package for

@@ -238,7 +238,7 @@ directly specify resource headers and routing rules.</p>
 site's resources (in other words, the file is not part of the resulting Walrus Site and is not
 served by the portal).</p>
 <p>If you don't want to use this default location, you can specify the path to the configuration file
-with the <code>--ws-resources</code> flag when running the <code>publish</code> or <code>update</code> commands.</p>
+with the <code>--ws-resources</code> flag when running the <code>deploy</code>, <code>publish</code> or <code>update</code> commands.</p>
 <p>The file is JSON-formatted, and looks like the following:</p>
 <pre><code class="language-JSON">{
   "headers": {
@@ -259,11 +259,12 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
   },
+  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
   "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 </code></pre>
-<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>,
-<code>metadata</code>, and the <code>ignore</code> section.</p>
+<p>We now describe in detail five sections of the configuration file: <code>headers</code>, <code>routes</code>,
+<code>metadata</code>, <code>object_id</code> and the <code>ignore</code> section.</p>
 <h2 id="specifying-http-response-headers"><a class="header" href="#specifying-http-response-headers">Specifying HTTP response headers</a></h2>
 <p>The <code>headers</code> section allows you to specify custom HTTP response headers for specific resources.
 The keys in the <code>headers</code> object are the paths of the resources, and the values are lists of
@@ -385,6 +386,14 @@ example you can place a link to your sites favicon.</li>
 <li><code>project_url</code>: If your site is open-source, add a link to your site's GitHub repository.</li>
 <li><code>creator</code>: Add the name of your company, group, or individual creator of your site.</li>
 </ul>
+<h2 id="site-object-id-object_id"><a class="header" href="#site-object-id-object_id">Site Object ID (<code>object_id</code>)</a></h2>
+<p>The optional <code>object_id</code> field in your <code>ws-resources.json</code> file stores the Sui Object ID of your
+deployed Walrus Site.</p>
+<p><strong>Role in Deployment:</strong></p>
+<p>The <code>site-builder deploy</code> command primarily uses this field to identify an existing site for updates.
+If a valid <code>object_id</code> is present, <code>deploy</code> will target that site for modifications.
+If this field is missing (and no <code>--object-id</code> CLI flag is used), <code>deploy</code> will publish a new site.
+If successful, then the command automatically populates this <code>object_id</code> field in your <code>ws-resources.json</code>.</p>
 <h2 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h2>
 <p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
 This is useful when you want to keep development files, secrets, or temporary assets out of

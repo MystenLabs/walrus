@@ -3019,7 +3019,7 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 </div>
 <div>
 <p>Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.</p>
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
 <p>The end of the output should look like the following:</p>
@@ -3044,7 +3044,8 @@ To browse the site, you have the following options:
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
-browse the site.</p>
+browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json</p>
 <p>Note here that we are implicitly using the default <code>sites-config.yaml</code> as the config for the site
 builder that we set up previously on the <a href="walrus-sites/./tutorial-install.html">installation section</a>. The
 configuration file is necessary to ensure that the <code>site-builder</code> knows the correct Sui package for
@@ -3444,7 +3445,7 @@ directly specify resource headers and routing rules.</p>
 site's resources (in other words, the file is not part of the resulting Walrus Site and is not
 served by the portal).</p>
 <p>If you don't want to use this default location, you can specify the path to the configuration file
-with the <code>--ws-resources</code> flag when running the <code>publish</code> or <code>update</code> commands.</p>
+with the <code>--ws-resources</code> flag when running the <code>deploy</code>, <code>publish</code> or <code>update</code> commands.</p>
 <p>The file is JSON-formatted, and looks like the following:</p>
 <pre><code class="language-JSON">{
   "headers": {
@@ -3465,11 +3466,12 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
   },
+  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
   "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 </code></pre>
-<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>,
-<code>metadata</code>, and the <code>ignore</code> section.</p>
+<p>We now describe in detail five sections of the configuration file: <code>headers</code>, <code>routes</code>,
+<code>metadata</code>, <code>object_id</code> and the <code>ignore</code> section.</p>
 <h2 id="specifying-http-response-headers"><a class="header" href="#specifying-http-response-headers">Specifying HTTP response headers</a></h2>
 <p>The <code>headers</code> section allows you to specify custom HTTP response headers for specific resources.
 The keys in the <code>headers</code> object are the paths of the resources, and the values are lists of
@@ -3591,6 +3593,14 @@ example you can place a link to your sites favicon.</li>
 <li><code>project_url</code>: If your site is open-source, add a link to your site's GitHub repository.</li>
 <li><code>creator</code>: Add the name of your company, group, or individual creator of your site.</li>
 </ul>
+<h2 id="site-object-id-object_id"><a class="header" href="#site-object-id-object_id">Site Object ID (<code>object_id</code>)</a></h2>
+<p>The optional <code>object_id</code> field in your <code>ws-resources.json</code> file stores the Sui Object ID of your
+deployed Walrus Site.</p>
+<p><strong>Role in Deployment:</strong></p>
+<p>The <code>site-builder deploy</code> command primarily uses this field to identify an existing site for updates.
+If a valid <code>object_id</code> is present, <code>deploy</code> will target that site for modifications.
+If this field is missing (and no <code>--object-id</code> CLI flag is used), <code>deploy</code> will publish a new site.
+If successful, then the command automatically populates this <code>object_id</code> field in your <code>ws-resources.json</code>.</p>
 <h2 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h2>
 <p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
 This is useful when you want to keep development files, secrets, or temporary assets out of
@@ -4942,7 +4952,7 @@ choices regarding these Technologies.</em></p>
 <li><strong>Cookies and Interest-Based Advertising</strong>. You may stop or restrict the placement of Technologies on your device or remove them by adjusting your preferences as your browser or device permits. However, if you adjust your preferences, our Services may not work properly. Please note that cookie-based opt-outs are not effective on mobile applications. However, you may opt-out of personalized advertisements on some mobile applications by following the instructions for <a href="https://support.google.com/googleplay/android-developer/answer/6048248?hl=en">Android</a>, <a href="https://support.apple.com/en-us/HT202074">iOS</a> and <a href="https://www.networkadvertising.org/mobile-choice/">others</a>.</li>
 </ul>
 <blockquote>
-<p>The online advertising industry also provides websites from which you may opt out of receiving targeted ads from data partners and other advertising partners that participate in self-regulatory programs. You can access these and learn more about targeted advertising and consumer choice and privacy by visiting the <a href="http://www.networkadvertising.org/managing/opt_out.asp">Network Advertising Initiative</a>, <a href="http://www.aboutads.info/choices/">the Digital Advertising Alliance</a>, <a href="https://www.youronlinechoices.eu/">the European Digital Advertising Alliance</a>, and <a href="https://youradchoices.ca/choices/">the Digital Advertising Alliance of Canada</a>.</p>
+<p>The online advertising industry also provides websites from which you may opt out of receiving targeted ads from data partners and other advertising partners that participate in self-regulatory programs. You can access these and learn more about targeted advertising and consumer choice and privacy by visiting the <a href="https://thenai.org/opt-out/">Network Advertising Initiative</a>, <a href="https://youradchoices.com/">the Digital Advertising Alliance</a>, <a href="https://www.youronlinechoices.eu/">the European Digital Advertising Alliance</a>, and <a href="https://youradchoices.ca/choices/">the Digital Advertising Alliance of Canada</a>.</p>
 </blockquote>
 <blockquote>
 <p>Please note you must separately opt out in each browser and on each device.</p>
