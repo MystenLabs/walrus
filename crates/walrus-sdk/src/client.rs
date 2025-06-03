@@ -572,22 +572,28 @@ impl<T: ReadClient> Client<T> {
                         all_slivers.push(sliver);
                     }
                 }
-                Err(e) => {
+                Err(error) => {
                     // TODO(WAL-685): if the error is not retriable, return the error immediately.
-                    tracing::warn!(?e, "error retrieving slivers");
-                    last_error = Some(e);
+                    tracing::warn!(?error, "error retrieving slivers");
+                    last_error = Some(error);
                 }
             }
 
             attempts += 1;
-            if !sliver_selector.is_empty() {
+            if all_slivers.len() != num_unique_slivers {
                 tokio::time::sleep(RETRIEVE_SLIVERS_RETRY_DELAY).await;
             }
         }
 
         if all_slivers.len() != num_unique_slivers {
             Err(ClientError::from(ClientErrorKind::Other(
-                format!("Failed to retrieve slivers: {:?}", last_error).into(),
+                format!(
+                    "failed to retrieve some slivers ({}/{} successful): {:?}",
+                    all_slivers.len(),
+                    num_unique_slivers,
+                    last_error
+                )
+                .into(),
             )))
         } else {
             Ok(all_slivers)
@@ -646,8 +652,8 @@ impl<T: ReadClient> Client<T> {
         // Execute all requests with appropriate concurrency limits.
         requests
             .execute_until(
-                &|_| false,       // We want to execute all futures.
-                timeout_duration, // Default 30s timeout if none provided
+                &|_| false, // We want to execute all futures.
+                timeout_duration,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
@@ -662,7 +668,14 @@ impl<T: ReadClient> Client<T> {
         let slivers = requests
             .take_results()
             .into_iter()
-            .filter_map(|NodeResult { result, .. }| result.ok())
+            .filter_map(|NodeResult { result, node, .. }| {
+                result
+                    .map_err(|error| {
+                        tracing::debug!(%node, %error, "retrieving sliver failed");
+                        error
+                    })
+                    .ok()
+            })
             .collect::<Vec<_>>();
 
         Ok(slivers)
