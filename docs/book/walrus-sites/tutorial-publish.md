@@ -31,7 +31,7 @@ site-builder deploy ./walrus-snake --epochs 1
 
 ``` admonish tip
 Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.
 ```
 
 The end of the output should look like the following:
@@ -60,6 +60,7 @@ This output tells you that, for each file in the folder, a new Walrus blob was c
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
 browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json
 
 Note here that we are implicitly using the default `sites-config.yaml` as the config for the site
 builder that we set up previously on the [installation section](./tutorial-install.md). The
