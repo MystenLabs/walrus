@@ -461,6 +461,7 @@ documentation is available at <a href="https://docs.wal.app">https://docs.wal.ap
 storage using SUI Testnet tokens which can be acquired at the <a href="https://discord.com/channels/916379725201563759/1037811694564560966">Sui Testnet Discord
 faucet</a>.</p>
 <h2 id="one-more-thing-"><a class="header" href="#one-more-thing-">One more thing …</a></h2>
+<!-- markdownlint-disable descriptive-link-text -->
 <p>The Walrus Sites website, the Walrus docs, and this very blog are hosted on Walrus. To learn more
 about Walrus Sites and how you can deploy your own, <a href="blog/../walrus-sites/intro.html">click here</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
@@ -901,8 +902,8 @@ instructions</a> in the Sui
 documentation.</p>
 <p>After installing the Sui CLI, you need to set up a wallet by running <code>sui client</code>, which
 prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
-full node at <code>https://fullnode.mainnet.sui.io:443</code> for this. See
-<a href="https://docs.sui.io/guides/developer/getting-started/connect">here</a> for further details.</p>
+full node at <code>https://fullnode.mainnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/connect">the Sui
+documentation</a> for further details.</p>
 <p>After this, you should get something like this (everything besides the <code>mainnet</code> line is optional):</p>
 <pre><code class="language-terminal">$ sui client envs
 ╭──────────┬─────────────────────────────────────┬────────╮
@@ -1171,8 +1172,8 @@ Mainnet. Finally, developers can operate local Walrus and Sui networks for testi
 </tbody></table>
 </div>
 <p>Many other parameters, including the system capacity and prices, are dynamic. Those are stored in
-the system object (see <a href="usage/../dev-guide/sui-struct.html#system-and-staking-information">here</a>) and can be
-viewed with various tools like the <a href="https://walruscan.com/">Walruscan explorer</a>.</p>
+the system object (see <a href="usage/../dev-guide/sui-struct.html#system-and-staking-information">the documentation about the system and staking objects</a>)
+and can be viewed with various tools like the <a href="https://walruscan.com/">Walruscan explorer</a>.</p>
 <h2 id="mainnet-configuration"><a class="header" href="#mainnet-configuration">Mainnet configuration</a></h2>
 <h3 id="mainnet-parameters"><a class="header" href="#mainnet-parameters">Mainnet parameters</a></h3>
 <p>The client parameters for the Walrus Mainnet are:</p>
@@ -1193,8 +1194,8 @@ them into the Walrus client configuration file. The latest published package IDs
 in the <code>Move.lock</code> files in the subdirectories of the <a href="https://github.com/MystenLabs/walrus/tree/main/contracts"><code>contracts</code> directory on
 GitHub</a>.</p>
 <p>The configuration file described on the <a href="usage/./setup.html#configuration">setup page</a> includes both Mainnet
-and Testnet configuration. If you want <em>only</em> the Mainnet configuration, you can get the file
-<a href="usage/../setup/client_config_mainnet.yaml">here</a>.</p>
+and Testnet configuration. If you want <em>only</em> the Mainnet configuration, you can download the
+<a href="usage/../setup/client_config_mainnet.yaml">Mainnet-only configuration file</a>.</p>
 <h2 id="testnet-configuration"><a class="header" href="#testnet-configuration">Testnet configuration</a></h2>
 <div id="admonition-walrus-testnet-redeployment" class="admonition admonish-warning" role="note" aria-labelledby="admonition-walrus-testnet-redeployment-title">
 <div class="admonition-title">
@@ -1234,8 +1235,8 @@ documentation. If you do not want to install the Sui CLI, you can also generate 
 Testnet using <code>walrus generate-sui-wallet --network testnet</code>.</p>
 <p>After installing the Sui CLI, you need to set up a Testnet wallet by running <code>sui client</code>, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
-full node at <code>https://fullnode.testnet.sui.io:443</code> for this. See
-<a href="https://docs.sui.io/guides/developer/getting-started/connect">here</a> for further details.</p>
+full node at <code>https://fullnode.testnet.sui.io:443</code> for this. See <a href="https://docs.sui.io/guides/developer/getting-started/connect">the Sui
+documentation</a> for further details.</p>
 <p>If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
 don't have it yet),</p>
 <pre><code class="language-sh">sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
@@ -1271,7 +1272,7 @@ or when <a href="usage/./interacting.html">running the CLI</a>.</p>
 <h3 id="testnet-parameters"><a class="header" href="#testnet-parameters">Testnet parameters</a></h3>
 <p>The configuration parameters for the Walrus Testnet are included in the configuration file described
 on the <a href="usage/./setup.html#configuration">setup page</a>. If you want <em>only</em> the Testnet configuration, you can
-get the file <a href="usage/../setup/client_config_testnet.yaml">here</a>. The parameters are:</p>
+get the <a href="usage/../setup/client_config_testnet.yaml">Testnet-only configuration file</a>. The parameters are:</p>
 <pre><code class="language-yaml">system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
 staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
 subsidies_object: 0xda799d85db0429765c8291c594d334349ef5bc09220e79ad397b30106161a0af
@@ -1752,8 +1753,8 @@ aggregator and/or publisher is required. On Walrus Testnet, many entities run pu
 publishers. On Mainnet, there are no public publishers without authentication, as they consume both
 SUI and WAL.</p>
 <p>See the following subsections for <a href="usage/web-api.html#mainnet">public aggregators on Mainnet</a> and public
-<a href="usage/web-api.html#aggregators-testnet">aggregators</a> and <a href="usage/web-api.html#publishers-testnet">publishers</a> on Testnet. All of these
-are also available in JSON format <a href="usage/../assets/operators.json">here</a>.</p>
+<a href="usage/web-api.html#aggregators-testnet">aggregators</a> and <a href="usage/web-api.html#publishers-testnet">publishers</a> on Testnet. We also
+provide the <a href="usage/../assets/operators.json">operator lists in JSON format</a>.</p>
 <!-- markdownlint-disable proper-names -->
 <h3 id="mainnet"><a class="header" href="#mainnet">Mainnet</a></h3>
 <p>The following is a list of known public aggregators on Walrus Mainnet; they are checked
