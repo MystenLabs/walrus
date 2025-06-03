@@ -162,4 +162,5 @@ jobs:
           repository: MystenLabs/sui-operations
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
           event-type: walrus-release-announce
-          client-payload: '{"walrus_commit": "${{ needs.create-release.outputs.walrus_commit }}", "environment": "${{ inputs.network }}"}'
+          client-payload: >
+            {"walrus_commit": "${{ needs.create-release.outputs.walrus_commit }}", "environment": "${{ inputs.network }}"}

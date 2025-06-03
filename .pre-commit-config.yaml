@@ -14,7 +14,7 @@ repos:
       - id: editorconfig-checker
         alias: ec
   - repo: https://github.com/google/yamlfmt
-    rev: v0.15.0
+    rev: v0.17.0
     hooks:
       - id: yamlfmt
   - repo: https://github.com/notken12/licensesnip
