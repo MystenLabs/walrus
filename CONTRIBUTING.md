@@ -31,39 +31,100 @@ in our project. In a nutshell, this requires the following steps to contribute:
 1. When all requirements are met, a reviewer or the PR author (if they have write permissions) can
    merge the PR.
 
-## Commit messages
+## Conventions
+
+To keep our code clean, readable, and maintainable, we strive to follow various conventions. These
+are described in detail in the following subsections. Note that some but not all of them are
+enforced by our CI pipeline and our [pre-commit hooks](#pre-commit-hooks).
+
+### Error handling and panics
+
+We *do not* use `unwrap` in production code; `unwrap` should only be used in tests, benchmarks, or
+similar code. If possible, code should be rewritten such that neither `unwrap` nor `expect` is
+needed. If this is not possible or cumbersome, but we *know for sure* that a value *cannot* be
+`None` or `Err`, use `expect` with an explanation why it cannot fail.
+
+Otherwise, handle these values explicitly, using `Option` or `Result` return types if needed.
+Furthermore, if a function can panic under certain conditions, prefer an explicit `panic!` and make
+sure to document this in the function's docstring, see also [below](#documentation).
+
+### Type conversions
+
+[Type cast expressions](https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions)
+with ` as `, especially on numeric types, can sometimes have unwanted and unexpected semantics,
+including silent truncation, wrapping, or loss of precision. Consequently, we recommend to instead
+use `from`/`into` or, if that is not available, `try_from`/`try_into` with [proper error
+handling](#error-handling-and-panics) for type conversions.
+
+### Logging
+
+We use [tracing](https://docs.rs/tracing/latest/tracing/) for logging within our crates. Please add
+reasonable [spans](https://docs.rs/tracing/latest/tracing/#spans) and [logging
+events](https://docs.rs/tracing/latest/tracing/#events) to your code with appropriate [logging
+level](https://docs.rs/tracing/latest/tracing/struct.Level.html). In addition, please consider the
+following conventions:
+
+- Log entries generally start with a lowercase letter and do not end in a full stop. You can however
+  use commas and semicolons.
+- Prefer including additional data as [*metadata fields*](https://docs.rs/tracing/latest/tracing/#recording-fields)
+  instead of including them in the message. Use the shorthand form whenever possible. Only include
+  variables directly in the string if they are necessary to create a useful message in the first
+  place.
+- In async code, generally use [`instrument`](https://docs.rs/tracing-attributes/latest/tracing_attributes/attr.instrument.html)
+  attributes instead of manually creating and entering spans as this automatically handles await
+  points correctly.
+
+### Naming
+
+We generally follow the [naming conventions of the Rust API Guidelines](https://rust-lang.github.io/api-guidelines/naming.html).
+In addition, please consider the following recommendations:
+
+- All components should have descriptive names that match their purpose.
+- The larger the scope of a component, the more expressive its name should be.
+- Choose full words over abbreviations. The only exceptions are very frequent and common
+  abbreviations like `min`, `max`, `id`.
+- The only situation in which very short or even single-letter names are acceptable is for
+  parameters of very short closures.
+
+### File names
+
+We use the "modern" naming convention where a module `some_module` is called `some_module.rs` and
+its submodules are in the directory `some_module/`, see the [corresponding page in the Rust
+reference](https://doc.rust-lang.org/reference/items/modules.html#module-source-filenames).
+
+### Commit messages
 
 To ensure a consistent Git history (from which we can later easily generate changelogs
 automatically), we always squash commits when merging a PR and enforce that all PR titles comply
 with the [conventional-commit format](https://www.conventionalcommits.org/en/v1.0.0/). For examples,
 please take a look at our [commit history](https://github.com/MystenLabs/walrus/commits/main).
 
-## Documentation
+### Documentation
 
-Make sure all public structs, enums, functions, etc. are covered by docstrings. Additionally, if you
-made any user-facing changes, please adjust our documentation under [docs/book](./docs/book/).
+Make sure all public structs, enums, functions, etc. are covered by docstrings. Docstrings for
+private or `pub(crate)` components are appreciated as well but not enforced.
 
-## Pre-commit hooks
+In general, we follow the [guidelines about documentation in the Rust
+documentation](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html#documenting-components).
+In particular, please adhere to the following conventions:
 
-We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit
-hooks to ensure that these check pass even *before pushing your changes* to GitHub. To use this, the
-following steps are required:
+- All docstrings are written as full sentences, starting with a capital letter.
+- The first line should be a short sentence summarizing the component. Details should be described
+  after an empty line.
+- If a function can panic, this *must* be documented in a `# Panics` section in the docstring.
+- An `# Examples` section is often useful and can simultaneously serve as [documentation
+  tests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html).
+- Docstrings should be [cross-linked](https://doc.rust-lang.org/rustdoc/write-documentation/linking-to-items-by-name.html)
+  whenever it makes sense.
+- Module docstrings should be inside the respective module file with `//!` (instead of at the module
+  inclusion location).
 
-1. Install [Rust](https://www.rust-lang.org/tools/install).
-1. Install [nextest](https://nexte.st/).
-1. [Install pre-commit](https://pre-commit.com/#install) using `pip` or your OS's package manager.
-1. Run `pre-commit install` in the repository.
+Additionally, if you made any user-facing changes, please adjust our documentation under
+[docs/book](./docs/book/).
 
-After this setup, the code will be checked, reformatted, and tested whenever you create a Git commit.
+### Formatting
 
-You can also use a custom pre-commit configuration if you wish:
-
-1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
-1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
-
-## Formatting
-
-### Rust code formatting
+#### Rust code formatting
 
 We use a few unstable formatting options of Rustfmt. Unfortunately, these can only be used with a
 stable toolchain when specified via the `--config` command-line option. This is done in
@@ -87,7 +148,7 @@ Also make sure you use the correct version of Rustfmt. See
 [`rust-toolchain.toml`](rust-toolchain.toml) for the current version. This also impacts other checks,
 for example Clippy.
 
-### Move code formatting
+#### Move code formatting
 
 We use the `@mysten/prettier-plugin-move` npm package to format Move code. If you're using VSCode,
 you can install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move)
@@ -104,6 +165,24 @@ The Move formatter can then be run manually by executing:
 ```sh
 prettier-move --write <path-to-move-file-or-folder>
 ```
+
+## Pre-commit hooks
+
+We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit
+hooks to ensure that these check pass even *before pushing your changes* to GitHub. To use this, the
+following steps are required:
+
+1. Install [Rust](https://www.rust-lang.org/tools/install).
+1. Install [nextest](https://nexte.st/).
+1. [Install pre-commit](https://pre-commit.com/#install) using `pip` or your OS's package manager.
+1. Run `pre-commit install` in the repository.
+
+After this setup, the code will be checked, reformatted, and tested whenever you create a Git commit.
+
+You can also use a custom pre-commit configuration if you wish:
+
+1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
+1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
 
 ## Tests
 
@@ -193,8 +272,7 @@ You can then run all simtests with
 cargo simtest
 ```
 
-Further information about the simtest framework is available
-[here](https://github.com/MystenLabs/sui/tree/main/crates/sui-simulator#how-to-run-sim-tests).
+See [further information about the simtest framework](https://github.com/MystenLabs/sui/tree/main/crates/sui-simulator#how-to-run-sim-tests).
 
 ## Benchmarks
 

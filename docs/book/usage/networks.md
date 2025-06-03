@@ -16,8 +16,8 @@ Some important fixed system parameters for Mainnet and Testnet are summarized in
 | Maximum number of epochs for which storage can be bought | 53      | 53      |
 
 Many other parameters, including the system capacity and prices, are dynamic. Those are stored in
-the system object (see [here](../dev-guide/sui-struct.md#system-and-staking-information)) and can be
-viewed with various tools like the [Walruscan explorer](https://walruscan.com/).
+the system object (see [the documentation about the system and staking objects](../dev-guide/sui-struct.md#system-and-staking-information))
+and can be viewed with various tools like the [Walruscan explorer](https://walruscan.com/).
 
 ## Mainnet configuration
 
@@ -41,8 +41,8 @@ in the `Move.lock` files in the subdirectories of the [`contracts` directory on
 GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
 The configuration file described on the [setup page](./setup.md#configuration) includes both Mainnet
-and Testnet configuration. If you want *only* the Mainnet configuration, you can get the file
-[here](../setup/client_config_mainnet.yaml).
+and Testnet configuration. If you want *only* the Mainnet configuration, you can download the
+[Mainnet-only configuration file](../setup/client_config_mainnet.yaml).
 
 ## Testnet configuration
 
@@ -74,8 +74,8 @@ Testnet using `walrus generate-sui-wallet --network testnet`.
 
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
-full node at `https://fullnode.testnet.sui.io:443` for this. See
-[here](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+full node at `https://fullnode.testnet.sui.io:443` for this. See [the Sui
+documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
 
 If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
 don't have it yet),
@@ -127,7 +127,7 @@ or when [running the CLI](./interacting.md).
 
 The configuration parameters for the Walrus Testnet are included in the configuration file described
 on the [setup page](./setup.md#configuration). If you want *only* the Testnet configuration, you can
-get the file [here](../setup/client_config_testnet.yaml). The parameters are:
+get the [Testnet-only configuration file](../setup/client_config_testnet.yaml). The parameters are:
 
 ```yaml
 {{ #include ../setup/client_config_testnet.yaml }}

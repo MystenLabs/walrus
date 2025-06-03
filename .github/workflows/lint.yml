@@ -59,7 +59,7 @@ jobs:
         run: ./yamlfmt -lint
 
       - name: Lint all markdown files
-        uses: DavidAnson/markdownlint-cli2-action@05f32210e84442804257b2a6f20b273450ec8265 # pin@v19.1.0
+        uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e # pin@v20.0.0
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.

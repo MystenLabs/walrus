@@ -116,7 +116,7 @@ jobs:
 
       - name: Install nexttest (Windows)
         if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
-        uses: taiki-e/install-action@33022ba120c3f523d134bbbee12278fc11a3df1a # pin@nextest
+        uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
 
       - name: Install postgres (Windows)
         if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
