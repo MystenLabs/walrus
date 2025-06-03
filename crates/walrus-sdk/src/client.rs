@@ -94,6 +94,10 @@ pub mod refresh;
 pub mod resource;
 pub mod responses;
 
+/// The delay between retries when retrieving slivers.
+#[allow(unused)]
+const RETRIEVE_SLIVERS_RETRY_DELAY: Duration = Duration::from_millis(100);
+
 /// A set of slivers to be retrieved from Walrus.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SliverSelector<E: EncodingAxis> {
@@ -104,13 +108,13 @@ pub(crate) struct SliverSelector<E: EncodingAxis> {
 #[allow(unused)]
 impl<E: EncodingAxis> SliverSelector<E> {
     /// Creates a new sliver selector.
-    pub fn new(sliver_indices: Vec<SliverIndex>, n_shards: NonZeroU16, blob_id: &BlobId) -> Self {
+    pub fn new(sliver_indices: &[SliverIndex], n_shards: NonZeroU16, blob_id: &BlobId) -> Self {
         let indices_and_shards = sliver_indices
-            .into_iter()
+            .iter()
             .map(|sliver_index| {
                 let pair_index = sliver_index.to_pair_index::<E>(n_shards);
                 let shard_index = pair_index.to_shard_index(n_shards, blob_id);
-                (sliver_index, shard_index)
+                (*sliver_index, shard_index)
             })
             .collect::<BiMap<_, _>>();
 
@@ -121,7 +125,7 @@ impl<E: EncodingAxis> SliverSelector<E> {
     }
 
     /// Returns the number of slivers.
-    pub fn num_slivers(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.indices_and_shards.len()
     }
 
@@ -135,8 +139,10 @@ impl<E: EncodingAxis> SliverSelector<E> {
         self.indices_and_shards.contains_right(shard_index)
     }
 
-    /// Sliver is complete.
-    pub fn complete_sliver(&mut self, sliver_index: &SliverIndex) -> bool {
+    /// Removes a sliver from the selector.
+    ///
+    /// Returns true if the sliver was removed.
+    pub fn remove_sliver(&mut self, sliver_index: &SliverIndex) -> bool {
         self.indices_and_shards
             .remove_by_left(sliver_index)
             .is_some()
@@ -515,79 +521,84 @@ impl<T: ReadClient> Client<T> {
 
     /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
     ///
+    /// Only unique slivers are retrieved, duplicates sliver indices are ignored.
     /// This function will keep retrying until all requested slivers are received or the maximum
-    /// number of retries is reached or the timeout is reached.
+    /// number of attempts is reached or the timeout is reached.
     async fn retrieve_slivers_with_retry<E: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         sliver_indices: &[SliverIndex],
         certified_epoch: Epoch,
-        max_attempts: Option<usize>,
-        timeout_duration: Option<Duration>,
+        max_attempts: usize,
+        timeout_duration: Duration,
     ) -> Result<Vec<SliverData<E>>, ClientError>
     where
         SliverData<E>: TryFrom<walrus_core::Sliver>,
     {
-        let mut sliver_selector = SliverSelector::<E>::new(
-            sliver_indices.to_vec(),
-            metadata.n_shards(),
-            metadata.blob_id(),
-        );
+        let mut sliver_selector =
+            SliverSelector::<E>::new(sliver_indices, metadata.n_shards(), metadata.blob_id());
         let mut attempts = 0;
-        let retry_delay_ms = 100;
-        let mut all_slivers: HashMap<SliverIndex, SliverData<E>> = HashMap::new();
+        let num_unique_slivers = sliver_selector.len();
+        let mut all_slivers = Vec::with_capacity(num_unique_slivers);
         let start_time = Instant::now();
         let mut last_error: Option<ClientError> = None;
 
         while !sliver_selector.is_empty() {
             // Check if we've exceeded the timeout or the max retries.
-            if let Some(timeout_duration) = timeout_duration {
-                if start_time.elapsed() > timeout_duration {
-                    tracing::debug!(
-                        "Timeout reached after {:?} while retrieving slivers",
-                        timeout_duration
-                    );
-                    break;
-                }
+            if start_time.elapsed() > timeout_duration {
+                tracing::debug!(
+                    "timeout reached after {} while retrieving slivers",
+                    humantime::Duration::from(timeout_duration)
+                );
+                break;
             }
-            if let Some(max_attempts) = max_attempts {
-                if attempts > max_attempts {
-                    tracing::debug!("Max attempts ({}) reached", max_attempts);
-                    break;
-                }
+            if attempts > max_attempts {
+                tracing::debug!("max attempts ({}) reached", max_attempts);
+                break;
             }
 
-            tracing::debug!("Retrieving slivers: {:?}", sliver_selector);
+            tracing::debug!(?sliver_selector, "retrieving slivers");
             match self
-                .retrieve_slivers(metadata, &sliver_selector, certified_epoch)
+                .retrieve_slivers(
+                    metadata,
+                    &sliver_selector,
+                    certified_epoch,
+                    timeout_duration - start_time.elapsed(),
+                )
                 .await
             {
                 Ok(new_slivers) => {
                     // Track which indices we've successfully retrieved.
                     for sliver in new_slivers {
-                        sliver_selector.complete_sliver(&sliver.index);
-                        all_slivers.insert(sliver.index, sliver);
+                        sliver_selector.remove_sliver(&sliver.index);
+                        all_slivers.push(sliver);
                     }
                 }
-                Err(e) => {
-                    // TODO(heliu): if the error is not retriable, return the error immediately.
-                    tracing::warn!("Error retrieving slivers: {:?}", e);
-                    last_error = Some(e);
+                Err(error) => {
+                    // TODO(WAL-685): if the error is not retriable, return the error immediately.
+                    tracing::warn!(?error, "error retrieving slivers");
+                    last_error = Some(error);
                 }
             }
 
             attempts += 1;
-            if !sliver_selector.is_empty() {
-                tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+            if all_slivers.len() != num_unique_slivers {
+                tokio::time::sleep(RETRIEVE_SLIVERS_RETRY_DELAY).await;
             }
         }
 
-        if all_slivers.len() != sliver_indices.len() {
+        if all_slivers.len() != num_unique_slivers {
             Err(ClientError::from(ClientErrorKind::Other(
-                format!("Failed to retrieve slivers: {:?}", last_error).into(),
+                format!(
+                    "failed to retrieve some slivers ({}/{} successful): {:?}",
+                    all_slivers.len(),
+                    num_unique_slivers,
+                    last_error
+                )
+                .into(),
             )))
         } else {
-            Ok(all_slivers.into_values().collect())
+            Ok(all_slivers)
         }
     }
 
@@ -598,6 +609,7 @@ impl<T: ReadClient> Client<T> {
         metadata: &'a VerifiedBlobMetadataWithId,
         sliver_selector: &SliverSelector<E>,
         certified_epoch: Epoch,
+        timeout_duration: Duration,
     ) -> ClientResult<Vec<SliverData<E>>>
     where
         SliverData<E>: TryFrom<Sliver>,
@@ -608,18 +620,15 @@ impl<T: ReadClient> Client<T> {
 
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar: indicatif::ProgressBar =
-            styled_progress_bar(sliver_selector.num_slivers() as u64);
-        progress_bar.set_message(format!(
-            "requesting {} slivers",
-            sliver_selector.num_slivers()
-        ));
+            styled_progress_bar(sliver_selector.len() as u64);
+        progress_bar.set_message(format!("requesting {} slivers", sliver_selector.len()));
 
         let committees = self.get_committees().await?;
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
 
-        // Create requests to get all slivers from all nodes.
+        // Create requests to get all required slivers.
         let futures = comms.iter().flat_map(|n| {
             n.node
                 .shard_ids
@@ -644,8 +653,9 @@ impl<T: ReadClient> Client<T> {
 
         // Execute all requests with appropriate concurrency limits.
         requests
-            .execute_weight(
+            .execute_until(
                 &|_| false, // We want to execute all futures.
+                timeout_duration,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
@@ -657,20 +667,14 @@ impl<T: ReadClient> Client<T> {
 
         progress_bar.finish_with_message("slivers received");
 
-        let mut n_not_found = 0;
-        let mut n_forbidden = 0;
         let slivers = requests
             .take_results()
             .into_iter()
-            .filter_map(|NodeResult { node, result, .. }| {
+            .filter_map(|NodeResult { result, node, .. }| {
                 result
                     .map_err(|error| {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
-                        if error.is_status_not_found() {
-                            n_not_found += 1;
-                        } else if error.is_blob_blocked() {
-                            n_forbidden += 1;
-                        }
+                        error
                     })
                     .ok()
             })

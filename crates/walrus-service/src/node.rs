@@ -684,8 +684,11 @@ impl StorageNode {
 
         let start_epoch_change_finisher = StartEpochChangeFinisher::new(inner.clone());
 
-        let node_recovery_handler =
-            NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
+        let node_recovery_handler = NodeRecoveryHandler::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            config.node_recovery_config.clone(),
+        );
         node_recovery_handler.restart_recovery().await?;
 
         tracing::debug!(

@@ -157,8 +157,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 metadata,
                 &[SliverIndex::new(0)],
                 certified_epoch,
-                Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
-                Some(Self::TIMEOUT_DURATION),
+                Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
+                Self::TIMEOUT_DURATION,
             )
             .await?;
 
@@ -199,8 +199,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             metadata,
                             &indices,
                             certified_epoch,
-                            Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
-                            Some(Self::TIMEOUT_DURATION),
+                            Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
+                            Self::TIMEOUT_DURATION,
                         )
                         .await?,
                 );
@@ -254,8 +254,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 metadata,
                 &sliver_indices,
                 certified_epoch,
-                Some(Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS),
-                Some(Self::TIMEOUT_DURATION),
+                Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
+                Self::TIMEOUT_DURATION,
             )
             .await;
 

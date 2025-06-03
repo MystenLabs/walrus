@@ -12,12 +12,13 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
-bimap = "0.6.3"
+bimap.workspace = true
 chrono.workspace = true
 enum_dispatch.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
+humantime.workspace = true
 indexmap.workspace = true
 indicatif.workspace = true
 indoc.workspace = true

@@ -807,6 +807,7 @@ pub async fn create_storage_node_configs(
             },
             checkpoint_config: Default::default(),
             admin_socket_path: Some(working_dir.join(format!("admin-{}.sock", node_index))),
+            node_recovery_config: Default::default(),
         });
     }
 
