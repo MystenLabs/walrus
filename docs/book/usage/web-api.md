@@ -137,8 +137,8 @@ publishers. On Mainnet, there are no public publishers without authentication, a
 SUI and WAL.
 
 See the following subsections for [public aggregators on Mainnet](#mainnet) and public
-[aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. All of these
-are also available in JSON format [here](../assets/operators.json).
+[aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. We also
+provide the [operator lists in JSON format](../assets/operators.json).
 
 <!-- markdownlint-disable proper-names -->
 ### Mainnet

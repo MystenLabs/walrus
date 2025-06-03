@@ -805,6 +805,9 @@ pub async fn create_storage_node_configs(
                 enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            checkpoint_config: Default::default(),
+            admin_socket_path: Some(working_dir.join(format!("admin-{}.sock", node_index))),
+            node_recovery_config: Default::default(),
         });
     }
 

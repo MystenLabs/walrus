@@ -126,6 +126,7 @@ use self::{
     committee::{CommitteeService, NodeCommitteeService},
     config::StorageNodeConfig,
     contract_service::{SuiSystemContractService, SystemContractService},
+    db_checkpoint::DbCheckpointManager,
     errors::{
         BlobStatusError,
         ComputeStorageConfirmationError,
@@ -162,6 +163,8 @@ use crate::{
     common::{config::SuiConfig, utils::should_reposition_cursor},
     utils::ShardDiffCalculator,
 };
+
+pub(crate) mod db_checkpoint;
 
 pub mod committee;
 pub mod config;
@@ -517,6 +520,7 @@ pub struct StorageNodeInner {
     registry: Registry,
     latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
     consistency_check_config: StorageNodeConsistencyCheckConfig,
+    checkpoint_manager: Option<Arc<DbCheckpointManager>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -613,6 +617,18 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        let checkpoint_manager = match DbCheckpointManager::new(
+            storage.get_db(),
+            config.checkpoint_config.clone(),
+        )
+        .await
+        {
+            Ok(manager) => Some(Arc::new(manager)),
+            Err(e) => {
+                tracing::warn!(?e, "Failed to initialize checkpoint manager");
+                None
+            }
+        };
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -641,6 +657,7 @@ impl StorageNode {
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
             consistency_check_config: config.consistency_check.clone(),
+            checkpoint_manager,
         });
 
         blocklist.start_refresh_task();
@@ -667,8 +684,11 @@ impl StorageNode {
 
         let start_epoch_change_finisher = StartEpochChangeFinisher::new(inner.clone());
 
-        let node_recovery_handler =
-            NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
+        let node_recovery_handler = NodeRecoveryHandler::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            config.node_recovery_config.clone(),
+        );
         node_recovery_handler.restart_recovery().await?;
 
         tracing::debug!(
@@ -731,6 +751,9 @@ impl StorageNode {
                 }
             },
             _ = cancel_token.cancelled() => {
+                if let Some(checkpoint_manager) = self.checkpoint_manager() {
+                    checkpoint_manager.shutdown();
+                }
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
             },
@@ -762,6 +785,11 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Returns the checkpoint manager for the node.
+    pub fn checkpoint_manager(&self) -> Option<Arc<DbCheckpointManager>> {
+        self.inner.checkpoint_manager.clone()
     }
 
     /// Returns the shards which the node currently manages in its storage.

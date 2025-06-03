@@ -12,6 +12,7 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
+use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
     Identifier,
@@ -19,7 +20,14 @@ use sui_types::{
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
+    transaction::{
+        Argument,
+        Command,
+        ObjectArg,
+        ProgrammableTransaction,
+        TransactionData,
+        TransactionKind,
+    },
 };
 use tokio::sync::OnceCell;
 use tracing::instrument;
@@ -40,6 +48,7 @@ use super::{
     SuiClientError,
     SuiClientResult,
     SuiReadClient,
+    UpgradeType,
     read_client::Mutability,
 };
 use crate::{
@@ -50,7 +59,7 @@ use crate::{
         NodeUpdateParams,
         SystemObject,
         UpdatePublicKeyParams,
-        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
+        move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
@@ -1345,26 +1354,8 @@ impl WalrusPtbBuilder {
         self.walrus_move_call(contracts::upgrade::authorize_emergency_upgrade, args)
     }
 
-    /// Performs a contract upgrade.
-    ///
-    /// Returns the `UpgradeReceipt` as result argument.
-    pub fn upgrade(
-        &mut self,
-        current_package_object_id: ObjectID,
-        upgrade_ticket: Argument,
-        transitive_deps: Vec<ObjectID>,
-        modules: Vec<Vec<u8>>,
-    ) -> Argument {
-        self.pt_builder.upgrade(
-            current_package_object_id,
-            upgrade_ticket,
-            transitive_deps,
-            modules,
-        )
-    }
-
     /// Commits a contract upgrade.
-    pub async fn commit_upgrade(
+    pub(crate) async fn commit_upgrade(
         &mut self,
         upgrade_manager: ObjectID,
         upgrade_receipt: Argument,
@@ -1383,6 +1374,54 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Builds a transaction to upgrade the walrus contract using the custom upgrade policy.
+    ///
+    /// This includes the authorization, the upgrade itself, and committing the upgrade.
+    pub async fn custom_walrus_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        compiled_package: CompiledPackage,
+        upgrade_type: UpgradeType,
+    ) -> SuiClientResult<()> {
+        let digest = compiled_package.get_package_digest(false);
+
+        let upgrade_ticket_arg = if upgrade_type.is_emergency_upgrade() {
+            let emergency_upgrade_cap: EmergencyUpgradeCap = self
+                .read_client
+                .get_owned_objects(self.sender_address, &[])
+                .await?
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("no emergency upgrade capability found"))?;
+
+            // Authorize the upgrade.
+            self.authorize_emergency_upgrade(
+                upgrade_manager,
+                emergency_upgrade_cap.id.into(),
+                &digest,
+            )
+            .await?
+        } else {
+            self.authorize_upgrade(upgrade_manager, &digest).await?
+        };
+
+        // Execute the upgrade.
+        let modules = compiled_package.get_package_bytes(false);
+        let upgrade_receipt_arg = self.pt_builder.upgrade(
+            self.read_client.get_system_package_id(),
+            upgrade_ticket_arg,
+            compiled_package
+                .dependency_ids
+                .published
+                .into_values()
+                .collect(),
+            modules,
+        );
+
+        // Commit the upgrade
+        self.commit_upgrade(upgrade_manager, upgrade_receipt_arg)
+            .await
+    }
+
     /// Migrates the staking and system contracts to the new package id.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let args = vec![
@@ -1392,12 +1431,66 @@ impl WalrusPtbBuilder {
         self.move_call(new_package_id, contracts::init::migrate, args)?;
         Ok(())
     }
+
     /// Transfers all remaining outputs and returns the PTB and the SUI balance needed in addition
     /// to the gas cost that needs to be covered by the gas coin.
+    #[deprecated = "use [`Self::build_transaction_data`] instead"]
     pub async fn finish(mut self) -> SuiClientResult<(ProgrammableTransaction, u64)> {
         self.transfer_remaining_outputs(None).await?;
         let sui_cost = self.tx_sui_cost;
         Ok((self.pt_builder.finish(), sui_cost))
+    }
+
+    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
+    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    pub async fn build_transaction_data(
+        self,
+        gas_budget: Option<u64>,
+    ) -> SuiClientResult<TransactionData> {
+        self.build_transaction_data_with_min_gas_balance(gas_budget, 0)
+            .await
+    }
+
+    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
+    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    /// The used gas coins will cover a balance of at least `minimum_gas_coin_balance`. This
+    /// is useful, e.g.,  to make sure that all gas coins get merged.
+    pub(crate) async fn build_transaction_data_with_min_gas_balance(
+        mut self,
+        gas_budget: Option<u64>,
+        minimum_gas_coin_balance: u64,
+    ) -> SuiClientResult<TransactionData> {
+        self.transfer_remaining_outputs(None).await?;
+        let programmable_transaction = self.pt_builder.finish();
+
+        // Get the current gas price from the network
+        // TODO(WAL-512): cache this to avoid RPC roundtrip.
+        let gas_price = self.read_client.get_reference_gas_price().await?;
+
+        // Estimate the gas budget unless explicitly set.
+        let gas_budget = if let Some(budget) = gas_budget {
+            budget
+        } else {
+            let tx_kind =
+                TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
+            self.read_client
+                .sui_client()
+                .estimate_gas_budget(self.sender_address, tx_kind, gas_price)
+                .await?
+        };
+
+        let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + self.tx_sui_cost);
+
+        // Construct the transaction with gas coins that meet the minimum balance requirement
+        Ok(TransactionData::new_programmable(
+            self.sender_address,
+            self.read_client
+                .get_compatible_gas_coins(self.sender_address, minimum_gas_coin_balance)
+                .await?,
+            programmable_transaction,
+            gas_budget,
+            gas_price,
+        ))
     }
 
     /// Given the node ID, checks if the sender is authorized to perform the operation (either as

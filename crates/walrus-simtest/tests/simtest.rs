@@ -25,6 +25,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
+        node::config::NodeRecoveryConfig,
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
@@ -122,9 +123,7 @@ mod tests {
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: node_weights.clone(),
                 use_legacy_event_processor: false,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
+                ..Default::default()
             })
             .with_num_checkpoints_per_blob(100)
             .with_communication_config(
@@ -223,11 +222,26 @@ mod tests {
             panic!("shard sync should not enter recovery mode in this test");
         });
 
+        let mut node_recovery_config = NodeRecoveryConfig::default();
+
+        // 20% of the time using a more restrictive node recovery config.
+        if rand::thread_rng().gen_bool(0.2) {
+            let max_concurrent_blob_syncs_during_recovery = rand::thread_rng().gen_range(1..=3);
+            tracing::info!(
+                "using more restrictive node recovery config, \
+                max_concurrent_blob_syncs_during_recovery: {}",
+                max_concurrent_blob_syncs_during_recovery
+            );
+            node_recovery_config.max_concurrent_blob_syncs_during_recovery =
+                max_concurrent_blob_syncs_during_recovery;
+        }
+
         let (_sui_cluster, mut walrus_cluster, client, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
+                    node_recovery_config: Some(node_recovery_config),
                     ..Default::default()
                 })
                 .with_communication_config(
@@ -391,14 +405,27 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_long_node_recovery() {
+        let mut node_recovery_config = NodeRecoveryConfig::default();
+
+        // 20% of the time using a more restrictive node recovery config.
+        if rand::thread_rng().gen_bool(0.2) {
+            let max_concurrent_blob_syncs_during_recovery = rand::thread_rng().gen_range(1..=3);
+            tracing::info!(
+                "using more restrictive node recovery config, \
+                max_concurrent_blob_syncs_during_recovery: {}",
+                max_concurrent_blob_syncs_during_recovery
+            );
+            node_recovery_config.max_concurrent_blob_syncs_during_recovery =
+                max_concurrent_blob_syncs_during_recovery;
+        }
+
         let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
                 use_legacy_event_processor: false,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
+                node_recovery_config: Some(node_recovery_config),
+                ..Default::default()
             })
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
