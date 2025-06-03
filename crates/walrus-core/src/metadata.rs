@@ -283,7 +283,10 @@ impl VerifiedBlobMetadataWithId {
     /// of shards in the encoding config with which this was verified.
     pub fn n_shards(&self) -> NonZeroU16 {
         let n_hashes = self.metadata.hashes().len();
-        NonZeroU16::new(n_hashes as u16).expect("verified metadata has a valid number of shards")
+        u16::try_from(n_hashes)
+            .ok()
+            .and_then(NonZeroU16::new)
+            .expect("verified metadata has a valid number of shards")
     }
 }
 

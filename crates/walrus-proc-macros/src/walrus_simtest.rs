@@ -10,7 +10,10 @@ pub fn attribute_macro(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
 
     let arg_parser = Punctuated::<syn::Meta, Token![,]>::parse_terminated;
-    let args = arg_parser.parse(args).unwrap().into_iter();
+    let args = arg_parser
+        .parse(args)
+        .expect("should be able to parse arguments")
+        .into_iter();
 
     // If running simtests, add a "simtest_" prefix to the function name.
     let output = if cfg!(msim) {

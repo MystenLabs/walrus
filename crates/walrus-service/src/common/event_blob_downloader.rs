@@ -58,18 +58,19 @@ impl EventBlobDownloader {
         );
 
         while prev_event_blob != BlobId::ZERO {
-            let result = self
+            let blob_status = match self
                 .walrus_client
                 .get_blob_status_with_retries(&prev_event_blob, &self.sui_read_client)
-                .await;
-
-            let Ok(blob_status) = result else {
-                let err = result.err().unwrap();
-                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                    // We've reached an expired blob, safe to terminate
-                    break;
-                } else {
-                    return Err(err.into());
+                .await
+            {
+                Ok(blob_status) => blob_status,
+                Err(err) => {
+                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
+                        // We've reached an expired blob, safe to terminate
+                        break;
+                    } else {
+                        return Err(err.into());
+                    }
                 }
             };
 
@@ -82,23 +83,24 @@ impl EventBlobDownloader {
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
             } else {
-                let result = self
+                match self
                     .walrus_client
                     .read_blob_with_status::<walrus_core::encoding::Primary>(
                         &prev_event_blob,
                         blob_status,
                     )
-                    .await;
-                let Ok(blob) = result else {
-                    let err = result.err().unwrap();
-                    metrics.inspect(|&m| {
-                        m.event_processor_event_blob_fetched
-                            .with_label_values(&["network"])
-                            .inc()
-                    });
-                    return Err(err.into());
-                };
-                (blob, "network")
+                    .await
+                {
+                    Ok(blob) => (blob, "network"),
+                    Err(err) => {
+                        metrics.inspect(|&m| {
+                            m.event_processor_event_blob_fetched
+                                .with_label_values(&["network"])
+                                .inc()
+                        });
+                        return Err(err.into());
+                    }
+                }
             };
 
             metrics.inspect(|&m| {

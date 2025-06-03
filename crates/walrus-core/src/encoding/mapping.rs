@@ -188,7 +188,8 @@ mod tests {
         rotate_pairs(&mut pairs, &blob_id).unwrap();
         // Check that all the pairs are is in the correct spot
         assert!(pairs.iter().enumerate().all(|(index, pair)| {
-            ShardIndex(index as u16).to_pair_index(7.try_into().unwrap(), &blob_id) == pair.index()
+            ShardIndex(index.try_into().unwrap()).to_pair_index(7.try_into().unwrap(), &blob_id)
+                == pair.index()
         }));
     }
 
@@ -200,7 +201,8 @@ mod tests {
         // Check that all the pairs are is in the correct spot
         for (index, pair) in pairs.iter().enumerate() {
             assert_eq!(
-                ShardIndex(index as u16).to_pair_index(7.try_into().unwrap(), &blob_id),
+                ShardIndex(index.try_into().unwrap())
+                    .to_pair_index(7.try_into().unwrap(), &blob_id),
                 pair.index()
             );
         }
@@ -209,7 +211,8 @@ mod tests {
         let combined_blob_id = test_utils::blob_id_from_u64(18); // 17 % 7 + 15 % 7 = 18 % 7
         rotate_pairs_unchecked(&mut pairs, &blob_id_2);
         assert!(pairs.iter().enumerate().all(|(index, pair)| {
-            ShardIndex(index as u16).to_pair_index(7.try_into().unwrap(), &combined_blob_id)
+            ShardIndex(index.try_into().unwrap())
+                .to_pair_index(7.try_into().unwrap(), &combined_blob_id)
                 == pair.index()
         }));
     }

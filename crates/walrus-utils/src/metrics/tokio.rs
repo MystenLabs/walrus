@@ -68,7 +68,7 @@ where
         if let Some(task_monitor) = self
             .task_monitors
             .read()
-            .expect("mutex is not poisoned")
+            .expect("mutex should not be poisoned")
             .get(key)
             .cloned()
         {
@@ -80,7 +80,7 @@ where
         // to any existing monitor.
         self.task_monitors
             .write()
-            .expect("mutex is not poisoned")
+            .expect("mutex should not be poisoned")
             .entry(key.clone())
             .or_insert_with(move || {
                 let collector = TaskMonitorCollector::new(task_name());

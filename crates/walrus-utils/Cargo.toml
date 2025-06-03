@@ -11,7 +11,7 @@ config = ["dep:anyhow", "dep:home", "dep:serde", "dep:tracing"]
 default = []
 http = ["dep:bytes", "dep:http-body", "dep:pin-project"]
 log = ["dep:humantime", "dep:once_cell", "dep:tracing"]
-metrics = ["dep:prometheus", "dep:tap", "dep:thiserror"]
+metrics = ["dep:once_cell", "dep:prometheus", "dep:tap", "dep:thiserror"]
 test-utils = ["dep:tempfile", "tokio/sync"]
 tokio-metrics = ["dep:tokio-metrics"]
 

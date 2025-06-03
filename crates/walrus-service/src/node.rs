@@ -1029,7 +1029,7 @@ impl StorageNode {
         if let Err(error) =
             self.maybe_record_event_source(element_index, &stream_element.checkpoint_event_position)
         {
-            tracing::warn!(?error, "Failed to record event source");
+            tracing::warn!(?error, "failed to record event source");
         }
 
         let event_handle = EventHandle::new(
@@ -1905,6 +1905,7 @@ impl StorageNode {
             .unwrap_or(0)
             + event_source.counter;
 
+        #[allow(clippy::cast_possible_wrap)] // wrapping is fine here
         walrus_utils::with_label!(
             self.inner
                 .metrics

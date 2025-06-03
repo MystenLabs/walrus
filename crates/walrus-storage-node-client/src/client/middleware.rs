@@ -20,8 +20,6 @@ use reqwest::{
     Request,
     Response,
     StatusCode,
-    Url,
-    Version,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
 use tokio::time::Instant;
@@ -579,7 +577,9 @@ impl Injector for HeaderInjector<'_> {
 }
 
 mod helpers {
-    use super::*;
+    use std::borrow::Cow;
+
+    use reqwest::{StatusCode, Url, Version};
 
     /// Enum of client HTTP error types that may be attached to metrics/traces.
     #[derive(Debug, Clone)]

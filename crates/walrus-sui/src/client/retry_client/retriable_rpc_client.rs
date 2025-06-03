@@ -383,13 +383,14 @@ impl RetriableRpcClient {
 
             let last_success = self.last_success.load(Ordering::Relaxed);
             let num_failures = self.num_failures.load(Ordering::Relaxed);
-            if self.fallback_client.is_none()
-                || !self
-                    .fallback_client
-                    .as_ref()
-                    .unwrap()
-                    .is_eligible_for_fallback(sequence_number, &error, last_success, num_failures)
-            {
+            if self.fallback_client.as_ref().is_none_or(|fallback_client| {
+                fallback_client.is_eligible_for_fallback(
+                    sequence_number,
+                    &error,
+                    last_success,
+                    num_failures,
+                )
+            }) {
                 tracing::debug!(
                     fallback_client_set = ?self.fallback_client.is_some(),
                     "primary client error while fetching checkpoint is not eligible for fallback, \

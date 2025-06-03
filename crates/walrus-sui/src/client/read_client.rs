@@ -411,7 +411,7 @@ impl SuiReadClient {
         let subsidies = self
             .subsidies
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
             .as_ref()
             .ok_or_else(|| SuiClientError::Internal(anyhow!("subsidies object ID not found")))?
             .clone();
@@ -466,7 +466,7 @@ impl SuiReadClient {
     pub fn get_subsidies_package_id(&self) -> Option<ObjectID> {
         self.subsidies
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
             .as_ref()
             .map(|s| s.package_id)
     }
@@ -485,7 +485,7 @@ impl SuiReadClient {
     pub fn get_subsidies_object_id(&self) -> Option<ObjectID> {
         self.subsidies
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
             .as_ref()
             .map(|s| s.object_id)
     }
@@ -497,7 +497,7 @@ impl SuiReadClient {
             self.staking_object_id,
             self.subsidies
                 .read()
-                .expect("lock should not be poisoned")
+                .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
         )
@@ -511,30 +511,32 @@ impl SuiReadClient {
     fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
         self.walrus_package_id
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
     fn walrus_package_id_mut(&self) -> RwLockWriteGuard<ObjectID> {
         self.walrus_package_id
             .write()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
     /// Returns a mutable reference to the subsidies object.
     fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
-        self.subsidies.write().expect("lock should not be poisoned")
+        self.subsidies
+            .write()
+            .expect("mutex should not be poisoned")
     }
 
     pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
         self.type_origin_map
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
     fn type_origin_map_mut(&self) -> RwLockWriteGuard<TypeOriginMap> {
         self.type_origin_map
             .write()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
     /// Returns the balance of the owner for the given coin type.
@@ -886,6 +888,7 @@ impl SuiReadClient {
     }
 
     /// Returns the backoff configuration for the inner client.
+    #[cfg(feature = "test-utils")]
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
     }
@@ -955,7 +958,7 @@ impl ReadClient for SuiReadClient {
             package: *self
                 .walrus_package_id
                 .read()
-                .expect("lock should not be poisoned"),
+                .expect("mutex should not be poisoned"),
             module: Identifier::new(EVENT_MODULE)?,
         };
         tokio::spawn(async move {
@@ -1162,7 +1165,7 @@ impl ReadClient for SuiReadClient {
         let subsidies = self
             .subsidies
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
             .clone();
         if let Some(subsidies) = subsidies {
             let new_package_id = self
@@ -1172,8 +1175,10 @@ impl ReadClient for SuiReadClient {
 
             // Update the package_id if it has changed
             if new_package_id != subsidies.package_id {
-                let mut subsidies_guard =
-                    self.subsidies.write().expect("lock should not be poisoned");
+                let mut subsidies_guard = self
+                    .subsidies
+                    .write()
+                    .expect("mutex should not be poisoned");
                 if let Some(subsidies) = subsidies_guard.as_mut() {
                     subsidies.package_id = new_package_id;
                 }

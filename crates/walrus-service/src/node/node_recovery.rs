@@ -45,7 +45,10 @@ impl NodeRecoveryHandler {
         &self,
         certified_before_epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
-        let mut locked_task_handle = self.task_handle.lock().unwrap();
+        let mut locked_task_handle = self
+            .task_handle
+            .lock()
+            .expect("mutex should not be poisoned");
         assert!(locked_task_handle.is_none());
 
         let node = self.node.clone();

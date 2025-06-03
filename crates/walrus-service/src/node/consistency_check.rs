@@ -297,6 +297,7 @@ fn certified_blob_consistency_check(
                 ?existence_check_error,
             "background blob info consistency check finished");
 
+            #[allow(clippy::cast_possible_wrap)] // wrapping is fine here
             walrus_utils::with_label!(node.metrics.blob_info_consistency_check, epoch_bucket)
                 .set(blob_list_digest as i64);
 
@@ -406,6 +407,7 @@ fn compose_certified_object_blob_list_digest(
 
     tracing::info!(?epoch, certified_blob_hash = ?blob_object_list_digest,
             "background per-object blob info consistency check finished");
+    #[allow(clippy::cast_possible_wrap)] // wrapping is fine here
     walrus_utils::with_label!(
         node.metrics.per_object_blob_info_consistency_check,
         epoch_bucket

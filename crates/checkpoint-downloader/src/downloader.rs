@@ -230,7 +230,11 @@ impl ParallelCheckpointDownloaderInner {
                         .send(WorkerMessage::Shutdown)
                         .await?;
                     let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                    config.metrics.num_workers.set(new_count as i64);
+                    config.metrics.num_workers.set(
+                        new_count
+                            .try_into()
+                            .expect("new_count should always fit into a i64"),
+                    );
                 }
             }
             std::cmp::Ordering::Less => {
@@ -249,7 +253,11 @@ impl ParallelCheckpointDownloaderInner {
                     );
                     *next_worker_id += 1;
                     let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    config.metrics.num_workers.set(new_count as i64);
+                    config.metrics.num_workers.set(
+                        new_count
+                            .try_into()
+                            .expect("new_count should always fit into a i64"),
+                    );
                 }
             }
             std::cmp::Ordering::Equal => {}
@@ -318,7 +326,9 @@ impl ParallelCheckpointDownloaderInner {
                     };
 
                     consecutive_failures = 0;
-                    config.metrics.checkpoint_lag.set(lag as i64);
+                    config.metrics.checkpoint_lag.set(lag.try_into().expect(
+                        "lag should always fit into a i64"
+                    ));
 
                     let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
                     if lag > downloader_config.scale_up_lag_threshold &&
@@ -456,22 +466,20 @@ impl ParallelCheckpointDownloaderInner {
         };
 
         loop {
-            let result = client.get_full_checkpoint(sequence_number).await;
-            let Ok(checkpoint) = result else {
-                let err = result.unwrap_err();
-                handle_checkpoint_error(&err, sequence_number);
+            match client.get_full_checkpoint(sequence_number).await {
+                Ok(checkpoint) => return CheckpointEntry::new(sequence_number, Ok(checkpoint)),
+                Err(err) => {
+                    handle_checkpoint_error(&err, sequence_number);
+                    if let Some(delay) = backoff.next() {
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
 
-                if let Some(delay) = backoff.next() {
-                    tokio::time::sleep(delay).await;
-                    continue;
+                    // Note that we only return error in test mode.
+                    assert!(cfg!(test));
+                    return CheckpointEntry::new(sequence_number, Err(err.into()));
                 }
-
-                // Note that we only return error in test mode.
-                assert!(cfg!(test));
-                return CheckpointEntry::new(sequence_number, Err(err.into()));
-            };
-
-            return CheckpointEntry::new(sequence_number, Ok(checkpoint));
+            }
         }
     }
 }

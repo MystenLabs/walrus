@@ -91,7 +91,7 @@ fn basic_decoding(c: &mut Criterion) {
                 encoder
                     .encode_all()
                     .enumerate()
-                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u16, s)),
+                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i.try_into().unwrap(), s)),
                 usize::from(symbol_count) + 1,
             )
             .collect();

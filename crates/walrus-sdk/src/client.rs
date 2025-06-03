@@ -645,8 +645,14 @@ impl Client<SuiContractClient> {
                     None
                 } else {
                     Some((
-                        encoded_blob.get_sliver_pairs().unwrap().clone(),
-                        encoded_blob.get_metadata().unwrap().clone(),
+                        encoded_blob
+                            .get_sliver_pairs()
+                            .expect("sliver pairs are present on an encoded blob")
+                            .clone(),
+                        encoded_blob
+                            .get_metadata()
+                            .expect("metadata is present on an encoded blob")
+                            .clone(),
                     ))
                 }
             })

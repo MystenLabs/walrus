@@ -209,7 +209,7 @@ impl SuiClientError {
             ExecutionCancelledDueToSharedObjectCongestion\x20\{\x20congested_objects:
             \x20CongestedObjects\(\[(0x[a-f0-9]+)\]\)\x20\}",
         )
-        .unwrap();
+        .expect("this regex is valid");
         re.captures(error)
             .and_then(|caps| caps.get(1))
             .map(|objects_match| {
@@ -2197,7 +2197,12 @@ impl SuiContractClientInner {
 
         if wal_balance.coin_object_count > 1 {
             tx_builder
-                .fill_wal_balance(wal_balance.total_balance as u64)
+                .fill_wal_balance(
+                    wal_balance
+                        .total_balance
+                        .try_into()
+                        .expect("this is always smaller than u64::MAX"),
+                )
                 .await?;
         }
 
@@ -2206,7 +2211,10 @@ impl SuiContractClientInner {
                 tx_builder
                     .build_transaction_data_with_min_gas_balance(
                         self.gas_budget,
-                        sui_balance.total_balance as u64,
+                        sui_balance
+                            .total_balance
+                            .try_into()
+                            .expect("this is always smaller than u64::MAX"),
                     )
                     .await?,
                 "merge_coins",

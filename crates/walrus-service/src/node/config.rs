@@ -164,7 +164,7 @@ pub struct StorageNodeConfig {
     /// The number of uncertified blobs before the node will reset the local
     /// state in event blob writer.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
-    pub num_uncertified_blob_threshold: Option<u32>,
+    pub num_uncertified_blob_threshold: Option<usize>,
     /// Configuration for background SUI balance checks and alerting.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub balance_check: BalanceCheckConfig,
@@ -372,14 +372,13 @@ impl StorageNodeConfig {
         commission_rate_data: &CommissionRateData,
         local_commission_rate: u16,
     ) -> Option<u16> {
-        let projected_commission_rate = commission_rate_data
-            .pending_commission_rate
-            .last()
-            .map_or(u64::from(commission_rate_data.commission_rate), |&(_, rate)| {
-                rate
-            });
+        let projected_commission_rate = commission_rate_data.pending_commission_rate.last().map_or(
+            u64::from(commission_rate_data.commission_rate),
+            |&(_, rate)| rate,
+        );
         assert!(projected_commission_rate < u64::from(u16::MAX));
-        (projected_commission_rate != u64::from(local_commission_rate)).then_some(local_commission_rate)
+        (projected_commission_rate != u64::from(local_commission_rate))
+            .then_some(local_commission_rate)
     }
 
     /// Compares the current node parameters with the passed-in parameters and generates the
@@ -614,7 +613,7 @@ impl Default for CommitteeServiceConfig {
             metadata_request_timeout: Duration::from_secs(5),
             sliver_request_timeout: Duration::from_secs(300),
             invalidity_sync_timeout: Duration::from_secs(300),
-            max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
+            max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
         }
@@ -1501,7 +1500,10 @@ mod tests {
                 voting_params: config.voting_params.clone(),
                 metadata: config.metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, u64::from(config.commission_rate)), (33, 110)],
+                    pending_commission_rate: vec![
+                        (32, u64::from(config.commission_rate)),
+                        (33, 110),
+                    ],
                     commission_rate: config.commission_rate,
                 },
             },

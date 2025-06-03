@@ -531,7 +531,7 @@ async fn test_automatic_wal_coin_squashing(
             )
             .await?
             .len(),
-        n_source_coins as usize
+        usize::try_from(n_source_coins).unwrap()
     );
 
     // Now send the full amount back in `n_target_coins` coins payments, which should trigger the
@@ -561,7 +561,7 @@ async fn test_automatic_wal_coin_squashing(
             )
             .await?
             .coin_object_count,
-        n_coins + n_target_coins as usize
+        n_coins + usize::try_from(n_target_coins).unwrap()
     );
     Ok(())
 }

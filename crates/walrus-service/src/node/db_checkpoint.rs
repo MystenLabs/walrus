@@ -183,8 +183,10 @@ impl DelayedTask {
 
     /// Get the status of the task.
     pub fn get_status(&self) -> TaskStatus {
-        let state = self.status.lock().unwrap();
-        state.clone()
+        self.status
+            .lock()
+            .expect("mutex should not be poisoned")
+            .clone()
     }
 }
 
@@ -687,7 +689,7 @@ mod tests {
 
     use super::*;
 
-    const MIN_BLOB_SIZE: u64 = 10;
+    const MIN_BLOB_SIZE: u16 = 10;
     const BLOB_FILE_SIZE: u64 = 1024 * 1024;
 
     /// Generates key/value pairs with random sizes:
@@ -725,7 +727,7 @@ mod tests {
     fn cf_options_with_blobs() -> Options {
         let mut opts = Options::default();
         opts.set_enable_blob_files(true);
-        opts.set_min_blob_size(MIN_BLOB_SIZE);
+        opts.set_min_blob_size(MIN_BLOB_SIZE.into());
         opts.set_blob_file_size(BLOB_FILE_SIZE);
         opts
     }
@@ -736,7 +738,7 @@ mod tests {
         let db_checkpoint_dir = tempdir()?;
         let restore_dir = tempdir()?;
 
-        let test_data = generate_test_data(100, MIN_BLOB_SIZE as usize);
+        let test_data = generate_test_data(100, MIN_BLOB_SIZE.into());
 
         {
             let mut db_opts = Options::default();

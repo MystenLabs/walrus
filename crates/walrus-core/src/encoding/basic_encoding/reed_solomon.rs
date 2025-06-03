@@ -270,7 +270,9 @@ mod tests {
             .skip(start.into())
             .take((end - start).into())
             .enumerate()
-            .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
+            .map(|(i, symbol)| {
+                DecodingSymbol::<Primary>::new(u16::try_from(i).unwrap() + start, symbol)
+            });
         let mut decoder =
             ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
@@ -296,7 +298,7 @@ mod tests {
             .enumerate()
             .map(|(i, symbol)| {
                 vec![DecodingSymbol::<Primary>::new(
-                    i as u16 + n_source_symbols.get(),
+                    u16::try_from(i).unwrap() + n_source_symbols.get(),
                     symbol,
                 )]
             });

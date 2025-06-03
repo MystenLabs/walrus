@@ -1115,7 +1115,11 @@ impl ShardStorage {
             node.metrics.sync_shard_recover_sliver_pending_total,
             &self.id.to_string()
         )
-        .set(total_blobs_pending_recovery as i64);
+        .set(
+            total_blobs_pending_recovery
+                .try_into()
+                .expect("number of pending recoveries should fit into an i64"),
+        );
     }
 
     /// Skips recovering a blob that is no longer certified.

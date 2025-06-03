@@ -94,7 +94,7 @@ impl EpochChangeDriver {
     pub async fn run(&self) {
         let inner = self.inner.clone();
         std::future::poll_fn(move |cx| {
-            let mut inner_guard = inner.lock().expect("mutex is not poisoned");
+            let mut inner_guard = inner.lock().expect("mutex should not be poisoned");
             inner_guard.poll_unpin(cx)
         })
         .await

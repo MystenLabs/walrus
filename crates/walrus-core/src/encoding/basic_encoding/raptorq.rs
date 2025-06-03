@@ -254,11 +254,19 @@ mod tests {
         let n_shards = end.try_into().unwrap();
 
         let encoder = RaptorQEncoder::new_with_new_encoding_plan(data, n_source_symbols, n_shards)?;
-        let encoded_symbols = encoder
-            .encode_all()
-            .skip(start.into())
-            .enumerate()
-            .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
+        let encoded_symbols =
+            encoder
+                .encode_all()
+                .skip(start.into())
+                .enumerate()
+                .map(|(i, symbol)| {
+                    DecodingSymbol::<Primary>::new(
+                        u16::try_from(i)
+                            .expect("we encode `n_shards` symbols and `n_shards` is a u16")
+                            + start,
+                        symbol,
+                    )
+                });
         let mut decoder = RaptorQDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
@@ -284,7 +292,7 @@ mod tests {
                 .enumerate()
                 .map(|(i, symbol)| {
                     vec![DecodingSymbol::<Primary>::new(
-                        i as u16 + n_source_symbols.get(),
+                        u16::try_from(i).unwrap() + n_source_symbols.get(),
                         symbol,
                     )]
                 });

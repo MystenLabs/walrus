@@ -69,7 +69,7 @@ impl FromStr for InputRange {
 }
 
 impl InputRange {
-    fn iter<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
+    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
         self.range
             .clone()
             .step_by(self.step)

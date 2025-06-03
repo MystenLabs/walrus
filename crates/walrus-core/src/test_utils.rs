@@ -148,9 +148,12 @@ pub const fn blob_id_from_u64(num: u64) -> BlobId {
 pub fn blob_metadata() -> BlobMetadata {
     let config = encoding_config();
     let hashes: Vec<_> = (0..config.n_shards.into())
-        .map(|i| SliverPairMetadata {
-            primary_hash: Node::Digest([(i % 256) as u8; 32]),
-            secondary_hash: Node::Digest([(i % 256) as u8; 32]),
+        .map(|i| {
+            let byte = u8::try_from(i % 256).expect("this is guaranteed to fit into a u8");
+            SliverPairMetadata {
+                primary_hash: Node::Digest([byte; 32]),
+                secondary_hash: Node::Digest([byte; 32]),
+            }
         })
         .collect();
     BlobMetadata::new(DEFAULT_ENCODING, 62_831, hashes)

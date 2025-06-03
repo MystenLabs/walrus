@@ -296,6 +296,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
+    use anyhow::anyhow;
     use config::NodeRegistrationParamsForThirdPartyRegistration;
     use fastcrypto::encoding::Encoding;
     use itertools::Itertools as _;
@@ -560,7 +561,14 @@ mod commands {
         }
 
         let committee_size =
-            NonZeroU16::new(testbed_config.nodes.len() as u16).expect("committee size must be > 0");
+            NonZeroU16::new(testbed_config.nodes.len().try_into().map_err(|_| {
+                anyhow!(
+                    "committee size is too large: {} > {}",
+                    testbed_config.nodes.len(),
+                    u16::MAX
+                )
+            })?)
+            .ok_or_else(|| anyhow!("committee size must be > 0"))?;
         let storage_node_configs = create_storage_node_configs(
             working_dir.as_path(),
             testbed_config,
@@ -579,13 +587,23 @@ mod commands {
             sui_client_request_timeout,
         )
         .await?;
+        assert!(
+            storage_node_configs.len() == usize::from(committee_size.get()),
+            "number of storage nodes ({}) does not match committee size ({})",
+            storage_node_configs.len(),
+            committee_size.get()
+        );
 
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
             let node_config_name = format!(
                 "{}.yaml",
-                testbed::node_config_name_prefix(i as u16, committee_size)
+                testbed::node_config_name_prefix(
+                    u16::try_from(i)
+                        .expect("we checked above that the number of configs is at most 2^16"),
+                    committee_size
+                )
             );
             let node_config_path = working_dir.join(node_config_name);
             fs::write(node_config_path, serialized_storage_node_config)
