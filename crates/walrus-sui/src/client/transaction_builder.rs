@@ -1443,10 +1443,9 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a pure input to the PTB, returning the created argument.
-    // TODO: THIS IS A TEST FUNCTION REMOVE OR CHECK IF WE ACTUALLY NEED IT.
-    #[deprecated] // just to make sure this is not used
     pub fn add_pure_input<T: Serialize>(&mut self, pure: T) -> SuiClientResult<Argument> {
         Ok(self.pt_builder.pure(pure)?)
+    }
 
     /// Transfers all remaining outputs and returns the [`TransactionData`] containing
     /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.

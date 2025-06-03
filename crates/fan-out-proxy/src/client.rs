@@ -421,7 +421,6 @@ impl FanOutClient<WalrusPtbBuilder> {
 
     /// Adds an input without using it for anything.
     pub(crate) fn add_pure_input<T: Serialize>(mut self, pure: T) -> Result<Self> {
-        #[allow(deprecated)]
         self.pt_builder.add_pure_input(pure)?;
         Ok(self)
     }
@@ -451,6 +450,7 @@ impl FanOutClient<WalrusPtbBuilder> {
             pt_builder,
         } = self;
 
+        #[allow(deprecated)]
         let (programmable_transaction, sui_cost) = pt_builder.finish().await?;
 
         let gas_price = walrus_client
