@@ -820,7 +820,7 @@ impl ShardStorage {
                     &self.id.to_string(),
                     &sliver_type.to_string()
                 )
-                .set(next_starting_blob_id.first_two_bytes() as i64);
+                .set(i64::from(next_starting_blob_id.first_two_bytes()));
 
                 let fetched_slivers = node
                     .committee_service

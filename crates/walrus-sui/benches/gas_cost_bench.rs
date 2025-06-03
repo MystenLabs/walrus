@@ -72,7 +72,7 @@ impl InputRange {
     fn iter<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
         self.range
             .clone()
-            .step_by(self.step.clone())
+            .step_by(self.step)
             .map(|val| if self.exp { 2u32.pow(val) } else { val })
     }
 }

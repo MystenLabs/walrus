@@ -282,7 +282,7 @@ trait CurrencyForDisplay {
     }
 
     fn units_in_superunit() -> u64 {
-        10u64.pow(Self::DECIMALS as u32)
+        10u64.pow(u32::from(Self::DECIMALS))
     }
 
     /// Gets the value of the current coin.

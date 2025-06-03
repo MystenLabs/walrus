@@ -643,7 +643,7 @@ async fn backup_fetcher(
                 }
                 backup_metric_set
                     .consecutive_blob_fetch_errors
-                    .set(consecutive_fetch_errors as f64);
+                    .set(f64::from(consecutive_fetch_errors));
             }
         } else {
             // Nothing to fetch. We are idle. Let's rest a bit.

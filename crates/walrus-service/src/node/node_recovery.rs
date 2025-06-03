@@ -84,7 +84,7 @@ impl NodeRecoveryHandler {
                 {
                     node.metrics
                         .node_recovery_recover_blob_progress
-                        .set(blob_id.first_two_bytes() as i64);
+                        .set(i64::from(blob_id.first_two_bytes()));
 
                     // Note that here we need to use the current epoch to check if the blob is
                     // still certified. If the blob is retired, we don't need to recover it anymore.

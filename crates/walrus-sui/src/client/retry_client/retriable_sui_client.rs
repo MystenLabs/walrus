@@ -321,7 +321,7 @@ impl RetriableSuiClient {
                     .balance();
                 if min_coin_balance < coin.balance {
                     selected_coins.pop();
-                    total_selected -= min_coin_balance as u128;
+                    total_selected -= u128::from(min_coin_balance);
                 } else {
                     continue;
                 }

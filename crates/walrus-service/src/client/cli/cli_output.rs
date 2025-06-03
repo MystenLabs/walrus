@@ -637,7 +637,7 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
     ]);
     for (i, node) in storage_nodes.iter().enumerate() {
         let n_owned = node.n_shards;
-        let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
+        let n_owned_percent = (n_owned as f64) / f64::from(n_shards.get()) * 100.0;
         table.add_row(row![
             bFc->format!("{i}"),
             node.name,
@@ -1044,7 +1044,7 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
 /// Print the full information of the storage node to stdoud.
 fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &NonZeroU16) {
     let n_owned = node.n_shards;
-    let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
+    let n_owned_percent = (n_owned as f64) / f64::from(n_shards.get()) * 100.0;
     printdoc!(
         "
 

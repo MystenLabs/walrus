@@ -1404,7 +1404,7 @@ impl EventBlobWriter {
         element.is_end_of_checkpoint_marker()
             && (self.current_blob_size() > MAX_BLOB_SIZE
                 || (element.checkpoint_event_position.checkpoint_sequence_number + 1
-                    >= self.start.unwrap_or(0) + self.num_checkpoints_per_blob() as u64))
+                    >= self.start.unwrap_or(0) + u64::from(self.num_checkpoints_per_blob())))
     }
 
     /// Cuts the current blob and resets for a new one.
@@ -1660,7 +1660,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;
@@ -1713,7 +1713,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         // Verify attestations are not paused
         assert!(!blob_writer.attestations_paused());
@@ -1796,7 +1796,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;

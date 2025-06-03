@@ -180,7 +180,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
     // Using Epoch as the seed for the RNG to make the sampled blob selection deterministic for the
     // same epoch.
-    let mut rng = StdRng::seed_from_u64(epoch as u64);
+    let mut rng = StdRng::seed_from_u64(u64::from(epoch));
 
     // For data existence check, we should only check it if the node is in Active state. Otherwise,
     // the node may not be fully synced with the latest epoch.
@@ -191,7 +191,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
     // resistance, and is consistent across all platforms.
-    let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
+    let mut hasher = twox_hash::XxHash64::with_seed(u64::from(epoch));
     let mut total_synced_scanned = 0;
     let mut total_fully_stored = 0;
     let mut existence_check_error = 0;
@@ -358,7 +358,7 @@ fn compose_blob_object_list_digest(
 
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
     // resistance, and is consistent across all platforms.
-    let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
+    let mut hasher = twox_hash::XxHash64::with_seed(u64::from(epoch));
     for item in blob_info_iter {
         match item {
             Ok(blob_info) => {

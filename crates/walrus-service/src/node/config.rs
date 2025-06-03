@@ -375,11 +375,11 @@ impl StorageNodeConfig {
         let projected_commission_rate = commission_rate_data
             .pending_commission_rate
             .last()
-            .map_or(commission_rate_data.commission_rate as u64, |&(_, rate)| {
+            .map_or(u64::from(commission_rate_data.commission_rate), |&(_, rate)| {
                 rate
             });
-        assert!(projected_commission_rate < u16::MAX as u64);
-        (projected_commission_rate != local_commission_rate as u64).then_some(local_commission_rate)
+        assert!(projected_commission_rate < u64::from(u16::MAX));
+        (projected_commission_rate != u64::from(local_commission_rate)).then_some(local_commission_rate)
     }
 
     /// Compares the current node parameters with the passed-in parameters and generates the
@@ -1437,7 +1437,7 @@ mod tests {
                 voting_params: old_voting_params.clone(),
                 metadata: old_metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64)],
+                    pending_commission_rate: vec![(32, u64::from(config.commission_rate))],
                     commission_rate: 20,
                 },
             },
@@ -1501,7 +1501,7 @@ mod tests {
                 voting_params: config.voting_params.clone(),
                 metadata: config.metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64), (33, 110)],
+                    pending_commission_rate: vec![(32, u64::from(config.commission_rate)), (33, 110)],
                     commission_rate: config.commission_rate,
                 },
             },
