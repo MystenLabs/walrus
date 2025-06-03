@@ -1659,10 +1659,14 @@ view this in the browser, for example, at <a href="https://aggregator.walrus-tes
 <h3 id="store"><a class="header" href="#store">Store</a></h3>
 <p>You can interact with the daemon through simple HTTP PUT requests. For example, with
 <a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
-<pre><code class="language-sh">curl -X PUT "$PUBLISHER/v1/blobs" -d "some string" # store the string `some string` for 1 storage epoch
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file" # store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file" # store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file" # store file `some/file` as a deletable blob, instead of a permanent one
+<pre><code class="language-sh"># store the string `some string` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
+# store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+# store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file"
 </code></pre>
 <p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a <code>newlyCreated</code> field contains information about the
@@ -3180,11 +3184,21 @@ CLI (<code>site-builder --help</code>) or individual commands (e.g. <code>site-b
 <p>The <code>deploy</code> command is the primary and recommended command for managing your Walrus Site on Sui.
 The command takes a directory as input and creates a new Walrus Site from the
 resources contained within, and on subsequent calls, it updates the Existing Site.</p>
+<h3 id="behavior"><a class="header" href="#behavior">Behavior</a></h3>
+<p>The deploy command determines whether to publish a new site or update an existing one by looking for
+a Site Object ID. It finds the ID with the following priority:</p>
+<ul>
+<li>An ID provided directly via the --object-id &lt;OBJECT_ID&gt; command-line flag.</li>
+<li>An ID found in the object_id field of the ws-resources.json file.</li>
+<li>If no ID is found by either method, deploy will publish a new site.</li>
+</ul>
+<p>When a new site is published, its object_id is automatically saved back to ws-resources.json,
+streamlining future updates.</p>
 <h3 id="usage"><a class="header" href="#usage">Usage</a></h3>
 <p>As shown by the command's help information, the typical usage is:</p>
 <pre><code class="language-sh">site-builder deploy [OPTIONS] --epochs &lt;EPOCHS&gt; &lt;DIRECTORY&gt;
 </code></pre>
-<p>The <code>deploy</code> command determines whether to publish or update based on the presence of a <code>site_object_id</code>
+<p>The <code>deploy</code> command determines whether to publish or update based on the presence of an <code>object_id</code>
 field in the <code>ws-resources.json</code> file. <a href="walrus-sites/./routing.html">specifying headers and routing</a>.</p>
 <div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
 <div class="admonition-title">
@@ -3194,7 +3208,7 @@ field in the <code>ws-resources.json</code> file. <a href="walrus-sites/./routin
 <a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-info"></a>
 </div>
 <div>
-<p>The <code>site_object_id</code> field is automatically set by the <code>deploy</code>
+<p>The <code>object_id</code> field is automatically set by the <code>deploy</code>
 command, when deploying a new Site, so there is no need for manually tracking the site's object ID.</p>
 </div>
 </div>
@@ -3231,14 +3245,53 @@ on Walrus (e.g., 10). You can also use max to store for the maximum allowed dura
 <a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-testnet"></a>
 </div>
 <div>
-<p>On Walrus Testnet, the epoch duration is <strong>two days</strong>. Therefore, consider storing your site for a
+<p>On Walrus Testnet, the epoch duration is <strong>one day</strong>. Therefore, consider storing your site for a
 large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 183 epochs (corresponding to one year).</p>
+duration is set to 53 epochs.</p>
+</div>
+</div>
+<div id="admonition-epoch-duration-on-walrus-mainnet" class="admonition admonish-danger" role="note" aria-labelledby="admonition-epoch-duration-on-walrus-mainnet-title">
+<div class="admonition-title">
+<div id="admonition-epoch-duration-on-walrus-mainnet-title">
+<p>Epoch duration on Walrus Mainnet</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-mainnet"></a>
+</div>
+<div>
+<p>On Walrus Mainnet, the epoch duration is <strong>fourteen days</strong>. Therefore, consider storing your site for a
+large number of epochs if you want to make it available for the following months! The maximum
+duration is set to 53 epochs.</p>
 </div>
 </div>
 <p>If you are just uploading raw files without an <code>index.html</code>, you may want to use the
 <code>--list-directory</code> flag, which will automatically create an index page to browse the files. See for
 example <a href="https://bin.wal.app">https://bin.wal.app</a>.</p>
+<h3 id="migrating-from-publishupdate"><a class="header" href="#migrating-from-publishupdate">Migrating from <code>publish</code>/<code>update</code></a></h3>
+<p>If you have a site that was previously managed with the <code>publish</code> and <code>update</code> commands, you can
+easily switch to the <code>deploy</code> command using one of the following methods:</p>
+<ul>
+<li><strong>Recommended</strong>: Use the <code>--object-id</code> cli flag
+Simply run the <code>deploy</code> command and provide your existing site's Object ID via the <code>--object-id</code> flag:</li>
+</ul>
+<pre><code class="language-sh">site-builder deploy --object-id &lt;YOUR_EXISTING_SITE_ID&gt; --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
+<p>On success, this will update your site and automatically create (or update if already existing) a
+<code>ws-resources.json</code> file with the site's Object ID saved in the <code>object_id</code> field.
+Future deployments will then be as simple as:</p>
+<pre><code class="language-sh">site-builder deploy --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
+<ul>
+<li>Manual <code>ws-resources.json</code> setup.
+You can manually create or update a <code>ws-resources.json</code> file in your site's root directory and add
+the <code>object_id</code> field with your existing site's Object ID.</li>
+</ul>
+<pre><code class="language-json">{
+  "object_id": "0x123...abc"
+}
+</code></pre>
+<p>Then, you can simply run:</p>
+<pre><code class="language-sh">site-builder deploy --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
 <h2 id="publish"><a class="header" href="#publish"><code>publish</code></a></h2>
 <div id="admonition-soft-deprecation" class="admonition admonish-warning" role="note" aria-labelledby="admonition-soft-deprecation-title">
 <div class="admonition-title">
@@ -3248,8 +3301,7 @@ example <a href="https://bin.wal.app">https://bin.wal.app</a>.</p>
 <a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-soft-deprecation"></a>
 </div>
 <div>
-<p>The <code>deploy</code> command is the new standard for publishing and updating your Walrus Sites. The individual
-<code>publish</code> and <code>update</code> commands are now considered soft-deprecated and may be removed in future versions.
+<p>The <code>deploy</code> command is the new standard for publishing and updating your Walrus Sites.
 Users are encouraged to migrate to the <code>deploy</code> command for a simpler and more robust experience.</p>
 </div>
 </div>
@@ -3265,9 +3317,22 @@ resources contained within.</p>
 <a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-testnet-1"></a>
 </div>
 <div>
-<p>On Walrus Testnet, the epoch duration is <strong>two days</strong>. Therefore, consider storing your site for a
+<p>On Walrus Testnet, the epoch duration is <strong>one day</strong>. Therefore, consider storing your site for a
 large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 183 epochs (corresponding to one year).</p>
+duration is set to 53 epochs.</p>
+</div>
+</div>
+<div id="admonition-epoch-duration-on-walrus-mainnet-1" class="admonition admonish-danger" role="note" aria-labelledby="admonition-epoch-duration-on-walrus-mainnet-1-title">
+<div class="admonition-title">
+<div id="admonition-epoch-duration-on-walrus-mainnet-1-title">
+<p>Epoch duration on Walrus Mainnet</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-mainnet-1"></a>
+</div>
+<div>
+<p>On Walrus Mainnet, the epoch duration is <strong>fourteen days</strong>. Therefore, consider storing your site for a
+large number of epochs if you want to make it available for the following months! The maximum
+duration is set to 53 epochs.</p>
 </div>
 </div>
 <p>If you are just uploading raw files without an <code>index.html</code>, you may want to use the
