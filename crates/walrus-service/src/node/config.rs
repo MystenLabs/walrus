@@ -174,6 +174,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the consistency check.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub consistency_check: StorageNodeConsistencyCheckConfig,
+    /// Configuration for node recovery.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub node_recovery_config: NodeRecoveryConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -213,6 +216,7 @@ impl Default for StorageNodeConfig {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             consistency_check: Default::default(),
+            node_recovery_config: Default::default(),
         }
     }
 }
@@ -652,6 +656,25 @@ impl Default for ShardSyncConfig {
             shard_sync_concurrency: 10,
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
+        }
+    }
+}
+
+/// Configuration for node recovery.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct NodeRecoveryConfig {
+    /// The maximum number of blobs to recover in parallel.
+    /// Different from `BlobRecoveryConfig::max_concurrent_blob_syncs`, this is to control the
+    /// number of blob recover tasks initiated by node recovery logic.
+    pub max_concurrent_blob_syncs_during_recovery: usize,
+}
+
+impl Default for NodeRecoveryConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_blob_syncs_during_recovery: 1000,
         }
     }
 }

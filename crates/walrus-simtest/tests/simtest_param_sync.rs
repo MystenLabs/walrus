@@ -221,9 +221,8 @@ mod tests {
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
                     use_legacy_event_processor: false,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
                     enable_node_config_synchronizer: true,
+                    ..Default::default()
                 })
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -410,9 +409,8 @@ mod tests {
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4, 2],
                 use_legacy_event_processor: false,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
                 enable_node_config_synchronizer: true,
+                ..Default::default()
             })
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -491,9 +489,8 @@ mod tests {
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
                     use_legacy_event_processor: false,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
                     enable_node_config_synchronizer: true,
+                    ..Default::default()
                 })
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -737,9 +734,8 @@ mod tests {
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4, 2],
                 use_legacy_event_processor: false,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
                 enable_node_config_synchronizer: true,
+                ..Default::default()
             })
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(

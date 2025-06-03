@@ -89,7 +89,13 @@ use crate::node::{
         EndCommitteeChangeError,
         NodeCommitteeService,
     },
-    config::{self, ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
+    config::{
+        self,
+        ConfigSynchronizerConfig,
+        NodeRecoveryConfig,
+        ShardSyncConfig,
+        StorageNodeConfig,
+    },
     consistency_check::StorageNodeConsistencyCheckConfig,
     contract_service::SystemContractService,
     errors::{SyncNodeConfigError, SyncShardClientError},
@@ -195,7 +201,7 @@ pub trait StorageNodeHandleTrait {
 }
 
 /// Configuration for test node setup
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestNodesConfig {
     /// The weights of the nodes in the cluster.
     pub node_weights: Vec<u16>,
@@ -207,6 +213,22 @@ pub struct TestNodesConfig {
     pub blocklist_dir: Option<PathBuf>,
     /// Whether to enable the node config monitor.
     pub enable_node_config_synchronizer: bool,
+    /// The node recovery config for the nodes.
+    pub node_recovery_config: Option<NodeRecoveryConfig>,
+}
+
+impl Default for TestNodesConfig {
+    fn default() -> Self {
+        Self {
+            node_weights: vec![1, 2, 3, 3, 4],
+            // TODO(WAL-405): change default to checkpoint-based event processor
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+            node_recovery_config: None,
+        }
+    }
 }
 
 /// A storage node and associated data for testing.
@@ -655,6 +677,7 @@ pub struct StorageNodeHandleBuilder {
     node_wallet_dir: Option<PathBuf>,
     num_checkpoints_per_blob: Option<u32>,
     enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -804,6 +827,12 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the node recovery config for the node.
+    pub fn with_node_recovery_config(mut self, node_recovery_config: NodeRecoveryConfig) -> Self {
+        self.node_recovery_config = Some(node_recovery_config);
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -886,6 +915,7 @@ impl StorageNodeHandleBuilder {
                 enabled: self.enable_node_config_synchronizer,
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
+            node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             ..storage_node_config().inner
         };
 
@@ -1052,6 +1082,7 @@ impl StorageNodeHandleBuilder {
                 enabled: self.enable_node_config_synchronizer,
             },
             storage_node_cap: node_capability.map(|cap| cap.id),
+            node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             ..storage_node_config().inner
         };
 
@@ -1118,6 +1149,7 @@ impl Default for StorageNodeHandleBuilder {
             node_wallet_dir: None,
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
+            node_recovery_config: None,
         }
     }
 }
@@ -1670,6 +1702,7 @@ pub struct TestClusterBuilder {
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
     enable_node_config_synchronizer: bool,
+    node_recovery_config: Option<NodeRecoveryConfig>,
 }
 
 impl TestClusterBuilder {
@@ -1853,6 +1886,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the node recovery config for each storage node.
+    pub fn with_node_recovery_config(mut self, node_recovery_config: NodeRecoveryConfig) -> Self {
+        self.node_recovery_config = Some(node_recovery_config);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let committee_members: Vec<_> = self
@@ -1913,6 +1952,7 @@ impl TestClusterBuilder {
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
+                .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
                 .with_name(format!("node-{}", idx));
             tracing::info!(
                 "test cluster builder build enable_node_config_synchronizer: {}",
@@ -2097,6 +2137,7 @@ impl Default for TestClusterBuilder {
             use_distinct_ip: false,
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
+            node_recovery_config: None,
         }
     }
 }
@@ -2349,14 +2390,7 @@ pub mod test_cluster {
             let mut admin_wallet =
                 test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-            let test_nodes_config = self.test_nodes_config.unwrap_or_else(|| TestNodesConfig {
-                node_weights: vec![1, 2, 3, 3, 4],
-                // TODO(WAL-405): change default to checkpoint-based event processor
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            });
+            let test_nodes_config = self.test_nodes_config.unwrap_or_default();
 
             // Specify an empty assignment to ensure that storage nodes are not created with invalid
             // shard assignments.
@@ -2538,6 +2572,13 @@ pub mod test_cluster {
             let cluster_builder =
                 if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
                     cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
+                } else {
+                    cluster_builder
+                };
+
+            let cluster_builder =
+                if let Some(node_recovery_config) = test_nodes_config.node_recovery_config {
+                    cluster_builder.with_node_recovery_config(node_recovery_config)
                 } else {
                     cluster_builder
                 };
@@ -2763,6 +2804,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            node_recovery_config: Default::default(),
         },
         temp_dir,
     }
