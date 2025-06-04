@@ -18,7 +18,7 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
-    basic_encoding::{Decoder, raptorq::RaptorQDecoder, reed_solomon::ReedSolomonDecoder},
+    basic_encoding::{Decoder, ReedSolomonDecoder},
     utils,
 };
 use crate::{
@@ -454,8 +454,6 @@ impl<'a> ExpandedMessageMatrix<'a> {
 /// A wrapper around the blob decoder for different encoding types.
 #[derive(Debug)]
 pub enum BlobDecoderEnum<'a, E: EncodingAxis> {
-    /// The RaptorQ decoder.
-    RaptorQ(BlobDecoder<'a, RaptorQDecoder, E>),
     /// The Reed-Solomon decoder.
     ReedSolomon(BlobDecoder<'a, ReedSolomonDecoder, E>),
 }
@@ -470,7 +468,6 @@ impl<E: EncodingAxis> BlobDecoderEnum<'_, E> {
         slivers: impl IntoIterator<Item = SliverData<E>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
         match self {
-            Self::RaptorQ(d) => d.decode_and_verify(blob_id, slivers),
             Self::ReedSolomon(d) => d.decode_and_verify(blob_id, slivers),
         }
     }
@@ -669,32 +666,18 @@ mod tests {
     use super::*;
     use crate::{
         EncodingType,
-        encoding::{EncodingConfig, RaptorQEncodingConfig},
+        encoding::{EncodingConfig, ReedSolomonEncodingConfig},
         metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
     };
 
     param_test! {
         test_matrix_construction: [
-            aligned_square_single_byte_symbols: (
-                2,
-                2,
-                &[1,2,3,4],
-                &[&[1,2], &[3,4]],
-                &[&[1,3], &[2,4]]
-            ),
             aligned_square_double_byte_symbols: (
                 2,
                 2,
                 &[1,2,3,4,5,6,7,8],
                 &[&[1,2,3,4], &[5,6,7,8]],
                 &[&[1,2,5,6],&[3,4,7,8]]
-            ),
-            aligned_rectangle_single_byte_symbols: (
-                2,
-                4,
-                &[1,2,3,4,5,6,7,8],
-                &[&[1,2,3,4], &[5,6,7,8]],
-                &[&[1,5], &[2,6], &[3,7], &[4,8]]
             ),
             aligned_rectangle_double_byte_symbols: (
                 2,
@@ -726,7 +709,7 @@ mod tests {
         expected_rows: &[&[u8]],
         expected_columns: &[&[u8]],
     ) {
-        let config = RaptorQEncodingConfig::new_for_test(
+        let config = ReedSolomonEncodingConfig::new_for_test(
             source_symbols_primary,
             source_symbols_secondary,
             3 * (source_symbols_primary + source_symbols_secondary),
@@ -752,7 +735,7 @@ mod tests {
     #[test]
     fn test_metadata_computations_are_equal() {
         let blob = random_data(1000);
-        let config = RaptorQEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
         let encoder = config.get_blob_encoder(&blob).unwrap();
         let matrix = encoder.get_expanded_matrix();
 
@@ -771,7 +754,7 @@ mod tests {
         let blob = random_data(31415);
         let blob_size = blob.len().try_into().unwrap();
 
-        let config = RaptorQEncodingConfig::new(NonZeroU16::new(102).unwrap());
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(102).unwrap());
 
         let slivers_for_decoding: Vec<_> = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
@@ -811,21 +794,16 @@ mod tests {
         );
     }
 
-    param_test! {
-        test_encode_with_metadata: [
-            raptorq: (EncodingType::RedStuffRaptorQ),
-            reed_solomon: (EncodingType::RS2),
-        ]
-    }
-    fn test_encode_with_metadata(encoding_type: EncodingType) {
-        // A big test checking that:
-        // 1. The sliver pairs produced by `encode_with_metadata` are the same as the ones produced
-        //    by `encode`;
-        // 2. the metadata produced by `encode_with_metadata` is the same as
-        //    the metadata that can be computed from the sliver pairs directly.
-        // 3. the metadata produced by `encode_with_metadata` is the same as
-        //    the metadata produced by `compute_metadata_only`.
-        // Takes long (O(1s)) to run.
+    /// A big test checking that:
+    /// 1. The sliver pairs produced by `encode_with_metadata` are the same as the ones produced by
+    ///    `encode`;
+    /// 2. the metadata produced by `encode_with_metadata` is the same as the metadata that can be
+    ///    computed from the sliver pairs directly.
+    /// 3. the metadata produced by `encode_with_metadata` is the same as the metadata produced by
+    ///    `compute_metadata_only`. Takes long (O(1s)) to run.
+    #[test]
+    fn test_encode_with_metadata() {
+        let encoding_type = EncodingType::RS2;
         let blob = random_data(27182);
         let n_shards = 102;
 
@@ -833,10 +811,7 @@ mod tests {
         let config_enum = config.get_for_type(encoding_type);
 
         // Check that the encoding with and without metadata are identical.
-        let blob_encoder = match encoding_type {
-            EncodingType::RedStuffRaptorQ => config.raptorq.get_blob_encoder(&blob).unwrap(),
-            EncodingType::RS2 => config.reed_solomon.get_blob_encoder(&blob).unwrap(),
-        };
+        let blob_encoder = config.reed_solomon.get_blob_encoder(&blob).unwrap();
         let sliver_pairs_1 = blob_encoder.encode();
         let blob_metadata_1 = blob_encoder.compute_metadata();
 
@@ -871,7 +846,7 @@ mod tests {
         let blob_size = blob.len().try_into().unwrap();
         let n_shards = 102;
 
-        let config = RaptorQEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
         let (slivers, metadata_enc) = config
             .get_blob_encoder(&blob)

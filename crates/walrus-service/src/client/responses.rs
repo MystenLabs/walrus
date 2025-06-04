@@ -404,7 +404,7 @@ impl InfoCommitteeOutput {
 
         let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards, DEFAULT_ENCODING);
+            source_symbols_for_n_shards(n_shards);
 
         let max_sliver_size =
             max_sliver_size_for_n_secondary(n_secondary_source_symbols, DEFAULT_ENCODING);

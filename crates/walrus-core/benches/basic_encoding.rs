@@ -10,14 +10,11 @@ use core::time::Duration;
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use fastcrypto::hash::Blake2b256;
-use raptorq::SourceBlockEncodingPlan;
 use walrus_core::{
-    encoding::{Decoder as _, DecodingSymbol, Primary, RaptorQDecoder, RaptorQEncoder},
+    encoding::{Decoder as _, DecodingSymbol, Primary, ReedSolomonDecoder, ReedSolomonEncoder},
     merkle::MerkleTree,
 };
 use walrus_test_utils::{random_data, random_subset};
-
-// TODO (WAL-610): Support both encoding types.
 
 const N_SHARDS: u16 = 1000;
 // Likely values for the number of source symbols for the primary and secondary encoding, which are
@@ -34,8 +31,6 @@ fn basic_encoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for symbol_count in SYMBOL_COUNTS {
-        let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
-
         for symbol_size in SYMBOL_SIZES {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
@@ -51,14 +46,13 @@ fn basic_encoding(c: &mut Criterion) {
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
                     b.iter(|| {
-                        let encoder = RaptorQEncoder::new(
+                        let mut encoder = ReedSolomonEncoder::new(
                             data,
                             (*symbol_count).try_into().unwrap(),
                             N_SHARDS.try_into().unwrap(),
-                            &encoding_plan,
                         )
                         .unwrap();
-                        let _encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
+                        let _encoded_symbols = encoder.encode_all();
                     });
                 },
             );
@@ -73,23 +67,22 @@ fn basic_decoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for symbol_count in SYMBOL_COUNTS {
-        let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
         for symbol_size in SYMBOL_SIZES {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
             ));
-            let encoder = RaptorQEncoder::new(
+            let mut encoder = ReedSolomonEncoder::new(
                 &data,
                 symbol_count.try_into().unwrap(),
                 N_SHARDS.try_into().unwrap(),
-                &encoding_plan,
             )
             .unwrap();
             let symbols: Vec<_> = random_subset(
                 encoder
                     .encode_all()
+                    .into_iter()
                     .enumerate()
                     .map(|(i, s)| DecodingSymbol::<Primary>::new(i.try_into().unwrap(), s)),
                 usize::from(symbol_count) + 1,
@@ -105,7 +98,7 @@ fn basic_decoding(c: &mut Criterion) {
                     b.iter_batched(
                         || symbols.clone(),
                         |symbols| {
-                            let mut decoder = RaptorQDecoder::new(
+                            let mut decoder = ReedSolomonDecoder::new(
                                 (*symbol_count).try_into().unwrap(),
                                 N_SHARDS.try_into().unwrap(),
                                 (*symbol_size).try_into().unwrap(),
@@ -193,18 +186,16 @@ fn merkle_tree(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for symbol_count in SYMBOL_COUNTS {
-        let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
-
         for symbol_size in SYMBOL_SIZES {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
-            let encoder = RaptorQEncoder::new(
+            let encoded_symbols = ReedSolomonEncoder::new(
                 &data,
                 symbol_count.try_into().unwrap(),
                 N_SHARDS.try_into().unwrap(),
-                &encoding_plan,
             )
-            .unwrap();
+            .unwrap()
+            .encode_all();
 
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
@@ -215,10 +206,9 @@ fn merkle_tree(c: &mut Criterion) {
                     "symbol_count={},symbol_size={}",
                     symbol_count, symbol_size
                 )),
-                &encoder,
-                |b, encoder| {
+                &encoded_symbols,
+                |b, encoded_symbols| {
                     b.iter(|| {
-                        let encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
                         let _tree = MerkleTree::<Blake2b256>::build(encoded_symbols);
                     });
                 },
