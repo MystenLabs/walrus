@@ -16,7 +16,7 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::random;
+use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
@@ -984,21 +984,42 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     Ok(())
 }
 
+fn group_identifiers_randomly<'a>(identifiers: &'a mut [&str]) -> Vec<Vec<&'a str>> {
+    identifiers.shuffle(&mut thread_rng());
+
+    let mut groups = Vec::new();
+    let mut current_pos = 0;
+
+    while current_pos < identifiers.len() {
+        let end_index = thread_rng().gen_range(current_pos..=identifiers.len());
+        let group = identifiers[current_pos..end_index].to_vec();
+        groups.push(group);
+        current_pos = end_index;
+    }
+
+    groups
+}
+
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     test_store_quilt -> TestResult : [
+        one_blob: (1),
         two_blobs: (2),
-        three_blobs: (3),
-        four_blobs: (4),
+        seven_blobs: (10),
     ]
 }
 /// Tests that a quilt can be stored.
 async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
-    let (_sui_cluster_handle, _cluster, client, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let test_nodes_config = TestNodesConfig {
+        node_weights: vec![7, 7, 7, 7, 7],
+        ..Default::default()
+    };
+    let test_cluster_builder =
+        test_cluster::E2eTestSetupBuilder::new().with_test_nodes_config(test_nodes_config);
+    let (_sui_cluster_handle, _cluster, client, _) = test_cluster_builder.build().await?;
     let client = client.as_ref();
     let blobs = walrus_test_utils::random_data_list(314, blobs_to_create as usize);
     let encoding_type = DEFAULT_ENCODING;
@@ -1008,7 +1029,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
         .collect::<Vec<_>>();
 
-    // Add a blob that is not deletable.
+    // Store the quilt.
     let quilt_write_client = client.quilt_client();
     let quilt = quilt_write_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
@@ -1019,19 +1040,25 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
             encoding_type,
             2,
             StoreWhen::Always,
-            BlobPersistence::Deletable,
+            BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
         .await?;
 
     let QuiltStoreResult {
-        blob_store_result, ..
+        blob_store_result,
+        stored_quilt_blobs,
     } = store_operation_result;
     let blob_object = match blob_store_result {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
         _ => panic!("Expected NewlyCreated, got {:?}", blob_store_result),
     };
 
+    // Read the blobs in the quilt.
+    let id_blob_map = quilt_store_blobs
+        .iter()
+        .map(|b| (b.identifier(), b))
+        .collect::<HashMap<_, _>>();
     let read_client = Client::new_read_client_with_refresher(
         client.config().clone(),
         (*client.sui_client().read_client()).clone(),
@@ -1044,40 +1071,31 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
     assert_eq!(&metadata_v1.index, quilt.quilt_index()?);
 
-    let identifiers_owned = (0..blobs_to_create as usize)
-        .map(|i| format!("test-blob-{}", i + 1))
-        .collect::<Vec<_>>();
-    let identifiers_refs: Vec<&str> = identifiers_owned.iter().map(AsRef::as_ref).collect();
-
-    // Fetch all blobs from the quilt once.
-    let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
-        .get_blobs_by_identifiers(&blob_id, &identifiers_refs)
-        .await?;
-
-    assert_eq!(
-        retrieved_quilt_blobs.len(),
-        blobs_to_create as usize,
-        "Mismatch in number of blobs retrieved from quilt"
-    );
-
-    let retrieved_map: HashMap<&str, &[u8]> = retrieved_quilt_blobs
+    let mut identifiers = stored_quilt_blobs
         .iter()
-        .map(|b| (b.identifier(), b.data()))
-        .collect();
+        .map(|b| b.identifier.as_str())
+        .collect::<Vec<_>>();
+    let groups = group_identifiers_randomly(&mut identifiers);
 
-    for original_bwi in quilt_store_blobs.iter() {
-        let original_id = original_bwi.identifier();
-        let original_data = original_bwi.data();
+    tracing::info!(groups = ?groups, "test retrieving quilts by groups");
 
-        let retrieved_data = retrieved_map
-            .get(original_id)
-            .unwrap_or_else(|| panic!("Retrieved blobs missing identifier: {}", original_id));
+    for group in groups {
+        let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
+            .get_blobs_by_identifiers(&blob_id, &group)
+            .await?;
 
         assert_eq!(
-            *retrieved_data, original_data,
-            "Blob data mismatch for identifier {}",
-            original_id
+            retrieved_quilt_blobs.len(),
+            group.len(),
+            "Mismatch in number of blobs retrieved from quilt"
         );
+
+        for retrieved_quilt_blob in &retrieved_quilt_blobs {
+            let original_blob = id_blob_map
+                .get(retrieved_quilt_blob.identifier())
+                .expect("identifier should be present");
+            assert_eq!(&retrieved_quilt_blob, original_blob);
+        }
     }
 
     Ok(())
