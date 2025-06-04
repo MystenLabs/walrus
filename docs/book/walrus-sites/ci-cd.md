@@ -4,7 +4,9 @@ If you need to automate the deployment of your Walrus Sites, you can use a CI/CD
 use the following example how you can set up a pipeline using GitHub Actions.
 
 ``` admonish warning
-Make sure that you have defined your build step accordingly.
+The following example includes a GitHub action that deploys a website on Walrus Sites that depends
+on node and pnpm. Depending on your use case, you may need to adjust the workflow steps to fit your
+own tools and dependencies.
 ```
 
 ```yaml
