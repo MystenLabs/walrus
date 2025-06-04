@@ -800,7 +800,7 @@ mod tests {
     /// 2. the metadata produced by `encode_with_metadata` is the same as the metadata that can be
     ///    computed from the sliver pairs directly.
     /// 3. the metadata produced by `encode_with_metadata` is the same as the metadata produced by
-    ///    `compute_metadata_only`. Takes long (O(1s)) to run.
+    ///    `compute_metadata_only`.
     #[test]
     fn test_encode_with_metadata() {
         let encoding_type = EncodingType::RS2;
