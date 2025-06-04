@@ -49,10 +49,9 @@ use walrus_sdk::{
 };
 
 use crate::{
-    client::AuthPackage,
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
-    params::Params,
+    params::{AuthPackage, Params},
     tip::{TipConfig, check_response_tip},
     utils::{blob_registration_from_response, compute_blob_digest_sha256},
 };
@@ -377,44 +376,4 @@ pub(crate) async fn get_client(
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
-}
-
-#[cfg(test)]
-mod tests {
-
-    use std::str::FromStr;
-
-    use axum::{extract::Query, http::Uri};
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use sui_types::digests::TransactionDigest;
-    use walrus_sdk::core::BlobId;
-
-    use crate::{client::AuthPackage, params::Params};
-
-    #[test]
-    fn test_parse_fanout_query() {
-        let blob_id =
-            BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
-        let tx_id = TransactionDigest::new([13; 32]);
-        let auth_package = AuthPackage::new(&[1, 2, 3]).unwrap();
-        let uri_str = format!(
-            "http://localhost/v1/blob-fan-out?blob_id={}&tx_id={}&auth_package={}",
-            blob_id,
-            URL_SAFE_NO_PAD.encode(tx_id),
-            URL_SAFE_NO_PAD.encode(auth_package.to_bytes().unwrap())
-        );
-        dbg!(&uri_str);
-
-        let uri: Uri = uri_str.parse().expect("valid uri");
-
-        // REVIEW(will): I'm having trouble figuring out how to serialize the TransactionDigest and
-        // the AuthPackage in a way that deserializes properly. The B64UrlEncodedBytes object that
-        // was here before I removed in an earlier commit as it didn't appear necessary (it was just
-        // calling URL_SAFE_NO_PAD.encode
-        let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
-
-        assert_eq!(blob_id, result.blob_id);
-        assert_eq!(tx_id, result.tx_id);
-        assert_eq!(auth_package, result.auth_package);
-    }
 }

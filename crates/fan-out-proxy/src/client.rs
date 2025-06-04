@@ -9,15 +9,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use fastcrypto::hash::{Digest, HashFunction, Sha256};
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sui_types::{
     base_types::SuiAddress,
     digests::TransactionDigest,
@@ -50,59 +47,8 @@ use walrus_sdk::{
 use crate::{
     TipConfig,
     controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
-    utils::compute_blob_digest_sha256,
+    params::{AuthPackage, Params},
 };
-
-const DIGEST_LEN: usize = 32;
-
-/// The authentication structure for a blob store request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub(crate) struct AuthPackage {
-    /// The SHA256 hash of the blob data.
-    pub blob_digest: [u8; DIGEST_LEN],
-    /// Random bytes known only to the client. Shared with fan-out proxy to prevent malicious replay
-    /// attacks by other users.
-    pub nonce: [u8; DIGEST_LEN],
-    /// The timestamp just prior to blob registration as known to the client user. This is used to
-    /// expire fan-out requests after some time.
-    pub timestamp_ms: u64,
-}
-
-impl AuthPackage {
-    /// Creates an authentication package for the blob.
-    pub(crate) fn new(blob: &[u8]) -> Result<Self> {
-        let std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
-        let mut rng = std_rng;
-        let nonce: [u8; 32] = rng.r#gen();
-
-        let blob_digest = compute_blob_digest_sha256(blob);
-        let timestamp_ms = u64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("the clocks are set in the present")
-                .as_millis(),
-        )?;
-
-        Ok(Self {
-            blob_digest: blob_digest.into(),
-            nonce,
-            timestamp_ms,
-        })
-    }
-
-    /// Returns the BCS-encoded bytes for the auth package.
-    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(bcs::to_bytes(self)?)
-    }
-
-    /// Returns the digest (SHA256) for the authentication package.
-    pub(crate) fn to_digest(&self) -> Result<Digest<DIGEST_LEN>> {
-        let mut auth_hash = Sha256::new();
-        auth_hash.update(self.to_bytes()?);
-        Ok(auth_hash.finalize())
-    }
-}
 
 /// Runs the test client.
 pub(crate) async fn run_client(
@@ -157,7 +103,7 @@ pub(crate) async fn run_client(
     ////////////////////////////////////////////////////////////////////////////////
     // Send the actual blob, along with the associated Auth and Tip information.
     let response = fanout
-        .send_to_proxy(tx_id, auth_package, blob, computed_blob_id)
+        .send_to_proxy(blob, computed_blob_id, tx_id, auth_package)
         .await?;
     ////////////////////////////////////////////////////////////////////////////////
 
@@ -354,12 +300,17 @@ impl<T> FanOutClient<T> {
     /// Sends the blob and the transaction to the fan-out proxy.
     pub(crate) async fn send_to_proxy(
         &self,
-        tx_id: TransactionDigest,
-        auth_package: AuthPackage,
         blob: Vec<u8>,
         blob_id: BlobId,
+        tx_id: TransactionDigest,
+        auth_package: AuthPackage,
     ) -> Result<ResponseType> {
-        let post_url = fan_out_blob_url(&self.server_url, tx_id, auth_package, blob_id)?;
+        let params = Params {
+            blob_id,
+            tx_id,
+            auth_package,
+        };
+        let post_url = fan_out_blob_url(&self.server_url, &params)?;
 
         tracing::debug!(?post_url, %blob_id, "sending request to the fan-out proxy");
         let client = reqwest::Client::new();
@@ -495,20 +446,21 @@ impl FanOutClient<WalrusPtbBuilder> {
     }
 }
 
-pub(crate) fn fan_out_blob_url(
-    server_url: &Url,
-    tx_id: TransactionDigest,
-    auth_package: AuthPackage,
-    blob_id: BlobId,
-) -> Result<Url> {
+pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url> {
     let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
+
     url.query_pairs_mut()
-        .append_pair("blob_id", &blob_id.to_string())
-        .append_pair("tx_id", &tx_id.to_string())
+        .append_pair("blob_id", &params.blob_id.to_string())
+        .append_pair("tx_id", &params.tx_id.to_string())
         .append_pair(
-            "auth_package",
-            &URL_SAFE_NO_PAD.encode(auth_package.to_bytes()?),
+            "blob_digest",
+            &URL_SAFE_NO_PAD.encode(params.auth_package.blob_digest),
         )
-        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(auth_package.nonce));
+        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.auth_package.nonce))
+        .append_pair(
+            "timestamp_ms",
+            &params.auth_package.timestamp_ms.to_string(),
+        );
+
     Ok(url)
 }
