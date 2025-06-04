@@ -24,7 +24,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_urlencoded.workspace = true
-serde_with.workspace = true
+serde_with = { workspace = true, features = ["hex"] }
 sui-sdk.workspace = true
 # TODO: expose sui-types via walrus_sdk.
 sui-types.workspace = true

@@ -5,12 +5,18 @@
 
 use fastcrypto::hash::{Digest, HashFunction as _, Sha256};
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
-use walrus_sdk::{
-    core::BlobId,
-    sui::types::{BlobEvent, BlobRegistered},
+use sui_types::transaction::{
+    CallArg,
+    SenderSignedData,
+    TransactionData,
+    TransactionDataV1,
+    TransactionKind,
 };
 
-use crate::error::FanOutError;
+use crate::{
+    error::FanOutError,
+    params::{AuthPackage, DIGEST_LEN},
+};
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -40,6 +46,7 @@ macro_rules! version {
         walrus_sdk::core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
     }};
 }
+
 pub use version;
 
 /// Compute a SHA256 hash of a blob.
@@ -49,41 +56,41 @@ pub fn compute_blob_digest_sha256(blob: &[u8]) -> Digest<32> {
     blob_hash.finalize()
 }
 
-/// Returns the blob registration for the given blob ID.
-///
-/// If the expected registration is found, the function will return the registration
-/// information. Otherwise, it will return an error.
-pub(crate) fn blob_registration_from_response(
-    response: SuiTransactionBlockResponse,
-    expected_blob_id: BlobId,
-) -> Result<BlobRegistered, FanOutError> {
-    let registrations = blob_registrations_from_response(response);
+/// Checks that the authentication details in the transaction inputs match the information received
+/// in the request.
+pub(crate) fn check_tx_authentication(
+    blob: &[u8],
+    tx: SuiTransactionBlockResponse,
+    auth_package: &AuthPackage,
+) -> Result<(), FanOutError> {
+    let orig_tx: SenderSignedData = bcs::from_bytes(&tx.raw_transaction)
+        .map_err(|_| FanOutError::other("error deserializing the transaction from bytes"))?;
 
-    registrations
-        .into_iter()
-        .find(|reg| reg.blob_id == expected_blob_id)
-        .ok_or(FanOutError::BlobIdNotRegistered(expected_blob_id))
-}
-
-/// Returns all the blob events contained in the response.
-pub(crate) fn blob_registrations_from_response(
-    response: SuiTransactionBlockResponse,
-) -> Vec<BlobRegistered> {
-    let Some(events) = response.events else {
-        return vec![];
+    let TransactionData::V1(TransactionDataV1 {
+        kind: TransactionKind::ProgrammableTransaction(ptb),
+        ..
+    }) = orig_tx.transaction_data()
+    else {
+        return Err(FanOutError::other("invalid transaction data"));
+    };
+    let Some(CallArg::Pure(auth_package_hash)) = ptb.inputs.first() else {
+        return Err(FanOutError::other("invalid transaction input construction"));
     };
 
-    events
-        .data
-        .into_iter()
-        .filter_map(|sui_event| {
-            sui_event.try_into().ok().and_then(|blob_event| {
-                if let BlobEvent::Registered(registration) = blob_event {
-                    Some(registration)
-                } else {
-                    None
-                }
-            })
-        })
-        .collect::<Vec<_>>()
+    let tx_auth_package_digest = Digest::<DIGEST_LEN>::new(
+        auth_package_hash
+            .as_slice()
+            .try_into()
+            .map_err(|_| FanOutError::InvalidPtbAuthPackageHash)?,
+    );
+
+    walrus_sdk::core::ensure!(
+        tx_auth_package_digest == auth_package.to_digest()?,
+        FanOutError::AuthPackageMismatch
+    );
+    walrus_sdk::core::ensure!(
+        compute_blob_digest_sha256(blob).as_ref() == auth_package.blob_digest,
+        FanOutError::BlobDigestMismatch
+    );
+    Ok(())
 }

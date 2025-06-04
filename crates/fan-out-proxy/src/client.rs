@@ -15,9 +15,9 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::Serialize;
+use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::{
     base_types::SuiAddress,
-    digests::TransactionDigest,
     transaction::{Transaction, TransactionData, TransactionKind},
 };
 use walrus_sdk::{
@@ -40,6 +40,7 @@ use walrus_sdk::{
             transaction_builder::WalrusPtbBuilder,
         },
         config::WalletConfig,
+        types::{BlobEvent, BlobRegistered},
         wallet::Wallet,
     },
 };
@@ -85,8 +86,6 @@ pub(crate) async fn run_client(
         .finish_and_sign()
         .await?;
 
-    ////////////////////////////////////////////////////////////////////////////////
-    // New stuff
     let response = fanout
         .walrus_client
         .sui_client()
@@ -99,13 +98,16 @@ pub(crate) async fn run_client(
         "transaction execution failed"
     );
     let tx_id = response.digest;
+    let blob_object_id = blob_registration_from_response(response, computed_blob_id)?.object_id;
 
-    ////////////////////////////////////////////////////////////////////////////////
-    // Send the actual blob, along with the associated Auth and Tip information.
-    let response = fanout
-        .send_to_proxy(blob, computed_blob_id, tx_id, auth_package)
-        .await?;
-    ////////////////////////////////////////////////////////////////////////////////
+    let params = Params {
+        blob_id: computed_blob_id,
+        deletable_blob_object: None,
+        tx_id,
+        auth_package,
+    };
+
+    let response = fanout.send_to_proxy(blob, params).await?;
 
     anyhow::ensure!(
         computed_blob_id == response.blob_id,
@@ -117,7 +119,7 @@ pub(crate) async fn run_client(
 
     let (fanout, transaction) = fanout
         .with_pt_builder()?
-        .certify_blob(response.blob_object, &response.confirmation_certificate)
+        .certify_blob(blob_object_id, &response.confirmation_certificate)
         .await?
         .finish_and_sign()
         .await?;
@@ -301,18 +303,11 @@ impl<T> FanOutClient<T> {
     pub(crate) async fn send_to_proxy(
         &self,
         blob: Vec<u8>,
-        blob_id: BlobId,
-        tx_id: TransactionDigest,
-        auth_package: AuthPackage,
+        params: Params,
     ) -> Result<ResponseType> {
-        let params = Params {
-            blob_id,
-            tx_id,
-            auth_package,
-        };
         let post_url = fan_out_blob_url(&self.server_url, &params)?;
 
-        tracing::debug!(?post_url, %blob_id, "sending request to the fan-out proxy");
+        tracing::debug!(?post_url, ?params, "sending request to the fan-out proxy");
         let client = reqwest::Client::new();
         let response = client.post(post_url).body(blob).send().await?;
         tracing::debug!(?response, "response received");
@@ -462,5 +457,51 @@ pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url>
             &params.auth_package.timestamp_ms.to_string(),
         );
 
+    if let Some(object_id) = params.deletable_blob_object {
+        url.query_pairs_mut()
+            .append_pair("deletable_blob_object", &object_id.to_string());
+    };
+
     Ok(url)
+}
+
+/// Returns the blob registration for the given blob ID.
+///
+/// If the expected registration is found, the function will return the registration
+/// information. Otherwise, it will return an error.
+pub(crate) fn blob_registration_from_response(
+    response: SuiTransactionBlockResponse,
+    expected_blob_id: BlobId,
+) -> anyhow::Result<BlobRegistered> {
+    let registrations = blob_registrations_from_response(response);
+
+    registrations
+        .into_iter()
+        .find(|reg| reg.blob_id == expected_blob_id)
+        .ok_or(anyhow::anyhow!(
+            "could not find the registration for the given blob ID"
+        ))
+}
+
+/// Returns all the blob events contained in the response.
+pub(crate) fn blob_registrations_from_response(
+    response: SuiTransactionBlockResponse,
+) -> Vec<BlobRegistered> {
+    let Some(events) = response.events else {
+        return vec![];
+    };
+
+    events
+        .data
+        .into_iter()
+        .filter_map(|sui_event| {
+            sui_event.try_into().ok().and_then(|blob_event| {
+                if let BlobEvent::Registered(registration) = blob_event {
+                    Some(registration)
+                } else {
+                    None
+                }
+            })
+        })
+        .collect::<Vec<_>>()
 }

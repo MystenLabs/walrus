@@ -10,11 +10,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::digests::TransactionDigest;
 use utoipa::IntoParams;
-use walrus_sdk::core::BlobId;
+use walrus_sdk::{ObjectID, core::BlobId};
 
 use crate::utils::compute_blob_digest_sha256;
 
-const DIGEST_LEN: usize = 32;
+pub(crate) const DIGEST_LEN: usize = 32;
+
 /// The query parameters for the fanout proxy.
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, IntoParams)]
@@ -24,6 +25,12 @@ pub(crate) struct Params {
     /// The blob ID of the blob to be sent to the storage nodes.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
+    /// The object ID of the deletable blob to be stored.
+    ///
+    /// If the blob is to be stored as a permanent one, this parameter should not be specified.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[param(value_type = String)]
+    pub deletable_blob_object: Option<ObjectID>,
     /// The bytes (encoded as Base64URL) of the transaction that registers the blob and sends
     /// the tip to the proxy.
     #[param(value_type = String)]
@@ -118,7 +125,7 @@ mod tests {
     use axum::{extract::Query, http::Uri};
     use reqwest::Url;
     use sui_types::digests::TransactionDigest;
-    use walrus_sdk::core::BlobId;
+    use walrus_sdk::{ObjectID, core::BlobId};
 
     use crate::{
         client::fan_out_blob_url,
@@ -133,6 +140,7 @@ mod tests {
         let auth_package = AuthPackage::new(&[1, 2, 3]).expect("this is a valid package");
         let params = Params {
             blob_id,
+            deletable_blob_object: Some(ObjectID::from_single_byte(42)),
             tx_id,
             auth_package,
         };
@@ -141,6 +149,7 @@ mod tests {
             .expect("valid parameters");
 
         let uri = Uri::from_str(url.as_ref()).expect("valid conversion");
+        dbg!(&uri);
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
 
         assert_eq!(params.blob_id, result.blob_id);
@@ -154,5 +163,6 @@ mod tests {
             params.auth_package.timestamp_ms,
             result.auth_package.timestamp_ms
         );
+        assert_eq!(params.deletable_blob_object, result.deletable_blob_object);
     }
 }

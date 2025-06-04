@@ -34,6 +34,7 @@ pub enum FanOutError {
     AuthPackageMismatch,
 
     /// BlobId was not registered in the given transaction.
+    #[allow(unused)]
     #[error("blob_id {0} was not registered in the referenced transaction")]
     BlobIdNotRegistered(BlobId),
 
@@ -64,6 +65,13 @@ pub enum FanOutError {
     /// Internal server error.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl FanOutError {
+    /// Creates a new error of `Other` kind, from the given messsage.
+    pub(crate) fn other(msg: &'static str) -> Self {
+        Self::Other(anyhow::anyhow!(msg))
+    }
 }
 
 // TODO: Implement this using the `RestApiError` proc macro when fixed.
