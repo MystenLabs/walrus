@@ -18,7 +18,7 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{get, put},
 };
 use fastcrypto::hash::Digest;
 use serde::{Deserialize, Serialize};
@@ -264,7 +264,7 @@ pub(crate) async fn run_proxy(
     let app = Router::new()
         .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
-        .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
+        .route(BLOB_FAN_OUT_ROUTE, put(fan_out_blob_slivers))
         .with_state(Arc::new(Controller::new(
             client, n_shards, tip_config, metric_set,
         )))
@@ -328,7 +328,7 @@ pub(crate) async fn send_tip_config(
 /// This endpoint checks that any required Tip has been supplied, then fulfills a request to store
 /// slivers.
 #[utoipa::path(
-    get,
+    put,
     path = BLOB_FAN_OUT_ROUTE,
     request_body = &[u8],
     params(Params),
