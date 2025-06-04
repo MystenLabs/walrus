@@ -45,7 +45,10 @@ use walrus_sdk::{
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::{load_from_yaml, metrics::Registry},
-    sui::{client::retry_client::RetriableSuiClient, types::BlobRegistered},
+    sui::{
+        client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
+        types::BlobRegistered,
+    },
 };
 
 use crate::{
@@ -253,7 +256,7 @@ pub(crate) async fn run_proxy(
 
     // Create a client we can use to communicate with the Sui network, which is used to
     // coordinate the Walrus network.
-    let client = get_client(context.as_deref(), walrus_config.as_path()).await?;
+    let client = get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
 
     let n_shards = client.get_committees().await?.n_shards();
     let tip_config: TipConfig = load_from_yaml(tip_config)?;
@@ -357,6 +360,7 @@ pub(crate) async fn fan_out_blob_slivers(
 pub(crate) async fn get_client(
     context: Option<&str>,
     walrus_config: &Path,
+    registry: &Registry,
 ) -> Result<Client<SuiReadClient>> {
     let config: ClientConfig =
         walrus_sdk::config::load_configuration(Some(walrus_config), context)?;
@@ -367,7 +371,8 @@ pub(crate) async fn get_client(
         config.backoff_config().clone(),
         None,
     )
-    .await?;
+    .await?
+    .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
 
