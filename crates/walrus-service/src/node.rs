@@ -3908,6 +3908,7 @@ mod tests {
 
     // Tests that a panic thrown by a blob sync task is propagated to the node runtime.
     #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
     async fn blob_sync_panic_thrown() {
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
         let test_shard = ShardIndex(1);
@@ -4076,6 +4077,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = false)]
+    #[ignore = "ignore long-running test by default"]
     async fn recovers_sliver_from_a_small_set() -> TestResult {
         let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
         let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
