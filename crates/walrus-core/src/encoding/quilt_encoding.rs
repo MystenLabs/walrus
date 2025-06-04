@@ -1402,11 +1402,10 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-    use alloc::boxed::Box;
     use core::num::NonZeroU16;
 
     use rand::Rng;
-    use walrus_test_utils::{param_test, random_data};
+    use walrus_test_utils::param_test;
 
     use super::*;
     use crate::{encoding::ReedSolomonEncodingConfig, metadata::BlobMetadataApi as _};
@@ -1660,7 +1659,13 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
-        let quilt_store_blobs = generate_random_blobs(num_blobs, max_blob_size, min_blob_size);
+        let blobs =
+            walrus_test_utils::generate_random_data(num_blobs, max_blob_size, min_blob_size);
+        let quilt_store_blobs = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i)))
+            .collect::<Vec<_>>();
 
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -1812,51 +1817,5 @@ mod tests {
 
         assert_eq!(reconstructed_header.length, length);
         assert_eq!(reconstructed_header.mask, mask);
-    }
-
-    /// Generate random blobs with sizes in the specified range.
-    ///
-    /// # Arguments
-    ///
-    /// * `num_blobs` - Number of blobs to generate
-    /// * `max_blob_size` - Maximum size of each blob
-    /// * `min_blob_size` - Minimum size of each blob
-    ///
-    /// # Returns
-    ///
-    /// A vector of QuiltStoreBlob objects with random content.
-    fn generate_random_blobs(
-        num_blobs: usize,
-        max_blob_size: usize,
-        min_blob_size: usize,
-    ) -> Vec<QuiltStoreBlob<'static>> {
-        use rand::{Rng, SeedableRng, rngs::StdRng};
-
-        // Create a deterministic RNG with a fixed seed for reproducibility.
-        let mut rng = StdRng::seed_from_u64(42);
-
-        // Store both blobs and their QuiltStoreBlob wrappers.
-        let mut result = Vec::with_capacity(num_blobs);
-
-        // Generate random blobs with sizes in the specified range.
-        for i in 0..num_blobs {
-            // Generate a random size in the range [min_blob_size, max_blob_size).
-            let blob_size = if min_blob_size == max_blob_size {
-                min_blob_size
-            } else {
-                rng.gen_range(min_blob_size..max_blob_size)
-            };
-
-            let blob_data = random_data(blob_size);
-
-            // Convert to static lifetime using Box::leak.
-            let static_data = Box::leak(blob_data.into_boxed_slice());
-
-            // Create and store the QuiltStoreBlob.
-            let quilt_store_blob = QuiltStoreBlob::new(static_data, format!("test-blob-{}", i));
-            result.push(quilt_store_blob);
-        }
-
-        result
     }
 }
