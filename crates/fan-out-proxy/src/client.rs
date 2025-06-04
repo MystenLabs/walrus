@@ -67,21 +67,11 @@ pub(crate) struct AuthPackage {
     /// The timestamp just prior to blob registration as known to the client user. This is used to
     /// expire fan-out requests after some time.
     pub timestamp_ms: u64,
-    /// The blob encoding type.
-    // TODO: pull this directly from the ptb.
-    pub encoding_type: EncodingType,
-    /// The blob persistence type.
-    // TODO: pull this directly from the ptb.
-    pub blob_persistence: BlobPersistence,
 }
 
 impl AuthPackage {
     /// Creates an authentication package for the blob.
-    pub(crate) fn new(
-        blob: &[u8],
-        encoding_type: EncodingType,
-        blob_persistence: BlobPersistence,
-    ) -> Result<Self> {
+    pub(crate) fn new(blob: &[u8]) -> Result<Self> {
         let std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
         let mut rng = std_rng;
         let nonce: [u8; 32] = rng.r#gen();
@@ -98,8 +88,6 @@ impl AuthPackage {
             blob_digest: blob_digest.into(),
             nonce,
             timestamp_ms,
-            encoding_type,
-            blob_persistence,
         })
     }
 
@@ -137,7 +125,7 @@ pub(crate) async fn run_client(
         .encoded_size(metadata.metadata().unencoded_length())
         .unwrap();
 
-    let auth_package = AuthPackage::new(&blob, EncodingType::RS2, BlobPersistence::Permanent)?;
+    let auth_package = AuthPackage::new(&blob)?;
     let auth_digest = auth_package.to_digest()?;
 
     // Transaction creation.

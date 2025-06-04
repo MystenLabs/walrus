@@ -45,10 +45,7 @@ use walrus_sdk::{
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::{load_from_yaml, metrics::Registry},
-    sui::{
-        client::{BlobPersistence, retry_client::RetriableSuiClient},
-        types::BlobRegistered,
-    },
+    sui::{client::retry_client::RetriableSuiClient, types::BlobRegistered},
 };
 
 use crate::{
@@ -121,7 +118,7 @@ impl Controller {
         let (sliver_pairs, metadata) = self
             .client
             .encoding_config()
-            .get_for_type(auth_package.encoding_type)
+            .get_for_type(blob_registered.encoding_type)
             .encode_with_metadata(body.as_ref())?;
         let duration = encode_start_timer.elapsed();
 
@@ -149,11 +146,12 @@ impl Controller {
         );
 
         // Attempt to upload the slivers.
-        let blob_persistence = match auth_package.blob_persistence {
-            BlobPersistence::Deletable => BlobPersistenceType::Deletable {
+        let blob_persistence = if blob_registered.deletable {
+            BlobPersistenceType::Deletable {
                 object_id: blob_registered.object_id.into(),
-            },
-            BlobPersistence::Permanent => BlobPersistenceType::Permanent,
+            }
+        } else {
+            BlobPersistenceType::Permanent
         };
         let confirmation_certificate: ConfirmationCertificate = self
             .client
@@ -388,45 +386,35 @@ mod tests {
 
     use axum::{extract::Query, http::Uri};
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use walrus_sdk::{
-        core::{BlobId, EncodingType},
-        sui::client::BlobPersistence,
-    };
+    use sui_types::digests::TransactionDigest;
+    use walrus_sdk::core::BlobId;
 
-    use crate::{client::AuthPackage, params::Params, utils::compute_blob_digest_sha256};
+    use crate::{client::AuthPackage, params::Params};
 
     #[test]
     fn test_parse_fanout_query() {
-        let blob_id_str = "efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y";
-        let blob_id = BlobId::from_str(blob_id_str).expect("valid blob id");
-        let tx_id = vec![13; 50];
-        let tx_id_str = URL_SAFE_NO_PAD.encode(&tx_id);
-        let auth_package = AuthPackage {
-            blob_digest: compute_blob_digest_sha256(&[0, 1, 2]).into(),
-            nonce: [1u8; 32],
-            timestamp_ms: 1748969702013,
-            encoding_type: EncodingType::RS2,
-            blob_persistence: BlobPersistence::Permanent,
-        };
-
-        let params = Params {
-            blob_id,
-            tx_id: TransactionDigest(),
-            auth_package: auth_package.clone(),
-        };
-        dbg!(serde_urlencoded::to_string(&params));
+        let blob_id =
+            BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
+        let tx_id = TransactionDigest::new([13; 32]);
+        let auth_package = AuthPackage::new(&[1, 2, 3]).unwrap();
         let uri_str = format!(
             "http://localhost/v1/blob-fan-out?blob_id={}&tx_id={}&auth_package={}",
-            blob_id_str,
-            tx_id_str,
-            URL_SAFE_NO_PAD.encode(bcs::to_bytes(&auth_package).expect("should be bcs encodable")),
+            blob_id,
+            URL_SAFE_NO_PAD.encode(tx_id),
+            URL_SAFE_NO_PAD.encode(auth_package.to_bytes().unwrap())
         );
         dbg!(&uri_str);
 
         let uri: Uri = uri_str.parse().expect("valid uri");
+
+        // REVIEW(will): I'm having trouble figuring out how to serialize the TransactionDigest and
+        // the AuthPackage in a way that deserializes properly. The B64UrlEncodedBytes object that
+        // was here before I removed in an earlier commit as it didn't appear necessary (it was just
+        // calling URL_SAFE_NO_PAD.encode
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
+
         assert_eq!(blob_id, result.blob_id);
-        assert_eq!(tx_id, result.tx_id.inner());
+        assert_eq!(tx_id, result.tx_id);
         assert_eq!(auth_package, result.auth_package);
     }
 }
