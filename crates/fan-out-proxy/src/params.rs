@@ -140,7 +140,7 @@ mod tests {
         let url = fan_out_blob_url(&Url::parse("http://localhost").expect("valid url"), &params)
             .expect("valid parameters");
 
-        let uri = Uri::from_str(&url.to_string()).expect("valid conversion");
+        let uri = Uri::from_str(url.as_ref()).expect("valid conversion");
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
 
         assert_eq!(params.blob_id, result.blob_id);
