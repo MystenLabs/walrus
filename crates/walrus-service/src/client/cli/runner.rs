@@ -68,7 +68,10 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, wallet::Wallet};
+use walrus_sui::{
+    client::{SuiReadClient, retry_client::RetriableSuiClient, rpc_client},
+    wallet::Wallet,
+};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::args::{
@@ -1521,8 +1524,7 @@ impl ClientCommandRunner {
         backfill_dir: PathBuf,
         node_ids: Vec<ObjectID>,
     ) -> Result<()> {
-        // TODO: Connect to Sui network to get active committee information for mapping node_ids.
-        // ...
+        let client = get_backfill_client().await?;
 
         // Ingest blob_ids that have been stored locally via stdin, and look for them in the given
         // folder.
@@ -1532,7 +1534,22 @@ impl ClientCommandRunner {
             let blob_filename = blob_id.to_string();
 
             match std::fs::read(backfill_dir.join(&blob_filename)) {
-                Ok(_blob) => {
+                Ok(blob) => {
+                    // Encode the blob.
+                    let (_sliver_pairs, metadata) = client
+                        .encoding_config()
+                        // TODO: Encoding type configuration.
+                        .get_for_type(walrus_sdk::core::EncodingType::RS2)
+                        .encode_with_metadata(&blob)?;
+
+                    if *metadata.blob_id() != blob_id {
+                        tracing::error!(
+                            ?blob_id,
+                            "blob file contents do not match blob id! skipping.."
+                        );
+                        continue;
+                    }
+
                     // Send this blob to appropriate shards.
                     // TODO: encode and send the blob to the nodes.
                     tracing::info!(?node_ids, "sending blob to nodes");
@@ -1550,6 +1567,27 @@ impl ClientCommandRunner {
         }
         Ok(())
     }
+}
+
+async fn get_backfill_client() -> Result<Client<SuiReadClient>, anyhow::Error> {
+    let config: ClientConfig = walrus_sdk::config::load_configuration(
+        // Just use default config locations for now.
+        Option::<PathBuf>::None,
+        None,
+    )?;
+    tracing::debug!(?config, "loaded client config");
+    let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
+        &config.rpc_urls,
+        config.backoff_config().clone(),
+        None,
+    )
+    .await?;
+    let sui_read_client = config.new_read_client(retriable_sui_client).await?;
+    let refresh_handle = config
+        .refresh_config
+        .build_refresher_and_run(sui_read_client.clone())
+        .await?;
+    Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
 async fn delete_blob(
