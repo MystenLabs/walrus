@@ -279,9 +279,9 @@ jobs:
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
       - name: "Publish the site"
         run: &gt;
-          site-builder update ${{ env.BUILD_DIR }}
-          --context=${{ env.CONTEXT }}
-          --epochs ${{ env.EPOCHS }}
+          site-builder update ${{ vars.BUILD_DIR }}
+          --context=${{ vars.CONTEXT }}
+          --epochs ${{ vars.EPOCHS }}
           --check-extend
 </code></pre>
 <h2 id="environment-variables-and-secrets"><a class="header" href="#environment-variables-and-secrets">Environment variables and secrets</a></h2>
