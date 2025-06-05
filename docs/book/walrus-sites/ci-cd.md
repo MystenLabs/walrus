@@ -45,9 +45,9 @@ jobs:
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
       - name: "Publish the site"
         run: >
-          site-builder update ${{ env.BUILD_DIR }}
-          --context=${{ env.CONTEXT }}
-          --epochs ${{ env.EPOCHS }}
+          site-builder update ${{ vars.BUILD_DIR }}
+          --context=${{ vars.CONTEXT }}
+          --epochs ${{ vars.EPOCHS }}
           --check-extend
 ```
 
