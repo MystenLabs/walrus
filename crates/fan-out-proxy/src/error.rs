@@ -62,13 +62,17 @@ pub enum FanOutError {
     #[error(transparent)]
     TipError(#[from] TipError),
 
+    /// The transaction requires a tip, but no transaction ID was specified.
+    #[error("the transaction requires a tip, but no transaction ID was specified")]
+    NoTransactionId,
+
     /// Internal server error.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
 impl FanOutError {
-    /// Creates a new error of `Other` kind, from the given messsage.
+    /// Creates a new error of `Other` kind, from the given message.
     pub(crate) fn other(msg: &'static str) -> Self {
         Self::Other(anyhow::anyhow!(msg))
     }
@@ -78,20 +82,16 @@ impl FanOutError {
 impl IntoResponse for FanOutError {
     fn into_response(self) -> Response {
         match self {
-            FanOutError::BlobIdMismatch => (
-                StatusCode::BAD_REQUEST,
-                FanOutError::BlobIdMismatch.to_string(),
-            )
-                .into_response(),
+            FanOutError::BlobIdMismatch
+            | FanOutError::DataTooLargeError(_)
+            | FanOutError::BlobIdParseError(_)
+            | FanOutError::NoTransactionId => {
+                (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+            }
+
             FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {
                 tracing::error!(error = ?self, "client error during fan out");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
-            }
-            FanOutError::DataTooLargeError(error) => {
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
-            }
-            FanOutError::BlobIdParseError(error) => {
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
             }
             FanOutError::TipError(
                 error @ (TipError::NoTipSent | TipError::InsufficientTip { .. }),

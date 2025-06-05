@@ -60,3 +60,10 @@ pub(crate) enum TipConfig {
         kind: TipKind,
     },
 }
+
+impl TipConfig {
+    /// Returns `true` if the current configuration requires a tip.
+    pub(crate) fn requires_tip(&self) -> bool {
+        matches!(self, TipConfig::SendTip { .. })
+    }
+}

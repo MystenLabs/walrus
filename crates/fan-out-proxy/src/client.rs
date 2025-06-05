@@ -103,7 +103,7 @@ pub(crate) async fn run_client(
     let params = Params {
         blob_id: computed_blob_id,
         deletable_blob_object: None,
-        tx_id,
+        tx_id: Some(tx_id),
         auth_package,
     };
 
@@ -443,24 +443,28 @@ impl FanOutClient<WalrusPtbBuilder> {
 
 pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url> {
     let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
+    {
+        let mut query_pairs = url.query_pairs_mut();
+        query_pairs
+            .append_pair("blob_id", &params.blob_id.to_string())
+            .append_pair(
+                "blob_digest",
+                &URL_SAFE_NO_PAD.encode(params.auth_package.blob_digest),
+            )
+            .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.auth_package.nonce))
+            .append_pair(
+                "timestamp_ms",
+                &params.auth_package.timestamp_ms.to_string(),
+            );
 
-    url.query_pairs_mut()
-        .append_pair("blob_id", &params.blob_id.to_string())
-        .append_pair("tx_id", &params.tx_id.to_string())
-        .append_pair(
-            "blob_digest",
-            &URL_SAFE_NO_PAD.encode(params.auth_package.blob_digest),
-        )
-        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.auth_package.nonce))
-        .append_pair(
-            "timestamp_ms",
-            &params.auth_package.timestamp_ms.to_string(),
-        );
+        if let Some(object_id) = params.deletable_blob_object {
+            query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
+        };
 
-    if let Some(object_id) = params.deletable_blob_object {
-        url.query_pairs_mut()
-            .append_pair("deletable_blob_object", &object_id.to_string());
-    };
+        if let Some(tx_id) = params.tx_id {
+            query_pairs.append_pair("tx_id", &tx_id.to_string());
+        }
+    }
 
     Ok(url)
 }

@@ -33,8 +33,12 @@ pub(crate) struct Params {
     pub deletable_blob_object: Option<ObjectID>,
     /// The bytes (encoded as Base64URL) of the transaction that registers the blob and sends
     /// the tip to the proxy.
+    ///
+    /// If the proxy is operating as a public good (i.e., it is using the `NoTip` configuration)
+    /// this parameter can be omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[param(value_type = String)]
-    pub tx_id: TransactionDigest,
+    pub tx_id: Option<TransactionDigest>,
     /// The bytes (encoded as Base64URL) of the [`AuthPackage`].
     #[serde(flatten)]
     #[param(inline)]
@@ -141,7 +145,7 @@ mod tests {
         let params = Params {
             blob_id,
             deletable_blob_object: Some(ObjectID::from_single_byte(42)),
-            tx_id,
+            tx_id: Some(tx_id),
             auth_package,
         };
 

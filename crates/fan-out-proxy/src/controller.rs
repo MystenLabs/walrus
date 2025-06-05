@@ -88,9 +88,17 @@ impl Controller {
         body: Bytes,
         params: Params,
     ) -> Result<ResponseType, FanOutError> {
-        // Check authentication pre-conditions for fan-out.
-        self.validate_auth_package(params.tx_id, &params.auth_package, body.as_ref())
-            .await?;
+        // If the fan-out proxy does not require a tip, we do not need to check the transaction and
+        // the tip.
+        if self.tip_config.requires_tip() {
+            if let Some(tx_id) = params.tx_id {
+                self.validate_auth_package(tx_id, &params.auth_package, body.as_ref())
+                    .await?;
+            } else {
+                // A tip is required, but no transaction ID was provided.
+                return Err(FanOutError::NoTransactionId);
+            }
+        }
 
         let encode_start_timer = Instant::now();
         // PERF: encoding should probably be done on a separate thread pool.
