@@ -61,6 +61,14 @@ pub(crate) async fn run_blob_backfill(
     //   | tee downloaded-blobs.txt \
     //   | walrus blob-backfill --backfill-dir ./blob ...
     //
+    // Note that with this relatively simple file-based approach, we can do a one-time pull of all
+    // of the blob IDs from the known archive ("blobs-to-backfill.txt"), then partition the problem across worker machines as
+    // needed. To facilitate this, we'd rely on `archive-extractor` having another input parameter
+    // ("blobs-to-backfill.txt") from which it would know which archival blobs to pull, etc...
+    //
+    // The thing to stress here is that for a multi-day backfill, it's super helpful to know how to
+    // stop and restart without losing all prior progress.
+    //
     for line in std::io::stdin().lines() {
         let line = line?;
         let blob_id: BlobId = line.trim().parse()?;
