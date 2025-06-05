@@ -74,7 +74,7 @@ use crate::{
     active_committees::ActiveCommittees,
     client::quilt_client::QuiltClient,
     config::CommunicationLimits,
-    error::{ClientError, ClientErrorKind, ClientResult},
+    error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -743,6 +743,73 @@ impl<T: ReadClient> Client<T> {
             .collect::<Vec<_>>();
 
         Ok(slivers)
+    }
+
+    /// Encodes the blob and sends metadata and slivers to the selected nodes.
+    ///
+    /// The function optionally receives a blob ID as input, to check that the blob ID resulting
+    /// from the encoding matches the expected blob ID. This operation is intended for backfills,
+    /// and it will not request a certificate from the storage nodes.
+    ///
+    /// Returns a vector containing the results of the store operations on each node.
+    pub async fn backfill_blob_to_nodes(
+        &self,
+        blob: &[u8],
+        node_ids: impl IntoIterator<Item = ObjectID>,
+        encoding_type: EncodingType,
+        expected_blob_id: Option<BlobId>,
+    ) -> ClientResult<Vec<NodeResult<(), StoreError>>> {
+        let committees = self.get_committees().await?;
+        let (pairs, metadata) = self
+            .encoding_config
+            .get_for_type(encoding_type)
+            .encode_with_metadata(blob)
+            .map_err(ClientError::other)?;
+
+        if let Some(expected) = expected_blob_id {
+            ensure!(
+                expected == *metadata.blob_id(),
+                ClientError::store_blob_internal(format!(
+                    "the expected blob ID ({}) does not match the encoded blob ID ({})",
+                    expected,
+                    metadata.blob_id()
+                ))
+            )
+        }
+
+        let mut pairs_per_node = self
+            .pairs_per_node(metadata.blob_id(), &pairs, &committees)
+            .await;
+
+        let sliver_write_limit = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                metadata.metadata().unencoded_length(),
+                &self.encoding_config,
+                metadata.metadata().encoding_type(),
+            );
+        let comms = self.communication_factory.node_write_communications_by_id(
+            &committees,
+            Arc::new(Semaphore::new(sliver_write_limit)),
+            node_ids,
+        )?;
+
+        let store_operations: Vec<_> = comms
+            .iter()
+            .map(|nc| {
+                nc.store_metadata_and_pairs_without_confirmation(
+                    &metadata,
+                    pairs_per_node
+                        .remove(&nc.node_index)
+                        .expect("there are shards for each node"),
+                )
+            })
+            .collect();
+
+        // Await on all store operations concurrently.
+        let results = futures::future::join_all(store_operations).await;
+
+        Ok(results)
     }
 }
 
