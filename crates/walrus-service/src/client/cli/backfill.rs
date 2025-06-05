@@ -33,8 +33,8 @@ pub(crate) async fn run_blob_backfill(
     let client = get_backfill_client(config.clone()).await?;
 
     // TODO: I think we need to create NodeWriteCommunication instances for each of the nodes in
-    // node_ids here. Not sure the best path to take to get there. Below are some scraps I've
-    // collected from elsewhere in the codebase that seem related.
+    // node_ids here. Not sure the best path to take to get there. Below are some partial scraps
+    // I've collected that I think trend in the right direction.
     // let committees_and_state = client.sui_client().get_committees_and_state().await?;
 
     //let communication_factory: NodeCommunicationFactory = NodeCommunicationFactory::new(
@@ -50,6 +50,17 @@ pub(crate) async fn run_blob_backfill(
 
     // Ingest blob_ids that have been stored locally via stdin, and look for them in the given
     // folder.
+
+    // The idea here is to have an upstream task whose job is to pull blobs from an archive,
+    // write them to a local folder, then emit the name of the blob to stdout (aka this process'
+    // stdin). We should also provide for a mechanism to retain state about which blobs have been
+    // processed, which will likely just live in an output file ("downloaded-blobs.txt", etc...).
+    // This could easily be afforded by putting this in between the two processes,
+    //
+    // archive-extractor --blobs-to-skip downloaded-blobs.txt --output-blob-dir ./blobs \
+    //   | tee downloaded-blobs.txt \
+    //   | walrus blob-backfill --backfill-dir ./blob ...
+    //
     for line in std::io::stdin().lines() {
         let line = line?;
         let blob_id: BlobId = line.trim().parse()?;
