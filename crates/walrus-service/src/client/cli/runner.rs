@@ -484,6 +484,10 @@ impl ClientCommandRunner {
             }
 
             CliCommands::NodeAdmin { command } => self.run_admin_command(command).await,
+            CliCommands::BlobBackfill {
+                backfill_dir,
+                node_ids,
+            } => self.run_blob_backfill(backfill_dir, node_ids).await,
         }
     }
 
@@ -1509,6 +1513,41 @@ impl ClientCommandRunner {
             std::fs::write(&output_file_path, blob.take_blob())?;
         }
 
+        Ok(())
+    }
+
+    pub(crate) async fn run_blob_backfill(
+        self,
+        backfill_dir: PathBuf,
+        node_ids: Vec<ObjectID>,
+    ) -> Result<()> {
+        // TODO: Connect to Sui network to get active committee information for mapping node_ids.
+        // ...
+
+        // Ingest blob_ids that have been stored locally via stdin, and look for them in the given
+        // folder.
+        for line in std::io::stdin().lines() {
+            let line = line?;
+            let blob_id: BlobId = line.trim().parse()?;
+            let blob_filename = blob_id.to_string();
+
+            match std::fs::read(backfill_dir.join(&blob_filename)) {
+                Ok(_blob) => {
+                    // Send this blob to appropriate shards.
+                    // TODO: encode and send the blob to the nodes.
+                    tracing::info!(?node_ids, "sending blob to nodes");
+                }
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        ?backfill_dir,
+                        ?blob_id,
+                        "error reading blob from disk. skipping..."
+                    );
+                    continue;
+                }
+            }
+        }
         Ok(())
     }
 }

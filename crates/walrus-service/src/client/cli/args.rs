@@ -598,6 +598,15 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: NodeAdminCommands,
     },
+    /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
+    BlobBackfill {
+        /// The subdirectory when blob-backfill can find blobs. Blobs in this directory must be
+        /// named with their blob id. Any files that exist in this directory that do not have a
+        /// conforming blob id name will be skipped.
+        backfill_dir: PathBuf,
+        /// The nodes to backfill with slivers and blob metadata.
+        node_ids: Vec<ObjectID>,
+    },
 }
 
 /// Subcommands for the `info` command.
