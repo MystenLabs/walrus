@@ -233,6 +233,9 @@ pub(crate) async fn run_blob_backfill(
                     &mut pushed_state,
                 )
                 .await
+                .inspect(|_| {
+                    tracing::info!(?blob_id, ?blob_filename, "Successfully pushed blob");
+                })
                 .inspect_err(|e| {
                     tracing::error!(?e, ?blob_id, "Failed to push blob. Continuing...");
                 });
