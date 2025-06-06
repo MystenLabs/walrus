@@ -21,7 +21,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
-    QuiltBlobId,
+    QuiltPatchId,
     encoding::{EncodingConfig, EncodingConfigTrait, QuiltVersionEnum},
     ensure,
 };
@@ -361,7 +361,7 @@ pub enum CliCommands {
         #[serde_as(as = "Vec<DisplayFromStr>")]
         #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id, num_args = 0..)]
         #[serde(default)]
-        quilt_patch_ids: Vec<QuiltBlobId>,
+        quilt_patch_ids: Vec<QuiltPatchId>,
 
         /// The file path where to write the blobs.
         ///

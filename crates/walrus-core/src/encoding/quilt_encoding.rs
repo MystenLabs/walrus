@@ -521,7 +521,7 @@ pub struct QuiltBlobOwned {
     pub identifier: String,
     /// The attributes of the blob.
     pub attributes: HashMap<String, String>,
-    /// QuiltBlobId of the blob.
+    /// QuiltPatchId of the blob.
     pub quilt_batch_id_bytes: Vec<u8>,
 }
 

@@ -23,7 +23,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount, QuiltBlobId, encoding::QuiltBlobOwned};
+use walrus_core::{BlobId, EncodingType, EpochCount, QuiltPatchId, encoding::QuiltBlobOwned};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
@@ -366,18 +366,20 @@ impl From<ClientError> for StoreBlobError {
     }
 }
 
-/// Request to get blobs from quilt by their IDs.
+/// Request to get a blob from quilt by its ID.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
-pub struct GetQuiltBlobsRequest {
-    /// List of quilt blob IDs to retrieve.
-    pub quilt_blob_ids: Vec<QuiltBlobId>,
+pub struct GetQuiltBlobRequest {
+    /// Quilt blob ID to retrieve.
+    #[serde_as(as = "DisplayFromStr")]
+    pub quilt_patch_id: QuiltPatchId,
 }
 
-/// Response containing the retrieved quilt blobs.
+/// Response containing the retrieved quilt blob.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct GetQuiltBlobsResponse {
-    /// The retrieved blobs from the quilt.
-    pub blobs: Vec<QuiltBlobOwned>,
+pub struct GetQuiltBlobResponse {
+    /// The retrieved blob from the quilt.
+    pub blob: QuiltBlobOwned,
 }
 
 /// Returns a `CorsLayer` for the blob store endpoint.
@@ -389,44 +391,50 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
         .allow_headers(Any)
 }
 
-/// Retrieve blobs from quilt by their QuiltBlobIds.
+/// Retrieve a blob from quilt by its QuiltPatchId.
 ///
-/// Takes a list of quilt blob IDs and returns the corresponding blobs from the quilt.
+/// Takes a quilt blob ID and returns the corresponding blob from the quilt.
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
     get,
     path = QUILT_BLOBS_ENDPOINT,
-    params(GetQuiltBlobsRequest),
+    params(GetQuiltBlobRequest),
     responses(
-        (status = 200, description = "The blobs were retrieved successfully",
-            body = GetQuiltBlobsResponse),
+        (status = 200, description = "The blob was retrieved successfully",
+            body = GetQuiltBlobResponse),
         GetBlobError,
     ),
 )]
-pub(super) async fn get_quilt_blobs<T: WalrusReadClient>(
+pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
     State(client): State<Arc<T>>,
-    Query(request): Query<GetQuiltBlobsRequest>,
+    Query(request): Query<GetQuiltBlobRequest>,
 ) -> Response {
-    tracing::info!(
-        "starting to read {} quilt blobs",
-        request.quilt_blob_ids.len()
-    );
+    tracing::info!("starting to read quilt blob: {}", request.quilt_patch_id);
 
-    match client.get_blobs_by_quilt_ids(&request.quilt_blob_ids).await {
-        Ok(blobs) => {
-            tracing::info!("successfully retrieved {} blobs", blobs.len());
-            let response = GetQuiltBlobsResponse { blobs };
-            (StatusCode::OK, Json(response)).into_response()
+    match client
+        .get_blobs_by_quilt_ids(&[request.quilt_patch_id])
+        .await
+    {
+        Ok(mut blobs) => {
+            if let Some(blob) = blobs.pop() {
+                tracing::info!("successfully retrieved blob");
+                let response = GetQuiltBlobResponse { blob };
+                (StatusCode::OK, Json(response)).into_response()
+            } else {
+                tracing::info!("no blob returned for the requested quilt blob ID");
+                let error = GetBlobError::BlobNotFound;
+                error.to_response()
+            }
         }
         Err(error) => {
             let error = GetBlobError::from(error);
 
             match &error {
                 GetBlobError::BlobNotFound => {
-                    tracing::info!("one or more requested quilt blob IDs do not exist")
+                    tracing::info!("requested quilt blob ID does not exist")
                 }
                 GetBlobError::Internal(error) => {
-                    tracing::info!(?error, "error retrieving quilt blobs")
+                    tracing::info!(?error, "error retrieving quilt blob")
                 }
                 _ => (),
             }

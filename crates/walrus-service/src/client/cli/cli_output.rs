@@ -372,7 +372,7 @@ impl<'a> QuiltIndexTableOutput<'a> {
         table.set_format(default_table_format());
         table.set_titles(row![
             b->"Index",
-            b->"QuiltBlobId",
+            b->"QuiltPatchId",
             b->"Identifier"
         ]);
 

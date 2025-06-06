@@ -24,7 +24,7 @@ use crate::common::api::Binary;
     paths(
         routes::get_blob,
         routes::get_blob_by_object_id,
-        routes::get_quilt_blobs
+        routes::get_blob_in_quilt
     ),
     components(schemas(BlobId, Status,))
 )]
@@ -58,7 +58,7 @@ pub(super) struct PublisherApiDoc;
         routes::get_blob,
         routes::put_blob,
         routes::get_blob_by_object_id,
-        routes::get_quilt_blobs,
+        routes::get_blob_in_quilt,
     ),
     components(schemas(
         Blob,

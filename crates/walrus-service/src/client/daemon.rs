@@ -45,7 +45,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
-    QuiltBlobId,
+    QuiltPatchId,
     encoding::{Primary, QuiltBlobOwned},
 };
 use walrus_sdk::{
@@ -92,7 +92,7 @@ pub trait WalrusReadClient {
     /// Default implementation returns an error indicating quilt is not supported.
     fn get_blobs_by_quilt_ids(
         &self,
-        _quilt_blob_ids: &[QuiltBlobId],
+        _quilt_blob_ids: &[QuiltPatchId],
     ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltBlobOwned>>> + Send {
         async {
             use walrus_sdk::error::ClientErrorKind;
@@ -134,7 +134,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
 
     async fn get_blobs_by_quilt_ids(
         &self,
-        quilt_blob_ids: &[QuiltBlobId],
+        quilt_blob_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltBlobOwned>> {
         self.quilt_client().get_blobs_by_ids(quilt_blob_ids).await
     }
@@ -230,7 +230,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
             )
-            .route(QUILT_BLOBS_ENDPOINT, get(routes::get_quilt_blobs));
+            .route(QUILT_BLOBS_ENDPOINT, get(routes::get_blob_in_quilt));
         self
     }
 

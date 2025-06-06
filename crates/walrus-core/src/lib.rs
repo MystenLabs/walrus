@@ -217,18 +217,18 @@ impl Debug for BlobId {
     }
 }
 
-/// A QuiltBlobId identifies a blob within a quilt.
+/// A QuiltPatchId identifies a blob within a quilt.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct QuiltBlobId {
+pub struct QuiltPatchId {
     /// The BlobId of the quilt as a Walrus blob.
     pub quilt_id: BlobId,
     /// The patch id of the quilt.
     pub patch_id_bytes: Vec<u8>,
 }
 
-impl QuiltBlobId {
-    /// Create a new QuiltBlobId.
+impl QuiltPatchId {
+    /// Create a new QuiltPatchId.
     pub fn new(quilt_id: BlobId, patch_id_bytes: Vec<u8>) -> Self {
         Self {
             quilt_id,
@@ -236,7 +236,7 @@ impl QuiltBlobId {
         }
     }
 
-    /// Serializes the QuiltBlobId to bytes
+    /// Serializes the QuiltPatchId to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.quilt_id.0);
@@ -244,7 +244,7 @@ impl QuiltBlobId {
         bytes
     }
 
-    /// Deserializes the QuiltBlobId from bytes.
+    /// Deserializes the QuiltPatchId from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BlobIdParseError> {
         let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
         let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
@@ -254,7 +254,7 @@ impl QuiltBlobId {
         })
     }
 
-    /// Returns a zero-initialized QuiltBlobId.
+    /// Returns a zero-initialized QuiltPatchId.
     pub fn zero() -> Self {
         Self {
             quilt_id: BlobId::ZERO,
@@ -273,13 +273,13 @@ impl QuiltBlobId {
     }
 }
 
-impl Display for QuiltBlobId {
+impl Display for QuiltPatchId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Base64Display::new(&self.to_bytes(), &URL_SAFE_NO_PAD).fmt(f)
     }
 }
 
-impl Debug for QuiltBlobId {
+impl Debug for QuiltPatchId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -289,7 +289,7 @@ impl Debug for QuiltBlobId {
     }
 }
 
-impl FromStr for QuiltBlobId {
+impl FromStr for QuiltPatchId {
     type Err = BlobIdParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

@@ -24,7 +24,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
-    QuiltBlobId,
+    QuiltPatchId,
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
@@ -875,7 +875,7 @@ impl ClientCommandRunner {
         self,
         blob_id: Option<BlobId>,
         identifiers: Vec<String>,
-        quilt_blob_ids: Vec<QuiltBlobId>,
+        quilt_blob_ids: Vec<QuiltPatchId>,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
