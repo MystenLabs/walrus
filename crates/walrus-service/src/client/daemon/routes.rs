@@ -23,7 +23,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount, QuiltBlobId, encoding::QuiltBlobOwned};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
@@ -57,6 +57,8 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to get blobs from quilt by IDs.
+pub const QUILT_BLOBS_ENDPOINT: &str = "/v1/quilt/blobs";
 
 /// Retrieve a Walrus blob.
 ///
@@ -364,6 +366,20 @@ impl From<ClientError> for StoreBlobError {
     }
 }
 
+/// Request to get blobs from quilt by their IDs.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+pub struct GetQuiltBlobsRequest {
+    /// List of quilt blob IDs to retrieve.
+    pub quilt_blob_ids: Vec<QuiltBlobId>,
+}
+
+/// Response containing the retrieved quilt blobs.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetQuiltBlobsResponse {
+    /// The retrieved blobs from the quilt.
+    pub blobs: Vec<QuiltBlobOwned>,
+}
+
 /// Returns a `CorsLayer` for the blob store endpoint.
 pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
@@ -371,6 +387,53 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
         .allow_methods(Any)
         .max_age(Duration::from_secs(86400))
         .allow_headers(Any)
+}
+
+/// Retrieve blobs from quilt by their QuiltBlobIds.
+///
+/// Takes a list of quilt blob IDs and returns the corresponding blobs from the quilt.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_BLOBS_ENDPOINT,
+    params(GetQuiltBlobsRequest),
+    responses(
+        (status = 200, description = "The blobs were retrieved successfully",
+            body = GetQuiltBlobsResponse),
+        GetBlobError,
+    ),
+)]
+pub(super) async fn get_quilt_blobs<T: WalrusReadClient>(
+    State(client): State<Arc<T>>,
+    Query(request): Query<GetQuiltBlobsRequest>,
+) -> Response {
+    tracing::info!(
+        "starting to read {} quilt blobs",
+        request.quilt_blob_ids.len()
+    );
+
+    match client.get_blobs_by_quilt_ids(&request.quilt_blob_ids).await {
+        Ok(blobs) => {
+            tracing::info!("successfully retrieved {} blobs", blobs.len());
+            let response = GetQuiltBlobsResponse { blobs };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::info!("one or more requested quilt blob IDs do not exist")
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::info!(?error, "error retrieving quilt blobs")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]

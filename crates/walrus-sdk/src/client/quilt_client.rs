@@ -17,7 +17,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
-    QuiltPatchId,
+    QuiltBlobId,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -346,7 +346,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the list of blobs contained in a quilt.
     pub async fn get_blobs_from_quilt(
         &self,
-        quilt_blob_ids: &[QuiltPatchId],
+        quilt_blob_ids: &[QuiltBlobId],
     ) -> ClientResult<Vec<QuiltBlobOwned>> {
         assert!(!quilt_blob_ids.is_empty());
         let quilt_blob_id = quilt_blob_ids.first().expect("no quilt blob id provided");
@@ -420,7 +420,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     /// Retrieves the list of blobs contained in a quilt.
     pub async fn get_blobs_by_ids(
         &self,
-        quilt_blob_ids: &[QuiltPatchId],
+        quilt_blob_ids: &[QuiltBlobId],
     ) -> ClientResult<Vec<QuiltBlobOwned>> {
         let mut grouped_quilt_blob_ids = HashMap::new();
         for quilt_blob_id in quilt_blob_ids {

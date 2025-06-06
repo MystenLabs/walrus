@@ -26,6 +26,7 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    QUILT_BLOBS_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -39,10 +40,17 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::Primary};
+use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    EpochCount,
+    QuiltBlobId,
+    encoding::{Primary, QuiltBlobOwned},
+};
 use walrus_sdk::{
     client::{Client, responses::BlobStoreResult},
-    error::ClientResult,
+    error::{ClientError, ClientResult},
     store_when::StoreWhen,
 };
 use walrus_sui::{
@@ -79,6 +87,20 @@ pub trait WalrusReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
+
+    /// Retrieves blobs from quilt by their IDs.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blobs_by_quilt_ids(
+        &self,
+        _quilt_blob_ids: &[QuiltBlobId],
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltBlobOwned>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -108,6 +130,13 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
         self.get_blob_by_object_id(blob_object_id).await
+    }
+
+    async fn get_blobs_by_quilt_ids(
+        &self,
+        quilt_blob_ids: &[QuiltBlobId],
+    ) -> ClientResult<Vec<QuiltBlobOwned>> {
+        self.quilt_client().get_blobs_by_ids(quilt_blob_ids).await
     }
 }
 
@@ -192,6 +221,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
         self.with_allowed_headers(allowed_headers);
         tracing::info!("Aggregator allowed headers: {:?}", self.allowed_headers);
+        tracing::info!("Aggregator with quilt: {:?}", QUILT_BLOBS_ENDPOINT);
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
@@ -199,7 +229,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
-            );
+            )
+            .route(QUILT_BLOBS_ENDPOINT, get(routes::get_quilt_blobs));
         self
     }
 

@@ -512,7 +512,8 @@ impl<'a> QuiltStoreBlob<'a> {
 ///
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct QuiltBlobOwned {
     /// The blob data.
     pub blob: Vec<u8>,
@@ -520,7 +521,7 @@ pub struct QuiltBlobOwned {
     pub identifier: String,
     /// The attributes of the blob.
     pub attributes: HashMap<String, String>,
-    /// QuiltPatchId of the blob.
+    /// QuiltBlobId of the blob.
     pub quilt_batch_id_bytes: Vec<u8>,
 }
 

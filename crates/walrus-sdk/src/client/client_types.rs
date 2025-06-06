@@ -11,7 +11,7 @@ use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use walrus_core::{
     BlobId,
-    QuiltPatchId,
+    QuiltBlobId,
     encoding::{QuiltPatchInternalIdApi, SliverPair},
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
@@ -35,7 +35,7 @@ pub struct StoredQuiltBlob {
     /// The quilt blob.
     pub identifier: String,
     /// The quilt blob id.
-    pub quilt_blob_id: QuiltPatchId,
+    pub quilt_blob_id: QuiltBlobId,
 }
 
 impl StoredQuiltBlob {
@@ -43,7 +43,7 @@ impl StoredQuiltBlob {
     pub fn new<T: QuiltPatchInternalIdApi>(blob_id: BlobId, identifier: &str, patch_id: T) -> Self {
         Self {
             identifier: identifier.to_string(),
-            quilt_blob_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()),
+            quilt_blob_id: QuiltBlobId::new(blob_id, patch_id.to_bytes()),
         }
     }
 }

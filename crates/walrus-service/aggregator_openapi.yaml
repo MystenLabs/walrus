@@ -98,6 +98,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/quilt/blobs:
+    get:
+      tags:
+      - routes
+      summary: Retrieve blobs from quilt by their QuiltBlobIds.
+      description: Takes a list of quilt blob IDs and returns the corresponding blobs from the quilt.
+      operationId: get_quilt_blobs
+      parameters:
+      - name: quilt_blob_ids
+        in: query
+        description: List of quilt blob IDs to retrieve.
+        required: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuiltBlobId'
+      responses:
+        '200':
+          description: The blobs were retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetQuiltBlobsResponse'
+        '404':
+          description: ' The requested blob has not yet been stored on Walrus.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: ' The blob cannot be returned as has been blocked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     BlobId:
@@ -106,6 +147,54 @@ components:
       description: The ID of a blob.
       examples:
       - E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+    GetQuiltBlobsResponse:
+      type: object
+      description: Response containing the retrieved quilt blobs.
+      required:
+      - blobs
+      properties:
+        blobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuiltBlobOwned'
+          description: The retrieved blobs from the quilt.
+    QuiltBlobOwned:
+      type: object
+      description: |-
+        A wrapper around an owned blob and its identifier.
+
+        A valid identifier is a string that contains only alphanumeric characters,
+        underscores, hyphens, and periods.
+      required:
+      - blob
+      - identifier
+      - attributes
+      - quilt_batch_id_bytes
+      properties:
+        attributes:
+          type: object
+          description: The attributes of the blob.
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
+        blob:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: The blob data.
+        identifier:
+          type: string
+          description: The identifier of the blob.
+        quilt_batch_id_bytes:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: QuiltBlobId of the blob.
     Status:
       type: object
       description: |-

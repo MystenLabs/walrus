@@ -202,6 +202,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/quilt/blobs:
+    get:
+      tags:
+      - routes
+      summary: Retrieve blobs from quilt by their QuiltBlobIds.
+      description: Takes a list of quilt blob IDs and returns the corresponding blobs from the quilt.
+      operationId: get_quilt_blobs
+      parameters:
+      - name: quilt_blob_ids
+        in: query
+        description: List of quilt blob IDs to retrieve.
+        required: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuiltBlobId'
+      responses:
+        '200':
+          description: The blobs were retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetQuiltBlobsResponse'
+        '404':
+          description: ' The requested blob has not yet been stored on Walrus.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: ' The blob cannot be returned as has been blocked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     Binary:
@@ -413,12 +454,60 @@ components:
             $ref: '#/components/schemas/ObjectID'
             description: The variant representing an object ID.
       description: Either an event ID or an object ID.
+    GetQuiltBlobsResponse:
+      type: object
+      description: Response containing the retrieved quilt blobs.
+      required:
+      - blobs
+      properties:
+        blobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuiltBlobOwned'
+          description: The retrieved blobs from the quilt.
     ObjectID:
       type: string
       title: Sui object ID
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+    QuiltBlobOwned:
+      type: object
+      description: |-
+        A wrapper around an owned blob and its identifier.
+
+        A valid identifier is a string that contains only alphanumeric characters,
+        underscores, hyphens, and periods.
+      required:
+      - blob
+      - identifier
+      - attributes
+      - quilt_batch_id_bytes
+      properties:
+        attributes:
+          type: object
+          description: The attributes of the blob.
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
+        blob:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: The blob data.
+        identifier:
+          type: string
+          description: The identifier of the blob.
+        quilt_batch_id_bytes:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: QuiltBlobId of the blob.
     RegisterBlobOp:
       oneOf:
       - type: object
