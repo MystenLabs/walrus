@@ -131,7 +131,9 @@ async fn pull_archive_blob(
 
     // Check if the blob has already been pulled.
     if pulled_blobs.contains(&blob_id) {
-        tracing::info!(?blob_id, "Blob already exists, skipping");
+        tracing::info!(?blob_id, "Blob already exists, skipping download");
+        // Emit the blob ID to stdout for further downstream processing.
+        println!("{}", blob_id);
         return Ok(());
     }
 
@@ -185,12 +187,21 @@ pub(crate) async fn run_blob_backfill(
     pushed_state: PathBuf,
 ) -> Result<()> {
     std::fs::create_dir_all(&backfill_dir).context("creating backfill directory")?;
+    tracing::info!(
+        ?backfill_dir,
+        ?node_ids,
+        ?pushed_state,
+        "running blob backfill"
+    );
     let config: ClientConfig = walrus_sdk::config::load_configuration(
         // Just use default config locations for now.
         Option::<PathBuf>::None,
         None,
     )?;
+    tracing::info!(?config, "loaded config");
     let client = get_backfill_client(config.clone()).await?;
+
+    tracing::info!("instantiated client");
 
     // Read the pushed state file, if it exists, to avoid pushing the same blobs again.
     let mut pushed_blobs = get_blob_ids_from_file(&pushed_state);
