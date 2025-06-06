@@ -3,7 +3,7 @@
 
 use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use walrus_core::{encoding::QuiltStoreBlob, EpochCount};
-use 
+use walrus_test_utils::generate_random_data;
 
 const TAG: &[u8] = b"TESTBLOB";
 
@@ -124,33 +124,32 @@ impl QuiltStoreBlobConfig {
 }
 
 pub(crate) struct QuiltData {
-    blobs: Vec<QuiltStoreBlob<'static>>,
+    blobs: Vec<Vec<u8>>,
     quilt_config: QuiltStoreBlobConfig,
     blob_config: WriteBlobConfig,
 }
 
 impl QuiltData {
     pub fn new(quilt_config: QuiltStoreBlobConfig, blob_config: WriteBlobConfig) -> Self {
+        let num_blobs = quilt_config.max_num_blobs_per_quilt;
+        let min_size = 2_usize.pow(blob_config.min_size_log2 as u32);
+        let max_size = 2_usize.pow(blob_config.max_size_log2 as u32);
+        let blobs = generate_random_data(num_blobs as usize, max_size, min_size);
+
         Self {
-            blobs: Vec::new(),
+            blobs,
             quilt_config,
             blob_config,
         }
     }
 
-    pub async fn init(mut self) -> Self{
-        let num_blobs = self.quilt_config.max_num_blobs_per_quilt;
-        for _ in 0..num_blobs {
-            let blob = BlobData::random(self.blob_config).await;
-            self.blobs.push(QuiltStoreBlob::new(blob.as_ref(), "test-blob"));
-        }
-    }
-
-    pub fn random_size_slice(&self) -> Vec<&[u8]> {
+    pub fn get_random_batch(&self) -> Vec<&[u8]> {
         let num_blobs = self.quilt_config.get_random_num_blobs_per_quilt();
+        let mut rng = thread_rng();
         let mut blobs = Vec::new();
+
         for _ in 0..num_blobs {
-            blobs.push(self.blob_config.random_size_slice());
+            blobs.push(self.blobs[rng.gen_range(0..self.blobs.len())].as_slice());
         }
         blobs
     }
