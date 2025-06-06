@@ -38,7 +38,7 @@ use std::{
     fs::File,
     io::Write as _,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result};
@@ -51,6 +51,7 @@ use walrus_core::{BlobId, EncodingType};
 use walrus_sdk::{ObjectID, client::Client, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
+const TOMBSTONE_FILENAME: &str = "tombstone";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 // TODO: Possibly make this configurable.
@@ -126,6 +127,11 @@ pub(crate) async fn pull_archive_blobs(
         .await;
         batch_counter = (batch_counter + 1) % DOWNLOAD_BATCH_SIZE;
     }
+    std::fs::write(
+        Path::new(&backfill_dir).join(TOMBSTONE_FILENAME),
+        format!("{:?}\n", SystemTime::now()).as_bytes(),
+    )
+    .context("creating tombstone")?;
     Ok(())
 }
 
@@ -137,7 +143,7 @@ pub(crate) async fn pull_archive_blobs(
 async fn check_and_apply_backpressure(backfill_dir: &str) -> Result<()> {
     loop {
         // We have processed a full batch. Now check if we need to backpressure.
-        let num_files = std::fs::read_dir(&backfill_dir)?.count();
+        let num_files = std::fs::read_dir(backfill_dir)?.count();
         if num_files > MAX_IN_FLIGHT_BACKFILLS {
             tracing::info!(
                 num_files,
@@ -177,7 +183,7 @@ async fn process_line(
         backfill_dir,
         pulled_blobs,
         pulled_state,
-        prefix.as_deref(),
+        prefix,
     )
     .await
     .inspect_err(|e| {
@@ -295,8 +301,20 @@ pub(crate) async fn run_blob_backfill(
                     .ok()
                     .map(|entry| entry.path())
             })
+            .filter(|path| {
+                // Skip tombstones.
+                path.file_name()
+                    .is_some_and(|path| path != TOMBSTONE_FILENAME)
+            })
             .collect::<Vec<_>>();
 
+        if entries.is_empty()
+            && std::fs::exists(backfill_dir.join(TOMBSTONE_FILENAME)).unwrap_or(false)
+        {
+            // Stop if there are no more files to process and a tombstone file exists.
+            tracing::info!("tombstone file found; exiting backfill loop");
+            break Ok(());
+        }
         for blob_filename in entries.iter() {
             process_file_and_backfill(
                 &client,
@@ -328,21 +346,14 @@ async fn process_file_and_backfill(
     match std::fs::read(blob_filename) {
         Ok(blob) => {
             if let Ok(blob_id) = blob_id_from_path(blob_filename) {
-                let _ = backfill_blob(
-                    &client,
-                    &node_ids,
-                    blob_id,
-                    &blob,
-                    pushed_blobs,
-                    pushed_state,
-                )
-                .await
-                .inspect(|_| {
-                    tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
-                })
-                .inspect_err(|e| {
-                    tracing::error!(?e, ?blob_id, "failed to push blob; continuing...");
-                });
+                let _ = backfill_blob(client, node_ids, blob_id, &blob, pushed_blobs, pushed_state)
+                    .await
+                    .inspect(|_| {
+                        tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
+                    })
+                    .inspect_err(|e| {
+                        tracing::error!(?e, ?blob_id, "failed to push blob; continuing...");
+                    });
             } else {
                 tracing::error!(?blob_filename, "cannot get blob ID from path; skipping...");
             };
