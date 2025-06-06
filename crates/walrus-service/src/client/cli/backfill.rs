@@ -35,7 +35,7 @@
 
 use std::{collections::HashSet, fs::File, io::Write as _, path::PathBuf, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::body::Bytes;
 use object_store::{
     ObjectStore,
@@ -46,6 +46,21 @@ use walrus_sdk::{ObjectID, client::Client, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+fn get_blob_ids_from_file(filename: &PathBuf) -> HashSet<BlobId> {
+    if filename.exists() {
+        if let Ok(blob_list) = std::fs::read_to_string(filename) {
+            blob_list
+                .lines()
+                .filter_map(|line| line.trim().parse().ok())
+                .collect::<HashSet<_>>()
+        } else {
+            Default::default()
+        }
+    } else {
+        Default::default()
+    }
+}
 
 pub(crate) async fn pull_archive_blobs(
     gcs_bucket: String,
@@ -66,17 +81,13 @@ pub(crate) async fn pull_archive_blobs(
         .build()?;
 
     // Read the pulled state file, if it exists, to avoid pulling the same blobs again.
-    let mut pulled_blobs: HashSet<BlobId> = if pulled_state.exists() {
-        std::fs::read_to_string(&pulled_state)?
-            .lines()
-            .filter_map(|line| line.trim().parse().ok())
-            .collect::<HashSet<_>>()
-    } else {
-        Default::default()
-    };
+    let mut pulled_blobs = get_blob_ids_from_file(&pulled_state);
 
     // Open an appendable file to track pulled blobs and avoid dupes.
-    let mut pulled_state = File::options().append(true).open(&pulled_state)?;
+    let mut pulled_state = File::options()
+        .append(true)
+        .open(&pulled_state)
+        .context("opening pulled state file")?;
 
     // Loop over lines of stdin, which should contain blob IDs to pull.
     // The format of each line should be a single BlobId.
@@ -177,17 +188,13 @@ pub(crate) async fn run_blob_backfill(
     let client = get_backfill_client(config.clone()).await?;
 
     // Read the pushed state file, if it exists, to avoid pushing the same blobs again.
-    let mut pushed_blobs: HashSet<BlobId> = if pushed_state.exists() {
-        std::fs::read_to_string(&pushed_state)?
-            .lines()
-            .filter_map(|line| line.trim().parse().ok())
-            .collect::<HashSet<_>>()
-    } else {
-        Default::default()
-    };
+    let mut pushed_blobs = get_blob_ids_from_file(&pushed_state);
 
     // Open an appendable file to track pushed blobs.
-    let mut pushed_state = File::options().append(true).open(&pushed_state)?;
+    let mut pushed_state = File::options()
+        .append(true)
+        .open(&pushed_state)
+        .context("opening pushed state file")?;
 
     // Ingest via stdin, then process the blob_ids that have been stored in `backfill_dir`.
     for line in std::io::stdin().lines() {
