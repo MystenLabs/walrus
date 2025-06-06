@@ -4858,8 +4858,8 @@ mod tests {
         Ok(())
     }
 
-    // TODO(WAL-872): move failure injection test to src/tests/. Currently there is no way to run seed-search
-    // on these tests since there is no test target.
+    // TODO(WAL-872): move failure injection test to src/tests/. Currently there is no way to run
+    // seed-search on these tests since there is no test target.
     #[cfg(msim)]
     mod failure_injection_tests {
         use sui_macros::{
@@ -5460,6 +5460,13 @@ mod tests {
                 .start_epoch_change_finisher
                 .wait_until_previous_task_done()
                 .await;
+
+            // There should be 4 initial events:
+            //  - EpochChangeStart
+            //  - EpochChangeDone
+            //  - BlobRegistered
+            //  - BlobCertified
+            wait_until_events_processed(&cluster.nodes[0], 4).await?;
 
             let processed_event_count_initial = &cluster.nodes[0]
                 .storage_node
