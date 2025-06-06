@@ -288,10 +288,12 @@ pub(crate) async fn run_blob_backfill(
     loop {
         let entries = std::fs::read_dir(&backfill_dir)?
             .filter_map(|entry| {
-                entry.as_ref().ok().map(|entry| entry.path()).or_else(|| {
-                    tracing::error!(?entry, "error reading directory entry; skipping...");
-                    None
-                })
+                entry
+                    .inspect_err(|error| {
+                        tracing::error!(?error, "error reading directory entry; skipping...")
+                    })
+                    .ok()
+                    .map(|entry| entry.path())
             })
             .collect::<Vec<_>>();
 
@@ -325,25 +327,25 @@ async fn process_file_and_backfill(
 ) {
     match std::fs::read(blob_filename) {
         Ok(blob) => {
-            let Ok(blob_id) = blob_id_from_path(blob_filename) else {
+            if let Ok(blob_id) = blob_id_from_path(blob_filename) {
+                let _ = backfill_blob(
+                    &client,
+                    &node_ids,
+                    blob_id,
+                    &blob,
+                    pushed_blobs,
+                    pushed_state,
+                )
+                .await
+                .inspect(|_| {
+                    tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
+                })
+                .inspect_err(|e| {
+                    tracing::error!(?e, ?blob_id, "failed to push blob; continuing...");
+                });
+            } else {
                 tracing::error!(?blob_filename, "cannot get blob ID from path; skipping...");
-                return;
             };
-            let _ = backfill_blob(
-                &client,
-                &node_ids,
-                blob_id,
-                &blob,
-                pushed_blobs,
-                pushed_state,
-            )
-            .await
-            .inspect(|_| {
-                tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
-            })
-            .inspect_err(|e| {
-                tracing::error!(?e, ?blob_id, "failed to push blob; continuing...");
-            });
         }
         Err(error) => {
             tracing::error!(
