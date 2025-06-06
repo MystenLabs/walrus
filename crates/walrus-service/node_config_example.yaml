@@ -175,3 +175,5 @@ checkpoint_config:
 admin_socket_path: null
 node_recovery_config:
   max_concurrent_blob_syncs_during_recovery: 1000
+node_blob_event_processor_config:
+  num_workers: 10

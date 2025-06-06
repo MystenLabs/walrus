@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use rand::Rng;
 use sui_macros::fail_point_async;
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -24,6 +23,8 @@ use crate::node::{
     system_events::CompletableHandle,
 };
 
+/// Background event processor that processes blob events in the background. It processes events
+/// sequentially based on the order of events in the channel.
 #[derive(Debug)]
 struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
@@ -44,21 +45,29 @@ impl BackgroundEventProcessor {
         }
     }
 
-    async fn run(&mut self) {
-        // TODO: add metrics to measure events stay in the channel (queue length).
+    /// Runs the background event processor.
+    async fn run(&mut self, worker_index: usize) {
         while let Some((event_handle, blob_event)) = self.event_receiver.recv().await {
+            walrus_utils::with_label!(
+                self.node.metrics.pending_processing_blob_event_in_queue,
+                &worker_index.to_string()
+            )
+            .dec();
+
             if let Err(e) = self.process_event(event_handle, blob_event).await {
+                // TODO: to keep the same behavior as before BackgroundEventProcessor, we should
+                // propagate the error to the node and exit the process if necessary.
                 tracing::error!("error processing blob event: {}", e);
             }
         }
     }
 
+    /// Processes a blob event.
     async fn process_event(
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        // TODO: what should happen to the processor if this returns error?
         match blob_event {
             BlobEvent::Certified(event) => {
                 monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
@@ -85,6 +94,7 @@ impl BackgroundEventProcessor {
         Ok(())
     }
 
+    /// Processes a blob certified event.
     #[tracing::instrument(skip_all)]
     async fn process_blob_certified_event(
         &self,
@@ -126,6 +136,7 @@ impl BackgroundEventProcessor {
         Ok(())
     }
 
+    /// Processes a blob deleted event.
     #[tracing::instrument(skip_all)]
     async fn process_blob_deleted_event(
         &self,
@@ -165,6 +176,7 @@ impl BackgroundEventProcessor {
         Ok(())
     }
 
+    /// Processes a blob invalid event.
     #[tracing::instrument(skip_all)]
     async fn process_blob_invalid_event(
         &self,
@@ -184,11 +196,19 @@ impl BackgroundEventProcessor {
     }
 }
 
+/// Blob event processor that processes blob events. It can be configured to process events
+/// sequentially or in parallel using background workers.
 #[derive(Debug, Clone)]
 pub struct BlobEventProcessor {
     node: Arc<StorageNodeInner>,
+
+    // Background processors that process events in parallel.
     background_processor_senders: Vec<UnboundedSender<(EventHandle, BlobEvent)>>,
     _background_processors: Vec<Arc<JoinHandle<()>>>,
+
+    // When there are no background workers, we use a sequential processor to process events using
+    // this processor. This is to keep the same behavior as before BackgroundEventProcessor.
+    sequential_processor: Option<Arc<BackgroundEventProcessor>>,
 }
 
 impl BlobEventProcessor {
@@ -199,43 +219,92 @@ impl BlobEventProcessor {
     ) -> Self {
         let mut senders = Vec::with_capacity(num_workers);
         let mut workers = Vec::with_capacity(num_workers);
-        for _ in 0..num_workers {
+        for worker_index in 0..num_workers {
             let (tx, rx) = mpsc::unbounded_channel();
             senders.push(tx);
             let mut background_processor =
                 BackgroundEventProcessor::new(node.clone(), blob_sync_handler.clone(), rx);
             workers.push(Arc::new(tokio::spawn(async move {
-                background_processor.run().await;
+                background_processor.run(worker_index).await;
             })));
         }
+
+        let sequential_processor = if num_workers == 0 {
+            // Create a sequential processor to process events sequentially if no background workers
+            // are configured.
+            let (_tx, rx) = mpsc::unbounded_channel();
+            Some(Arc::new(BackgroundEventProcessor::new(
+                node.clone(),
+                blob_sync_handler.clone(),
+                rx,
+            )))
+        } else {
+            None
+        };
 
         Self {
             node,
             background_processor_senders: senders,
             _background_processors: workers,
+            sequential_processor,
         }
     }
 
+    /// Processes a blob event.
     pub async fn process_event(
         &self,
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
+        // Update the blob info based on the event.
+        // This processing must be sequential and cannot be parallelized, since there is logical
+        // dependency between events.
         self.node
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
         if let BlobEvent::Registered(_) = &blob_event {
+            // Registered event is marked as complete immediately. We need to process registered
+            // events as fast as possible to catch up to the latest event in order to not miss
+            // blob sliver uploads.
+            //
+            // If we want to do this in parallel, we shouldn't mix registered event processing with
+            // certified event processing, as certified events take longer and can block following
+            // registered events.
             monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
             event_handle.mark_as_complete();
         } else {
-            let processor_index = blob_event.blob_id().first_two_bytes() as usize
-                % self.background_processor_senders.len();
-            self.background_processor_senders[processor_index]
-                .send((event_handle, blob_event))
-                .map_err(|e| {
-                    anyhow::anyhow!("failed to send event to background processor: {}", e)
-                })?;
+            // If there are no background workers, we use a sequential processor to process events
+            // sequentially.
+            if self.background_processor_senders.is_empty() {
+                assert!(self.sequential_processor.is_some());
+                self.sequential_processor
+                    .as_ref()
+                    .expect(
+                        "sequential processor must be configured when no background \
+                            workers are configured",
+                    )
+                    .process_event(event_handle, blob_event)
+                    .await?;
+            } else {
+                // We send the event to one of the workers to process in parallel.
+                // Note that in order to remain sequential processing for the same BlobID, we always
+                // send events for the same BlobID to the same worker.
+                let processor_index = blob_event.blob_id().first_two_bytes() as usize
+                    % self.background_processor_senders.len();
+
+                walrus_utils::with_label!(
+                    self.node.metrics.pending_processing_blob_event_in_queue,
+                    &processor_index.to_string()
+                )
+                .inc();
+
+                self.background_processor_senders[processor_index]
+                    .send((event_handle, blob_event))
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to send event to background processor: {}", e)
+                    })?;
+            }
         }
         Ok(())
     }

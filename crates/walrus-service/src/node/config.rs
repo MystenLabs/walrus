@@ -701,6 +701,7 @@ impl Default for NodeRecoveryConfig {
 #[serde(default)]
 pub struct NodeBlobEventProcessorConfig {
     /// The number of workers to process blob events in parallel.
+    /// When set to 0, the node will process all blob events sequentially.
     pub num_workers: usize,
 }
 

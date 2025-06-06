@@ -4858,7 +4858,7 @@ mod tests {
         Ok(())
     }
 
-    // TODO: move failure injection test to src/tests/. Currently there is no way to run seed-search
+    // TODO(WAL-872): move failure injection test to src/tests/. Currently there is no way to run seed-search
     // on these tests since there is no test target.
     #[cfg(msim)]
     mod failure_injection_tests {
@@ -5811,11 +5811,16 @@ mod tests {
             Ok(())
         }
 
+        // Tests that blob events for the same blob are always processed in order. This is a
+        // randomized test in a way that the order of events is random based on the random seed.
+        // So single test run passing is not a guarantee to cover all the test cases.
         #[walrus_simtest]
         async fn no_out_of_order_blob_certify_and_delete_event_processing() -> TestResult {
             let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
             let test_shard = ShardIndex(1);
 
+            // Add delay between checking if a blob needs to recover and actual starting the
+            // recover process. This window is where other events can break event processing order.
             register_fail_point_async("fail_point_process_blob_certified_event", || async move {
                 tokio::time::sleep(Duration::from_secs(5)).await;
             });
@@ -5830,6 +5835,7 @@ mod tests {
 
             let object_id = ObjectID::random();
 
+            // Do not store the sliver in the first node.
             events.send(
                 BlobRegistered {
                     deletable: true,
@@ -5848,6 +5854,7 @@ mod tests {
                 .await
                 .expect_err("sliver should not yet be available");
 
+            // Sends certified event followed by delete event.
             events.send(
                 BlobCertified {
                     deletable: true,
@@ -5865,9 +5872,10 @@ mod tests {
                 .into(),
             )?;
 
-            // wait_until_events_processed(&cluster.nodes[0], 4).await?;
+            // Wait for the blob sync to complete.
             tokio::time::sleep(Duration::from_secs(10)).await;
 
+            // There shouldn't be any blob sync in progress.
             assert!(
                 cluster.nodes[0]
                     .storage_node
