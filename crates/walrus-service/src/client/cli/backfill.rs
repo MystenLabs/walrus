@@ -33,7 +33,13 @@
 //! stop and restart without losing all prior progress.
 //!
 
-use std::{collections::HashSet, fs::File, io::Write as _, path::PathBuf, time::Duration};
+use std::{
+    collections::HashSet,
+    fs::File,
+    io::Write as _,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use axum::body::Bytes;
@@ -47,18 +53,23 @@ use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
+// TODO: Possibly make this configurable.
+const DOWNLOAD_BATCH_SIZE: usize = 10;
+const MAX_IN_FLIGHT_BACKFILLS: usize = 100;
+const BACKPRESSURE_WAIT_TIME: Duration = Duration::from_secs(1);
+
 fn get_blob_ids_from_file(filename: &PathBuf) -> HashSet<BlobId> {
     if filename.exists() {
-        if let Ok(blob_list) = std::fs::read_to_string(filename) {
-            blob_list
-                .lines()
-                .filter_map(|line| line.trim().parse().ok())
-                .collect::<HashSet<_>>()
-        } else {
-            Default::default()
-        }
+        std::fs::read_to_string(filename)
+            .map(|blob_list| {
+                blob_list
+                    .lines()
+                    .filter_map(|line| line.trim().parse().ok())
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default()
     } else {
-        Default::default()
+        HashSet::new()
     }
 }
 
@@ -92,27 +103,86 @@ pub(crate) async fn pull_archive_blobs(
         .open(&pulled_state)
         .context("opening pulled state file")?;
 
-    // Loop over lines of stdin, which should contain blob IDs to pull.
-    // The format of each line should be a single BlobId.
+    // Loop over lines of stdin, which should contain blob IDs to pull. The format of each line
+    // should be a single BlobId.
+    //
+    // We process the blob IDs in batches of `DOWNLOAD_BATCH_SIZE`. Before each batch, we check the
+    // number of files present in the `backfill_dir`. If this number is above the
+    // `MAX_IN_FLIGHT_BACKFILLS`, we pause for `BACKPRESSURE_WAIT_TIME` and check again.
+    let mut batch_counter = 0;
     for line in std::io::stdin().lines() {
-        let line = line?;
-        let line = line.trim();
-        let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
-        tracing::trace!(?likely_blob_id, "Processing line from stdin");
-        let _ = pull_archive_blob(
+        if batch_counter == 0 {
+            check_and_apply_backpressure(&backfill_dir).await?;
+        }
+
+        process_line(
             &store,
-            likely_blob_id,
             &backfill_dir,
             &mut pulled_blobs,
             &mut pulled_state,
             prefix.as_deref(),
+            &line?,
         )
-        .await
-        .inspect_err(|e| {
-            tracing::error!(?e, line, "Failed to process line. Continuing...");
-        });
+        .await;
+        batch_counter = (batch_counter + 1) % DOWNLOAD_BATCH_SIZE;
     }
     Ok(())
+}
+
+/// Applies backpressure to the blob download process if needed.
+///
+/// Checks if the number of files in the backfill directory is greater than the
+/// `MAX_IN_FLIGHT_BACKFILLS` limit. If so, it waits for `BACKPRESSURE_WAIT_TIME` and checks again,
+/// until the number of files is less than the limit.
+async fn check_and_apply_backpressure(backfill_dir: &str) -> Result<()> {
+    loop {
+        // We have processed a full batch. Now check if we need to backpressure.
+        let num_files = std::fs::read_dir(&backfill_dir)?.count();
+        if num_files > MAX_IN_FLIGHT_BACKFILLS {
+            tracing::info!(
+                num_files,
+                MAX_IN_FLIGHT_BACKFILLS,
+                ?BACKPRESSURE_WAIT_TIME,
+                DOWNLOAD_BATCH_SIZE,
+                "backpressure needed, waiting before next batch"
+            );
+            tokio::time::sleep(BACKPRESSURE_WAIT_TIME).await;
+        } else {
+            tracing::debug!(
+                num_files,
+                MAX_IN_FLIGHT_BACKFILLS,
+                DOWNLOAD_BATCH_SIZE,
+                "backpressure not needed, continuing"
+            );
+            return Ok(());
+        }
+    }
+}
+
+/// Processes a line from stdin, extracting the blob ID and pulling the blob from the archive.
+async fn process_line(
+    store: &GoogleCloudStorage,
+    backfill_dir: &str,
+    pulled_blobs: &mut HashSet<BlobId>,
+    pulled_state: &mut File,
+    prefix: Option<&str>,
+    line: &str,
+) {
+    let line = line.trim();
+    let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
+    tracing::trace!(?likely_blob_id, "processing line from stdin");
+    let _ = pull_archive_blob(
+        store,
+        likely_blob_id,
+        backfill_dir,
+        pulled_blobs,
+        pulled_state,
+        prefix.as_deref(),
+    )
+    .await
+    .inspect_err(|e| {
+        tracing::error!(?e, line, "failed to process line. Continuing...");
+    });
 }
 
 async fn pull_archive_blob(
@@ -213,49 +283,90 @@ pub(crate) async fn run_blob_backfill(
         .open(&pushed_state)
         .context("opening pushed state file")?;
 
-    // Ingest via stdin, then process the blob_ids that have been stored in `backfill_dir`.
-    for line in std::io::stdin().lines() {
-        let line = line?;
-        let Ok(blob_id): Result<BlobId, _> = line.trim().parse() else {
-            tracing::error!(?line, "Failed to parse blob ID from stdin");
-            continue;
-        };
-        let blob_filename = backfill_dir.join(blob_id.to_string());
+    // Read all the files in the backfill dir, and try to backfill all of them before reading the
+    // directory again.
+    loop {
+        let entries = std::fs::read_dir(&backfill_dir)?
+            .filter_map(|entry| {
+                entry
+                    .inspect_err(|error| {
+                        tracing::error!(?error, "error reading directory entry; skipping...")
+                    })
+                    .ok()
+                    .map(|entry| entry.path())
+            })
+            .collect::<Vec<_>>();
 
-        match std::fs::read(&blob_filename) {
-            Ok(blob) => {
+        for blob_filename in entries.iter() {
+            process_file_and_backfill(
+                &client,
+                &node_ids,
+                blob_filename,
+                &mut pushed_blobs,
+                &mut pushed_state,
+            )
+            .await;
+        }
+
+        // Small delay to avoid constant reads if the directory is empty.
+        if entries.is_empty() {
+            tracing::info!("no more blobs to backfill; sleeping for 500ms");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+}
+
+/// Processes the file at the given path, extracting the blob ID and backfilling
+/// the blob to the nodes.
+async fn process_file_and_backfill(
+    client: &Client<SuiReadClient>,
+    node_ids: &[ObjectID],
+    blob_filename: &Path,
+    pushed_blobs: &mut HashSet<BlobId>,
+    pushed_state: &mut File,
+) {
+    match std::fs::read(blob_filename) {
+        Ok(blob) => {
+            if let Ok(blob_id) = blob_id_from_path(blob_filename) {
                 let _ = backfill_blob(
                     &client,
                     &node_ids,
                     blob_id,
                     &blob,
-                    &mut pushed_blobs,
-                    &mut pushed_state,
+                    pushed_blobs,
+                    pushed_state,
                 )
                 .await
                 .inspect(|_| {
-                    tracing::info!(?blob_id, ?blob_filename, "Successfully pushed blob");
+                    tracing::debug!(?blob_id, ?blob_filename, "successfully pushed blob");
                 })
                 .inspect_err(|e| {
-                    tracing::error!(?e, ?blob_id, "Failed to push blob. Continuing...");
+                    tracing::error!(?e, ?blob_id, "failed to push blob; continuing...");
                 });
-                // Discard the blob file if we've pushed it, successfully or not.
-                let _ = std::fs::remove_file(blob_filename);
-            }
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    ?backfill_dir,
-                    ?blob_id,
-                    "error reading blob from disk. skipping..."
-                );
-                // Discard the blob file if it cannot be read.
-                let _ = std::fs::remove_file(blob_filename);
-                continue;
-            }
+            } else {
+                tracing::error!(?blob_filename, "cannot get blob ID from path; skipping...");
+            };
+        }
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                ?blob_filename,
+                "error reading blob from disk. skipping..."
+            );
         }
     }
-    Ok(())
+    // Remove the blob file after processing, even if the backfill fails.
+    let _ = std::fs::remove_file(blob_filename);
+}
+
+/// Extracts the blob ID from the blob file path.
+fn blob_id_from_path(blob_path: &Path) -> Result<BlobId> {
+    // Get the file path of the path
+    let filename = blob_path
+        .file_name()
+        .ok_or(anyhow::anyhow!("cannot get the file name"))?;
+    let blob_id: BlobId = filename.to_str().unwrap_or_default().parse()?;
+    Ok(blob_id)
 }
 
 async fn backfill_blob(
