@@ -47,18 +47,23 @@ use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
+// TODO: Possibly make this configurable.
+const DOWNLOAD_BATCH_SIZE: usize = 10;
+const MAX_IN_FLIGHT_BACKFILLS: usize = 100;
+const BACKPRESSURE_WAIT_TIME: Duration = Duration::from_secs(1);
+
 fn get_blob_ids_from_file(filename: &PathBuf) -> HashSet<BlobId> {
     if filename.exists() {
-        if let Ok(blob_list) = std::fs::read_to_string(filename) {
-            blob_list
-                .lines()
-                .filter_map(|line| line.trim().parse().ok())
-                .collect::<HashSet<_>>()
-        } else {
-            Default::default()
-        }
+        std::fs::read_to_string(filename)
+            .map(|blob_list| {
+                blob_list
+                    .lines()
+                    .filter_map(|line| line.trim().parse().ok())
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default()
     } else {
-        Default::default()
+        HashSet::new()
     }
 }
 
@@ -92,27 +97,86 @@ pub(crate) async fn pull_archive_blobs(
         .open(&pulled_state)
         .context("opening pulled state file")?;
 
-    // Loop over lines of stdin, which should contain blob IDs to pull.
-    // The format of each line should be a single BlobId.
+    // Loop over lines of stdin, which should contain blob IDs to pull. The format of each line
+    // should be a single BlobId.
+    //
+    // We process the blob IDs in batches of `DOWNLOAD_BATCH_SIZE`. Before each batch, we check the
+    // number of files present in the `backfill_dir`. If this number is above the
+    // `MAX_IN_FLIGHT_BACKFILLS`, we pause for `BACKPRESSURE_WAIT_TIME` and check again.
+    let mut batch_counter = 0;
     for line in std::io::stdin().lines() {
-        let line = line?;
-        let line = line.trim();
-        let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
-        tracing::trace!(?likely_blob_id, "Processing line from stdin");
-        let _ = pull_archive_blob(
+        if batch_counter == 0 {
+            check_and_apply_backpressure(&backfill_dir).await?;
+        }
+
+        process_line(
             &store,
-            likely_blob_id,
             &backfill_dir,
             &mut pulled_blobs,
             &mut pulled_state,
             prefix.as_deref(),
+            &line?,
         )
-        .await
-        .inspect_err(|e| {
-            tracing::error!(?e, line, "Failed to process line. Continuing...");
-        });
+        .await;
+        batch_counter = (batch_counter + 1) % DOWNLOAD_BATCH_SIZE;
     }
     Ok(())
+}
+
+/// Applies backpressure to the blob download process if needed.
+///
+/// Checks if the number of files in the backfill directory is greater than the
+/// `MAX_IN_FLIGHT_BACKFILLS` limit. If so, it waits for `BACKPRESSURE_WAIT_TIME` and checks again,
+/// until the number of files is less than the limit.
+async fn check_and_apply_backpressure(backfill_dir: &str) -> Result<()> {
+    loop {
+        // We have processed a full batch. Now check if we need to backpressure.
+        let num_files = std::fs::read_dir(&backfill_dir)?.count();
+        if num_files > MAX_IN_FLIGHT_BACKFILLS {
+            tracing::info!(
+                num_files,
+                MAX_IN_FLIGHT_BACKFILLS,
+                ?BACKPRESSURE_WAIT_TIME,
+                DOWNLOAD_BATCH_SIZE,
+                "backpressure needed, waiting before next batch"
+            );
+            tokio::time::sleep(BACKPRESSURE_WAIT_TIME).await;
+        } else {
+            tracing::debug!(
+                num_files,
+                MAX_IN_FLIGHT_BACKFILLS,
+                DOWNLOAD_BATCH_SIZE,
+                "backpressure not needed, continuing"
+            );
+            return Ok(());
+        }
+    }
+}
+
+/// Processes a line from stdin, extracting the blob ID and pulling the blob from the archive.
+async fn process_line(
+    store: &GoogleCloudStorage,
+    backfill_dir: &str,
+    pulled_blobs: &mut HashSet<BlobId>,
+    pulled_state: &mut File,
+    prefix: Option<&str>,
+    line: &str,
+) {
+    let line = line.trim();
+    let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
+    tracing::trace!(?likely_blob_id, "processing line from stdin");
+    let _ = pull_archive_blob(
+        store,
+        likely_blob_id,
+        backfill_dir,
+        pulled_blobs,
+        pulled_state,
+        prefix.as_deref(),
+    )
+    .await
+    .inspect_err(|e| {
+        tracing::error!(?e, line, "failed to process line. Continuing...");
+    });
 }
 
 async fn pull_archive_blob(
