@@ -98,7 +98,7 @@ pub(crate) async fn pull_archive_blobs(
         let line = line?;
         let line = line.trim();
         let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
-        tracing::info!(?likely_blob_id, "Processing line from stdin");
+        tracing::trace!(?likely_blob_id, "Processing line from stdin");
         let _ = pull_archive_blob(
             &store,
             likely_blob_id,
