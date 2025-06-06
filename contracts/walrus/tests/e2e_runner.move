@@ -14,10 +14,10 @@ use walrus::{
     upgrade::UpgradeManager
 };
 
-const MAX_EPOCHS_AHEAD: u32 = 104;
+const MAX_EPOCHS_AHEAD: u32 = 53;
 const DEFAULT_EPOCH_ZERO_DURATION: u64 = 100000000;
-const DEFAULT_EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
-const DEFAULT_N_SHARDS: u16 = 100;
+const DEFAULT_EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000 * 2; // 2 weeks
+const DEFAULT_N_SHARDS: u16 = 1000;
 
 // === Tests Runner ===
 
@@ -181,20 +181,54 @@ public macro fun tx_with_upgrade_manager(
     test_scenario::return_shared(system);
 }
 
+/// Progress to the next epoch.
+public fun next_epoch(self: &mut TestRunner) {
+    if (self.epoch() == 0) {
+        self.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
+    } else {
+        self.clock().increment_for_testing(DEFAULT_EPOCH_DURATION);
+    };
+    let sender = self.admin;
+    self.tx!(sender, |staking, system, _| {
+        staking.voting_end(self.clock());
+        staking.initiate_epoch_change(system, self.clock());
+    });
+}
+
+/// Send epoch sync done messages from all nodes.
+public fun send_epoch_sync_done_messages(
+    self: &mut TestRunner,
+    nodes: &mut vector<TestStorageNode>,
+) {
+    let epoch = self.epoch();
+    nodes.do_mut!(|node| {
+        self.tx!(node.sui_address(), |staking, _, _| {
+            // Check if node is in the committee.
+            assert!(staking.committee().contains(&node.node_id()));
+            // Send epoch sync done message
+            staking.epoch_sync_done(node.cap_mut(), epoch, self.clock());
+        });
+    });
+}
+
 /// Destroy the test runner and all resources.
 public fun destroy(self: TestRunner) {
     test_utils::destroy(self)
 }
 
 #[allow(lint(self_transfer), unused_mut_ref)]
+/// Setup a default committee with 10 nodes for epoch 1.
+///
+/// This sets a commission of 0%, a storage price of 10k FROST, a write price of 20k FROST, and a
+/// node capacity of 1TB. The stake per node is 1000 WAL.
 public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>) {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = prepare(admin).build();
     let commission_rate: u16 = 0;
-    let storage_price: u64 = 5;
-    let write_price: u64 = 1;
-    let node_capacity: u64 = 1_000_000_000;
+    let storage_price: u64 = 10_000;
+    let write_price: u64 = 20_000;
+    let node_capacity: u64 = 1_000_000_000_000; // 1TB
 
     // === register candidates ===
     let epoch = runner.epoch();

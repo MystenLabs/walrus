@@ -6,7 +6,7 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
@@ -164,6 +164,11 @@ public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16
     staking.inner().get_current_node_weight(node_id)
 }
 
+/// Get the current committee.
+public fun committee(staking: &Staking): &Committee {
+    staking.inner().committee()
+}
+
 /// Computes the committee for the next epoch.
 public fun compute_next_committee(staking: &Staking): Committee {
     staking.inner().compute_next_committee()
@@ -305,6 +310,15 @@ public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
 }
 
+/// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+public fun add_commission_to_pools(
+    staking: &mut Staking,
+    node_ids: vector<ID>,
+    commissions: vector<Balance<WAL>>,
+) {
+    staking.inner_mut().add_commission_to_pools(node_ids, commissions)
+}
+
 // === Accessors ===
 
 public(package) fun package_id(staking: &Staking): ID {
@@ -389,7 +403,6 @@ fun inner(staking: &Staking): &StakingInnerV1 {
 
 #[test_only]
 use sui::clock;
-
 #[test_only]
 public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
     staking.inner()
@@ -422,4 +435,9 @@ fun new_id(ctx: &mut TxContext): ID {
 #[test_only]
 public(package) fun new_package_id(staking: &Staking): Option<ID> {
     staking.new_package_id
+}
+
+#[test_only]
+public fun pool_commission(staking: &Staking, node_id: ID): u64 {
+    staking.inner().pool_commission(node_id)
 }
