@@ -80,6 +80,8 @@ pub(crate) async fn pull_archive_blobs(
         .with_bucket_name(gcs_bucket)
         .build()?;
 
+    std::fs::create_dir_all(&backfill_dir).context("creating backfill directory")?;
+
     // Read the pulled state file, if it exists, to avoid pulling the same blobs again.
     let mut pulled_blobs = get_blob_ids_from_file(&pulled_state);
 
@@ -96,6 +98,7 @@ pub(crate) async fn pull_archive_blobs(
         let line = line?;
         let line = line.trim();
         let likely_blob_id = line.rsplit('/').next().unwrap_or(line);
+        tracing::info!(?likely_blob_id, "Processing line from stdin");
         let _ = pull_archive_blob(
             &store,
             likely_blob_id,
@@ -181,6 +184,7 @@ pub(crate) async fn run_blob_backfill(
     node_ids: Vec<ObjectID>,
     pushed_state: PathBuf,
 ) -> Result<()> {
+    std::fs::create_dir_all(&backfill_dir).context("creating backfill directory")?;
     let config: ClientConfig = walrus_sdk::config::load_configuration(
         // Just use default config locations for now.
         Option::<PathBuf>::None,
