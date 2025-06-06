@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use rand::Rng;
+use sui_macros::fail_point_async;
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
@@ -90,6 +92,7 @@ impl BackgroundEventProcessor {
         event: BlobCertified,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
+
         let histogram_set = self.node.metrics.recover_blob_duration_seconds.clone();
 
         if !self.node.is_blob_certified(&event.blob_id)?
@@ -109,6 +112,8 @@ impl BackgroundEventProcessor {
 
             return Ok(());
         }
+
+        fail_point_async!("fail_point_process_blob_certified_event");
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
@@ -187,9 +192,11 @@ pub struct BlobEventProcessor {
 }
 
 impl BlobEventProcessor {
-    pub fn new(node: Arc<StorageNodeInner>, blob_sync_handler: Arc<BlobSyncHandler>) -> Self {
-        let num_workers = 4;
-
+    pub fn new(
+        node: Arc<StorageNodeInner>,
+        blob_sync_handler: Arc<BlobSyncHandler>,
+        num_workers: usize,
+    ) -> Self {
         let mut senders = Vec::with_capacity(num_workers);
         let mut workers = Vec::with_capacity(num_workers);
         for _ in 0..num_workers {

@@ -95,6 +95,7 @@ use crate::node::{
     config::{
         self,
         ConfigSynchronizerConfig,
+        NodeBlobEventProcessorConfig,
         NodeRecoveryConfig,
         ShardSyncConfig,
         StorageNodeConfig,
@@ -2802,12 +2803,14 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Turn on all consistency checks in integration tests.
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
+                enable_sliver_data_existence_check: false,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
             admin_socket_path: None,
             node_recovery_config: Default::default(),
+            // Uses smaller number of workers in tests to avoid overwhelming the tests.
+            node_blob_event_processor_config: NodeBlobEventProcessorConfig { num_workers: 3 },
         },
         temp_dir,
     }

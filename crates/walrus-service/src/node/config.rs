@@ -188,6 +188,9 @@ pub struct StorageNodeConfig {
     /// Configuration for node recovery.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub node_recovery_config: NodeRecoveryConfig,
+    /// Configuration for the blob event processor.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub node_blob_event_processor_config: NodeBlobEventProcessorConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -230,6 +233,7 @@ impl Default for StorageNodeConfig {
             checkpoint_config: Default::default(),
             admin_socket_path: None,
             node_recovery_config: Default::default(),
+            node_blob_event_processor_config: Default::default(),
         }
     }
 }
@@ -688,6 +692,21 @@ impl Default for NodeRecoveryConfig {
         Self {
             max_concurrent_blob_syncs_during_recovery: 1000,
         }
+    }
+}
+
+/// Configuration for the blob event processor.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct NodeBlobEventProcessorConfig {
+    /// The number of workers to process blob events in parallel.
+    pub num_workers: usize,
+}
+
+impl Default for NodeBlobEventProcessorConfig {
+    fn default() -> Self {
+        Self { num_workers: 10 }
     }
 }
 

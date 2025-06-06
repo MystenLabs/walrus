@@ -691,8 +691,11 @@ impl StorageNode {
         );
         node_recovery_handler.restart_recovery().await?;
 
-        let blob_event_processor =
-            BlobEventProcessor::new(inner.clone(), blob_sync_handler.clone());
+        let blob_event_processor = BlobEventProcessor::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            config.node_blob_event_processor_config.num_workers,
+        );
 
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
@@ -4855,6 +4858,8 @@ mod tests {
         Ok(())
     }
 
+    // TODO: move failure injection test to src/tests/. Currently there is no way to run seed-search
+    // on these tests since there is no test target.
     #[cfg(msim)]
     mod failure_injection_tests {
         use sui_macros::{
@@ -5803,6 +5808,75 @@ mod tests {
             unblock.notify_one();
             clear_fail_point("get_metadata_return_unavailable");
             clear_fail_point("blocking_finishing_epoch_change_start");
+            Ok(())
+        }
+
+        #[walrus_simtest]
+        async fn no_out_of_order_blob_certify_and_delete_event_processing() -> TestResult {
+            let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+            let test_shard = ShardIndex(1);
+
+            register_fail_point_async("fail_point_process_blob_certified_event", || async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+
+            let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+            // Randomly generated blob.
+            let random_blob = walrus_test_utils::random_data_list(10, 1);
+
+            let config = cluster.encoding_config();
+            let blob = EncodedBlob::new(&random_blob[0], config);
+
+            let object_id = ObjectID::random();
+
+            events.send(
+                BlobRegistered {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobRegistered::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+            store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
+
+            let node_client = cluster.client(0);
+            let pair_to_sync = blob.assigned_sliver_pair(test_shard);
+
+            node_client
+                .get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), SliverType::Primary)
+                .await
+                .expect_err("sliver should not yet be available");
+
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobCertified::for_testing(*blob.blob_id()).into()
+                }
+                .into(),
+            )?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            events.send(
+                BlobDeleted {
+                    object_id: object_id.clone(),
+                    ..BlobDeleted::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+
+            // wait_until_events_processed(&cluster.nodes[0], 4).await?;
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            assert!(
+                cluster.nodes[0]
+                    .storage_node
+                    .blob_sync_handler
+                    .blob_sync_in_progress()
+                    .is_empty()
+            );
+
+            clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())
         }
     }
