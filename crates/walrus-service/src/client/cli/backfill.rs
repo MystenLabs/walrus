@@ -85,6 +85,7 @@ pub(crate) async fn pull_archive_blobs(
 
     // Open an appendable file to track pulled blobs and avoid dupes.
     let mut pulled_state = File::options()
+        .create(true)
         .append(true)
         .open(&pulled_state)
         .context("opening pulled state file")?;
@@ -192,6 +193,7 @@ pub(crate) async fn run_blob_backfill(
 
     // Open an appendable file to track pushed blobs.
     let mut pushed_state = File::options()
+        .create(true)
         .append(true)
         .open(&pushed_state)
         .context("opening pushed state file")?;
