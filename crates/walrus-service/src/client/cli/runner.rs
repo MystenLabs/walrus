@@ -78,7 +78,7 @@ use super::{
         SortBy,
         UserConfirmation,
     },
-    backfill::run_blob_backfill,
+    backfill::{pull_archive_blobs, run_blob_backfill},
 };
 use crate::{
     client::{
@@ -422,10 +422,17 @@ impl ClientCommandRunner {
             }
 
             CliCommands::NodeAdmin { command } => self.run_admin_command(command).await,
+            CliCommands::PullArchiveBlobs {
+                gcs_bucket,
+                prefix,
+                backfill_dir,
+                pulled_state,
+            } => pull_archive_blobs(gcs_bucket, prefix, backfill_dir, pulled_state).await,
             CliCommands::BlobBackfill {
                 backfill_dir,
                 node_ids,
-            } => run_blob_backfill(backfill_dir, node_ids).await,
+                pushed_state,
+            } => run_blob_backfill(backfill_dir, node_ids, pushed_state).await,
         }
     }
 

@@ -38,6 +38,7 @@ backup = [
 ]
 client = [
   "dep:colored",
+  "dep:object_store",
   "dep:prettytable",
 ]
 default = ["client", "deploy", "node"]
