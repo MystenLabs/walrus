@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
@@ -220,6 +220,10 @@ impl NodeRecoveryHandler {
     pub async fn restart_recovery(&self) -> Result<(), TypedStoreError> {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
             if recovering_epoch == self.node.current_epoch() {
+                // The `latest_event_epoch` is still set to `0` at this point.
+                self.node
+                    .latest_event_epoch
+                    .store(recovering_epoch, Ordering::SeqCst);
                 return self.start_node_recovery(self.node.current_epoch()).await;
             } else {
                 assert!(recovering_epoch < self.node.current_epoch());
