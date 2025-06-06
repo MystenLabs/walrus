@@ -53,6 +53,13 @@ pub(crate) async fn pull_archive_blobs(
     backfill_dir: String,
     pulled_state: PathBuf,
 ) -> Result<()> {
+    tracing::info!(
+        gcs_bucket,
+        ?prefix,
+        backfill_dir,
+        ?pulled_state,
+        "pulling archive blobs from GCS bucket"
+    );
     let store = GoogleCloudStorageBuilder::from_env()
         .with_client_options(object_store::ClientOptions::default().with_timeout(DOWNLOAD_TIMEOUT))
         .with_bucket_name(gcs_bucket)
