@@ -216,7 +216,10 @@ pub(crate) async fn run_blob_backfill(
     // Ingest via stdin, then process the blob_ids that have been stored in `backfill_dir`.
     for line in std::io::stdin().lines() {
         let line = line?;
-        let blob_id: BlobId = line.trim().parse()?;
+        let Ok(blob_id): Result<BlobId, _> = line.trim().parse() else {
+            tracing::error!(?line, "Failed to parse blob ID from stdin");
+            continue;
+        };
         let blob_filename = backfill_dir.join(blob_id.to_string());
 
         match std::fs::read(&blob_filename) {
