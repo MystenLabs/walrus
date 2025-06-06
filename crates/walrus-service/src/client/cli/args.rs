@@ -598,6 +598,23 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: NodeAdminCommands,
     },
+    /// Pull all blobs (filtered by optional prefix specifier) from Google Cloud Storage down into
+    /// the specified backfill_dir.
+    PullArchiveBlobs {
+        /// The Google Cloud Storage bucket to pull from.
+        gcs_bucket: String,
+        /// Optional object name prefix filter.
+        prefix: Option<String>,
+        /// The directory to pull into.
+        backfill_dir: String,
+        /// Durable list of objects already pulled. This is loaded at script initialization and used
+        /// to avoid pulling redundant objects. Note that looking in the backfill_dir is not a
+        /// complete solution because the disk space needs to be reclaimed after the archival blobs
+        /// have been pushed up to the network. So, this `pulled_state` file is ensuring we don't
+        /// have to start from the beginning in the event that we need to stop and restart the
+        /// backfill.
+        pulled_state: PathBuf,
+    },
     /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
     BlobBackfill {
         /// The subdirectory when blob-backfill can find blobs. Blobs in this directory must be
@@ -606,6 +623,8 @@ pub enum CliCommands {
         backfill_dir: PathBuf,
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
+        /// The filename where successfully pushed blob IDs will be stored.
+        pushed_state: PathBuf,
     },
 }
 
