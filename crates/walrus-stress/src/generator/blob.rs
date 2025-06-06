@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
-use walrus_core::EpochCount;
+use walrus_core::{encoding::QuiltStoreBlob, EpochCount};
+use 
 
 const TAG: &[u8] = b"TESTBLOB";
 
@@ -95,5 +96,62 @@ impl BlobData {
 impl AsRef<[u8]> for BlobData {
     fn as_ref(&self) -> &[u8] {
         &self.bytes
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QuiltStoreBlobConfig {
+    pub min_num_blobs_per_quilt: u16,
+    pub max_num_blobs_per_quilt: u16,
+}
+
+impl QuiltStoreBlobConfig {
+    pub fn new(
+        min_num_blobs_per_quilt: u16,
+        max_num_blobs_per_quilt: u16,
+    ) -> Self {
+        Self {
+            min_num_blobs_per_quilt: min_num_blobs_per_quilt.min(max_num_blobs_per_quilt),
+            max_num_blobs_per_quilt,
+        }
+    }
+
+    /// Returns a random number of blobs to store in a quilt between `min_num_blobs_per_quilt` and
+    /// `max_num_blobs_per_quilt`.
+    pub fn get_random_num_blobs_per_quilt(&self) -> u16 {
+        thread_rng().gen_range(self.min_num_blobs_per_quilt..=self.max_num_blobs_per_quilt)
+    }
+}
+
+pub(crate) struct QuiltData {
+    blobs: Vec<QuiltStoreBlob<'static>>,
+    quilt_config: QuiltStoreBlobConfig,
+    blob_config: WriteBlobConfig,
+}
+
+impl QuiltData {
+    pub fn new(quilt_config: QuiltStoreBlobConfig, blob_config: WriteBlobConfig) -> Self {
+        Self {
+            blobs: Vec::new(),
+            quilt_config,
+            blob_config,
+        }
+    }
+
+    pub async fn init(mut self) -> Self{
+        let num_blobs = self.quilt_config.max_num_blobs_per_quilt;
+        for _ in 0..num_blobs {
+            let blob = BlobData::random(self.blob_config).await;
+            self.blobs.push(QuiltStoreBlob::new(blob.as_ref(), "test-blob"));
+        }
+    }
+
+    pub fn random_size_slice(&self) -> Vec<&[u8]> {
+        let num_blobs = self.quilt_config.get_random_num_blobs_per_quilt();
+        let mut blobs = Vec::new();
+        for _ in 0..num_blobs {
+            blobs.push(self.blob_config.random_size_slice());
+        }
+        blobs
     }
 }

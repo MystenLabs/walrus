@@ -291,7 +291,7 @@ impl LoadGenerator {
             );
             read_blob_id
         } else {
-            BlobId([0; 32])
+            BlobId::ZERO
         };
         tokio::pin!(read_interval);
 
