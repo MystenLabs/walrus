@@ -759,6 +759,11 @@ impl<T: ReadClient> Client<T> {
         encoding_type: EncodingType,
         expected_blob_id: Option<BlobId>,
     ) -> ClientResult<Vec<NodeResult<(), StoreError>>> {
+        tracing::info!(
+            ?expected_blob_id,
+            blob_size = blob.len(),
+            "attempting to backfill blob to nodes"
+        );
         let committees = self.get_committees().await?;
         let (pairs, metadata) = self
             .encoding_config
