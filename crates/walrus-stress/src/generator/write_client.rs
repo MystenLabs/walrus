@@ -19,7 +19,12 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{
+        Client,
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
+        responses::QuiltStoreResult,
+    },
     error::ClientError,
     store_when::StoreWhen,
 };
@@ -38,13 +43,14 @@ use walrus_sui::{
 };
 use walrus_test_utils::WithTempDir;
 
-use super::blob::{BlobData, WriteBlobConfig};
+use super::blob::{BlobData, QuiltData, QuiltStoreBlobConfig, WriteBlobConfig};
 
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
     blob: BlobData,
+    quilt_pool: QuiltData,
     metrics: Arc<ClientMetrics>,
 }
 
@@ -57,19 +63,21 @@ impl WriteClient {
         network: &SuiNetwork,
         gas_budget: Option<u64>,
         blob_config: WriteBlobConfig,
+        quilt_config: QuiltStoreBlobConfig,
         refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
             StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
-            blob_config,
+            blob_config.clone(),
         )
         .await;
         let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self {
             client,
             blob,
+            quilt_pool: QuiltData::new(quilt_config, blob_config),
             metrics,
         })
     }
@@ -77,6 +85,59 @@ impl WriteClient {
     /// Returns the active address of the client.
     pub fn address(&mut self) -> SuiAddress {
         self.client.as_mut().sui_client_mut().address()
+    }
+
+    pub async fn write_fresh_quilt(&mut self) -> Result<(BlobId, Duration), ClientError> {
+        let now = Instant::now();
+        let result = self.write_quilt().await?;
+        Ok((
+            result
+                .blob_store_result
+                .blob_id()
+                .expect("blob id should be present"),
+            now.elapsed(),
+        ))
+    }
+
+    pub async fn write_quilt(&mut self) -> Result<QuiltStoreResult, ClientError> {
+        let quilt_data = self.quilt_pool.get_random_batch();
+
+        // Assign identifiers to the blobs.
+        let quilt_store_blobs: Vec<_> = quilt_data
+            .into_iter()
+            .map(|blob_data| {
+                let identifier = format!(
+                    "test_blob_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos(),
+                );
+                walrus_core::encoding::QuiltStoreBlob::new(blob_data, &identifier)
+            })
+            .collect();
+
+        let result = self
+            .client
+            .as_ref()
+            .quilt_client()
+            .reserve_and_store_quilt::<walrus_core::encoding::QuiltVersionV1>(
+                &quilt_store_blobs,
+                DEFAULT_ENCODING,
+                self.blob.epochs_to_store(),
+                StoreWhen::AlwaysIgnoreResources,
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+            )
+            .await?;
+
+        tracing::info!(
+            blob_id = ?result.blob_store_result.blob_id(),
+            num_blobs = quilt_store_blobs.len(),
+            "stored quilt successfully"
+        );
+
+        Ok(result)
     }
 
     /// Stores a fresh consistent blob and returns the blob id and elapsed time.

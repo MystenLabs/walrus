@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
-use walrus_core::{encoding::QuiltStoreBlob, EpochCount};
+use walrus_core::EpochCount;
 use walrus_test_utils::generate_random_data;
 
 const TAG: &[u8] = b"TESTBLOB";
@@ -103,16 +103,19 @@ impl AsRef<[u8]> for BlobData {
 pub struct QuiltStoreBlobConfig {
     pub min_num_blobs_per_quilt: u16,
     pub max_num_blobs_per_quilt: u16,
+    pub percentage_of_quilts: f32,
 }
 
 impl QuiltStoreBlobConfig {
     pub fn new(
         min_num_blobs_per_quilt: u16,
         max_num_blobs_per_quilt: u16,
+        percentage_of_quilts: u8,
     ) -> Self {
         Self {
             min_num_blobs_per_quilt: min_num_blobs_per_quilt.min(max_num_blobs_per_quilt),
             max_num_blobs_per_quilt,
+            percentage_of_quilts: percentage_of_quilts.min(100) as f32 / 100.0,
         }
     }
 
@@ -123,10 +126,10 @@ impl QuiltStoreBlobConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct QuiltData {
     blobs: Vec<Vec<u8>>,
     quilt_config: QuiltStoreBlobConfig,
-    blob_config: WriteBlobConfig,
 }
 
 impl QuiltData {
@@ -139,7 +142,6 @@ impl QuiltData {
         Self {
             blobs,
             quilt_config,
-            blob_config,
         }
     }
 

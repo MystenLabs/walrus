@@ -42,6 +42,8 @@ mod write_client;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoffConfig};
 use write_client::WriteClient;
 
+use crate::generator::blob::QuiltStoreBlobConfig;
+
 /// A load generator for Walrus writes.
 #[derive(Debug)]
 pub struct LoadGenerator {
@@ -50,6 +52,7 @@ pub struct LoadGenerator {
     read_client_pool: Receiver<Client<SuiReadClient>>,
     read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
+    quilt_percentage: f32,
     _refill_handles: RefillHandles,
 }
 
@@ -58,6 +61,7 @@ impl LoadGenerator {
     pub async fn new(
         n_clients: usize,
         blob_config: WriteBlobConfig,
+        quilt_config: QuiltStoreBlobConfig,
         client_config: ClientConfig,
         network: SuiNetwork,
         gas_refill_period: Duration,
@@ -106,6 +110,7 @@ impl LoadGenerator {
                     &network,
                     None,
                     blob_config.clone(),
+                    quilt_config.clone(),
                     refresher_handle.clone(),
                     refiller.clone(),
                     metrics.clone(),
@@ -139,6 +144,7 @@ impl LoadGenerator {
             read_client_pool,
             read_client_pool_tx,
             metrics,
+            quilt_percentage: quilt_config.percentage_of_quilts,
             _refill_handles,
         })
     }
@@ -156,9 +162,12 @@ impl LoadGenerator {
         };
         let sender = self.write_client_pool_tx.clone();
         let metrics = self.metrics.clone();
+        let quilt_percentage = self.quilt_percentage as f64;
         tokio::spawn(async move {
             let result = if thread_rng().gen_bool(inconsistent_blob_rate) {
                 client.write_fresh_inconsistent_blob().await
+            } else if thread_rng().gen_bool(quilt_percentage) {
+                client.write_fresh_quilt().await
             } else {
                 client.write_fresh_blob().await
             };
