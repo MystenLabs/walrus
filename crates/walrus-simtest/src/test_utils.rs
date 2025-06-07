@@ -53,6 +53,7 @@ pub mod simtest_utils {
         client: &WithTempDir<Client<SuiContractClient>>,
         data_length: usize,
         write_only: bool,
+        deletable: bool,
         blobs_written: &mut HashSet<ObjectID>,
     ) -> anyhow::Result<()> {
         // Get a random epoch length for the blob to be stored.
@@ -71,7 +72,11 @@ pub mod simtest_utils {
                 DEFAULT_ENCODING,
                 epoch_ahead,
                 StoreWhen::Always,
-                BlobPersistence::Permanent,
+                if deletable {
+                    BlobPersistence::Deletable
+                } else {
+                    BlobPersistence::Permanent
+                },
                 PostStoreAction::Keep,
                 None,
             )
@@ -188,6 +193,21 @@ pub mod simtest_utils {
         }
     }
 
+    /// Probabilistically delete one of the blobs from blobs_written.
+    async fn maybe_delete_blob(
+        client: &WithTempDir<Client<SuiContractClient>>,
+        blobs_written: &HashSet<ObjectID>,
+    ) {
+        if rand::thread_rng().gen_bool(0.1) {
+            let blob_obj_id = blobs_written
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .unwrap();
+            let result = client.as_ref().sui_client().delete_blob(*blob_obj_id).await;
+            tracing::info!("delete blob {:?} result: {:?}", blob_obj_id, result);
+        }
+    }
+
     /// Starts a background workload that writes and reads random blobs.
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
@@ -199,17 +219,23 @@ pub mod simtest_utils {
             loop {
                 tracing::info!("writing data with size {data_length}");
 
+                let deletable = rand::thread_rng().gen_bool(0.5);
+
                 // TODO(#995): use stress client for better coverage of the workload.
                 write_read_and_check_random_blob(
                     client_clone.as_ref(),
                     data_length,
                     write_only,
+                    deletable,
                     &mut blobs_written,
                 )
                 .await
                 .expect("workload should not fail");
 
                 maybe_extend_blob(client_clone.as_ref(), &blobs_written).await;
+                if deletable {
+                    maybe_delete_blob(client_clone.as_ref(), &blobs_written).await;
+                }
 
                 tracing::info!("finished writing data with size {data_length}");
 
