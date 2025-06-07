@@ -90,6 +90,7 @@ mod tests {
                 &client,
                 data_length,
                 false,
+                false,
                 &mut blobs_written,
             )
             .await
@@ -109,6 +110,7 @@ mod tests {
                 simtest_utils::write_read_and_check_random_blob(
                     &client,
                     data_length,
+                    false,
                     false,
                     &mut blobs_written,
                 )
@@ -416,6 +418,7 @@ mod tests {
                 client_clone.as_ref(),
                 data_length,
                 true,
+                false,
                 &mut blobs_written,
             )
             .await

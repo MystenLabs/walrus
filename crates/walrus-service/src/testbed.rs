@@ -804,10 +804,11 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
+                enable_sliver_data_existence_check: false,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             node_recovery_config: Default::default(),
+            blob_event_processor_config: Default::default(),
         });
     }
 
