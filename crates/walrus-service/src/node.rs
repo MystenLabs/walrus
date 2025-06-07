@@ -694,7 +694,7 @@ impl StorageNode {
         let blob_event_processor = BlobEventProcessor::new(
             inner.clone(),
             blob_sync_handler.clone(),
-            config.node_blob_event_processor_config.num_workers,
+            config.blob_event_processor_config.num_workers,
         );
 
         tracing::debug!(

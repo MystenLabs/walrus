@@ -55,8 +55,8 @@ impl BackgroundEventProcessor {
             .dec();
 
             if let Err(e) = self.process_event(event_handle, blob_event).await {
-                // TODO: to keep the same behavior as before BackgroundEventProcessor, we should
-                // propagate the error to the node and exit the process if necessary.
+                // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
+                // should propagate the error to the node and exit the process if necessary.
                 tracing::error!("error processing blob event: {}", e);
             }
         }
@@ -208,6 +208,7 @@ pub struct BlobEventProcessor {
 
     // When there are no background workers, we use a sequential processor to process events using
     // this processor. This is to keep the same behavior as before BackgroundEventProcessor.
+    // INVARIANT: sequential_processor must be Some if background_processor_senders is empty.
     sequential_processor: Option<Arc<BackgroundEventProcessor>>,
 }
 
@@ -224,6 +225,8 @@ impl BlobEventProcessor {
             senders.push(tx);
             let mut background_processor =
                 BackgroundEventProcessor::new(node.clone(), blob_sync_handler.clone(), rx);
+            // TODO(WAL-876): gracefully shut down the background processor when the node is
+            // shutting down.
             workers.push(Arc::new(tokio::spawn(async move {
                 background_processor.run(worker_index).await;
             })));
@@ -273,38 +276,42 @@ impl BlobEventProcessor {
             // registered events.
             monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
             event_handle.mark_as_complete();
-        } else {
-            // If there are no background workers, we use a sequential processor to process events
-            // sequentially.
-            if self.background_processor_senders.is_empty() {
-                assert!(self.sequential_processor.is_some());
-                self.sequential_processor
-                    .as_ref()
-                    .expect(
-                        "sequential processor must be configured when no background \
+            return Ok(());
+        }
+
+        // If there are no background workers, we use a sequential processor to process events
+        // sequentially.
+        if self.background_processor_senders.is_empty() {
+            assert!(self.sequential_processor.is_some());
+            self.sequential_processor
+                .as_ref()
+                .expect(
+                    "sequential processor must be configured when no background \
                             workers are configured",
-                    )
-                    .process_event(event_handle, blob_event)
-                    .await?;
-            } else {
-                // We send the event to one of the workers to process in parallel.
-                // Note that in order to remain sequential processing for the same BlobID, we always
-                // send events for the same BlobID to the same worker.
-                let processor_index = blob_event.blob_id().first_two_bytes() as usize
-                    % self.background_processor_senders.len();
-
-                walrus_utils::with_label!(
-                    self.node.metrics.pending_processing_blob_event_in_queue,
-                    &processor_index.to_string()
                 )
-                .inc();
+                .process_event(event_handle, blob_event)
+                .await?;
+        } else {
+            // We send the event to one of the workers to process in parallel.
+            // Note that in order to remain sequential processing for the same BlobID, we always
+            // send events for the same BlobID to the same worker.
+            // Currently the number of workers is fixed through the lifetime of the node. But in
+            // case the node want to dynamically adjust the worker, we need to be careful to not
+            // break this requirement.
+            let processor_index = blob_event.blob_id().first_two_bytes() as usize
+                % self.background_processor_senders.len();
 
-                self.background_processor_senders[processor_index]
-                    .send((event_handle, blob_event))
-                    .map_err(|e| {
-                        anyhow::anyhow!("failed to send event to background processor: {}", e)
-                    })?;
-            }
+            walrus_utils::with_label!(
+                self.node.metrics.pending_processing_blob_event_in_queue,
+                &processor_index.to_string()
+            )
+            .inc();
+
+            self.background_processor_senders[processor_index]
+                .send((event_handle, blob_event))
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to send event to background processor: {}", e)
+                })?;
         }
         Ok(())
     }
