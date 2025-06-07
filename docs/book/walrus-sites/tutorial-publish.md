@@ -26,12 +26,12 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ``` sh
-site-builder publish ./walrus-snake --epochs 1
+site-builder deploy ./walrus-snake --epochs 1
 ```
 
 ``` admonish tip
 Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.
 ```
 
 The end of the output should look like the following:
@@ -64,6 +64,7 @@ This output tells you that, for each file in the folder, a new Walrus blob was c
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
 browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json
 
 Note here that we are implicitly using the default `sites-config.yaml` as the config for the site
 builder that we set up previously on the [installation section](./tutorial-install.md). The
@@ -80,12 +81,12 @@ Let's say now you want to update the content of the site, for example by changin
 
 First, make this edit on in the `./walrus-snake/index.html` file.
 
-Then, you can update the existing site by running the `update` command, providing the directory
-where to find the updated files (still `./walrus-snake`) and the object ID of the existing site
-(`0x407a3081...`):
+Then, you can update the existing site by running the `deploy` command again. The deploy command will
+use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
+to update. You do not need to specify the object ID manually:
 
 ``` sh
-site-builder update --epochs 1 ./walrus-snake 0xe674c14...
+site-builder deploy --epochs 1 ./walrus-snake
 ```
 
 The output this time should be:
@@ -106,8 +107,8 @@ To browse the site, you have the following options:
            Finally, browse it with: https://example-domain.wal.app
 ```
 
-Compared to the `publish` action, we can see that now the only actions performed were to delete the
-old `index.html`, and update it with the newer one.
+Compared to the when the site was first published, we can see that now the only actions performed
+were to delete the old `index.html`, and update it with the newer one.
 
 Browsing to the provided URL should reflect the change. You've updated the site!
 
