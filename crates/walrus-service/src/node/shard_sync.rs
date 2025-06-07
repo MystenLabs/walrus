@@ -53,6 +53,7 @@ pub struct ShardSyncHandler {
 }
 
 impl ShardSyncHandler {
+    /// Creates a new `ShardSyncHandler` to manage shard syncing tasks with the provided node and config.
     pub fn new(node: Arc<StorageNodeInner>, config: ShardSyncConfig) -> Self {
         Self {
             node,
