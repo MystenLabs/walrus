@@ -1474,6 +1474,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bimap"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
+
+[[package]]
 name = "bin-version"
 version = "1.49.1"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.49.1#3b1d6b3bd63f175b774da557f89af3619b74d783"
@@ -1931,7 +1937,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checkpoint-downloader"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1949,7 +1955,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
- "typed-store 1.26.3",
+ "typed-store 1.27.0",
  "walrus-sui",
  "walrus-utils",
 ]
@@ -2019,9 +2025,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.38"
+version = "4.5.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed93b9805f8ba930df42c2590f05453d5ec36cbb85d018868a5b24d31f6ac000"
+checksum = "fd60e63e9be68e5fb56422e397cf9baddded06dae1d2e523401542383bc72a9f"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2029,9 +2035,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.38"
+version = "4.5.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "379026ff283facf611b0ea629334361c4211d1b12ee01024eec1591133b04120"
+checksum = "89cc6392a1f72bbeb820d71f32108f61fdaf18bc526e1d23954168a67759ef51"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2042,9 +2048,9 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
-version = "4.5.50"
+version = "4.5.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91d3baa3bcd889d60e6ef28874126a0b384fd225ab83aa6d8a801c519194ce1"
+checksum = "1a554639e42d0c838336fc4fbedb9e2df3ad1fa4acda149f9126b4ccfcd7900f"
 dependencies = [
  "clap",
 ]
@@ -2111,9 +2117,9 @@ checksum = "08abddbaad209601e53c7dd4308d8c04c06f17bb7df006434e586a22b83be45a"
 
 [[package]]
 name = "color-eyre"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e1761c0e16f8883bbbb8ce5990867f4f06bf11a0253da6495a04ce4b6ef0ec"
+checksum = "e5920befb47832a6d61ee3a3a846565cfa39b331331e68a3b1d1116630f2f26d"
 dependencies = [
  "backtrace",
  "color-spantrace",
@@ -2126,9 +2132,9 @@ dependencies = [
 
 [[package]]
 name = "color-spantrace"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ddd8d5bfda1e11a501d0a7303f3bfed9aa632ebdb859be40d0fd70478ed70d5"
+checksum = "b8b88ea9df13354b55bc7234ebcce36e6ef896aca2e42a15de9e10edce01b427"
 dependencies = [
  "once_cell",
  "owo-colors",
@@ -7890,12 +7896,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "raptorq"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90b1b1fad69672f0b901b5004863ea4307f03d168a3db5f2bcba4d3dfed88e97"
-
-[[package]]
 name = "raw-cpuid"
 version = "11.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12126,7 +12126,7 @@ dependencies = [
 
 [[package]]
 name = "typed-store"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "async-trait",
  "bcs",
@@ -12426,20 +12426,22 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
+checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
 dependencies = [
  "getrandom 0.3.1",
+ "js-sys",
  "rand 0.9.0",
  "uuid-macro-internal",
+ "wasm-bindgen",
 ]
 
 [[package]]
 name = "uuid-macro-internal"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72dcd78c4f979627a754f5522cea6e6a25e55139056535fe6e69c506cd64a862"
+checksum = "26b682e8c381995ea03130e381928e0e005b7c9eb483c6c8682f50e07b33c2b7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12517,7 +12519,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -12528,7 +12530,6 @@ dependencies = [
  "hex",
  "p256",
  "rand 0.8.5",
- "raptorq",
  "reed-solomon-simd",
  "serde",
  "serde_test",
@@ -12543,7 +12544,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -12574,7 +12575,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -12604,7 +12605,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -12615,7 +12616,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
@@ -12654,14 +12655,16 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
+ "bimap",
  "chrono",
  "enum_dispatch",
  "fastcrypto",
  "futures",
  "home",
+ "humantime",
  "indexmap 2.9.0",
  "indicatif",
  "indoc",
@@ -12694,7 +12697,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12782,7 +12785,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "twox-hash 2.1.0",
- "typed-store 1.26.3",
+ "typed-store 1.27.0",
  "utoipa",
  "utoipa-redoc",
  "uuid",
@@ -12797,7 +12800,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -12822,7 +12825,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-storage-node-client"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "axum 0.8.1",
  "axum-server 0.7.2",
@@ -12860,7 +12863,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -12885,7 +12888,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12938,7 +12941,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "rand 0.8.5",
@@ -12948,7 +12951,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.26.3"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "bytes",

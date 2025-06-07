@@ -272,6 +272,24 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
+        // Probabilistically trigger a node crash during node recovery.
+        let crash_during_recovery = rand::thread_rng().gen_bool(0.1);
+        if crash_during_recovery {
+            let fail_triggered = Arc::new(AtomicBool::new(false));
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+            let fail_triggered_clone = fail_triggered.clone();
+
+            sui_macros::register_fail_point("fail_point_node_recovery_start_sync", move || {
+                crash_target_node(
+                    target_fail_node_id,
+                    fail_triggered_clone.clone(),
+                    Duration::from_secs(5),
+                );
+            });
+        }
+
         tokio::time::sleep(Duration::from_secs(150)).await;
 
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();

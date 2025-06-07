@@ -149,6 +149,7 @@ impl NodeRecoveryHandler {
                             None,
                         )
                         .await;
+                    sui_macros::fail_point!("fail_point_node_recovery_start_sync");
                     match start_sync_result {
                         Ok(notify) => {
                             let node_clone = node.clone();
