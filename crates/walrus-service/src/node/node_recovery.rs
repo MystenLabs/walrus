@@ -147,6 +147,7 @@ impl NodeRecoveryHandler {
                                 "certified blob should have an initial certified epoch set",
                             ),
                             None,
+                            None,
                         )
                         .await;
                     sui_macros::fail_point!("fail_point_node_recovery_start_sync");
