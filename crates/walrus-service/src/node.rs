@@ -158,8 +158,11 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{config::SuiConfig, utils::should_reposition_cursor},
-    utils::ShardDiffCalculator,
+    common::{
+        config::SuiConfig,
+        event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
+    },
+    utils::{ShardDiffCalculator, should_reposition_cursor},
 };
 
 pub(crate) mod db_checkpoint;
@@ -701,18 +704,37 @@ impl StorageNode {
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
         );
-
-        let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
+        let event_blob_downloader = Self::get_event_blob_downloader_from_config(config).await?;
+        let mut last_certified_event_blob = None;
+        if let Some(downloader) = event_blob_downloader {
+            last_certified_event_blob = downloader
+                .get_last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlobWithMetadata);
+        }
+        if last_certified_event_blob.is_none() {
+            last_certified_event_blob = contract_service
+                .last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlob);
+        }
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
-            Some(EventBlobWriterFactory::new(
-                &config.storage_path,
-                &config.db_config,
-                inner.clone(),
-                registry,
-                node_params.num_checkpoints_per_blob,
-                last_certified_event_blob,
-                config.num_uncertified_blob_threshold,
-            )?)
+            Some(
+                EventBlobWriterFactory::new(
+                    &config.storage_path,
+                    &config.db_config,
+                    inner.clone(),
+                    registry,
+                    node_params.num_checkpoints_per_blob,
+                    last_certified_event_blob,
+                    config.num_uncertified_blob_threshold,
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -881,6 +903,25 @@ impl StorageNode {
         }
 
         Ok((Pin::from(event_stream), actual_event_index))
+    }
+
+    async fn get_event_blob_downloader_from_config(
+        config: &StorageNodeConfig,
+    ) -> anyhow::Result<Option<EventBlobDownloader>> {
+        let sui_config: Option<SuiConfig> = config.sui.as_ref().cloned();
+        let Some(sui_config) = sui_config else {
+            return Ok(None);
+        };
+        let sui_read_client = sui_config.new_read_client().await?;
+        let walrus_client = crate::common::utils::create_walrus_client_with_refresher(
+            sui_config.contract_config.clone(),
+            sui_read_client.clone(),
+        )
+        .await?;
+        Ok(Some(EventBlobDownloader::new(
+            walrus_client,
+            sui_read_client,
+        )))
     }
 
     async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
