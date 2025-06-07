@@ -110,9 +110,9 @@ struct StressArgs {
     /// The maximum number of blobs to store in a quilt.
     #[arg(long, default_value = "200")]
     max_num_blobs_in_quilt: u16,
-    /// The percentage of writes that write quilts (1-100).
-    #[arg(long, default_value = "100")]
-    quilt_write_rate: u8,
+    /// The fraction of writes that write quilts.
+    #[arg(long, default_value = "0.5")]
+    quilt_write_rate: f64,
     /// The period in milliseconds to check if gas needs to be refilled.
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled

@@ -87,15 +87,29 @@ impl WriteClient {
         self.client.as_mut().sui_client_mut().address()
     }
 
-    pub async fn write_fresh_quilt(&mut self) -> Result<(BlobId, Duration), ClientError> {
+    pub async fn write_fresh_quilt(
+        &mut self,
+        metrics: &ClientMetrics,
+    ) -> Result<(BlobId, Duration), ClientError> {
         let now = Instant::now();
+        let quilt_data = self.quilt_pool.get_random_batch();
+
+        // Calculate total size
+        let total_size: usize = quilt_data.iter().map(|blob| blob.len()).sum();
+        let num_blobs = quilt_data.len();
+
         let result = self.write_quilt().await?;
+        let duration = now.elapsed();
+
+        // Record the metric
+        metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
+
         Ok((
             result
                 .blob_store_result
                 .blob_id()
                 .expect("blob id should be present"),
-            now.elapsed(),
+            duration,
         ))
     }
 

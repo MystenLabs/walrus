@@ -103,19 +103,19 @@ impl AsRef<[u8]> for BlobData {
 pub struct QuiltStoreBlobConfig {
     pub min_num_blobs_per_quilt: u16,
     pub max_num_blobs_per_quilt: u16,
-    pub percentage_of_quilts: f32,
+    pub percentage_of_quilts: f64,
 }
 
 impl QuiltStoreBlobConfig {
     pub fn new(
         min_num_blobs_per_quilt: u16,
         max_num_blobs_per_quilt: u16,
-        percentage_of_quilts: u8,
+        percentage_of_quilts: f64,
     ) -> Self {
         Self {
             min_num_blobs_per_quilt: min_num_blobs_per_quilt.min(max_num_blobs_per_quilt),
             max_num_blobs_per_quilt,
-            percentage_of_quilts: percentage_of_quilts.min(100) as f32 / 100.0,
+            percentage_of_quilts,
         }
     }
 

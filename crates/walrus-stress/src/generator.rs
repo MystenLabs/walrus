@@ -52,7 +52,7 @@ pub struct LoadGenerator {
     read_client_pool: Receiver<Client<SuiReadClient>>,
     read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
-    quilt_percentage: f32,
+    quilt_percentage: f64,
     _refill_handles: RefillHandles,
 }
 
@@ -162,12 +162,14 @@ impl LoadGenerator {
         };
         let sender = self.write_client_pool_tx.clone();
         let metrics = self.metrics.clone();
-        // let quilt_percentage = self.quilt_percentage as f64;
+        let quilt_percentage = self.quilt_percentage;
         tokio::spawn(async move {
             let result = if thread_rng().gen_bool(inconsistent_blob_rate) {
                 client.write_fresh_inconsistent_blob().await
+            } else if thread_rng().gen_bool(quilt_percentage) {
+                client.write_fresh_quilt(&metrics).await
             } else {
-                client.write_fresh_quilt().await
+                client.write_fresh_blob().await
             };
             match result {
                 Ok((_blob_id, elapsed)) => {

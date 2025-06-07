@@ -125,6 +125,16 @@ impl BlobStoreResult {
         }
     }
 
+    /// Returns the unencoded size of the blob.
+    pub fn unencoded_size(&self) -> Option<u64> {
+        match self {
+            Self::AlreadyCertified { .. } => None,
+            Self::NewlyCreated { blob_object, .. } => Some(blob_object.size),
+            Self::MarkedInvalid { .. } => None,
+            Self::Error { .. } => None,
+        }
+    }
+
     /// Returns the end epoch of the blob.
     pub fn end_epoch(&self) -> Option<Epoch> {
         match self {
