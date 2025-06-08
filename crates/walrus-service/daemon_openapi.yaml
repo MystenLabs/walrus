@@ -220,9 +220,13 @@ paths:
         '200':
           description: The blob was retrieved successfully
           content:
-            application/json:
+            application/octet-stream:
               schema:
-                $ref: '#/components/schemas/GetQuiltBlobResponse'
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
         '404':
           description: ' The requested blob has not yet been stored on Walrus.'
           content:
@@ -452,58 +456,12 @@ components:
             $ref: '#/components/schemas/ObjectID'
             description: The variant representing an object ID.
       description: Either an event ID or an object ID.
-    GetQuiltBlobResponse:
-      type: object
-      description: Response containing the retrieved quilt blob.
-      required:
-      - blob
-      properties:
-        blob:
-          $ref: '#/components/schemas/QuiltBlobOwned'
-          description: The retrieved blob from the quilt.
     ObjectID:
       type: string
       title: Sui object ID
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
-    QuiltBlobOwned:
-      type: object
-      description: |-
-        A wrapper around an owned blob and its identifier.
-
-        A valid identifier is a string that contains only alphanumeric characters,
-        underscores, hyphens, and periods.
-      required:
-      - blob
-      - identifier
-      - attributes
-      - quilt_batch_id_bytes
-      properties:
-        attributes:
-          type: object
-          description: The attributes of the blob.
-          additionalProperties:
-            type: string
-          propertyNames:
-            type: string
-        blob:
-          type: array
-          items:
-            type: integer
-            format: int32
-            minimum: 0
-          description: The blob data.
-        identifier:
-          type: string
-          description: The identifier of the blob.
-        quilt_batch_id_bytes:
-          type: array
-          items:
-            type: integer
-            format: int32
-            minimum: 0
-          description: QuiltPatchId of the blob.
     RegisterBlobOp:
       oneOf:
       - type: object

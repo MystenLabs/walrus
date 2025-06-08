@@ -230,7 +230,11 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
             )
-            .route(QUILT_BLOBS_ENDPOINT, get(routes::get_blob_in_quilt));
+            .route(
+                QUILT_BLOBS_ENDPOINT,
+                get(routes::get_blob_in_quilt)
+                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+            );
         self
     }
 
