@@ -141,7 +141,12 @@ fn populate_response_headers(
     allowed_headers: &HashSet<String>,
 ) {
     for (key, value) in attribute.iter() {
-        if allowed_headers.contains(key) {
+        tracing::info!(
+            attribute_key = key,
+            attribute_value = value,
+            "quilt blob attribute"
+        );
+        if !key.is_empty() && allowed_headers.contains(key) {
             if let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
             {
@@ -422,7 +427,11 @@ pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
     {
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
-                tracing::info!("successfully retrieved blob");
+                tracing::info!(
+                    identifier_header = X_QUILT_PATCH_IDENTIFIER,
+                    identifier = blob.identifier,
+                    "successfully retrieved blob"
+                );
                 let blob_attribute: BlobAttribute = blob.attributes.into();
                 let mut response = (StatusCode::OK, blob.blob).into_response();
                 populate_common_response_headers(
@@ -435,10 +444,12 @@ pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
                     &blob_attribute,
                     &allowed_headers,
                 );
-                response.headers_mut().insert(
-                    HeaderName::from_static(X_QUILT_PATCH_IDENTIFIER),
-                    HeaderValue::from_str(&blob.identifier).unwrap(),
-                );
+                if let (Ok(header_name), Ok(header_value)) = (
+                    HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
+                    HeaderValue::from_str(&blob.identifier),
+                ) {
+                    response.headers_mut().insert(header_name, header_value);
+                }
                 response
             } else {
                 tracing::info!("no blob returned for the requested quilt blob ID");
