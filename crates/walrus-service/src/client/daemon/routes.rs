@@ -423,8 +423,7 @@ pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
                 tracing::info!("successfully retrieved blob");
-                let mut blob_attribute: BlobAttribute = blob.attributes.into();
-                blob_attribute.insert(X_QUILT_PATCH_IDENTIFIER.to_string(), blob.identifier);
+                let blob_attribute: BlobAttribute = blob.attributes.into();
                 let mut response = (StatusCode::OK, blob.blob).into_response();
                 populate_common_response_headers(
                     &request_headers,
@@ -435,6 +434,10 @@ pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
                     response.headers_mut(),
                     &blob_attribute,
                     &allowed_headers,
+                );
+                response.headers_mut().insert(
+                    HeaderName::from_static(X_QUILT_PATCH_IDENTIFIER),
+                    HeaderValue::from_str(&blob.identifier).unwrap(),
                 );
                 response
             } else {
