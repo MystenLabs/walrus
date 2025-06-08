@@ -60,6 +60,8 @@ pub struct ClientMetrics {
     pub upload_certificate_latency_s: Histogram,
     /// Time taken to upload a quilt.
     pub quilt_upload_latency: HistogramVec,
+    /// Time taken to read quilt blobs.
+    pub quilt_read_latency: HistogramVec,
 }
 
 impl ClientMetrics {
@@ -152,6 +154,14 @@ impl ClientMetrics {
                 "quilt_upload_latency_s",
                 "Time taken to upload a quilt",
                 &["num_blobs_bucket", "size_bucket"],
+                LATENCY_SEC_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            quilt_read_latency: register_histogram_vec_with_registry!(
+                "quilt_read_latency_s",
+                "Time taken to read quilt blobs",
+                &["status", "num_blobs_bucket"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -252,5 +262,15 @@ impl ClientMetrics {
             10_000_001..=100_000_000 => "10-100MB".to_string(),
             _ => "100MB+".to_string(),
         }
+    }
+
+    /// Logs the latency for reading quilt blobs.
+    pub fn observe_quilt_read_latency(&self, duration: Duration, num_blobs: usize, success: bool) {
+        let status = if success { "success" } else { "failure" };
+        let num_blobs_bucket = self.get_blob_count_bucket(num_blobs);
+
+        self.quilt_read_latency
+            .with_label_values(&[status, &num_blobs_bucket])
+            .observe(duration.as_secs_f64());
     }
 }

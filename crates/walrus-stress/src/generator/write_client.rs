@@ -7,7 +7,7 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::{SeedableRng, rngs::StdRng, thread_rng};
+use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use sui_sdk::types::base_types::SuiAddress;
 use walrus_core::{
     BlobId,
@@ -68,11 +68,7 @@ impl WriteClient {
         refiller: Refiller,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
-        let blob = BlobData::random(
-            StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
-            blob_config.clone(),
-        )
-        .await;
+        let blob = BlobData::random(StdRng::from_entropy(), blob_config.clone()).await;
         let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self {
             client,
@@ -94,28 +90,6 @@ impl WriteClient {
         let now = Instant::now();
         let quilt_data = self.quilt_pool.get_random_batch();
 
-        // Calculate total size
-        let total_size: usize = quilt_data.iter().map(|blob| blob.len()).sum();
-        let num_blobs = quilt_data.len();
-
-        let result = self.write_quilt().await?;
-        let duration = now.elapsed();
-
-        // Record the metric
-        metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
-
-        Ok((
-            result
-                .blob_store_result
-                .blob_id()
-                .expect("blob id should be present"),
-            duration,
-        ))
-    }
-
-    pub async fn write_quilt(&mut self) -> Result<QuiltStoreResult, ClientError> {
-        let quilt_data = self.quilt_pool.get_random_batch();
-
         // Assign identifiers to the blobs.
         let quilt_store_blobs: Vec<_> = quilt_data
             .into_iter()
@@ -131,12 +105,105 @@ impl WriteClient {
             })
             .collect();
 
+        // Calculate total size.
+        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
+        let num_blobs = quilt_store_blobs.len();
+
+        let result = self.write_quilt(&quilt_store_blobs).await?;
+        let duration = now.elapsed();
+
+        // Record the metric
+        metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
+
+        // Select random quilt patch IDs and read them back
+        if !result.stored_quilt_blobs.is_empty() {
+            let mut rng = StdRng::from_entropy();
+            let num_to_read = rng.gen_range(1..=result.stored_quilt_blobs.len());
+
+            let selected_patches: Vec<_> = result
+                .stored_quilt_blobs
+                .choose_multiple(&mut rng, num_to_read)
+                .map(|stored_blob| stored_blob.quilt_blob_id.clone())
+                .collect();
+
+            tracing::info!(
+                num_patches_to_read = selected_patches.len(),
+                "reading back random quilt patches"
+            );
+
+            let read_start = Instant::now();
+            match self
+                .client
+                .as_ref()
+                .quilt_client()
+                .get_blobs_by_ids(&selected_patches)
+                .await
+            {
+                Ok(read_blobs) => {
+                    let read_duration = read_start.elapsed();
+                    metrics.observe_quilt_read_latency(read_duration, read_blobs.len(), true);
+                    tracing::info!(
+                        num_blobs_read = read_blobs.len(),
+                        read_duration_ms = read_duration.as_millis(),
+                        "successfully read back quilt blobs"
+                    );
+                    // Check if the read blobs match the original quilt store blobs by identifier.
+                    for read_blob in read_blobs.iter() {
+                        if let Some(original_blob) = quilt_store_blobs
+                            .iter()
+                            .find(|b| b.identifier() == read_blob.identifier())
+                        {
+                            if read_blob.data() != original_blob.data() {
+                                tracing::error!(
+                                    "read blob '{}' does not match original data",
+                                    read_blob.identifier()
+                                );
+                                self.dump_mismatch_data(&quilt_store_blobs, &read_blobs, &result)
+                                    .await;
+                            }
+                        } else {
+                            tracing::error!(
+                                "read blob '{}' not found in original quilt store blobs",
+                                read_blob.identifier()
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    let read_duration = read_start.elapsed();
+                    metrics.observe_quilt_read_latency(
+                        read_duration,
+                        selected_patches.len(),
+                        false,
+                    );
+                    tracing::warn!(
+                        ?e,
+                        read_duration_ms = read_duration.as_millis(),
+                        "failed to read back quilt blobs"
+                    );
+                }
+            }
+        }
+
+        Ok((
+            result
+                .blob_store_result
+                .blob_id()
+                .expect("blob id should be present"),
+            duration,
+        ))
+    }
+
+    pub async fn write_quilt(
+        &self,
+        quilt_store_blobs: &[walrus_core::encoding::QuiltStoreBlob<'_>],
+    ) -> Result<QuiltStoreResult, ClientError> {
         let result = self
             .client
             .as_ref()
             .quilt_client()
             .reserve_and_store_quilt::<walrus_core::encoding::QuiltVersionV1>(
-                &quilt_store_blobs,
+                quilt_store_blobs,
                 DEFAULT_ENCODING,
                 self.blob.epochs_to_store(),
                 StoreWhen::AlwaysIgnoreResources,
@@ -152,6 +219,75 @@ impl WriteClient {
         );
 
         Ok(result)
+    }
+
+    /// Dumps mismatch data to files for debugging.
+    async fn dump_mismatch_data(
+        &self,
+        original_blobs: &[walrus_core::encoding::QuiltStoreBlob<'_>],
+        read_blobs: &[walrus_core::encoding::QuiltBlobOwned],
+        result: &QuiltStoreResult,
+    ) {
+        use std::fs;
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let dump_dir = format!("quilt_mismatch_{}", timestamp);
+        if let Err(e) = fs::create_dir_all(&dump_dir) {
+            tracing::error!("Failed to create dump directory: {}", e);
+            return;
+        }
+
+        // Dump original quilt store blobs
+        for original_blob in original_blobs.iter() {
+            let file_path = format!("{}/original_{}.bin", dump_dir, original_blob.identifier());
+            if let Err(e) = fs::write(&file_path, original_blob.data()) {
+                tracing::error!(
+                    "Failed to write original blob '{}': {}",
+                    original_blob.identifier(),
+                    e
+                );
+            }
+        }
+
+        // Dump read blobs
+        for read_blob in read_blobs.iter() {
+            let file_path = format!("{}/read_{}.bin", dump_dir, read_blob.identifier());
+            if let Err(e) = fs::write(&file_path, read_blob.data()) {
+                tracing::error!(
+                    "Failed to write read blob '{}': {}",
+                    read_blob.identifier(),
+                    e
+                );
+            }
+        }
+
+        // Dump metadata
+        let mut metadata_content = String::new();
+        metadata_content.push_str(&format!(
+            "Quilt Blob ID: {:?}\n",
+            result.blob_store_result.blob_id()
+        ));
+        metadata_content.push_str(&format!("Original Blob Count: {}\n", original_blobs.len()));
+        metadata_content.push_str(&format!("Read Blob Count: {}\n", read_blobs.len()));
+        metadata_content.push_str("Stored Quilt Blobs:\n");
+
+        for stored_blob in result.stored_quilt_blobs.iter() {
+            metadata_content.push_str(&format!(
+                "  identifier='{}', quilt_blob_id={}\n",
+                stored_blob.identifier, stored_blob.quilt_blob_id
+            ));
+        }
+
+        let metadata_path = format!("{}/metadata.txt", dump_dir);
+        if let Err(e) = fs::write(&metadata_path, metadata_content) {
+            tracing::error!("Failed to write metadata: {}", e);
+        }
+
+        tracing::error!("Quilt mismatch data dumped to directory: {}", dump_dir);
     }
 
     /// Stores a fresh consistent blob and returns the blob id and elapsed time.

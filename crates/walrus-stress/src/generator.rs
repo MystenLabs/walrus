@@ -163,10 +163,12 @@ impl LoadGenerator {
         let sender = self.write_client_pool_tx.clone();
         let metrics = self.metrics.clone();
         let quilt_percentage = self.quilt_percentage;
+        let is_inconsistent = thread_rng().gen_bool(inconsistent_blob_rate);
+        let is_quilt = thread_rng().gen_bool(quilt_percentage);
         tokio::spawn(async move {
-            let result = if thread_rng().gen_bool(inconsistent_blob_rate) {
+            let result = if is_inconsistent {
                 client.write_fresh_inconsistent_blob().await
-            } else if thread_rng().gen_bool(quilt_percentage) {
+            } else if is_quilt {
                 client.write_fresh_quilt(&metrics).await
             } else {
                 client.write_fresh_blob().await
