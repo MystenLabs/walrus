@@ -88,7 +88,6 @@ proc-macro2 = "1.0.95"
 prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
-raptorq = "2.0.0"
 rayon = "1.10.0"
 rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
@@ -154,9 +153,19 @@ walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
 
 [workspace.lints.rust]
+future_incompatible = "warn"
 missing_debug_implementations = "warn"
 missing_docs = "warn"
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'] }
+nonstandard_style = "warn"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'], priority = 1 }
+unused = "warn"
+
+[workspace.lints.clippy]
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+empty_structs_with_brackets = "warn"
+unwrap_used = "warn"
 
 [profile.release]
 panic = 'abort'

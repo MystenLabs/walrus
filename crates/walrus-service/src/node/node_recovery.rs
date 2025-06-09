@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
@@ -45,7 +45,10 @@ impl NodeRecoveryHandler {
         &self,
         certified_before_epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
-        let mut locked_task_handle = self.task_handle.lock().unwrap();
+        let mut locked_task_handle = self
+            .task_handle
+            .lock()
+            .expect("mutex should not be poisoned");
         assert!(locked_task_handle.is_none());
 
         let node = self.node.clone();
@@ -54,11 +57,6 @@ impl NodeRecoveryHandler {
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
             fail_point_async!("start_node_recovery_entry");
-
-            // Limit the number of concurrent blob syncs to avoid overwhelming the system.
-            let semaphore = Arc::new(tokio::sync::Semaphore::new(
-                max_concurrent_blob_syncs_during_recovery,
-            ));
 
             loop {
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
@@ -84,7 +82,7 @@ impl NodeRecoveryHandler {
                 {
                     node.metrics
                         .node_recovery_recover_blob_progress
-                        .set(blob_id.first_two_bytes() as i64);
+                        .set(i64::from(blob_id.first_two_bytes()));
 
                     // Note that here we need to use the current epoch to check if the blob is
                     // still certified. If the blob is retired, we don't need to recover it anymore.
@@ -123,18 +121,19 @@ impl NodeRecoveryHandler {
                     // There are more blobs to recover.
                     has_more_blobs = true;
 
-                    // Try to acquire permit, if failed wait for one ongoing sync to complete.
-                    let permit = loop {
-                        match semaphore.clone().try_acquire_owned() {
-                            Ok(permit) => break permit,
-                            Err(_) => {
-                                debug_assert!(!ongoing_syncs.is_empty());
-                                // Wait for at least one sync to complete
-                                ongoing_syncs.next().await;
-                                continue;
-                            }
+                    // Limit the number of concurrent blob syncs to avoid overwhelming the system.
+                    // Note that checking the length of `ongoing_syncs` is sufficient since the loop
+                    // adds blob sync tasks sequentially.
+                    if ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                        tracing::debug!(
+                            walrus.blob_id = %blob_id,
+                            number_of_tasks = %ongoing_syncs.len(),
+                            "max concurrent blob syncs reached; wait for one to complete"
+                        );
+                        while ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                            ongoing_syncs.next().await;
                         }
-                    };
+                    }
 
                     tracing::debug!(
                         walrus.blob_id = %blob_id,
@@ -150,12 +149,12 @@ impl NodeRecoveryHandler {
                             None,
                         )
                         .await;
+                    sui_macros::fail_point!("fail_point_node_recovery_start_sync");
                     match start_sync_result {
                         Ok(notify) => {
                             let node_clone = node.clone();
                             // Create a future that releases the permit when the sync completes
                             let notify_with_permit = async move {
-                                let _permit = permit; // Hold permit until sync completes
                                 notify.notified().await;
                                 node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
                             };
@@ -222,6 +221,10 @@ impl NodeRecoveryHandler {
     pub async fn restart_recovery(&self) -> Result<(), TypedStoreError> {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
             if recovering_epoch == self.node.current_epoch() {
+                // The `latest_event_epoch` is still set to `0` at this point.
+                self.node
+                    .latest_event_epoch
+                    .store(recovering_epoch, Ordering::SeqCst);
                 return self.start_node_recovery(self.node.current_epoch()).await;
             } else {
                 assert!(recovering_epoch < self.node.current_epoch());

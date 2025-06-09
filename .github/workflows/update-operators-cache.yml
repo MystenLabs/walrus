@@ -14,7 +14,7 @@ on:
         type: string
         default: 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo'
   schedule:
-    - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
+    - cron: '0 11 * * 1' # Every Monday at 11:00 UTC
 
 env:
   MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || 'bfH-ZqYV5faXTiq2-FVBT2cLQD61VYRuDje0cIkMWMo' }}

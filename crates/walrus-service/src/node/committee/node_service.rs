@@ -381,6 +381,7 @@ impl DefaultNodeServiceFactory {
 
     /// Skips the use of proxies or the loading of native certificates, as these require interacting
     /// with the operating system and can significantly slow down the construction of new instances.
+    #[cfg(feature = "test-utils")]
     pub fn avoid_system_services() -> Self {
         Self {
             disable_use_proxy: true,

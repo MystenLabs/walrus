@@ -549,7 +549,7 @@ impl StakingObject {
         &self.inner.epoch_state
     }
 
-    /// Returns the epoch duration.
+    /// Returns the epoch duration in milliseconds.
     pub fn epoch_duration(&self) -> u64 {
         self.inner.epoch_duration
     }
@@ -701,9 +701,13 @@ impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
         match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.committee.members.len() as u16,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.committee.members.len() as u16,
+            SystemStateInnerV1Enum::V1(inner) => &inner.committee,
+            SystemStateInnerV1Enum::V1Testnet(inner) => &inner.committee,
         }
+        .members
+        .len()
+        .try_into()
+        .expect("committee size always fits in a u16")
     }
 
     /// Returns the number of epochs ahead that can be used to extend a blob.
@@ -771,6 +775,7 @@ pub(crate) enum SystemStateInnerV1Enum {
     V1Testnet(SystemStateInnerV1Testnet),
 }
 
+// TODO(WAL-867): Remove the no longer needed `SystemStateInnerV1Testnet` and all associated code.
 /// Sui type for inner system object.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct SystemStateInnerV1Testnet {

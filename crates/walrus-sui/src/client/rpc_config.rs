@@ -31,6 +31,11 @@ pub struct RpcFallbackConfig {
     /// The duration to skip the RPC for checkpoint download if fallback is configured.
     #[serde(default = "RpcFallbackConfig::default_skip_rpc_for_checkpoint_duration")]
     pub skip_rpc_for_checkpoint_duration: Duration,
+
+    /// The maximum number of consecutive failures to tolerate for a single checkpoint
+    /// before falling back to the checkpoint bucket.
+    #[serde(default = "RpcFallbackConfig::default_max_consecutive_failures")]
+    pub max_consecutive_failures: usize,
 }
 
 impl RpcFallbackConfig {
@@ -52,6 +57,10 @@ impl RpcFallbackConfig {
 
     fn default_skip_rpc_for_checkpoint_duration() -> Duration {
         Duration::from_secs(300)
+    }
+
+    fn default_max_consecutive_failures() -> usize {
+        10
     }
 }
 
@@ -105,6 +114,7 @@ impl RpcFallbackConfigArgs {
                     RpcFallbackConfig::default_failure_window_to_start_fallback_duration(),
                 skip_rpc_for_checkpoint_duration:
                     RpcFallbackConfig::default_skip_rpc_for_checkpoint_duration(),
+                max_consecutive_failures: RpcFallbackConfig::default_max_consecutive_failures(),
             }
         })
     }

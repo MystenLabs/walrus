@@ -32,7 +32,7 @@ pub async fn start_backup_garbage_collector(
                 VERSION,
                 "walrus",
             ))
-            .unwrap();
+            .expect("metrics defined at compile time must be valid");
     });
 
     tracing::info!(version = VERSION, "Walrus backup binary version");

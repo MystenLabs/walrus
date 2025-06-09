@@ -167,7 +167,7 @@ impl SuiReaderConfig {
 
 /// Shared configuration defaults.
 pub mod defaults {
-    use super::*;
+    use std::time::Duration;
 
     /// Default polling interval in milliseconds.
     pub const POLLING_INTERVAL_MS: u64 = 400;

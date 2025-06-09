@@ -47,7 +47,7 @@ walrus_utils::metrics::define_metric_set! {
 }
 
 fn buckets_for_blob_durations() -> Vec<f64> {
-    prometheus::exponential_buckets(0.02, 2.7, 12).unwrap()
+    prometheus::exponential_buckets(0.02, 2.7, 12).expect("this is a valid buckets config")
 }
 
 walrus_utils::metrics::define_metric_set! {

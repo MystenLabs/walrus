@@ -305,18 +305,19 @@ impl BlockingThreadPool {
     /// of time spent in the queue to [`DEFAULT_MAX_WAIT_TIME`].
     pub fn bounded(self) -> BoundedThreadPool {
         let n_workers = match self.inner {
-            BlockingThreadPoolInner::Rayon(ref pool) => pool.inner.current_num_threads() as f64,
+            BlockingThreadPoolInner::Rayon(ref pool) => pool.inner.current_num_threads(),
             BlockingThreadPoolInner::Tokio(_) => std::thread::available_parallelism()
                 .unwrap_or(
                     NonZero::new(DEFAULT_TOKIO_BLOCKING_POOL_NUM_WORKERS)
                         .expect("default tokio blocking pool concurrent jobs must be non-zero"),
                 )
-                .get() as f64,
+                .get(),
         };
 
         let time_in_queue = DEFAULT_MAX_WAIT_TIME.as_secs_f64();
         let task_latency = ASSUMED_REQUEST_LATENCY.as_secs_f64();
-        let limit = (n_workers * time_in_queue / task_latency) as usize;
+        #[allow(clippy::cast_possible_truncation)] // truncation is intentional here
+        let limit = ((n_workers as f64) * time_in_queue / task_latency) as usize;
 
         tracing::debug!(%limit, "calculated limit for `bounded RayonThreadPool`");
 

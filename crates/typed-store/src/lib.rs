@@ -5,14 +5,13 @@
 //! This crate provides functionality for storing and retrieving typed data in RocksDB,
 //! with support for column families, batch operations, and metrics.
 
-#![warn(
-    future_incompatible,
-    nonstandard_style,
-    rust_2018_idioms,
-    rust_2021_compatibility,
-    unused,
-    missing_docs
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::unwrap_used
 )]
+#![warn(rust_2018_idioms)]
 
 /// Re-export rocksdb so that consumers can use the version of rocksdb via typed-store
 pub use rocksdb;

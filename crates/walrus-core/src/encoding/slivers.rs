@@ -485,7 +485,7 @@ mod tests {
     use super::*;
     use crate::{
         EncodingType,
-        encoding::{DecodingSymbol, InvalidDataSizeError, RaptorQEncodingConfig},
+        encoding::{DecodingSymbol, InvalidDataSizeError, ReedSolomonEncodingConfig},
         test_utils,
     };
 
@@ -551,15 +551,8 @@ mod tests {
 
     param_test! {
         test_create_recovery_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
-            ),
-            rectangle_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
-            ),
-            square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_reed_solomon: (
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            rectangle_two_byte_symbol: (
                 EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
         ]
@@ -603,16 +596,16 @@ mod tests {
 
     param_test! {
         test_recover_sliver_failure: [
-            no_symbols: (&[], 2, 1),
-            empty_symbols: (&[&[], &[]], 2, 1),
+            no_symbols: (&[], 2, 2),
+            empty_symbols: (&[&[], &[]], 2, 2),
             too_few_symbols: (&[&[1,2]], 2, 2),
             inconsistent_size: (&[&[1,2],&[3]], 2, 2),
-            inconsistent_and_empty_size: (&[&[1],&[]], 2, 1),
+            inconsistent_and_empty_size: (&[&[1],&[]], 2, 2),
         ]
     }
     // Only testing for failures in the decoding. The correct decoding is tested below.
     fn test_recover_sliver_failure(symbols: &[&[u8]], n_source_symbols: u16, symbol_size: u16) {
-        let config = RaptorQEncodingConfig::new_for_test(
+        let config = ReedSolomonEncodingConfig::new_for_test(
             n_source_symbols,
             n_source_symbols,
             n_source_symbols * 3 + 1,
@@ -636,28 +629,15 @@ mod tests {
 
     param_test! {
         test_recover_sliver_from_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
-            ),
-            rectangle_two_byte_symbol_1_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
-            ),
-            rectangle_two_byte_symbol_2_raptorq: (
-                EncodingType::RedStuffRaptorQ, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
-            ),
-            rectangle_two_byte_symbol_3_raptorq: (
-                EncodingType::RedStuffRaptorQ, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
-            ),
-            square_one_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_1_reed_solomon: (
+            square_one_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            rectangle_two_byte_symbol_1: (
                 EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
-            rectangle_two_byte_symbol_2_reed_solomon: (
+            rectangle_two_byte_symbol_2: (
                 EncodingType::RS2, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
             ),
-            rectangle_two_byte_symbol_3_reed_solomon: (
+            rectangle_two_byte_symbol_3: (
                 EncodingType::RS2, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
             ),
         ]
@@ -717,10 +697,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbols_empty_sliver: [
-            primary_raptorq: <Primary>(EncodingType::RedStuffRaptorQ),
-            secondary_raptorq: <Secondary>(EncodingType::RedStuffRaptorQ),
-            primary_reed_solomon: <Primary>(EncodingType::RS2),
-            secondary_reed_solomon: <Secondary>(EncodingType::RS2),
+            primary: <Primary>(EncodingType::RS2),
+            secondary: <Secondary>(EncodingType::RS2),
         ]
     }
     fn test_recovery_symbols_empty_sliver<T: EncodingAxis>(encoding_type: EncodingType) {
@@ -734,25 +712,13 @@ mod tests {
 
     param_test! {
         test_recover_all_slivers_from_f_plus_1: [
-            recover_empty_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[]),
-            recover_single_byte_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[1]),
-            recover_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
+            recover_empty: (EncodingType::RS2, 3, &[]),
+            recover_single_byte: (EncodingType::RS2, 3, &[1]),
+            recover_one_byte_symbol: (EncodingType::RS2, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
             ]),
-            recover_two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-            ]),
-            recover_empty_reed_solomon: (EncodingType::RS2, 3, &[]),
-            recover_single_byte_reed_solomon: (EncodingType::RS2, 3, &[1]),
-            recover_one_byte_symbol_reed_solomon: (EncodingType::RS2, 3, &[
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-            ]),
-            recover_two_byte_symbol_reed_solomon: (EncodingType::RS2, 3, &[
+            recover_two_byte_symbol: (EncodingType::RS2, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
@@ -822,10 +788,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbol_proof: [
-            one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 4, 1),
-            two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 2, 2),
-            two_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4], 2, 2),
-            four_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 4),
+            two_byte_symbol: (EncodingType::RS2, &[1,2,3,4], 2, 2),
+            four_byte_symbol: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 4),
         ]
     }
     fn test_recovery_symbol_proof(

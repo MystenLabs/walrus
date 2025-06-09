@@ -269,7 +269,7 @@ impl VerifiedBlobMetadataWithId {
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
         let encoding_type = self.metadata.encoding_type();
-        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards(), encoding_type);
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
         let config = config.get_for_type(encoding_type);
 
         self.n_shards() == config.n_shards()
@@ -283,7 +283,10 @@ impl VerifiedBlobMetadataWithId {
     /// of shards in the encoding config with which this was verified.
     pub fn n_shards(&self) -> NonZeroU16 {
         let n_hashes = self.metadata.hashes().len();
-        NonZeroU16::new(n_hashes as u16).expect("verified metadata has a valid number of shards")
+        u16::try_from(n_hashes)
+            .ok()
+            .and_then(NonZeroU16::new)
+            .expect("verified metadata has a valid number of shards")
     }
 }
 

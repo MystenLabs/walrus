@@ -476,7 +476,7 @@ impl EventProcessor {
             tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
-                .set(next_checkpoint as i64);
+                .set(next_checkpoint.try_into()?);
             self.metrics
                 .event_processor_total_downloaded_checkpoints
                 .inc();

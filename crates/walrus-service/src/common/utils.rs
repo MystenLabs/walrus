@@ -372,8 +372,10 @@ async fn push_metrics(
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+        .expect("current time is definitely after the UNIX epoch")
+        .as_millis()
+        .try_into()
+        .expect("timestamp must fit into an i64");
 
     let mut metric_families = registry.gather();
     for mf in metric_families.iter_mut() {
@@ -586,18 +588,23 @@ impl FromStr for ByteCount {
             ("Ti", (1u64 << 40) as f64),
             ("Pi", (1u64 << 50) as f64),
         ];
-
         let error_context = || format!("invalid byte-count string: {original:?}");
+
         if let Some((value_str, scale)) = suffixes
             .into_iter()
             .find_map(|(suffix, scale)| Some((s.strip_suffix(suffix)?, scale)))
         {
-            f64::from_str(value_str.trim())
-                .map(|value| ByteCount((value * scale).floor() as u64))
-                .with_context(error_context)
+            let value = f64::from_str(value_str.trim()).with_context(error_context)?;
+            let byte_count = (value * scale).floor();
+            if byte_count > u64::MAX as f64 {
+                anyhow::bail!("provided byte-count is too large: {original:?}");
+            } else {
+                #[allow(clippy::cast_possible_truncation)] // truncation is fine here
+                Ok(ByteCount(byte_count as u64))
+            }
         } else {
-            // Otherwise, assume unittless.
-            // Bytes cannot have fractional components
+            // Otherwise, assume unitless.
+            // Bytes cannot have fractional components.
             u64::from_str(s.trim())
                 .map(ByteCount)
                 .with_context(error_context)
@@ -842,6 +849,8 @@ pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
 
 #[cfg(test)]
 mod tests {
+    // Allowing casts in tests.
+    #![allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
 
     use std::num::NonZeroU16;
 

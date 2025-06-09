@@ -77,7 +77,10 @@ impl Blocklist {
     /// Checks if a blob ID is blocked.
     #[inline]
     pub fn is_blocked(&self, blob_id: &BlobId) -> bool {
-        let guard = self.blocked_blobs.read().expect("mutex poisoned");
+        let guard = self
+            .blocked_blobs
+            .read()
+            .expect("mutex should not be poisoned");
         guard.contains(blob_id)
     }
 
@@ -86,8 +89,10 @@ impl Blocklist {
     /// Returns whether the ID was newly inserted.
     #[inline]
     pub fn insert(&mut self, blob_id: BlobId) -> Result<bool> {
-        let mut guard: std::sync::RwLockWriteGuard<'_, HashSet<BlobId>> =
-            self.blocked_blobs.write().expect("mutex poisoned");
+        let mut guard: std::sync::RwLockWriteGuard<'_, HashSet<BlobId>> = self
+            .blocked_blobs
+            .write()
+            .expect("mutex should not be poisoned");
         guard.insert(blob_id);
         // Update yaml file to add this blob id
         let blobs = BlocklistInner(guard.iter().cloned().collect::<Vec<_>>());
@@ -105,8 +110,10 @@ impl Blocklist {
     /// Returns whether the ID was previously blocked.
     #[inline]
     pub fn remove(&mut self, blob_id: &BlobId) -> Result<bool> {
-        let mut guard: std::sync::RwLockWriteGuard<'_, HashSet<BlobId>> =
-            self.blocked_blobs.write().expect("mutex poisoned");
+        let mut guard: std::sync::RwLockWriteGuard<'_, HashSet<BlobId>> = self
+            .blocked_blobs
+            .write()
+            .expect("mutex should not be poisoned");
         guard.remove(blob_id);
         let blobs = BlocklistInner(guard.iter().cloned().collect::<Vec<_>>());
 
@@ -142,7 +149,10 @@ impl Blocklist {
             self.deny_list_path.display()
         ))?;
 
-        let mut guard = self.blocked_blobs.write().expect("mutex poisoned");
+        let mut guard = self
+            .blocked_blobs
+            .write()
+            .expect("mutex should not be poisoned");
         let old_blobs = guard.iter().cloned().collect::<HashSet<_>>();
         let new_blobs = blocklist.0.iter().cloned().collect::<HashSet<_>>();
         let added_blobs = new_blobs.difference(&old_blobs).collect::<Vec<_>>();

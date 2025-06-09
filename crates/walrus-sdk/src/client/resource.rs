@@ -350,6 +350,11 @@ impl<'a> ResourceManager<'a> {
     }
 
     /// Registers or reuses resources for a list of blobs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `blobs` contains any of [`WalrusStoreBlob::Unencoded`],
+    /// [`WalrusStoreBlob::Completed`], and [`WalrusStoreBlob::Error`].
     pub async fn register_or_reuse_resources<'b, T: Debug + Clone + Send + Sync>(
         &self,
         blobs: Vec<WalrusStoreBlob<'b, T>>,
@@ -373,7 +378,13 @@ impl<'a> ResourceManager<'a> {
             })
             .collect();
 
-        let metadata_list: Vec<_> = blobs.iter().map(|b| b.get_metadata().unwrap()).collect();
+        let metadata_list: Vec<_> = blobs
+            .iter()
+            .map(|b| {
+                b.get_metadata()
+                    .expect("metadata is present on the allowed blob types")
+            })
+            .collect();
 
         let results = if store_when.is_ignore_resources() {
             self.reserve_and_register_blob_op(

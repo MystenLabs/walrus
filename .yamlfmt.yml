@@ -10,3 +10,4 @@ formatter:
   scan_folded_as_literal: true
   max_line_length: 120
   drop_merge_tag: true
+  disable_alias_key_correction: true

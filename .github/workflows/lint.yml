@@ -53,7 +53,7 @@ jobs:
 
       - name: Install yamlfmt
         run: |
-          url="https://github.com/google/yamlfmt/releases/download/v0.14.0/yamlfmt_0.14.0_Linux_x86_64.tar.gz"
+          url="https://github.com/google/yamlfmt/releases/download/v0.17.0/yamlfmt_0.17.0_Linux_x86_64.tar.gz"
           curl -sSL "$url" | tar xvz yamlfmt
       - name: Check formatting of all YAML files
         run: ./yamlfmt -lint

@@ -596,7 +596,7 @@ mod commands {
                         VERSION,
                         "walrus",
                     ))
-                    .unwrap();
+                    .expect("metrics defined at compile time must be valid");
             });
 
         tracing::info!(version = VERSION, "Walrus binary version");
@@ -1048,7 +1048,10 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
         tokio::spawn(async move {
-            event_processor.start(cancel_token_clone).await.unwrap();
+            event_processor
+                .start(cancel_token_clone)
+                .await
+                .expect("event processor should not fail");
         });
 
         tokio::time::sleep(runtime_duration).await;

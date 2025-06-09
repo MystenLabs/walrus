@@ -164,7 +164,7 @@ pub struct StorageNodeConfig {
     /// The number of uncertified blobs before the node will reset the local
     /// state in event blob writer.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
-    pub num_uncertified_blob_threshold: Option<u32>,
+    pub num_uncertified_blob_threshold: Option<usize>,
     /// Configuration for background SUI balance checks and alerting.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub balance_check: BalanceCheckConfig,
@@ -188,6 +188,9 @@ pub struct StorageNodeConfig {
     /// Configuration for node recovery.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub node_recovery_config: NodeRecoveryConfig,
+    /// Configuration for the blob event processor.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub blob_event_processor_config: BlobEventProcessorConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -230,6 +233,7 @@ impl Default for StorageNodeConfig {
             checkpoint_config: Default::default(),
             admin_socket_path: None,
             node_recovery_config: Default::default(),
+            blob_event_processor_config: Default::default(),
         }
     }
 }
@@ -372,14 +376,13 @@ impl StorageNodeConfig {
         commission_rate_data: &CommissionRateData,
         local_commission_rate: u16,
     ) -> Option<u16> {
-        let projected_commission_rate = commission_rate_data
-            .pending_commission_rate
-            .last()
-            .map_or(commission_rate_data.commission_rate as u64, |&(_, rate)| {
-                rate
-            });
-        assert!(projected_commission_rate < u16::MAX as u64);
-        (projected_commission_rate != local_commission_rate as u64).then_some(local_commission_rate)
+        let projected_commission_rate = commission_rate_data.pending_commission_rate.last().map_or(
+            u64::from(commission_rate_data.commission_rate),
+            |&(_, rate)| rate,
+        );
+        assert!(projected_commission_rate < u64::from(u16::MAX));
+        (projected_commission_rate != u64::from(local_commission_rate))
+            .then_some(local_commission_rate)
     }
 
     /// Compares the current node parameters with the passed-in parameters and generates the
@@ -614,7 +617,7 @@ impl Default for CommitteeServiceConfig {
             metadata_request_timeout: Duration::from_secs(5),
             sliver_request_timeout: Duration::from_secs(300),
             invalidity_sync_timeout: Duration::from_secs(300),
-            max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
+            max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
         }
@@ -689,6 +692,22 @@ impl Default for NodeRecoveryConfig {
         Self {
             max_concurrent_blob_syncs_during_recovery: 1000,
         }
+    }
+}
+
+/// Configuration for the blob event processor.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct BlobEventProcessorConfig {
+    /// The number of workers to process blob events in parallel.
+    /// When set to 0, the node will process all blob events sequentially.
+    pub num_workers: usize,
+}
+
+impl Default for BlobEventProcessorConfig {
+    fn default() -> Self {
+        Self { num_workers: 10 }
     }
 }
 
@@ -1437,7 +1456,7 @@ mod tests {
                 voting_params: old_voting_params.clone(),
                 metadata: old_metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64)],
+                    pending_commission_rate: vec![(32, u64::from(config.commission_rate))],
                     commission_rate: 20,
                 },
             },
@@ -1501,7 +1520,10 @@ mod tests {
                 voting_params: config.voting_params.clone(),
                 metadata: config.metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64), (33, 110)],
+                    pending_commission_rate: vec![
+                        (32, u64::from(config.commission_rate)),
+                        (33, 110),
+                    ],
                     commission_rate: config.commission_rate,
                 },
             },

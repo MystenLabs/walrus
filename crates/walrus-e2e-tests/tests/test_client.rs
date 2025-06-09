@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in tests.
+#![allow(clippy::unwrap_used)]
+
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
 #[cfg(msim)]

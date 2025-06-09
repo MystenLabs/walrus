@@ -375,7 +375,7 @@ pub async fn convert_to_remote_write(
             }
         }
     }
-    CONSUMER_OPS_SUBMITTED.inc_by(mf_cnt as f64);
+    CONSUMER_OPS_SUBMITTED.inc_by(f64::from(mf_cnt));
     timer.observe_duration();
     (StatusCode::CREATED, "created")
 }
