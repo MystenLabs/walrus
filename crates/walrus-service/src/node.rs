@@ -4452,7 +4452,7 @@ mod tests {
 
     // The common setup for shard sync tests.
     // By default:
-    //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
+    //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1,2,3 in node 1.
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
     // If assignment is provided, it will be used to create the cluster, then all
@@ -5405,9 +5405,6 @@ mod tests {
                 );
             }
 
-            storage_dst
-                .remove_storage_for_shards(&[ShardIndex(1)])
-                .await?;
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
