@@ -39,13 +39,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::DefaultGuard;
-use tracing_subscriber::{
-    EnvFilter,
-    Layer,
-    filter::Filtered,
-    layer::{Layered, SubscriberExt as _},
-    util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt as _, util::SubscriberInitExt};
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{BlobId, PublicKey, ShardIndex};
@@ -652,9 +646,10 @@ pub fn export_contract_info(
         .set(1);
 }
 
-type TracingSubscriberConfiguration = Layered<
-    Filtered<
-        Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
+#[cfg(not(feature = "console-subscriber"))]
+type TracingSubscriberConfiguration = tracing_subscriber::layer::Layered<
+    tracing_subscriber::filter::Filtered<
+        Box<dyn tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync>,
         EnvFilter,
         tracing_subscriber::Registry,
     >,
@@ -662,6 +657,7 @@ type TracingSubscriberConfiguration = Layered<
 >;
 
 /// Prepare the tracing subscriber based on the environment variables.
+#[cfg(not(feature = "console-subscriber"))]
 fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscriberConfiguration> {
     // Use INFO level by default.
     let directive = format!(
@@ -687,6 +683,68 @@ fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscri
     };
 
     Ok(tracing_subscriber::registry().with(layer.with_filter(EnvFilter::new(directive.clone()))))
+}
+
+#[cfg(feature = "console-subscriber")]
+type ConsoleSubscriberTracingSubscriberConfiguration = tracing_subscriber::layer::Layered<
+    std::boxed::Box<
+        dyn tracing_subscriber::Layer<
+                tracing_subscriber::layer::Layered<
+                    std::boxed::Box<
+                        dyn tracing_subscriber::Layer<tracing_subscriber::Registry>
+                            + std::marker::Send
+                            + std::marker::Sync,
+                    >,
+                    tracing_subscriber::Registry,
+                >,
+            > + std::marker::Send
+            + std::marker::Sync,
+    >,
+    tracing_subscriber::layer::Layered<
+        std::boxed::Box<
+            dyn tracing_subscriber::Layer<tracing_subscriber::Registry>
+                + std::marker::Send
+                + std::marker::Sync,
+        >,
+        tracing_subscriber::Registry,
+    >,
+>;
+
+/// Prepare the tracing subscriber based on the environment variables.
+#[cfg(feature = "console-subscriber")]
+fn prepare_subscriber(
+    default_log_format: Option<&str>,
+) -> std::result::Result<ConsoleSubscriberTracingSubscriberConfiguration, anyhow::Error> {
+    // Use INFO level by default.
+    let directive = format!(
+        "info,{}",
+        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
+    );
+    let layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+
+    // Control output format based on `LOG_FORMAT` env variable.
+    let format = env::var("LOG_FORMAT")
+        .ok()
+        .or_else(|| default_log_format.map(|fmt| fmt.to_string()));
+    let layer = if let Some(format) = &format {
+        match format.to_lowercase().as_str() {
+            "default" => layer.boxed(),
+            "compact" => layer.compact().boxed(),
+            "pretty" => layer.pretty().boxed(),
+            "json" => layer.json().boxed(),
+            s => Err(anyhow!("LOG_FORMAT '{}' is not supported", s))?,
+        }
+    } else {
+        layer.boxed()
+    };
+
+    // spawn the console server in the background,
+    // returning a `Layer`:
+    let console_layer = console_subscriber::spawn();
+
+    Ok(tracing_subscriber::registry()
+        .with(layer.with_filter(EnvFilter::new(directive.clone())).boxed())
+        .with(console_layer.boxed()))
 }
 
 /// Initializes the logger and tracing subscriber as the global subscriber, requiring a preference

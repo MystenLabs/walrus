@@ -44,6 +44,7 @@ clap = { version = "4.5.39", features = ["deprecated", "derive"] }
 clap_complete = "4.5.52"
 collectable = "0.0.2"
 colored = "2.2.0"
+console-subscriber = "0.4.1"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
