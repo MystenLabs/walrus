@@ -716,6 +716,8 @@ fn prepare_subscriber(
     default_log_format: Option<&str>,
 ) -> std::result::Result<ConsoleSubscriberTracingSubscriberConfiguration, anyhow::Error> {
     // Use INFO level by default.
+
+    use console_subscriber::ConsoleLayer;
     let directive = format!(
         "info,{}",
         env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
@@ -738,10 +740,10 @@ fn prepare_subscriber(
         layer.boxed()
     };
 
-    // spawn the console server in the background,
-    // returning a `Layer`:
-    let console_layer = console_subscriber::spawn();
-
+    let console_layer = ConsoleLayer::builder()
+        .server_addr(([127, 0, 0, 1], 15575))
+        .with_default_env()
+        .spawn();
     Ok(tracing_subscriber::registry()
         .with(layer.with_filter(EnvFilter::new(directive.clone())).boxed())
         .with(console_layer.boxed()))
