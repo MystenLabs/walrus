@@ -40,6 +40,7 @@ client = [
   "dep:colored",
   "dep:prettytable",
 ]
+console-subscriber = ["dep:console-subscriber"]
 default = ["client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
@@ -87,6 +88,7 @@ chrono.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 colored = { workspace = true, optional = true }
+console-subscriber = { workspace = true, optional = true }
 diesel = { workspace = true, optional = true }
 diesel-async = { workspace = true, optional = true }
 diesel_migrations = { workspace = true, optional = true }
