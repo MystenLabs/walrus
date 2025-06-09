@@ -68,7 +68,7 @@ pub enum FanOutError {
 }
 
 impl FanOutError {
-    /// Creates a new error of `Other` kind, from the given messsage.
+    /// Creates a new error of `Other` kind, from the given message.
     pub(crate) fn other(msg: &'static str) -> Self {
         Self::Other(anyhow::anyhow!(msg))
     }
