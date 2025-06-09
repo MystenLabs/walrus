@@ -189,6 +189,15 @@ impl ParallelCheckpointDownloaderInner {
         let latest_checkpoint = client.get_latest_checkpoint_summary().await?;
         let current_lag =
             latest_checkpoint.sequence_number - current_checkpoint.inner().sequence_number;
+        // if lag cannot be converted to i64, log it
+        if current_lag > i64::MAX as u64 {
+            tracing::error!(
+                "Checkpoint lag is too large to fit in i64: {}, summary: {:?}, current: {:?}",
+                current_lag,
+                latest_checkpoint,
+                current_checkpoint
+            );
+        }
         Ok(current_lag)
     }
 
@@ -326,9 +335,9 @@ impl ParallelCheckpointDownloaderInner {
                     };
 
                     consecutive_failures = 0;
-                    config.metrics.checkpoint_lag.set(lag.try_into().expect(
-                        "lag should always fit into a i64"
-                    ));
+                    config.metrics.checkpoint_lag.set(lag.try_into().unwrap_or_else(|e| {
+                        panic!("Checkpoint lag '{lag}' is too large to fit in i64: {e}")
+                    }));
 
                     let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
                     if lag > downloader_config.scale_up_lag_threshold &&
