@@ -160,22 +160,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /v1/blobs/{blob_id}:
+  /v1/blobs/by-quilt-patch-id/{quilt_patch_id}:
     get:
       tags:
       - routes
-      summary: Retrieve a Walrus blob.
-      description: Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
-      operationId: get_blob
+      summary: Get blob from quilt
+      description: Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+      operationId: get_blob_in_quilt
       parameters:
-      - name: blob_id
+      - name: quilt_patch_id
         in: path
+        description: The QuiltPatchId encoded as URL-safe base64
         required: true
         schema:
-          $ref: '#/components/schemas/BlobId'
+          type: string
+        example: DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw
       responses:
         '200':
-          description: The blob was reconstructed successfully
+          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
           content:
             application/octet-stream:
               schema:
@@ -202,23 +204,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /v1/quilt/blobs:
+  /v1/blobs/{blob_id}:
     get:
       tags:
       - routes
-      summary: Retrieve a blob from quilt by its QuiltPatchId.
-      description: Takes a quilt blob ID and returns the corresponding blob from the quilt.
-      operationId: get_blob_in_quilt
+      summary: Retrieve a Walrus blob.
+      description: Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
+      operationId: get_blob
       parameters:
-      - name: quilt_patch_id
-        in: query
-        description: Quilt blob ID to retrieve.
+      - name: blob_id
+        in: path
         required: true
         schema:
-          $ref: '#/components/schemas/QuiltPatchId'
+          $ref: '#/components/schemas/BlobId'
       responses:
         '200':
-          description: The blob was retrieved successfully
+          description: The blob was reconstructed successfully
           content:
             application/octet-stream:
               schema:

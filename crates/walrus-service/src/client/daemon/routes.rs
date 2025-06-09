@@ -23,7 +23,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount, QuiltPatchId};
+use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
@@ -44,7 +44,7 @@ use crate::{
         PostStoreAction,
         auth::{Claim, PublisherAuthError},
     },
-    common::api::{Binary, BlobIdString, RestApiError},
+    common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
 
 /// The status endpoint, which always returns a 200 status when it is available.
@@ -58,7 +58,7 @@ pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 /// The path to get blobs from quilt by IDs.
-pub const QUILT_BLOBS_ENDPOINT: &str = "/v1/quilt/blobs";
+pub const QUILT_BLOBS_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -381,15 +381,6 @@ impl From<ClientError> for StoreBlobError {
     }
 }
 
-/// Request to get a blob from quilt by its ID.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
-pub struct GetQuiltBlobRequest {
-    /// Quilt blob ID to retrieve.
-    #[serde_as(as = "DisplayFromStr")]
-    pub quilt_patch_id: QuiltPatchId,
-}
-
 /// Returns a `CorsLayer` for the blob store endpoint.
 pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
@@ -402,29 +393,57 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
 /// Retrieve a blob from quilt by its QuiltPatchId.
 ///
 /// Takes a quilt blob ID and returns the corresponding blob from the quilt.
+/// The blob content is returned as raw bytes in the response body, while metadata
+/// such as the blob identifier is returned in response headers.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-patch-id/\
+/// DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+/// ```
+///
+/// Response:
+/// ```text
+/// HTTP/1.1 200 OK
+/// Content-Type: application/octet-stream
+/// X-Quilt-Patch-Identifier: my-file.txt
+/// ETag: "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+///
+/// [raw blob bytes]
+/// ```
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
     get,
     path = QUILT_BLOBS_ENDPOINT,
-    params(GetQuiltBlobRequest),
+    params(
+        (
+            "quilt_patch_id" = String, Path,
+            description = "The QuiltPatchId encoded as URL-safe base64",
+            example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+        )
+    ),
     responses(
-        (status = 200, description = "The blob was retrieved successfully",
-            body = [u8]),
+        (
+            status = 200,
+            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
+                        the identifier and other attributes are returned as headers.",
+            body = [u8]
+        ),
         GetBlobError,
     ),
+    summary = "Get blob from quilt",
+    description = "Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the \
+                raw blob bytes, the identifier and other attributes are returned as headers.",
 )]
 pub(super) async fn get_blob_in_quilt<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
-    Query(request): Query<GetQuiltBlobRequest>,
+    Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
 ) -> Response {
-    let quilt_patch_id_str = request.quilt_patch_id.to_string();
+    let quilt_patch_id_str = quilt_patch_id.to_string();
     tracing::info!("starting to read quilt blob: {}", quilt_patch_id_str);
 
-    match client
-        .get_blobs_by_quilt_ids(&[request.quilt_patch_id])
-        .await
-    {
+    match client.get_blobs_by_quilt_ids(&[quilt_patch_id]).await {
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
                 tracing::info!(
