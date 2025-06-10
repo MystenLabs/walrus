@@ -606,7 +606,7 @@ impl DbCheckpointManager {
     ///
     /// If backup_id is provided, restore from the specified backup.
     /// If backup_id is not provided, restore from the latest backup.
-    pub async fn restore_from_checkpoint(
+    pub async fn restore_from_backup(
         db_checkpoint_dir: &Path,
         db_path: &Path,
         wal_dir: Option<&Path>,
@@ -812,7 +812,7 @@ mod tests {
         );
 
         // Restore from backup to a new location.
-        DbCheckpointManager::restore_from_checkpoint(
+        DbCheckpointManager::restore_from_backup(
             db_checkpoint_dir.path(),
             restore_dir.path(),
             None,
