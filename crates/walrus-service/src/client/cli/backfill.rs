@@ -292,7 +292,20 @@ pub(crate) async fn run_blob_backfill(
     // Read all the files in the backfill dir, and try to backfill all of them before reading the
     // directory again.
     loop {
-        let entries = std::fs::read_dir(&backfill_dir)?
+        let dir_entries = match std::fs::read_dir(&backfill_dir) {
+            Err(error) => {
+                tracing::error!(
+                    ?backfill_dir,
+                    ?error,
+                    "failed to read backfill directory; exiting backfill loop"
+                );
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+            Ok(entries) => entries,
+        };
+
+        let entries = dir_entries
             .filter_map(|entry| {
                 entry
                     .inspect_err(|error| {
