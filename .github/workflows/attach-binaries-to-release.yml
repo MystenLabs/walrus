@@ -46,10 +46,10 @@ jobs:
       matrix:
         os:
           - ubuntu-ghcloud # ubuntu-x86_64
-          - ubuntu-arm64 # ubuntu-arm64
-          - windows-ghcloud # windows-x86_64
-          - macos-latest-large # macos-x86_64
-          - macos-latest-xlarge # macos-arm64
+          # - ubuntu-arm64 # ubuntu-arm64
+          # - windows-ghcloud # windows-x86_64
+          # - macos-latest-large # macos-x86_64
+          # - macos-latest-xlarge # macos-arm64
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -114,102 +114,102 @@ jobs:
           gcloud storage cp gs://mysten-walrus-releases/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
-      - name: Install nexttest (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
-        uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
+      # - name: Install nexttest (Windows)
+      #   if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
+      #   uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
 
-      - name: Install postgres (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
-        shell: bash
-        run: |
-          choco install postgresql12 --force --params '/Password:root'
-          echo "C:\Program Files\PostgreSQL\12\bin" >> $GITHUB_PATH
-          echo "C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_PATH
-          echo "PQ_LIB_DIR=C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_ENV
-          echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
-          echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
+      # - name: Install postgres (Windows)
+      #   if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
+      #   shell: bash
+      #   run: |
+      #     choco install postgresql12 --force --params '/Password:root'
+      #     echo "C:\Program Files\PostgreSQL\12\bin" >> $GITHUB_PATH
+      #     echo "C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_PATH
+      #     echo "PQ_LIB_DIR=C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_ENV
+      #     echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
+      #     echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
 
-      - name: Set git config for long paths (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') }}
-        run: |
-          git config --system core.longpaths true
+      # - name: Set git config for long paths (Windows)
+      #   if: ${{ startsWith(matrix.os, 'windows') }}
+      #   run: |
+      #     git config --system core.longpaths true
 
-      - name: Install postgres (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
-        shell: bash
-        env:
-          PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
-          LIBRARY_PATH: "/opt/homebrew/lib:$LIBRARY_PATH"
-          PKG_CONFIG_PATH: "/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
-          PATH: "/opt/homebrew/bin:$PATH"
-        run: |
-          brew install postgresql
+      # - name: Install postgres (MacOS arm64)
+      #   if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+      #   shell: bash
+      #   env:
+      #     PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
+      #     LIBRARY_PATH: "/opt/homebrew/lib:$LIBRARY_PATH"
+      #     PKG_CONFIG_PATH: "/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+      #     PATH: "/opt/homebrew/bin:$PATH"
+      #   run: |
+      #     brew install postgresql
 
-      - name: Install postgres (Ubuntu arm64)
-        if: ${{ matrix.os == 'ubuntu-arm64' && env.walrus_tarball_exist == '' }}
-        shell: bash
-        run: |
-          sudo apt update && sudo apt install libpq-dev
+      # - name: Install postgres (Ubuntu arm64)
+      #   if: ${{ matrix.os == 'ubuntu-arm64' && env.walrus_tarball_exist == '' }}
+      #   shell: bash
+      #   run: |
+      #     sudo apt update && sudo apt install libpq-dev
 
-      - name: Remove unused apps (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
-        continue-on-error: true
-        shell: bash
-        run: |
-          # MacOS arm64 runner only has 14GB avaialble, which is too small for our builds, so removing unused softwared.
-          df -h /
-          sudo rm -rf /Applications/Xcode*.app
-          sudo rm -rf ~/Library/Developer/Xcode/DerivedData
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/*
-          sudo rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
-          df -h /
+      # - name: Remove unused apps (MacOS arm64)
+      #   if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+      #   continue-on-error: true
+      #   shell: bash
+      #   run: |
+      #     # MacOS arm64 runner only has 14GB avaialble, which is too small for our builds, so removing unused softwared.
+      #     df -h /
+      #     sudo rm -rf /Applications/Xcode*.app
+      #     sudo rm -rf ~/Library/Developer/Xcode/DerivedData
+      #     sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/*
+      #     sudo rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
+      #     df -h /
 
-      - name: Cargo build for ${{ matrix.os }} platform
-        if: ${{ env.walrus_tarball_exist == '' }}
-        shell: bash
-        run: |
-          [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release
+      # - name: Cargo build for ${{ matrix.os }} platform
+      #   if: ${{ env.walrus_tarball_exist == '' }}
+      #   shell: bash
+      #   run: |
+      #     [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release
 
-      - name: Rename and archive binaries for ${{ matrix.os }}
-        if: ${{ env.walrus_tarball_exist == '' }}
-        shell: bash
-        run: |
-          mkdir -p ${{ env.TMP_BUILD_DIR }}
+      # - name: Rename and archive binaries for ${{ matrix.os }}
+      #   if: ${{ env.walrus_tarball_exist == '' }}
+      #   shell: bash
+      #   run: |
+      #     mkdir -p ${{ env.TMP_BUILD_DIR }}
 
-          [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
-          for binary in $(cat ${{ env.BINARY_LIST_FILE }} | jq -r '.release_binaries[]'); do
-            export binary=$(echo ${binary} | tr -d $'\r')
-            mv ./target/release/${binary}${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/${binary}${{ env.extention }}
-          done
+      #     [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
+      #     for binary in $(cat ${{ env.BINARY_LIST_FILE }} | jq -r '.release_binaries[]'); do
+      #       export binary=$(echo ${binary} | tr -d $'\r')
+      #       mv ./target/release/${binary}${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/${binary}${{ env.extention }}
+      #     done
 
-          tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
+      #     tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
 
-      - name: Remove temp staging files
-        shell: bash
-        run: rm -rf ${{ env.TMP_BUILD_DIR }}
+      # - name: Remove temp staging files
+      #   shell: bash
+      #   run: rm -rf ${{ env.TMP_BUILD_DIR }}
 
-      - name: List upload directory contents
-        shell: bash
-        run: ls -al ./tmp
+      # - name: List upload directory contents
+      #   shell: bash
+      #   run: ls -al ./tmp
 
-      - name: Upload binaries for ${{ inputs.os }} platform to GCP
-        uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
-        with:
-          path: "./tmp"
-          destination: "mysten-walrus-releases"
-          parent: false
+      # - name: Upload binaries for ${{ inputs.os }} platform to GCP
+      #   uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
+      #   with:
+      #     path: "./tmp"
+      #     destination: "mysten-walrus-releases"
+      #     parent: false
 
-      - name: Upload release artifacts for ${{ matrix.os }} platform
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@4.6.2
-        with:
-          name: walrus-binaries-${{ matrix.os }}
-          if-no-files-found: error
-          path: |
-            ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
+      # - name: Upload release artifacts for ${{ matrix.os }} platform
+      #   uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@4.6.2
+      #   with:
+      #     name: walrus-binaries-${{ matrix.os }}
+      #     if-no-files-found: error
+      #     path: |
+      #       ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
-      - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # pin@v2.2.2
-        with:
-          tag_name: ${{ env.walrus_tag }}
-          files: |
-            ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
+      # - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
+      #   uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # pin@v2.2.2
+      #   with:
+      #     tag_name: ${{ env.walrus_tag }}
+      #     files: |
+      #       ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
