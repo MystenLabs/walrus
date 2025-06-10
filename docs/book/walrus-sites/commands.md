@@ -107,7 +107,7 @@ site-builder deploy --epochs <NUMBER> ./path/to/your/site
 
 ## `publish`
 
-```admonish warning title="Soft deprecation"
+```admonish note
 The `deploy` command is the new standard for publishing and updating your Walrus Sites.
 Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
 ```
@@ -139,9 +139,8 @@ file. To know more, see the section on [specifying headers and routing](./routin
 
 ## `update`
 
-```admonish warning title="Soft deprecation"
-The `deploy` command is the new standard for publishing and updating your Walrus Sites. The individual
-`publish` and `update` commands are now considered soft-deprecated and may be removed in future versions.
+```admonish note
+The `deploy` command is the new standard for publishing and updating your Walrus Sites.
 Users are encouraged to migrate to the `deploy` command for a simpler and more robust experience.
 ```
 
