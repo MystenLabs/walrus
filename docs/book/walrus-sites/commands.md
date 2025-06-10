@@ -11,7 +11,7 @@ CLI (`site-builder --help`) or individual commands (e.g. `site-builder update --
 
 The `deploy` command is the primary and recommended command for managing your Walrus Site on Sui.
 The command takes a directory as input and creates a new Walrus Site from the
-resources contained within, and on subsequent calls, it updates the Existing Site.
+resources contained within, and on subsequent calls, it updates the existing site.
 
 ### Behavior
 
@@ -38,7 +38,7 @@ field in the `ws-resources.json` file. [specifying headers and routing](./routin
 
 ```admonish info
 The `object_id` field is automatically set by the `deploy`
-command, when deploying a new Site, so there is no need for manually tracking the site's object ID.
+command, when deploying a new site, so there is no need for manually tracking the Site's object ID.
 ```
 
 ```admonish note
@@ -75,14 +75,14 @@ If you have a site that was previously managed with the `publish` and `update` c
 easily switch to the `deploy` command using one of the following methods:
 
 - **Recommended**: Use the `--object-id` cli flag
-Simply run the `deploy` command and provide your existing site's Object ID via the `--object-id` flag:
+Simply run the `deploy` command and provide your existing Site's Object ID via the `--object-id` flag:
 
 ```sh
 site-builder deploy --object-id <YOUR_EXISTING_SITE_ID> --epochs <NUMBER> ./path/to/your/site
 ```
 
 On success, this will update your site and automatically create (or update if already existing) a
-`ws-resources.json` file with the site's Object ID saved in the `object_id` field.
+`ws-resources.json` file with the Site's Object ID saved in the `object_id` field.
 Future deployments will then be as simple as:
 
 ```sh
