@@ -38,7 +38,7 @@ field in the `ws-resources.json` file. [specifying headers and routing](./routin
 
 ```admonish info
 The `object_id` field is automatically set by the `deploy`
-command, when deploying a new site, so there is no need for manually tracking the Site's object ID.
+command, when deploying a new site, so there is no need for manually tracking the Site's Object ID.
 ```
 
 ```admonish note
