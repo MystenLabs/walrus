@@ -740,10 +740,7 @@ fn prepare_subscriber(
         layer.boxed()
     };
 
-    let console_layer = ConsoleLayer::builder()
-        .server_addr(([127, 0, 0, 1], 15575))
-        .with_default_env()
-        .spawn();
+    let console_layer = ConsoleLayer::builder().with_default_env().spawn();
     Ok(tracing_subscriber::registry()
         .with(layer.with_filter(EnvFilter::new(directive.clone())).boxed())
         .with(console_layer.boxed()))
