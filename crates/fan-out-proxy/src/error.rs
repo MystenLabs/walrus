@@ -46,7 +46,7 @@ pub enum FanOutError {
     #[error(transparent)]
     ClientError(#[from] ClientError),
 
-    /// A Sui client error occurred. Note that this is boxed to avoid the large size of the
+    /// A Sui client error has occurred. Note that this is boxed to avoid the large size of the
     /// SuiClientError type affecting the size of the FanOutError type.
     #[error(transparent)]
     SuiClientError(#[from] Box<SuiClientError>),
