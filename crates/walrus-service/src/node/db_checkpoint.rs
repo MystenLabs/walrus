@@ -602,22 +602,49 @@ impl DbCheckpointManager {
         }
     }
 
-    /// Restore from the most recent backup.
-    pub async fn restore_latest(
+    /// Restore from backup.
+    ///
+    /// If backup_id is provided, restore from the specified backup.
+    /// If backup_id is not provided, restore from the latest backup.
+    pub async fn restore_from_checkpoint(
         db_checkpoint_dir: &Path,
         db_path: &Path,
         wal_dir: Option<&Path>,
+        backup_id: Option<u32>,
     ) -> Result<(), DbCheckpointError> {
-        // Create a fresh BackupEngine for this operation.
         let mut engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
-
         let restore_opts = RestoreOptions::default();
         let wal_path = wal_dir.unwrap_or(db_path);
 
-        tracing::info!("restoring database from latest backup");
-        engine
-            .restore_from_latest_backup(db_path, wal_path, &restore_opts)
-            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("restore error: {}", e)))?;
+        tracing::info!(
+            ?db_checkpoint_dir,
+            ?backup_id,
+            ?db_path,
+            ?wal_path,
+            "restoring database from backup"
+        );
+
+        if let Some(backup_id) = backup_id {
+            let backup_info = engine.get_backup_info();
+
+            if backup_info.is_empty() {
+                return Err(DbCheckpointError::NoCheckpointFound);
+            }
+
+            let checkpoint = backup_info.iter().find(|info| info.backup_id == backup_id);
+
+            if checkpoint.is_none() {
+                return Err(DbCheckpointError::NoCheckpointFound);
+            }
+
+            engine
+                .restore_from_backup(db_path, wal_path, &restore_opts, backup_id)
+                .map_err(|e| DbCheckpointError::RestoreError(e.into_string()))?;
+        } else {
+            engine
+                .restore_from_latest_backup(db_path, wal_path, &restore_opts)
+                .map_err(|e| DbCheckpointError::RestoreError(e.into_string()))?;
+        }
 
         tracing::info!("database restored successfully");
         Ok(())
@@ -785,8 +812,13 @@ mod tests {
         );
 
         // Restore from backup to a new location.
-        DbCheckpointManager::restore_latest(db_checkpoint_dir.path(), restore_dir.path(), None)
-            .await?;
+        DbCheckpointManager::restore_from_checkpoint(
+            db_checkpoint_dir.path(),
+            restore_dir.path(),
+            None,
+            None,
+        )
+        .await?;
 
         // Reopen restored DB and verify contents.
         {
