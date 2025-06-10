@@ -49,7 +49,7 @@ pub struct ClientArgs {
 }
 
 fn client() -> Result<()> {
-    let subscriber_guard = utils::init_scoped_tracing_subscriber()?;
+    let _subscriber_guard = utils::init_scoped_tracing_subscriber()?;
 
     if Utc::now() > BUILD_TIME + Duration::days(30) {
         tracing::warn!(
@@ -69,9 +69,6 @@ fn client() -> Result<()> {
         app.gas_budget,
         app.json,
     );
-
-    // Drop the temporary tracing subscriber, as the global ones are about to be initialized.
-    drop(subscriber_guard);
 
     match app.command {
         Commands::Cli(command) => runner.run_cli_app(command),
