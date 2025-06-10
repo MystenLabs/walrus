@@ -7,14 +7,10 @@
 //! [`FailoverWrapper`].
 
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use atomic_time::AtomicInstant;
 use rand::{
     Rng as _,
     rngs::{StdRng, ThreadRng},
@@ -30,6 +26,7 @@ use thiserror::Error;
 use walrus_utils::{
     backoff::{ExponentialBackoff, ExponentialBackoffConfig},
     metrics::monitored_scope,
+    tracing_sampled,
 };
 
 use self::fallback_client::FallbackClient;
@@ -37,6 +34,7 @@ pub use self::fallback_client::FallbackError;
 use super::{
     FailoverWrapper,
     FallibleRpcClient,
+    download_handler::{CheckpointDownloadDecision, CheckpointDownloadHandler},
     failover::{FailoverError, LazyClientBuilder},
     retry_rpc_errors,
 };
@@ -190,19 +188,16 @@ pub struct RetriableRpcClient {
     backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<FallbackClient>,
     metrics: Option<Arc<SuiClientMetricSet>>,
-    last_success: Arc<AtomicInstant>,
-    num_failures: Arc<AtomicUsize>,
-    skip_rpc_for_checkpoint_until: Arc<AtomicInstant>,
+    download_handler: Arc<CheckpointDownloadHandler>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RetriableRpcClient")
             .field("backoff_config", &self.backoff_config)
-            // Skip detailed client debug info since it's not typically useful
             .field("client", &"FailoverWrapper<FallibleRpcClient>")
             .field("fallback_client", &"CheckpointDownloadClient")
-            .field("num_failures", &self.num_failures.load(Ordering::Relaxed))
+            .field("download_handler", &self.download_handler)
             .finish()
     }
 }
@@ -220,13 +215,7 @@ impl RetriableRpcClient {
     ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
-            FallbackClient::new(
-                url,
-                request_timeout,
-                config.skip_rpc_for_checkpoint_duration,
-                config.min_failures_to_start_fallback,
-                config.failure_window_to_start_fallback_duration,
-            )
+            FallbackClient::new(url, request_timeout)
         });
 
         Ok(Self {
@@ -234,10 +223,8 @@ impl RetriableRpcClient {
             request_timeout,
             backoff_config,
             fallback_client,
-            metrics,
-            last_success: Arc::new(AtomicInstant::new(Instant::now())),
-            num_failures: Arc::new(AtomicUsize::new(0)),
-            skip_rpc_for_checkpoint_until: Arc::new(AtomicInstant::new(Instant::now())),
+            metrics: metrics.clone(),
+            download_handler: Arc::new(CheckpointDownloadHandler::new(fallback_config, metrics)),
         })
     }
 
@@ -362,112 +349,86 @@ impl RetriableRpcClient {
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
         let _scope = monitored_scope::monitored_scope("RetriableRpcClient::get_full_checkpoint");
-        let start_time = Instant::now();
 
-        // Check if we should directly skip RPC node due to previous failures, and use fallback.
-        // When the fallback client is not configured, we should always use the RPC node.
-        let try_rpc_node_first = self.fallback_client.is_none()
-            || start_time >= self.skip_rpc_for_checkpoint_until.load(Ordering::Relaxed);
-
-        if try_rpc_node_first {
-            let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
-                Ok(checkpoint) => {
-                    self.reset_fullnode_failure_metrics();
-                    return Ok(checkpoint);
-                }
-                Err(error) => error,
-            };
-
-            self.num_failures.fetch_add(1, Ordering::Relaxed);
-            tracing::debug!(?error, "primary client error while fetching checkpoint");
-
-            let last_success = self.last_success.load(Ordering::Relaxed);
-            let num_failures = self.num_failures.load(Ordering::Relaxed);
-            if self.fallback_client.as_ref().is_none_or(|fallback_client| {
-                fallback_client.is_eligible_for_fallback(
-                    sequence_number,
-                    &error,
-                    last_success,
-                    num_failures,
-                )
-            }) {
-                tracing::debug!(
-                    fallback_client_set = ?self.fallback_client.is_some(),
-                    "primary client error while fetching checkpoint is not eligible for fallback, \
-                    since last_success: {:?}, num_failures: {:?}",
-                    last_success.elapsed(),
-                    num_failures
-                );
-                return Err(error);
+        match self.download_handler.initial_download_decision() {
+            CheckpointDownloadDecision::AttemptPrimary => {
+                self.handle_primary_attempt(sequence_number).await
+            }
+            CheckpointDownloadDecision::DirectFallback => {
+                tracing_sampled::info!("30s", "Direct fallback for checkpoint {}", sequence_number);
+                self.handle_fallback_attempt(sequence_number).await
+            }
+            CheckpointDownloadDecision::FallbackUponPrimaryFailure(_err) => {
+                unreachable!("Invalid initial decision to fallback upon primary failure")
+            }
+            CheckpointDownloadDecision::UsePrimaryError(_err) => {
+                unreachable!("Invalid initial decision to use primary error")
             }
         }
+    }
 
-        let fallback_client = self
-            .fallback_client
-            .as_ref()
-            .expect("fallback client must set");
-        self.get_checkpoint_from_fallback(sequence_number, fallback_client)
+    /// Handles the primary RPC attempt and potential fallback
+    async fn handle_primary_attempt(
+        &self,
+        sequence_number: u64,
+    ) -> Result<CheckpointData, RetriableClientError> {
+        match self.get_full_checkpoint_from_primary(sequence_number).await {
+            Ok(checkpoint) => {
+                self.download_handler
+                    .record_primary_success(sequence_number);
+                Ok(checkpoint)
+            }
+            Err(primary_error) => {
+                match self
+                    .download_handler
+                    .decision_upon_primary_failure(sequence_number, primary_error)
+                {
+                    CheckpointDownloadDecision::FallbackUponPrimaryFailure(err) => {
+                        tracing_sampled::error!(
+                            "30s",
+                            ?err,
+                            "Rpc fallback for checkpoint {}",
+                            sequence_number
+                        );
+                        self.handle_fallback_attempt(sequence_number).await
+                    }
+                    CheckpointDownloadDecision::UsePrimaryError(err) => Err(err),
+                    CheckpointDownloadDecision::DirectFallback => {
+                        unreachable!(
+                            "Invalid decision to direct fallback after \
+                            primary failure assessment"
+                        )
+                    }
+                    CheckpointDownloadDecision::AttemptPrimary => {
+                        unreachable!(
+                            "Invalid decision to attempt primary again after \
+                            primary failure assessment"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handles the fallback attempt
+    async fn handle_fallback_attempt(
+        &self,
+        sequence_number: u64,
+    ) -> Result<CheckpointData, RetriableClientError> {
+        let Some(fb_client) = &self.fallback_client else {
+            return Err(RetriableClientError::Other(anyhow::anyhow!(
+                "Misconfiguration: Skip primary indicated but no fallback client."
+            )));
+        };
+
+        fb_client
+            .get_full_checkpoint(sequence_number)
             .await
-    }
-
-    /// Gets the full checkpoint data for the given sequence number from the fallback archival.
-    async fn get_checkpoint_from_fallback(
-        &self,
-        sequence_number: u64,
-        fallback_client: &FallbackClient,
-    ) -> Result<CheckpointData, RetriableClientError> {
-        // RPC node failure is sustained, so we skip it for `skip_rpc_for_checkpoint_duration`.
-        // Also, at this point, the fallback client must be set.
-        if fallback_client.is_failure_window_exceeded(
-            self.last_success.load(Ordering::Relaxed),
-            self.num_failures.load(Ordering::Relaxed),
-        ) {
-            self.skip_rpc_for_checkpoint_until.store(
-                Instant::now()
-                    + self
-                        .fallback_client
-                        .as_ref()
-                        .expect("fallback client must set")
-                        .skip_rpc_for_checkpoint_duration(),
-                Ordering::Relaxed,
-            );
-        }
-
-        let fallback_start_time = Instant::now();
-        let result = self
-            .call_get_full_checkpoint_from_fallback_with_retries(fallback_client, sequence_number)
-            .await;
-
-        if let Some(metrics) = self.metrics.as_ref() {
-            metrics.record_fallback_metrics(
-                "get_full_checkpoint",
-                &result,
-                fallback_start_time.elapsed(),
-            )
-        }
-
-        result
-    }
-
-    /// Calls the fallback service (checkpoint archival) with retries to fetch the full checkpoint.
-    async fn call_get_full_checkpoint_from_fallback_with_retries(
-        &self,
-        fallback: &FallbackClient,
-        sequence_number: u64,
-    ) -> Result<CheckpointData, RetriableClientError> {
-        tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
-        return retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                fallback
-                    .get_full_checkpoint(sequence_number)
-                    .await
-                    .map_err(RetriableClientError::from)
-            },
-            self.metrics.clone(),
-            "get_full_checkpoint_from_fallback_with_retries",
-        )
-        .await;
+            .map_err(RetriableClientError::from)
+            .inspect(|_| {
+                self.download_handler
+                    .record_fallback_success_for_sequence(sequence_number);
+            })
     }
 
     /// Gets the checkpoint summary for the given sequence number.
@@ -480,28 +441,25 @@ impl RetriableRpcClient {
         &self,
         sequence: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        let error = match self.get_checkpoint_summary_from_primary(sequence).await {
-            Ok(checkpoint_summary) => {
-                return Ok(checkpoint_summary);
+        match self.get_checkpoint_summary_from_primary(sequence).await {
+            Ok(summary) => Ok(summary),
+            Err(error) => {
+                tracing::debug!(
+                    ?error,
+                    "primary client error while fetching checkpoint summary"
+                );
+
+                let Some(fallback) = &self.fallback_client else {
+                    return Err(error);
+                };
+
+                tracing::info!("falling back to fallback client to fetch checkpoint summary");
+                self.call_get_full_checkpoint_from_fallback_with_retries(fallback, sequence)
+                    .await
+                    .map_err(|_| error)
+                    .map(|checkpoint| checkpoint.checkpoint_summary)
             }
-            Err(error) => error,
-        };
-
-        tracing::debug!(
-            ?error,
-            "primary client error while fetching checkpoint summary"
-        );
-        let Some(ref fallback) = self.fallback_client else {
-            return Err(error);
-        };
-
-        tracing::info!("falling back to fallback client to fetch checkpoint summary");
-        let checkpoint = self
-            .call_get_full_checkpoint_from_fallback_with_retries(fallback, sequence)
-            .await
-            // If fallback fails as well, return the error.
-            .map_err(|_| error)?;
-        Ok(checkpoint.checkpoint_summary)
+        }
     }
 
     /// Gets the latest checkpoint sequence number.
@@ -571,10 +529,25 @@ impl RetriableRpcClient {
             .await
     }
 
-    /// Resets the last known height update time
-    fn reset_fullnode_failure_metrics(&self) {
-        self.last_success.store(Instant::now(), Ordering::Relaxed);
-        self.num_failures.store(0, Ordering::Relaxed);
+    /// Calls the fallback service (checkpoint archival) with retries to fetch the full checkpoint.
+    async fn call_get_full_checkpoint_from_fallback_with_retries(
+        &self,
+        fallback: &FallbackClient,
+        sequence_number: u64,
+    ) -> Result<CheckpointData, RetriableClientError> {
+        tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
+        return retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                fallback
+                    .get_full_checkpoint(sequence_number)
+                    .await
+                    .map_err(RetriableClientError::from)
+            },
+            self.metrics.clone(),
+            "get_full_checkpoint_from_fallback_with_retries",
+        )
+        .await;
     }
 }
 
@@ -617,7 +590,7 @@ impl RetriableClientError {
     ///
     /// For pruned checkpoints (indicated by a `NotFound` error and sequence number <= height),
     /// we will fallback immediately. For missing events, we will also fallback immediately.
-    fn is_eligible_for_fallback_immediately(&self, next_checkpoint: u64) -> bool {
+    pub fn is_eligible_for_fallback_immediately(&self, next_checkpoint: u64) -> bool {
         match self {
             Self::RpcError(rpc_error)
                 if rpc_error.status.code() == tonic::Code::NotFound

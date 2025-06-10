@@ -51,7 +51,7 @@ sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 test-cluster = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "sync"] }
+tokio = { workspace = true, features = ["fs", "sync", "test-util"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true

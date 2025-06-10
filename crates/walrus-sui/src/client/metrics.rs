@@ -27,6 +27,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Latency of RPC calls in milliseconds"]
         rpc_latency: HistogramVec["method", "endpoint", "status"],
+
+        #[help = "The source of a checkpoint download"]
+        checkpoint_download_source: IntCounterVec["source"],
     }
 }
 
@@ -73,5 +76,12 @@ impl SuiClientMetricSet {
         let status = if result.is_ok() { "success" } else { "failure" };
         walrus_utils::with_label!(self.rpc_latency, method, "fallback", status)
             .observe(duration.as_secs_f64());
+    }
+
+    /// Records the source of a checkpoint download.
+    pub fn record_checkpoint_download_source(&self, source: &str) {
+        self.checkpoint_download_source
+            .with_label_values(&[source])
+            .inc();
     }
 }
