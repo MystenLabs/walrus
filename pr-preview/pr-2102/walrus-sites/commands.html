@@ -245,7 +245,7 @@ CLI (<code>site-builder --help</code>) or individual commands (e.g. <code>site-b
 <h2 id="deploy"><a class="header" href="#deploy"><code>deploy</code></a></h2>
 <p>The <code>deploy</code> command is the primary and recommended command for managing your Walrus Site on Sui.
 The command takes a directory as input and creates a new Walrus Site from the
-resources contained within, and on subsequent calls, it updates the Existing Site.</p>
+resources contained within, and on subsequent calls, it updates the existing site.</p>
 <h3 id="behavior"><a class="header" href="#behavior">Behavior</a></h3>
 <p>The deploy command determines whether to publish a new site or update an existing one by looking for
 a Site Object ID. It finds the ID with the following priority:</p>
@@ -271,7 +271,7 @@ field in the <code>ws-resources.json</code> file. <a href="./routing.html">speci
 </div>
 <div>
 <p>The <code>object_id</code> field is automatically set by the <code>deploy</code>
-command, when deploying a new Site, so there is no need for manually tracking the site's object ID.</p>
+command, when deploying a new site, so there is no need for manually tracking the Site's object ID.</p>
 </div>
 </div>
 <div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
@@ -333,12 +333,12 @@ example <a href="https://bin.wal.app">https://bin.wal.app</a>.</p>
 easily switch to the <code>deploy</code> command using one of the following methods:</p>
 <ul>
 <li><strong>Recommended</strong>: Use the <code>--object-id</code> cli flag
-Simply run the <code>deploy</code> command and provide your existing site's Object ID via the <code>--object-id</code> flag:</li>
+Simply run the <code>deploy</code> command and provide your existing Site's Object ID via the <code>--object-id</code> flag:</li>
 </ul>
 <pre><code class="language-sh">site-builder deploy --object-id &lt;YOUR_EXISTING_SITE_ID&gt; --epochs &lt;NUMBER&gt; ./path/to/your/site
 </code></pre>
 <p>On success, this will update your site and automatically create (or update if already existing) a
-<code>ws-resources.json</code> file with the site's Object ID saved in the <code>object_id</code> field.
+<code>ws-resources.json</code> file with the Site's Object ID saved in the <code>object_id</code> field.
 Future deployments will then be as simple as:</p>
 <pre><code class="language-sh">site-builder deploy --epochs &lt;NUMBER&gt; ./path/to/your/site
 </code></pre>
