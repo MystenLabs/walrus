@@ -275,7 +275,19 @@ pub(crate) async fn run_blob_backfill(
         None,
     )?;
     tracing::info!(?config, "loaded config");
-    let client = get_backfill_client(config.clone()).await?;
+    let client = loop {
+        match get_backfill_client(config.clone()).await {
+            Ok(client) => break client,
+            Err(e) => {
+                tracing::warn!(
+                    ?e,
+                    ?backfill_dir,
+                    "failed to instantiate client; retrying..."
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    };
 
     tracing::info!("instantiated client");
 
