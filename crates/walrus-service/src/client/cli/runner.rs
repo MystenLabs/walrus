@@ -497,7 +497,11 @@ impl ClientCommandRunner {
                 backfill_dir,
                 node_ids,
                 pushed_state,
-            } => run_blob_backfill(backfill_dir, node_ids, pushed_state).await,
+            } => {
+                let result = run_blob_backfill(backfill_dir, node_ids, pushed_state).await;
+                tracing::info!("blob backfill exited with: {:?}", result);
+                result
+            }
         }
     }
 
