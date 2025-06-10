@@ -17,11 +17,12 @@ run_pull_with_prefix() {
   <$all_blobs_file \
     RUST_BACKTRACE=1 \
     RUST_LOG=info \
-    "$walrus_bin" pull-archive-blobs \
-    --prefix "$prefix" \
-    --pulled-state "$dir"/pulled-state.txt \
-    --gcs-bucket walrus-backup-mainnet \
-    --backfill-dir "$backfill_dir" \
+    "$walrus_bin" \
+    pull-archive-blobs \
+      --prefix "$prefix" \
+      --pulled-state "$dir"/pulled-state.txt \
+      --gcs-bucket walrus-backup-mainnet \
+      --backfill-dir "$backfill_dir" \
     |& tee -a "$log_file" \
     >/dev/null
   }
@@ -41,9 +42,9 @@ run_backfill_with_prefix() {
     RUST_BACKTRACE=1 \
     "$walrus_bin" \
     blob-backfill \
-    --backfill-dir "$backfill_dir" \
-    --pushed-state "$dir"/pushed-state.txt \
-    $node_ids \
+      --backfill-dir "$backfill_dir" \
+      --pushed-state "$dir"/pushed-state.txt \
+      $node_ids \
     |& tee -a "$log_file" \
     >/dev/null
 }
