@@ -44,6 +44,7 @@ clap = { version = "4.5.39", features = ["deprecated", "derive"] }
 clap_complete = "4.5.52"
 collectable = "0.0.2"
 colored = "2.2.0"
+console-subscriber = "0.4.1"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
@@ -124,7 +125,7 @@ telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "test
 tempfile = "=3.19.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
 thiserror = "2.0.12"
-tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
 tonic = { version = "0.13", default-features = false }

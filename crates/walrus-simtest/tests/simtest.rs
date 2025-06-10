@@ -76,9 +76,15 @@ mod tests {
             .unwrap();
 
         let mut blobs_written = HashSet::new();
-        simtest_utils::write_read_and_check_random_blob(&client, 31415, false, &mut blobs_written)
-            .await
-            .expect("workload should not fail");
+        simtest_utils::write_read_and_check_random_blob(
+            &client,
+            31415,
+            false,
+            false,
+            &mut blobs_written,
+        )
+        .await
+        .expect("workload should not fail");
 
         loop {
             if let Some(_blob) = client
@@ -494,5 +500,45 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
 
         clear_fail_point("start_node_recovery_entry");
+    }
+
+    #[walrus_simtest]
+    async fn walrus_certified_event_processing_jitter() {
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        register_fail_point_async("fail_point_process_blob_certified_event", || async move {
+            tokio::time::sleep(Duration::from_millis(
+                rand::rngs::StdRng::from_entropy().gen_range(0..=500),
+            ))
+            .await;
+        });
+
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                ..Default::default()
+            })
+            .with_epoch_duration(Duration::from_secs(30))
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true);
+
+        // Run the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(120)).await;
+
+        workload_handle.abort();
+
+        // Wait for event to catch up.
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        for node_health in health_info {
+            assert!(node_health.event_progress.pending < 10);
+        }
+
+        blob_info_consistency_check.check_storage_node_consistency();
     }
 }

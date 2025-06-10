@@ -14,6 +14,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, bail};
+use blob_event_processor::BlobEventProcessor;
 use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
@@ -93,15 +94,12 @@ use walrus_sdk::{
     sui::{
         client::SuiReadClient,
         types::{
-            BlobCertified,
-            BlobDeleted,
             BlobEvent,
             ContractEvent,
             EpochChangeDone,
             EpochChangeEvent,
             EpochChangeStart,
             GENESIS_EPOCH,
-            InvalidBlobId,
             PackageEvent,
         },
     },
@@ -177,6 +175,7 @@ pub mod system_events;
 
 pub(crate) mod metrics;
 
+mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
 mod epoch_change_driver;
@@ -495,6 +494,7 @@ pub struct StorageNode {
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
+    blob_event_processor: BlobEventProcessor,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
@@ -691,6 +691,12 @@ impl StorageNode {
         );
         node_recovery_handler.restart_recovery().await?;
 
+        let blob_event_processor = BlobEventProcessor::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            config.blob_event_processor_config.num_workers,
+        );
+
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
@@ -718,6 +724,7 @@ impl StorageNode {
             epoch_change_driver,
             start_epoch_change_finisher,
             node_recovery_handler,
+            blob_event_processor,
             event_blob_writer_factory,
             config_synchronizer,
         })
@@ -1138,36 +1145,10 @@ impl StorageNode {
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
         monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
-        self.inner
-            .storage
-            .update_blob_info(event_handle.index(), &blob_event)?;
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
-        match blob_event {
-            BlobEvent::Registered(_) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
-                event_handle.mark_as_complete();
-            }
-            BlobEvent::Certified(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
-                self.process_blob_certified_event(event_handle, event)
-                    .await?;
-            }
-            BlobEvent::Deleted(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
-                self.process_blob_deleted_event(event_handle, event).await?;
-            }
-            BlobEvent::InvalidBlobID(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
-                self.process_blob_invalid_event(event_handle, event).await?;
-            }
-            BlobEvent::DenyListBlobDeleted(_) => {
-                // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
-                // Note: It's fine to panic here with a todo!, because in order to trigger this
-                // event, we need f+1 signatures and until the Rust integration is implemented no
-                // such event should be emitted.
-                todo!("DenyListBlobDeleted event handling is not yet implemented");
-            }
-        }
+        self.blob_event_processor
+            .process_event(event_handle, blob_event)
+            .await?;
         Ok(())
     }
 
@@ -1267,101 +1248,6 @@ impl StorageNode {
             .storage
             .get_event_cursor_and_next_index()?
             .map_or(0, |e| e.next_event_index()))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn process_blob_certified_event(
-        &self,
-        event_handle: EventHandle,
-        event: BlobCertified,
-    ) -> anyhow::Result<()> {
-        let start = tokio::time::Instant::now();
-        let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
-
-        if !self.inner.is_blob_certified(&event.blob_id)?
-            // For blob extension events, the original blob certified event should already recover
-            // the entire blob, and we can skip the recovery.
-            || event.is_extension
-            || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
-            || self
-                .inner
-                .is_stored_at_all_shards_at_epoch(&event.blob_id, self.inner.current_event_epoch())
-                .await?
-        {
-            event_handle.mark_as_complete();
-
-            walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
-                .observe(start.elapsed().as_secs_f64());
-
-            return Ok(());
-        }
-
-        // Slivers and (possibly) metadata are not stored, so initiate blob sync.
-        self.blob_sync_handler
-            .start_sync(event.blob_id, event.epoch, Some(event_handle))
-            .await?;
-
-        walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
-            .observe(start.elapsed().as_secs_f64());
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn process_blob_deleted_event(
-        &self,
-        event_handle: EventHandle,
-        event: BlobDeleted,
-    ) -> anyhow::Result<()> {
-        let blob_id = event.blob_id;
-
-        if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(self.inner.current_epoch()) {
-                self.inner
-                    .blob_retirement_notifier
-                    .notify_blob_retirement(&blob_id);
-                self.blob_sync_handler
-                    .cancel_sync_and_mark_event_complete(&blob_id)
-                    .await?;
-            }
-            // Note that this function is called *after* the blob info has already been updated with
-            // the event. So it can happen that the only registered blob was deleted and the blob is
-            // now no longer registered.
-            // We use the event's epoch for this check (as opposed to the current epoch) as
-            // subsequent certify or delete events may update the `blob_info`; so we cannot remove
-            // it even if it is no longer valid in the *current* epoch
-            if !blob_info.is_registered(event.epoch) {
-                tracing::debug!("deleting data for deleted blob");
-                // TODO (WAL-201): Actually delete blob data.
-            }
-        } else {
-            tracing::warn!(
-                walrus.blob_id = %blob_id,
-                "handling `BlobDeleted` event for an untracked blob"
-            );
-        }
-
-        event_handle.mark_as_complete();
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn process_blob_invalid_event(
-        &self,
-        event_handle: EventHandle,
-        event: InvalidBlobId,
-    ) -> anyhow::Result<()> {
-        self.inner
-            .blob_retirement_notifier
-            .notify_blob_retirement(&event.blob_id);
-        self.blob_sync_handler
-            .cancel_sync_and_mark_event_complete(&event.blob_id)
-            .await?;
-        self.inner.storage.delete_blob_data(&event.blob_id).await?;
-
-        event_handle.mark_as_complete();
-        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
@@ -2946,7 +2832,14 @@ mod tests {
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{EventForTesting, event_id_for_testing},
-        types::{BlobRegistered, StorageNodeCap, move_structs::EpochState},
+        types::{
+            BlobCertified,
+            BlobDeleted,
+            BlobRegistered,
+            InvalidBlobId,
+            StorageNodeCap,
+            move_structs::EpochState,
+        },
     };
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
@@ -4559,7 +4452,7 @@ mod tests {
 
     // The common setup for shard sync tests.
     // By default:
-    //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
+    //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1,2,3 in node 1.
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
     // If assignment is provided, it will be used to create the cluster, then all
@@ -4965,6 +4858,8 @@ mod tests {
         Ok(())
     }
 
+    // TODO(WAL-872): move failure injection test to src/tests/. Currently there is no way to run
+    // seed-search on these tests since there is no test target.
     #[cfg(msim)]
     mod failure_injection_tests {
         use sui_macros::{
@@ -5510,9 +5405,6 @@ mod tests {
                 );
             }
 
-            storage_dst
-                .remove_storage_for_shards(&[ShardIndex(1)])
-                .await?;
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
@@ -5565,6 +5457,13 @@ mod tests {
                 .start_epoch_change_finisher
                 .wait_until_previous_task_done()
                 .await;
+
+            // There should be 4 initial events:
+            //  - EpochChangeStart
+            //  - EpochChangeDone
+            //  - BlobRegistered
+            //  - BlobCertified
+            wait_until_events_processed(&cluster.nodes[0], 4).await?;
 
             let processed_event_count_initial = &cluster.nodes[0]
                 .storage_node
@@ -5913,6 +5812,83 @@ mod tests {
             unblock.notify_one();
             clear_fail_point("get_metadata_return_unavailable");
             clear_fail_point("blocking_finishing_epoch_change_start");
+            Ok(())
+        }
+
+        // Tests that blob events for the same blob are always processed in order. This is a
+        // randomized test in a way that the order of events is random based on the random seed.
+        // So single test run passing is not a guarantee to cover all the test cases.
+        #[walrus_simtest]
+        async fn no_out_of_order_blob_certify_and_delete_event_processing() -> TestResult {
+            let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+            let test_shard = ShardIndex(1);
+
+            // Add delay between checking if a blob needs to recover and actual starting the
+            // recover process. This window is where other events can break event processing order.
+            register_fail_point_async("fail_point_process_blob_certified_event", || async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+
+            let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+            // Randomly generated blob.
+            let random_blob = walrus_test_utils::random_data_list(10, 1);
+
+            let config = cluster.encoding_config();
+            let blob = EncodedBlob::new(&random_blob[0], config);
+
+            let object_id = ObjectID::random();
+
+            // Do not store the sliver in the first node.
+            events.send(
+                BlobRegistered {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobRegistered::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+            store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
+
+            let node_client = cluster.client(0);
+            let pair_to_sync = blob.assigned_sliver_pair(test_shard);
+
+            node_client
+                .get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), SliverType::Primary)
+                .await
+                .expect_err("sliver should not yet be available");
+
+            // Sends certified event followed by delete event.
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobCertified::for_testing(*blob.blob_id()).into()
+                }
+                .into(),
+            )?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            events.send(
+                BlobDeleted {
+                    object_id: object_id.clone(),
+                    ..BlobDeleted::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+
+            // Wait for the blob sync to complete.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            // There shouldn't be any blob sync in progress.
+            assert!(
+                cluster.nodes[0]
+                    .storage_node
+                    .blob_sync_handler
+                    .blob_sync_in_progress()
+                    .is_empty()
+            );
+
+            clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())
         }
     }

@@ -187,8 +187,9 @@ impl ParallelCheckpointDownloaderInner {
         }
 
         let latest_checkpoint = client.get_latest_checkpoint_summary().await?;
-        let current_lag =
-            latest_checkpoint.sequence_number - current_checkpoint.inner().sequence_number;
+        let current_lag = latest_checkpoint
+            .sequence_number
+            .saturating_sub(current_checkpoint.inner().sequence_number);
         Ok(current_lag)
     }
 
@@ -326,9 +327,13 @@ impl ParallelCheckpointDownloaderInner {
                     };
 
                     consecutive_failures = 0;
-                    config.metrics.checkpoint_lag.set(lag.try_into().expect(
-                        "lag should always fit into a i64"
-                    ));
+                    config.metrics.checkpoint_lag.set(
+                        lag.try_into()
+                            .map_err(|_| tracing::warn!(
+                                "encountered checkpoint lag larger than `i64::MAX`"
+                            ))
+                            .unwrap_or(i64::MAX),
+                    );
 
                     let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
                     if lag > downloader_config.scale_up_lag_threshold &&

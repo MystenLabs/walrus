@@ -101,7 +101,7 @@
       },
       "https://walrus-aggregator.stakin-nodes.com": {
         "operator": "Stakin",
-        "cache": false
+        "cache": true
       },
       "https://walrus-aggregator.staking4all.org": {
         "operator": "Staking4All",
@@ -149,11 +149,11 @@
       },
       "https://walrus-mainnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": false
+        "cache": true
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs"
@@ -224,7 +224,7 @@
       },
       "http://walrus-aggregator.winsnip.site:9000": {
         "operator": "Winsnip",
-        "cache": true
+        "cache": false
       },
       "http://walrus.equinoxdao.xyz:9000": {
         "operator": "EquinoxDao",
@@ -332,7 +332,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": false
+        "cache": true
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
