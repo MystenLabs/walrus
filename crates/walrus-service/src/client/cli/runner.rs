@@ -730,8 +730,7 @@ impl ClientCommandRunner {
             result.stored_quilt_blobs.len(),
         );
 
-        result.print_cli_output();
-        Ok(())
+        result.print_output(self.json)
     }
 
     /// Performs a dry run of quilt storage
@@ -777,13 +776,7 @@ impl ClientCommandRunner {
             quilt_index: QuiltIndex::V1(quilt.quilt_index().clone()),
         };
 
-        if json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-            Ok(())
-        } else {
-            output.print_cli_output();
-            Ok(())
-        }
+        output.print_output(json)
     }
 
     pub(crate) async fn construct_quilt(
@@ -932,12 +925,10 @@ impl ClientCommandRunner {
         let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
-        if self.json {
-            println!("{}", serde_json::to_string_pretty(&quilt_metadata)?);
-        } else {
+        if !self.json {
             println!("\nQuilt Metadata for Quilt ID: {}", quilt_id);
-            quilt_metadata.print_cli_output();
         }
+        quilt_metadata.print_output(self.json)?;
 
         Ok(())
     }
