@@ -61,14 +61,22 @@ const BACKPRESSURE_WAIT_TIME: Duration = Duration::from_secs(1);
 
 fn get_blob_ids_from_file(filename: &PathBuf) -> HashSet<BlobId> {
     if filename.exists() {
-        std::fs::read_to_string(filename)
+        tracing::info!(?filename, "reading blob_ids file");
+        let start = tokio::time::Instant::now();
+        let ret = std::fs::read_to_string(filename)
             .map(|blob_list| {
                 blob_list
                     .lines()
                     .filter_map(|line| line.trim().parse().ok())
                     .collect::<HashSet<_>>()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        tracing::info!(
+            ?filename,
+            count = ret.len(),
+            duration = ?(tokio::time::Instant::now() - start),
+            "finished reading blob_ids file");
+        ret
     } else {
         HashSet::new()
     }
