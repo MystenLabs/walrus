@@ -6,6 +6,8 @@
 // Please use with caution as it is subject to change without prior notice.
 // *******************************************************************************
 
+//! Quilt encoding.
+
 #![allow(dead_code)] // TODO: remove this once follow up PRs are merged.
 
 use alloc::{
@@ -179,6 +181,10 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
 /// Encoder to construct a quilt and encode the blobs into slivers.
 pub trait QuiltEncoderApi<V: QuiltVersion> {
     /// Constructs a quilt by encoding the blobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the blobs have duplicate identifiers.
     fn construct_quilt(&self) -> Result<V::Quilt, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers.
@@ -775,7 +781,9 @@ impl QuiltV1 {
         }
 
         let columns_size = self.data.len() / self.row_size * self.symbol_size;
-        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, columns_size)?);
+        let quilt_index = QuiltVersionV1::decode_quilt_index(self, columns_size)?;
+        self.quilt_index = Some(quilt_index);
+
         Ok(self
             .quilt_index
             .as_ref()
@@ -1098,6 +1106,15 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // Sort blobs by their identifiers.
         blob_pairs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
 
+        // Check for duplicate identifiers.
+        for adjacent_blobs in blob_pairs.windows(2) {
+            if adjacent_blobs[0].identifier == adjacent_blobs[1].identifier {
+                return Err(QuiltError::DuplicateIdentifier(
+                    adjacent_blobs[0].identifier.clone(),
+                ));
+            }
+        }
+
         // Create initial QuiltPatches.
         let quilt_patches = blob_pairs
             .iter()
@@ -1239,24 +1256,16 @@ pub struct QuiltDecoderV1<'a> {
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError> {
-        if self.quilt_index.is_some() {
-            return Ok(self
-                .quilt_index
-                .as_ref()
-                .expect("quilt index should exist")
-                .clone()
-                .into());
+        if let Some(quilt_index) = self.quilt_index.as_ref() {
+            return Ok(quilt_index.clone().into());
         }
+
         self.check_missing_slivers(0, 1)?;
         let column_size = self.column_size.expect("column size should be set");
-        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, column_size)?);
+        let quilt_index = QuiltVersionV1::decode_quilt_index(self, column_size)?;
+        self.quilt_index = Some(quilt_index.clone());
 
-        Ok(self
-            .quilt_index
-            .as_ref()
-            .expect("quilt index should be decoded")
-            .clone()
-            .into())
+        Ok(quilt_index.into())
     }
 
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
@@ -1566,7 +1575,7 @@ mod tests {
         expected: Result<usize, QuiltError>,
     ) {
         // Initialize tracing subscriber for this test
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
         let res = utils::compute_symbol_size(
             blobs,
             n_columns,
@@ -1694,7 +1703,7 @@ mod tests {
     }
 
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -1773,7 +1782,7 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
         let quilt_store_blobs = generate_random_blobs(num_blobs, max_blob_size, min_blob_size);
 
@@ -1792,7 +1801,7 @@ mod tests {
     }
 
     fn encode_decode_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 

@@ -8,6 +8,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
+use std::collections::HashSet;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -152,8 +153,6 @@ pub struct QuiltPatchInternalIdV1 {
 ///├─────────────┼──────────────────┼──────────────────┤
 ///│  Version    │   start_index    │    end_index     │
 ///│    Byte     │   (16 bits LE)   │   (16 bits LE)   │
-///├─────────────┼──────────────────┼──────────────────┤
-///│     8 bits  │     16 bits      │     16 bits      │
 ///└─────────────┴──────────────────┴──────────────────┘
 /// ```
 impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
@@ -231,15 +230,18 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let patches = identifiers
+        let identifiers: HashSet<&str> = identifiers.iter().copied().collect();
+        let patches = self
+            .quilt_patches
             .iter()
-            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(patches
+            .filter(|patch| identifiers.contains(&patch.identifier.as_str()))
+            .collect::<Vec<_>>();
+        let sliver_indices = patches
             .iter()
             .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect())
+            .collect();
+
+        Ok(sliver_indices)
     }
 
     fn patches(&self) -> &[QuiltPatchV1] {
