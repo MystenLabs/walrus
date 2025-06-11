@@ -92,7 +92,8 @@ fn collect_error_definitions(contracts_dir: &Path) -> Vec<ModuleErrorDefs> {
                 && !components.contains("build")
         })
     {
-        let content = fs::read_to_string(entry.path()).unwrap();
+        let content = fs::read_to_string(entry.path())
+            .expect("should be able to read file in contracts directory");
 
         let Some(module_captures) = module_pattern.captures(&content) else {
             continue;

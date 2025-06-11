@@ -402,7 +402,9 @@ impl SystemContractService for SuiSystemContractService {
                     next_public_key,
                     proof_of_possession:
                         walrus_sui::utils::generate_proof_of_possession_for_address(
-                            config.next_protocol_key_pair().unwrap(),
+                            config.next_protocol_key_pair().expect(
+                                "next key pair must be set when updating remote next public key",
+                            ),
                             contract_client.address(),
                             contract_client.read_client.current_epoch().await?,
                         ),
@@ -456,7 +458,10 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().r#gen(),
+            self.rng
+                .lock()
+                .expect("mutex should not be poisoned")
+                .r#gen(),
         );
         backoff::retry(backoff, || async {
             self.contract_tx_client
@@ -480,7 +485,10 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().r#gen(),
+            self.rng
+                .lock()
+                .expect("mutex should not be poisoned")
+                .r#gen(),
         );
 
         backoff::retry(backoff, || async {

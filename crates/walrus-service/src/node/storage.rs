@@ -311,6 +311,7 @@ impl Storage {
     }
 
     /// Creates the storage for the specified shards, if it does not exist yet.
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) async fn create_storage_for_shards(
         &self,
         new_shards: &[ShardIndex],
@@ -676,10 +677,11 @@ impl Storage {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
-        let mut fetched_blobs = Vec::with_capacity(request.sliver_count() as usize);
+        let sliver_count = request.sliver_count();
+        let mut fetched_blobs = Vec::with_capacity(sliver_count);
         let mut last_fetched_blob_id = None;
-        while fetched_blobs.len() < request.sliver_count() as usize {
-            let remaining_count = request.sliver_count() as usize - fetched_blobs.len();
+        while fetched_blobs.len() < sliver_count {
+            let remaining_count = sliver_count - fetched_blobs.len();
 
             // Set starting point - either the initial request start or after last fetched blob
             let starting_blob_id_bound =

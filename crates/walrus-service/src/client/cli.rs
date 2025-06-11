@@ -260,7 +260,8 @@ impl std::fmt::Display for HumanReadableBytes {
             UNITS[usize::try_from(exponent - 1).expect("we assume at least a 32-bit architecture")];
 
         // Get correct number of significant digits (not rounding integer part).
-        let normalized_integer_digits = normalized_value.log10() as usize + 1;
+        #[allow(clippy::cast_possible_truncation)] // the truncation is intentional here
+        let normalized_integer_digits = normalized_value.log10().floor() as usize + 1;
         let set_precision = f.precision().unwrap_or(3).max(1);
         let precision = set_precision.saturating_sub(normalized_integer_digits);
 
@@ -282,7 +283,7 @@ trait CurrencyForDisplay {
     }
 
     fn units_in_superunit() -> u64 {
-        10u64.pow(Self::DECIMALS as u32)
+        10u64.pow(u32::from(Self::DECIMALS))
     }
 
     /// Gets the value of the current coin.
@@ -382,6 +383,7 @@ fn thousands_separator(num: u64) -> String {
         .join(",")
 }
 
+#[allow(clippy::cast_possible_truncation)] // the truncation is intentional here
 fn thousands_separator_float(num: f64, digits: u32) -> String {
     let integer = num.floor() as u64;
     let decimal = (num.fract() * 10u64.pow(digits) as f64).round() as u64;

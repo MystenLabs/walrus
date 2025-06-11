@@ -139,6 +139,7 @@ mod tests {
     use crate::tracing_sampled;
 
     #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
     async fn test_sampled_logging_new_macro() {
         let _ = tracing_subscriber::fmt::try_init();
 

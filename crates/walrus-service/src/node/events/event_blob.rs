@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Error, Result, anyhow};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt};
 use integer_encoding::{VarInt, VarIntReader};
 use sui_types::{
     digests::TransactionDigest,
@@ -84,7 +84,7 @@ impl BlobEntry {
 
     /// Read a blob entry from the given reader.
     pub fn read<R: Read>(rbuf: &mut R) -> Result<Self> {
-        let len = rbuf.read_varint::<u64>()? as usize;
+        let len = rbuf.read_varint::<u64>()?.try_into()?;
         if len == 0 {
             return Err(anyhow!("Invalid object length of 0 in file"));
         }
@@ -249,6 +249,8 @@ impl<'a> EventBlob<'a> {
         end: CheckpointSequenceNumber,
         events: impl IntoIterator<Item = &'a IndexedStreamEvent>,
     ) -> Result<Vec<u8>> {
+        use byteorder::WriteBytesExt as _;
+
         let serialized_event_id = prev_event_id
             .map(SerializedEventID::encode)
             .unwrap_or(SerializedEventID::ZERO);
@@ -298,7 +300,7 @@ impl<'a> EventBlob<'a> {
         buf_reader.read_exact(&mut prev_blob_id)?;
         let mut prev_event_id = [0u8; SerializedEventID::LENGTH];
         buf_reader.read_exact(&mut prev_event_id)?;
-        let trailer_size = Self::TRAILER_SIZE as i64;
+        let trailer_size = i64::try_from(Self::TRAILER_SIZE).expect("constant fits into an i64");
         buf_reader.seek(SeekFrom::End(-trailer_size))?;
         let start = buf_reader.read_u64::<BigEndian>()?;
         let end = buf_reader.read_u64::<BigEndian>()?;

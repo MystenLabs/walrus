@@ -201,7 +201,7 @@ pub(crate) async fn publish_package(
     };
 
     let gas_coins = retry_client
-        .select_coins(sender, None, gas_budget as u128, vec![])
+        .select_coins(sender, None, u128::from(gas_budget), vec![])
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
@@ -485,7 +485,7 @@ pub async fn create_system_and_staking_objects(
     };
 
     let gas_coins = retry_client
-        .select_coins(address, None, gas_budget as u128, vec![])
+        .select_coins(address, None, u128::from(gas_budget), vec![])
         .await?
         .into_iter()
         .map(|coin| coin.object_ref())

@@ -127,7 +127,9 @@ impl HistogramRelay {
         let timestamp_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64;
+            .as_secs()
+            .try_into()
+            .unwrap();
         let mut queue = self
             .0
             .lock()

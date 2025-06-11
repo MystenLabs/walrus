@@ -74,7 +74,7 @@ const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
 /// The number of checkpoints per blob.
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
 /// The default number of unattested blobs threshold.
-const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: u32 = 3;
+const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: usize = 3;
 
 pub(crate) fn certified_cf_name() -> &'static str {
     CERTIFIED
@@ -349,7 +349,7 @@ impl EventBlobWriterFactory {
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
         last_certified_event_blob: Option<SuiEventBlob>,
-        num_uncertified_blob_threshold: Option<u32>,
+        num_uncertified_blob_threshold: Option<usize>,
     ) -> Result<EventBlobWriterFactory> {
         let db_path = Self::db_path(root_dir_path);
         fs::create_dir_all(db_path.as_path())?;
@@ -573,7 +573,7 @@ impl EventBlobWriterFactory {
         pending_db: &DBMap<u64, PendingEventBlobMetadata>,
         attested_db: &DBMap<(), AttestedEventBlobMetadata>,
         failed_to_attest_db: &DBMap<(), FailedToAttestEventBlobMetadata>,
-        num_uncertified_blob_threshold: Option<u32>,
+        num_uncertified_blob_threshold: Option<usize>,
         last_certified_event_blob: Option<SuiEventBlob>,
         blobs_path: &Path,
     ) -> Result<()> {
@@ -613,10 +613,7 @@ impl EventBlobWriterFactory {
         let total_uncertified_blobs = pending_db.safe_iter().count()
             + failed_to_attest_db.safe_iter().count()
             + attested_db.safe_iter().count();
-        let uncertified_blobs_after_last_certified =
-            pending.len() + failed_to_attest.len() + attested.len();
-
-        let consecutive_uncertified = uncertified_blobs_after_last_certified as u32;
+        let consecutive_uncertified = pending.len() + failed_to_attest.len() + attested.len();
 
         // We reset the node pending blobs if the local node has already certified the last
         // certified blob on chain, and have pending blob greater than
@@ -626,8 +623,8 @@ impl EventBlobWriterFactory {
         // last certified blob, to account for the situation where node is crashed after sending
         // out the last certified blob and before receiving the certification event.
         let should_reset = consecutive_uncertified >= num_uncertified_blob_threshold
-            && (total_uncertified_blobs == consecutive_uncertified as usize
-                || total_uncertified_blobs == consecutive_uncertified as usize + 1);
+            && (total_uncertified_blobs == consecutive_uncertified
+                || total_uncertified_blobs == consecutive_uncertified + 1);
 
         if !should_reset {
             tracing::info!(
@@ -827,14 +824,13 @@ pub struct EventBlobWriterConfig {
 /// Struct to manage event-based backoff logic.
 #[derive(Debug)]
 struct EventBackoff {
-    /// Base number of events to wait before retry
+    /// Base number of events to wait before retry.
     base_events: u64,
-    /// Current number of events to wait
+    /// Current number of events to wait.
     current_wait: u64,
-    /// Number of events processed since last attempt
+    /// Number of events processed since last attempt.
     events_since_attempt: u64,
-    /// Maximum number of retry attempts after which
-    /// the backoff will stop increasing
+    /// Maximum number of retry attempts after which the backoff will stop increasing.
     max_increase_backoff_for_attempts: u32,
     /// Current number of attempts
     attempts: u32,
@@ -854,6 +850,7 @@ impl EventBackoff {
 
     /// Returns the next wait count. Once max attempts is reached,
     /// keeps returning the current wait count without doubling.
+    #[allow(clippy::cast_possible_truncation)] // the truncation is intentional here
     fn update_next_attempt(&mut self) {
         if self.attempts < self.max_increase_backoff_for_attempts {
             self.current_wait *= 2
@@ -1163,7 +1160,7 @@ impl EventBlobWriter {
 
         self.metrics
             .latest_attested_checkpoint_sequence_number
-            .set(checkpoint_sequence_number as i64);
+            .set(checkpoint_sequence_number.try_into()?);
 
         match self
             .node
@@ -1362,9 +1359,10 @@ impl EventBlobWriter {
         );
         self.metrics
             .latest_in_progress_event_index
-            .set(element_index as i64);
+            .set(element_index.try_into()?);
         self.event_cursor = EventStreamCursor::new(element.element.event_id(), element_index + 1);
         self.update_sequence_range(&element);
+        assert!(self.start.is_some() && self.end.is_some());
         self.write_event_to_buffer(element.clone(), element_index)?;
 
         let mut batch = self.pending.batch();
@@ -1380,7 +1378,7 @@ impl EventBlobWriter {
 
         self.metrics
             .latest_processed_event_index
-            .set(element_index as i64);
+            .set(element_index.try_into()?);
 
         self.try_attest_next_blob().await;
 
@@ -1404,25 +1402,27 @@ impl EventBlobWriter {
         element.is_end_of_checkpoint_marker()
             && (self.current_blob_size() > MAX_BLOB_SIZE
                 || (element.checkpoint_event_position.checkpoint_sequence_number + 1
-                    >= self.start.unwrap_or(0) + self.num_checkpoints_per_blob() as u64))
+                    >= self.start.unwrap_or(0) + u64::from(self.num_checkpoints_per_blob())))
     }
 
     /// Cuts the current blob and resets for a new one.
     ///
-    /// This method finalizes the current blob, stores its metadata, and prepares
-    /// for writing a new blob.
+    /// This method finalizes the current blob, stores its metadata, and prepares for writing a new
+    /// blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either `self.start.is_none()` or `self.end.is_none()` or the DB
+    /// operation fails.
     async fn cut_and_reset_blob(&mut self, batch: &mut DBBatch, element_index: u64) -> Result<()> {
         self.cut().await?;
         let blob_metadata = PendingEventBlobMetadata::new(
-            self.start.unwrap(),
-            self.end.unwrap(),
+            self.start.context("start is not set")?,
+            self.end.context("end is not set")?,
             self.event_cursor,
             self.current_epoch,
         );
-        batch.insert_batch(
-            &self.pending,
-            std::iter::once((element_index, blob_metadata)),
-        )?;
+        batch.insert_batch(&self.pending, [(element_index, blob_metadata)])?;
         self.reset()
     }
 
@@ -1465,7 +1465,7 @@ impl EventBlobWriter {
 
         self.metrics
             .latest_certified_event_index
-            .set(element_index as i64);
+            .set(element_index.try_into()?);
 
         batch.insert_batch(&self.certified, std::iter::once(((), metadata.clone())))?;
 
@@ -1660,7 +1660,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;
@@ -1713,7 +1713,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         // Verify attestations are not paused
         assert!(!blob_writer.attestations_paused());
@@ -1796,7 +1796,7 @@ mod tests {
             None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
-        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+        let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;

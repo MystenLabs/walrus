@@ -378,7 +378,7 @@ pub mod using_tokio {
         CLUSTER
             .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
             .lock()
-            .unwrap()
+            .expect("mutex should not be poisoned")
             .get_test_cluster_handle()
     }
 }
