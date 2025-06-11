@@ -10,11 +10,35 @@ use utoipa::IntoParams;
 use walrus_sdk::{
     ObjectID,
     core::{BlobId, EncodingType},
+    sui::ObjectIdSchema,
 };
 
 use crate::utils::compute_blob_digest_sha256;
 
 pub(crate) const DIGEST_LEN: usize = 32;
+
+/// Schema for the `TransactionDigest` type.
+#[derive(Debug, utoipa::ToSchema)]
+#[schema(
+    as = TransactionDigest,
+    value_type = String,
+    title = "Sui transaction digest",
+    description = "Sui transaction digest (or transaction ID) as a Base58 string",
+    examples("EmcFpdozbobqH61w76T4UehhC4UGaAv32uZpv6c4CNyg"),
+)]
+pub(crate) struct TransactionDigestSchema(());
+
+/// Schema for the blob digest.
+#[derive(Debug, utoipa::ToSchema)]
+#[schema(
+    as = BlobDigest,
+    value_type = String,
+    format = Byte,
+    title = "Blob digest",
+    description = "Blob digest (or hash) as a URL-encoded (without padding) Base64 string",
+    examples("rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ"),
+)]
+pub(crate) struct BlobDigestSchema(());
 
 /// The query parameters for the fanout proxy.
 #[serde_as]
@@ -25,25 +49,20 @@ pub(crate) struct Params {
     /// The blob ID of the blob to be sent to the storage nodes.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
+    /// The Base58 transaction ID of the transaction that sends the tip to the proxy.
+    #[param(value_type = TransactionDigestSchema)]
+    pub tx_id: TransactionDigest,
     /// The object ID of the deletable blob to be stored.
     ///
     /// If the blob is to be stored as a permanent one, this parameter should not be specified.
     #[serde_as(as = "Option<DisplayFromStr>")]
-    #[param(value_type = String)]
+    #[param(value_type = Option<ObjectIdSchema>)]
     pub deletable_blob_object: Option<ObjectID>,
     /// The encoding type for the blob.
     ///
     /// If omitted, RS2 is used by default.
     #[serde(default)]
     pub encoding_type: Option<EncodingType>,
-    /// The bytes (encoded as Base64URL) of the transaction that registers the blob and sends
-    /// the tip to the proxy.
-    #[param(value_type = String)]
-    pub tx_id: TransactionDigest,
-    /// The bytes (encoded as Base64URL) of the [`AuthPackage`].
-    #[serde(flatten)]
-    #[param(inline)]
-    pub auth_package: AuthPackage,
 }
 
 impl Params {
@@ -61,7 +80,7 @@ impl Params {
 pub(crate) struct AuthPackage {
     /// The SHA256 hash of the blob data.
     #[serde(with = "b64urlencode_bytes")]
-    #[param(value_type = String)]
+    #[param(value_type = BlobDigestSchema)]
     pub blob_digest: [u8; DIGEST_LEN],
 }
 

@@ -8,5 +8,5 @@ mod config;
 mod error;
 
 pub(crate) use check::{check_response_tip, check_tx_freshness};
-pub(crate) use config::TipConfig;
+pub(crate) use config::{TipConfig, TipKind};
 pub(crate) use error::TipError;

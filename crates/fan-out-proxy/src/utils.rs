@@ -13,10 +13,7 @@ use sui_types::transaction::{
     TransactionKind,
 };
 
-use crate::{
-    error::FanOutError,
-    params::{AuthPackage, DIGEST_LEN},
-};
+use crate::{error::FanOutError, params::DIGEST_LEN};
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -56,12 +53,11 @@ pub fn compute_blob_digest_sha256(blob: &[u8]) -> Digest<32> {
     blob_hash.finalize()
 }
 
-/// Checks that the authentication details in the transaction inputs match the information received
-/// in the request.
-pub(crate) fn check_tx_authentication(
+/// Checks the blob hash in the transaction matches the hash of the blob that was sent to the
+/// fanout.
+pub(crate) fn check_tx_blob_digest(
     blob: &[u8],
     tx: SuiTransactionBlockResponse,
-    auth_package: &AuthPackage,
 ) -> Result<(), FanOutError> {
     let orig_tx: SenderSignedData = bcs::from_bytes(&tx.raw_transaction)
         .map_err(|_| FanOutError::other("error deserializing the transaction from bytes"))?;
@@ -85,11 +81,7 @@ pub(crate) fn check_tx_authentication(
     );
 
     walrus_sdk::core::ensure!(
-        tx_auth_package_digest == auth_package.to_digest()?,
-        FanOutError::AuthPackageMismatch
-    );
-    walrus_sdk::core::ensure!(
-        compute_blob_digest_sha256(blob).as_ref() == auth_package.blob_digest,
+        compute_blob_digest_sha256(blob).as_ref() == &tx_auth_package_digest.digest,
         FanOutError::BlobDigestMismatch
     );
     Ok(())

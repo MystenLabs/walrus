@@ -29,10 +29,6 @@ pub enum FanOutError {
     )]
     BlobDigestMismatch,
 
-    /// The provided auth package and the one found in the on-chain PTB input do not match.
-    #[error("the provided auth package and the transaction's auth package hash do not match")]
-    AuthPackageMismatch,
-
     /// BlobId was not registered in the given transaction.
     #[allow(unused)]
     #[error("blob_id {0} was not registered in the referenced transaction")]
@@ -104,8 +100,7 @@ impl IntoResponse for FanOutError {
                 tracing::error!(?error, "unknown error during fan out");
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
             }
-            FanOutError::AuthPackageMismatch
-            | FanOutError::BlobDigestMismatch
+            FanOutError::BlobDigestMismatch
             | FanOutError::BlobIdNotRegistered(_)
             | FanOutError::InvalidPtbAuthPackageHash => {
                 tracing::error!(error = ?self, "failure relating to authentication of payload");

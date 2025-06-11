@@ -12,7 +12,6 @@ use std::{
 };
 
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::Serialize;
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
@@ -104,7 +103,6 @@ pub(crate) async fn run_client(
         blob_id: computed_blob_id,
         deletable_blob_object: None,
         tx_id,
-        auth_package,
         encoding_type: None,
     };
 
@@ -447,11 +445,7 @@ pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url>
 
     url.query_pairs_mut()
         .append_pair("blob_id", &params.blob_id.to_string())
-        .append_pair("tx_id", &params.tx_id.to_string())
-        .append_pair(
-            "blob_digest",
-            &URL_SAFE_NO_PAD.encode(params.auth_package.blob_digest),
-        );
+        .append_pair("tx_id", &params.tx_id.to_string());
 
     if let Some(object_id) = params.deletable_blob_object {
         url.query_pairs_mut()

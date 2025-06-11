@@ -26,7 +26,7 @@ use sui_types::digests::TransactionDigest;
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
-use utoipa::OpenApi;
+use utoipa::{OpenApi, ToSchema};
 use utoipa_redoc::{Redoc, Servable};
 use walrus_sdk::{
     SuiReadClient,
@@ -34,19 +34,23 @@ use walrus_sdk::{
     config::ClientConfig,
     core::{
         BlobId,
+        EncodingType,
         encoding::EncodingConfigTrait as _,
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::{load_from_yaml, metrics::Registry},
-    sui::client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
+    sui::{
+        ObjectIdSchema,
+        client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
+    },
 };
 
 use crate::{
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
-    params::{AuthPackage, Params},
-    tip::{TipConfig, check_response_tip, check_tx_freshness},
-    utils::check_tx_authentication,
+    params::{BlobDigestSchema, Params, TransactionDigestSchema},
+    tip::{TipConfig, TipKind, check_response_tip, check_tx_freshness},
+    utils::check_tx_blob_digest,
 };
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
@@ -56,7 +60,7 @@ pub(crate) const API_DOCS: &str = "/v1/api";
 
 /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is paid),
 /// and the request to store is made to the fan-out proxy.
-// TODO: Make this configurable.
+// TODO: Make this configurableParamns.
 pub(crate) const FRESHNESS_THRESHOLD: Duration = Duration::from_secs(60 * 60); // 1 Hour.
 
 /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
@@ -99,7 +103,7 @@ impl Controller {
         params: Params,
     ) -> Result<ResponseType, FanOutError> {
         // Check authentication pre-conditions for fan-out.
-        self.validate_auth_package(params.tx_id, &params.auth_package, body.as_ref())
+        self.validate_auth_package(params.tx_id, body.as_ref())
             .await?;
 
         let encode_start_timer = Instant::now();
@@ -159,7 +163,6 @@ impl Controller {
     async fn validate_auth_package(
         &self,
         tx_id: TransactionDigest,
-        auth_package: &AuthPackage,
         blob: &[u8],
     ) -> Result<(), FanOutError> {
         // Get transaction inputs from tx_id.
@@ -187,7 +190,7 @@ impl Controller {
             // TODO: fix encoding type
             walrus_sdk::core::EncodingType::RS2,
         )?;
-        check_tx_authentication(blob, tx, auth_package)?;
+        check_tx_blob_digest(blob, tx)?;
 
         // This request looks OK.
         Ok(())
@@ -252,8 +255,16 @@ pub(crate) fn cors_layer() -> CorsLayer {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Fan-out Proxy"),
-    paths(fan_out_blob_slivers),
-    components(schemas(BlobId,))
+    paths(fan_out_blob_slivers, send_tip_config),
+    components(schemas(
+        BlobId,
+        EncodingType,
+        ObjectIdSchema,
+        TransactionDigestSchema,
+        BlobDigestSchema,
+        TipKind,
+        TipConfig,
+    ))
 )]
 pub(super) struct FanOutApiDoc;
 
@@ -263,7 +274,6 @@ pub(super) struct FanOutApiDoc;
 #[utoipa::path(
     get,
     path = TIP_CONFIG_ROUTE,
-    params(),
     responses(
         (
             status = 200,
@@ -280,6 +290,11 @@ pub(crate) async fn send_tip_config(
     (StatusCode::OK, Json(&controller.tip_config)).into_response()
 }
 
+// NOTE: Copied from walrus service
+#[derive(Debug, ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub(crate) struct Binary(());
+
 /// Upload a Blob to the Walrus Network
 ///
 /// Note that the Blob must have previously been registered.
@@ -289,7 +304,11 @@ pub(crate) async fn send_tip_config(
 #[utoipa::path(
     post,
     path = BLOB_FAN_OUT_ROUTE,
-    request_body = &[u8],
+    request_body(
+        content = Binary,
+        content_type = "application/octet-stream",
+        description = "Binary data of the unencoded blob to be stored."
+        ),
     params(Params),
     responses(
         (status = 200, description = "The blob was fanned-out to the Walrus Network successfully"),

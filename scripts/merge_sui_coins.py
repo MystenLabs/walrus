@@ -1,3 +1,6 @@
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
 """
 A simple script that uses the Sui CLI to merge all the SUI coins in the wallet
 into a single coin.

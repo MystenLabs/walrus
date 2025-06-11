@@ -16,6 +16,10 @@ use walrus_sdk::{
 /// The kinds of tip that the proxy can choose to configure.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[schema(examples(
+        json!(TipKind::Const(31415)),
+        json!(TipKind::Linear{base: 101, encoded_size_mul: 42})
+))]
 pub(crate) enum TipKind {
     /// A constant tip.
     Const(u64),
