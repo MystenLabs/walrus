@@ -1,11 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::Result;
-use fastcrypto::hash::{Digest, HashFunction, Sha256};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use fastcrypto::hash::Digest;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::digests::TransactionDigest;
@@ -51,46 +48,24 @@ pub(crate) struct AuthPackage {
     #[serde(with = "b64urlencode_bytes")]
     #[param(value_type = String)]
     pub blob_digest: [u8; DIGEST_LEN],
-    /// Random bytes known only to the client. Shared with fan-out proxy to prevent malicious replay
-    /// attacks by other users.
-    #[serde(with = "b64urlencode_bytes")]
-    #[param(value_type = String)]
-    pub nonce: [u8; DIGEST_LEN],
-    /// The timestamp just prior to blob registration as known to the client user. This is used to
-    /// expire fan-out requests after some time.
-    #[serde_as(as = "DisplayFromStr")]
-    pub timestamp_ms: u64,
 }
 
 impl AuthPackage {
     /// Creates an authentication package for the blob.
     pub(crate) fn new(blob: &[u8]) -> Result<Self> {
-        let std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
-        let mut rng = std_rng;
-        let nonce: [u8; 32] = rng.r#gen();
-
         let blob_digest = compute_blob_digest_sha256(blob);
-        let timestamp_ms = u64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("the clocks are set in the present")
-                .as_millis(),
-        )?;
 
         Ok(Self {
             blob_digest: blob_digest.into(),
-            nonce,
-            timestamp_ms,
         })
     }
 
-    /// Returns the digest (SHA256) for the authentication package.
+    /// Returns the digest of the authentication package, that is to be placed in the first input of
+    /// the transaction.
+    ///
+    /// Note that this, for the moment, is equivalent to the `blob_digest`.
     pub(crate) fn to_digest(&self) -> Result<Digest<DIGEST_LEN>> {
-        let mut auth_hash = Sha256::new();
-        auth_hash.update(self.blob_digest);
-        auth_hash.update(self.nonce);
-        auth_hash.update(bcs::to_bytes(&self.timestamp_ms)?);
-        Ok(auth_hash.finalize())
+        Ok(Digest::new(self.blob_digest.clone()))
     }
 }
 
@@ -157,11 +132,6 @@ mod tests {
         assert_eq!(
             params.auth_package.blob_digest,
             result.auth_package.blob_digest
-        );
-        assert_eq!(params.auth_package.nonce, result.auth_package.nonce);
-        assert_eq!(
-            params.auth_package.timestamp_ms,
-            result.auth_package.timestamp_ms
         );
         assert_eq!(params.deletable_blob_object, result.deletable_blob_object);
     }

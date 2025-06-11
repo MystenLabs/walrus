@@ -450,11 +450,6 @@ pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url>
         .append_pair(
             "blob_digest",
             &URL_SAFE_NO_PAD.encode(params.auth_package.blob_digest),
-        )
-        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.auth_package.nonce))
-        .append_pair(
-            "timestamp_ms",
-            &params.auth_package.timestamp_ms.to_string(),
         );
 
     if let Some(object_id) = params.deletable_blob_object {
