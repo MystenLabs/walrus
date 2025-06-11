@@ -53,16 +53,12 @@ on Walrus (e.g., 10). You can also use max to store for the maximum allowed dura
 The `--epochs` flag is required & it's value must be greater than 0.
 ```
 
-```admonish danger title="Epoch duration on Walrus Testnet"
-On Walrus Testnet, the epoch duration is **one day**. Therefore, consider storing your site for a
-large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 53 epochs.
-```
-
-```admonish danger title="Epoch duration on Walrus Mainnet"
-On Walrus Mainnet, the epoch duration is **fourteen days**. Therefore, consider storing your site for a
-large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 53 epochs.
+```admonish danger title="Epoch duration on Walrus"
+On Walrus Testnet, the epoch duration is **one day**.
+On Walrus Mainnet, the epoch duration is **fourteen days**.
+Therefore, consider storing your site for a large number of epochs
+if you want to make it available for the following months!
+The maximum duration is set to 53 epochs.
 ```
 
 If you are just uploading raw files without an `index.html`, you may want to use the
@@ -118,16 +114,12 @@ resources contained within.
 
 The `--epochs` flag allows you to specify for how long the site data will be stored on Walrus.
 
-```admonish danger title="Epoch duration on Walrus Testnet"
-On Walrus Testnet, the epoch duration is **one day**. Therefore, consider storing your site for a
-large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 53 epochs.
-```
-
-```admonish danger title="Epoch duration on Walrus Mainnet"
-On Walrus Mainnet, the epoch duration is **fourteen days**. Therefore, consider storing your site for a
-large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 53 epochs.
+```admonish danger title="Epoch duration on Walrus"
+On Walrus Testnet, the epoch duration is **one day**.
+On Walrus Mainnet, the epoch duration is **fourteen days**.
+Therefore, consider storing your site for a large number of epochs
+if you want to make it available for the following months!
+The maximum duration is set to 53 epochs.
 ```
 
 If you are just uploading raw files without an `index.html`, you may want to use the
