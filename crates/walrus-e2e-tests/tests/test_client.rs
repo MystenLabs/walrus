@@ -916,7 +916,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
+async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -935,27 +935,22 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         )
         .await?;
     let store_result = results.first().expect("should have one blob store result");
-    let blob_id = store_result.blob_id();
+    let blob_id = store_result
+        .blob_id()
+        .expect("blob id should be present after store");
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        read_blob_with_wait_for_certification(
-            client,
-            &blob_id.expect("blob id should be present"),
-            Duration::from_secs(30),
-        )
-        .await?,
+        read_blob_with_wait_for_certification(client, &blob_id, Duration::from_secs(30),).await?,
         blob
     );
 
-    client
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
-        .await?;
+    client.delete_owned_blob(&blob_id).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
         .get_verified_blob_status(
-            &blob_id.expect("blob id should be present"),
+            &blob_id,
             client.sui_client().read_client(),
             Duration::from_secs(1),
         )
@@ -966,9 +961,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         status_result
     );
 
-    let read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-        .await;
+    let read_result = client.read_blob::<Primary>(&blob_id).await;
     assert!(matches!(
         read_result.unwrap_err().kind(),
         ClientErrorKind::BlobIdDoesNotExist,
