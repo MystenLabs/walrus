@@ -217,7 +217,13 @@ enum CheckpointCommands {
     },
 
     /// List existing checkpoints.
-    List,
+    List {
+        /// The path to the directory to list db checkpoints in. If not provided, the directory
+        /// configured in [`StorageNodeConfig::checkpoint_config`] will be used. If none of these
+        /// are provided an error will be returned.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 
     /// Cancel an ongoing checkpoint creation.
     Cancel,
@@ -1436,11 +1442,24 @@ async fn handle_checkpoint_command(
                 },
             }
         }
-        CheckpointCommands::List => {
-            // List operation not yet implemented.
-            AdminCommandResponse {
-                success: true,
-                message: "Checkpoint listing not implemented yet".to_string(),
+        CheckpointCommands::List { path } => {
+            let result = manager.list_db_checkpoints(path.as_deref());
+            match result {
+                Ok(db_checkpoints) => AdminCommandResponse {
+                    success: true,
+                    message: format!(
+                        "Backups:\n{}",
+                        db_checkpoints
+                            .iter()
+                            .map(|b| format!("  {}", b))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to list db checkpoints: {}", e),
+                },
             }
         }
         CheckpointCommands::Cancel => {
