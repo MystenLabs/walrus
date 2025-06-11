@@ -147,7 +147,7 @@ impl EpochChangeDriver {
         let end_voting_future = ScheduledEpochOperation::new(
             VotingEndOperation {
                 epoch_under_vote: next_epoch,
-                system_params: self.system_parameters.clone(),
+                system_params: self.system_parameters,
             },
             self.system_parameters.epoch_duration,
             self.contract_service.clone(),
@@ -201,7 +201,7 @@ impl EpochChangeDriver {
         let epoch_change_start_future = ScheduledEpochOperation::new(
             InitiateEpochChangeOperation {
                 next_epoch,
-                system_params: self.system_parameters.clone(),
+                system_params: self.system_parameters,
             },
             self.system_parameters.epoch_duration,
             self.contract_service.clone(),

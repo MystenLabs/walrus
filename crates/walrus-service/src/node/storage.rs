@@ -11,11 +11,8 @@ use std::{
     time::Instant,
 };
 
-use blob_info::{BlobInfoIterator, PerObjectBlobInfo, PerObjectBlobInfoIterator};
-use event_cursor_table::EventIdWithProgress;
 use futures::FutureExt as _;
 use itertools::Itertools;
-use metrics::{CommonDatabaseMetrics, Labels, OperationType};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
@@ -37,7 +34,14 @@ use walrus_sui::types::BlobEvent;
 use walrus_utils::metrics::Registry;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
+    blob_info::{
+        BlobInfo,
+        BlobInfoApi,
+        BlobInfoIterator,
+        BlobInfoTable,
+        PerObjectBlobInfo,
+        PerObjectBlobInfoIterator,
+    },
     constants::{
         metadata_cf_name,
         node_status_cf_name,
@@ -47,7 +51,8 @@ use self::{
         shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     },
-    event_cursor_table::EventCursorTable,
+    event_cursor_table::{EventCursorTable, EventIdWithProgress},
+    metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
 use crate::utils;
@@ -86,13 +91,16 @@ pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
 }
 
 /// The status of the node.
-//
-//     Standby <--> RecoveryCatchUp --> RecoveryInProgress
-//         \            /          ^       |
-//          \          /            \      |
-//           v        v              \     v
-//          RecoverMetadata  -------> Active
-//
+///
+/// ```text
+///    RecoveryCatchUpWithIncompleteHistory
+///      /                              \
+///     v                                v
+/// Standby <--> RecoveryCatchUp --> RecoveryInProgress
+///      \          /        ^       /
+///       v        v          \     v
+///      RecoverMetadata  --> Active
+/// ```
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,8 +113,17 @@ pub enum NodeStatus {
     RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    /// The node is in recovery mode and recovering missing slivers.
+    /// The node is in recovery mode and recovering missing slivers. The included epoch is the
+    /// epoch in which the node started recovering.
     RecoveryInProgress(Epoch),
+    /// The node is in recovery mode and catching up with the chain, but the history is incomplete
+    /// due to expired event blobs.
+    RecoveryCatchUpWithIncompleteHistory {
+        /// The first epoch for which all events are available and relevant.
+        first_complete_epoch: Epoch,
+        /// The epoch at which the node started recovering.
+        epoch_at_start: Epoch,
+    },
 }
 
 impl NodeStatus {
@@ -118,7 +135,16 @@ impl NodeStatus {
             NodeStatus::RecoverMetadata => 2,
             NodeStatus::RecoveryCatchUp => 3,
             NodeStatus::RecoveryInProgress(_) => 4,
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. } => 5,
         }
+    }
+
+    /// Returns `true` if the node is catching up.
+    pub fn is_catching_up(&self) -> bool {
+        matches!(
+            self,
+            NodeStatus::RecoveryCatchUp | NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
+        )
     }
 }
 
@@ -130,6 +156,13 @@ impl Display for NodeStatus {
             NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                epoch_at_start,
+                first_complete_epoch: first_epoch,
+            } => write!(
+                f,
+                "RecoveryCatchUpWithIncompleteHistory ({epoch_at_start}, {first_epoch})"
+            ),
         }
     }
 }
@@ -298,6 +331,10 @@ impl Storage {
 
     pub(crate) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
+    }
+
+    pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
+        self.blob_info.unsafe_clear(&self.database, &self.config)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -510,7 +547,21 @@ impl Storage {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        self.blob_info.update_blob_info(event_index, event)
+        if let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+            first_complete_epoch,
+            epoch_at_start,
+        } = self.node_status()?
+        {
+            self.blob_info
+                .update_blob_info_during_recovery_with_incomplete_history(
+                    event_index,
+                    event,
+                    first_complete_epoch,
+                    epoch_at_start,
+                )
+        } else {
+            self.blob_info.update_blob_info(event_index, event)
+        }
     }
 
     /// Repositions the event cursor to the specified event index.
