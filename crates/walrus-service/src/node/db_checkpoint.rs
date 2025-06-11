@@ -14,7 +14,7 @@ use rocksdb::{
     backup::{BackupEngine, BackupEngineInfo, BackupEngineOptions, RestoreOptions},
 };
 
-/// A wrapper for BackupEngineInfo that provides human-readable display formatting
+/// A wrapper for BackupEngineInfo that provides human-readable display formatting.
 pub struct DisplayableDbCheckpointInfo {
     pub inner: BackupEngineInfo,
 }
@@ -33,17 +33,12 @@ impl From<BackupEngineInfo> for DisplayableDbCheckpointInfo {
 
 impl std::fmt::Display for DisplayableDbCheckpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Using bytesize for human-readable size formatting
         let size_str = bytesize::ByteSize::b(self.inner.size).to_string();
 
-        // Using humantime for human-readable timestamp formatting
         let timestamp_str = if self.inner.timestamp > 0 {
             use std::time::UNIX_EPOCH;
             match UNIX_EPOCH.checked_add(StdDuration::from_secs(self.inner.timestamp as u64)) {
-                Some(system_time) => {
-                    // Format as a standard timestamp
-                    humantime::format_rfc3339(system_time).to_string()
-                }
+                Some(system_time) => humantime::format_rfc3339(system_time).to_string(),
                 None => format!("{} (invalid timestamp)", self.inner.timestamp),
             }
         } else {

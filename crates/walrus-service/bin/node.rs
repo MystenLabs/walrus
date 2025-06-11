@@ -218,9 +218,9 @@ enum CheckpointCommands {
 
     /// List existing checkpoints.
     List {
-        /// The path to the directory to list db checkpoints in. If not provided, the directory
-        /// configured in [`StorageNodeConfig::checkpoint_config`] will be used. If none of these
-        /// are provided an error will be returned.
+        /// The path to the checkpoint directory. If not provided, the directory configured in
+        /// [`StorageNodeConfig::checkpoint_config`] will be used. If none of these are provided an
+        /// error will be returned.
         #[arg(long)]
         path: Option<PathBuf>,
     },
