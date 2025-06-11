@@ -99,7 +99,7 @@ impl AuthPackage {
     ///
     /// Note that this, for the moment, is equivalent to the `blob_digest`.
     pub(crate) fn to_digest(&self) -> Result<Digest<DIGEST_LEN>> {
-        Ok(Digest::new(self.blob_digest.clone()))
+        Ok(Digest::new(self.blob_digest))
     }
 }
 
@@ -136,22 +136,17 @@ mod tests {
     use sui_types::digests::TransactionDigest;
     use walrus_sdk::{ObjectID, core::BlobId};
 
-    use crate::{
-        client::fan_out_blob_url,
-        params::{AuthPackage, Params},
-    };
+    use crate::{client::fan_out_blob_url, params::Params};
 
     #[test]
     fn test_fanout_parse_query() {
         let blob_id =
             BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
         let tx_id = TransactionDigest::new([13; 32]);
-        let auth_package = AuthPackage::new(&[1, 2, 3]).expect("this is a valid package");
         let params = Params {
             blob_id,
             deletable_blob_object: Some(ObjectID::from_single_byte(42)),
             tx_id,
-            auth_package,
             encoding_type: None,
         };
 
@@ -164,10 +159,6 @@ mod tests {
 
         assert_eq!(params.blob_id, result.blob_id);
         assert_eq!(params.tx_id, result.tx_id);
-        assert_eq!(
-            params.auth_package.blob_digest,
-            result.auth_package.blob_digest
-        );
         assert_eq!(params.deletable_blob_object, result.deletable_blob_object);
     }
 }

@@ -61,9 +61,9 @@ enum Command {
         /// The address to listen on. Defaults to 0.0.0.0:57391.
         #[arg(long, global = true)]
         server_address: Option<SocketAddr>,
-        /// The file path to the Tip configuration.
+        /// The file path to the configuration of the fan-out proxy.
         #[arg(long, global = true)]
-        tip_config: PathBuf,
+        fan_out_config: PathBuf,
     },
     #[cfg(feature = "test-client")]
     /// A client to test the fanout proxy. Not intended for production use.
@@ -130,10 +130,16 @@ async fn main() -> Result<()> {
             context,
             walrus_config,
             server_address,
-            tip_config,
+            fan_out_config,
         } => {
-            controller::run_proxy(context, walrus_config, server_address, tip_config, registry)
-                .await
+            controller::run_proxy(
+                context,
+                walrus_config,
+                server_address,
+                fan_out_config,
+                registry,
+            )
+            .await
         }
         #[cfg(feature = "test-client")]
         Command::TestClient {

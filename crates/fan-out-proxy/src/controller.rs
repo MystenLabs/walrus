@@ -58,15 +58,20 @@ pub(crate) const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
 pub(crate) const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
 pub(crate) const API_DOCS: &str = "/v1/api";
 
-/// The maximum time gap between the time the tip transaction is executed (i.e., the tip is paid),
-/// and the request to store is made to the fan-out proxy.
-// TODO: Make this configurableParamns.
-pub(crate) const FRESHNESS_THRESHOLD: Duration = Duration::from_secs(60 * 60); // 1 Hour.
-
-/// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
-/// This is to account for clock skew between the fan out proxy and the full nodes.
-// TODO: Make this configurable.
-pub(crate) const MAX_FUTURE_THRESHOLD: Duration = Duration::from_secs(30);
+/// The configuration for the fanout proxy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) struct FanOutConfig {
+    /// The configuration for tipping.
+    tip_config: TipConfig,
+    /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is
+    /// paid), and the request to store is made to the fan-out proxy.
+    tx_freshness_threshold: Duration,
+    /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
+    ///
+    /// This is to account for clock skew between the fan out proxy and the full nodes.
+    tx_max_future_threshold: Duration,
+}
 
 /// The controller for the fanout proxy.
 ///
@@ -74,7 +79,7 @@ pub(crate) const MAX_FUTURE_THRESHOLD: Duration = Duration::from_secs(30);
 /// requests and pushing slivers and metadata to storage nodes.
 pub(crate) struct Controller {
     pub(crate) client: Client<SuiReadClient>,
-    pub(crate) tip_config: TipConfig,
+    pub(crate) fan_out_config: FanOutConfig,
     pub(crate) n_shards: NonZeroU16,
     pub(crate) metric_set: FanOutProxyMetricSet,
 }
@@ -84,12 +89,12 @@ impl Controller {
     pub(crate) fn new(
         client: Client<SuiReadClient>,
         n_shards: NonZeroU16,
-        tip_config: TipConfig,
+        fan_out_config: FanOutConfig,
         metric_set: FanOutProxyMetricSet,
     ) -> Self {
         Self {
             client,
-            tip_config,
+            fan_out_config,
             n_shards,
             metric_set,
         }
@@ -103,7 +108,7 @@ impl Controller {
         params: Params,
     ) -> Result<ResponseType, FanOutError> {
         // Check authentication pre-conditions for fan-out.
-        self.validate_auth_package(params.tx_id, body.as_ref())
+        self.validate_auth_package(params.tx_id, &params, body.as_ref())
             .await?;
 
         let encode_start_timer = Instant::now();
@@ -163,6 +168,7 @@ impl Controller {
     async fn validate_auth_package(
         &self,
         tx_id: TransactionDigest,
+        params: &Params,
         blob: &[u8],
     ) -> Result<(), FanOutError> {
         // Get transaction inputs from tx_id.
@@ -179,16 +185,19 @@ impl Controller {
             .await
             .map_err(Box::new)?;
 
-        check_tx_freshness(&tx, FRESHNESS_THRESHOLD, MAX_FUTURE_THRESHOLD)?;
+        check_tx_freshness(
+            &tx,
+            self.fan_out_config.tx_freshness_threshold,
+            self.fan_out_config.tx_max_future_threshold,
+        )?;
         check_response_tip(
-            &self.tip_config,
+            &self.fan_out_config.tip_config,
             &tx,
             blob.len()
                 .try_into()
                 .expect("we are running on a 64bit machine"),
             self.n_shards,
-            // TODO: fix encoding type
-            walrus_sdk::core::EncodingType::RS2,
+            params.encoding_type_or_default(),
         )?;
         check_tx_blob_digest(blob, tx)?;
 
@@ -209,7 +218,7 @@ pub(crate) async fn run_proxy(
     context: Option<String>,
     walrus_config: PathBuf,
     server_address: Option<SocketAddr>,
-    tip_config: PathBuf,
+    fan_out_config: PathBuf,
     registry: Registry,
 ) -> Result<()> {
     let metric_set = FanOutProxyMetricSet::new(&registry);
@@ -219,8 +228,8 @@ pub(crate) async fn run_proxy(
     let client = get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
 
     let n_shards = client.get_committees().await?.n_shards();
-    let tip_config: TipConfig = load_from_yaml(tip_config)?;
-    tracing::debug!(?tip_config, "loaded tip config");
+    let fan_out_config: FanOutConfig = load_from_yaml(fan_out_config)?;
+    tracing::debug!(?fan_out_config, "loaded tip config");
 
     // Build our HTTP application to handle the blob fan-out operations.
     let app = Router::new()
@@ -228,7 +237,10 @@ pub(crate) async fn run_proxy(
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
         .with_state(Arc::new(Controller::new(
-            client, n_shards, tip_config, metric_set,
+            client,
+            n_shards,
+            fan_out_config,
+            metric_set,
         )))
         .layer(cors_layer());
 
@@ -287,7 +299,7 @@ pub(crate) async fn send_tip_config(
     State(controller): State<Arc<Controller>>,
 ) -> impl IntoResponse {
     tracing::debug!("returning tip config");
-    (StatusCode::OK, Json(&controller.tip_config)).into_response()
+    (StatusCode::OK, Json(&controller.fan_out_config.tip_config)).into_response()
 }
 
 // NOTE: Copied from walrus service
@@ -351,4 +363,34 @@ pub(crate) async fn get_client(
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use sui_types::base_types::SuiAddress;
+
+    use super::FanOutConfig;
+    use crate::{TipConfig, tip::TipKind};
+
+    const EXAMPLE_CONFIG_PATH: &str = "fan_out_config_example.yaml";
+
+    #[test]
+    fn keep_example_config_in_sync() {
+        let config = FanOutConfig {
+            tip_config: TipConfig::SendTip {
+                address: SuiAddress::from_bytes([42; 32]).expect("valid bytes"),
+                kind: TipKind::Const(42),
+            },
+            tx_freshness_threshold: Duration::from_secs(60 * 60 * 10), // 10 hours.
+            tx_max_future_threshold: Duration::from_secs(30),
+        };
+
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            EXAMPLE_CONFIG_PATH,
+            serde_yaml::to_string(&config).expect("serialization succeeds"),
+        )
+        .expect("overwrite failed");
+    }
 }

@@ -81,7 +81,7 @@ pub(crate) fn check_tx_blob_digest(
     );
 
     walrus_sdk::core::ensure!(
-        compute_blob_digest_sha256(blob).as_ref() == &tx_auth_package_digest.digest,
+        compute_blob_digest_sha256(blob).as_ref() == tx_auth_package_digest.digest,
         FanOutError::BlobDigestMismatch
     );
     Ok(())
