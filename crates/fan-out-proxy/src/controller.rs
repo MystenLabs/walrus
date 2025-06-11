@@ -107,8 +107,7 @@ impl Controller {
         let (sliver_pairs, metadata) = self
             .client
             .encoding_config()
-            // TODO: Encoding type configuration.
-            .get_for_type(walrus_sdk::core::EncodingType::RS2)
+            .get_for_type(params.encoding_type_or_default())
             .encode_with_metadata(body.as_ref())?;
         let duration = encode_start_timer.elapsed();
 
@@ -136,7 +135,6 @@ impl Controller {
         );
 
         // Attempt to upload the slivers.
-        // TODO: Blob persistence configuration
         let blob_persistence = if let Some(object_id) = params.deletable_blob_object {
             BlobPersistenceType::Deletable {
                 object_id: object_id.into(),

@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::digests::TransactionDigest;
 use utoipa::IntoParams;
-use walrus_sdk::{ObjectID, core::BlobId};
+use walrus_sdk::{
+    ObjectID,
+    core::{BlobId, EncodingType},
+};
 
 use crate::utils::compute_blob_digest_sha256;
 
@@ -28,6 +31,11 @@ pub(crate) struct Params {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[param(value_type = String)]
     pub deletable_blob_object: Option<ObjectID>,
+    /// The encoding type for the blob.
+    ///
+    /// If omitted, RS2 is used by default.
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
     /// The bytes (encoded as Base64URL) of the transaction that registers the blob and sends
     /// the tip to the proxy.
     #[param(value_type = String)]
@@ -36,6 +44,13 @@ pub(crate) struct Params {
     #[serde(flatten)]
     #[param(inline)]
     pub auth_package: AuthPackage,
+}
+
+impl Params {
+    pub(crate) fn encoding_type_or_default(&self) -> EncodingType {
+        self.encoding_type
+            .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING)
+    }
 }
 
 /// The authentication structure for a blob store request.
@@ -118,6 +133,7 @@ mod tests {
             deletable_blob_object: Some(ObjectID::from_single_byte(42)),
             tx_id,
             auth_package,
+            encoding_type: None,
         };
 
         let url = fan_out_blob_url(&Url::parse("http://localhost").expect("valid url"), &params)

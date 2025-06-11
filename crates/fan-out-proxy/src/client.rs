@@ -105,6 +105,7 @@ pub(crate) async fn run_client(
         deletable_blob_object: None,
         tx_id,
         auth_package,
+        encoding_type: None,
     };
 
     let response = fanout.send_to_proxy(blob, params).await?;
