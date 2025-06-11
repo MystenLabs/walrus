@@ -100,7 +100,10 @@ impl EventCursorTable {
         let next_index = this.get_sequentially_processed_event_count()?;
         this.persisted_event_count
             .store(next_index, Ordering::SeqCst);
-        *this.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
+        *this
+            .event_queue
+            .lock()
+            .expect("mutex should not be poisoned") = EventSequencer::continue_from(next_index);
 
         Ok(this)
     }
@@ -129,7 +132,10 @@ impl EventCursorTable {
         )?;
         self.persisted_event_count
             .store(next_index, Ordering::SeqCst);
-        *self.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
+        *self
+            .event_queue
+            .lock()
+            .expect("mutex should not be poisoned") = EventSequencer::continue_from(next_index);
 
         Ok(())
     }
@@ -151,7 +157,10 @@ impl EventCursorTable {
         event_index: u64,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
-        let mut event_queue = self.event_queue.lock().unwrap();
+        let mut event_queue = self
+            .event_queue
+            .lock()
+            .expect("mutex should not be poisoned");
         event_queue.add(event_index, *cursor);
         let mut count = 0u64;
         let most_recent_cursor = event_queue

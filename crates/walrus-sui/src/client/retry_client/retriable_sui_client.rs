@@ -321,7 +321,7 @@ impl RetriableSuiClient {
                     .balance();
                 if min_coin_balance < coin.balance {
                     selected_coins.pop();
-                    total_selected -= min_coin_balance as u128;
+                    total_selected -= u128::from(min_coin_balance);
                 } else {
                     continue;
                 }
@@ -1028,8 +1028,14 @@ impl RetriableSuiClient {
 
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
         let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
-        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
-        Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
+        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage()
+            + i64::try_from(safe_overhead).expect("this should always be smaller than i64::MAX");
+        Ok(computation_cost_with_overhead.max(
+            gas_usage_with_overhead
+                .max(0)
+                .try_into()
+                .expect("we just set any negative value to 0"),
+        ))
     }
 
     /// Executes a transaction.

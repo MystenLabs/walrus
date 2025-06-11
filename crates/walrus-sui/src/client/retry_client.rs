@@ -20,6 +20,7 @@ pub use self::{
 use super::{SuiClientError, SuiClientResult};
 use crate::client::SuiClientMetricSet;
 
+pub mod download_handler;
 pub mod failover;
 pub mod fallible;
 pub mod retriable_rpc_client;

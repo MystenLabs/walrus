@@ -6,7 +6,12 @@
 // Please use with caution as it is subject to change without prior notice.
 // *******************************************************************************
 
-#![allow(dead_code)] // TODO: remove this once follow up PRs are merged.
+//! Quilt encoding.
+
+// TODO: remove this once follow up PRs are merged.
+#![allow(dead_code)]
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(clippy::cast_possible_truncation)]
 
 use alloc::{
     format,
@@ -23,10 +28,10 @@ use tracing::{Level, Span};
 
 use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
+    EncodingType,
     SliverIndex,
     encoding::{
         EncodingAxis,
-        MAX_SYMBOL_SIZE,
         QuiltError,
         blob_encoding::BlobEncoder,
         config::EncodingConfigTrait as _,
@@ -99,6 +104,7 @@ pub trait QuiltApi<V: QuiltVersion> {
 
     /// Gets a blob by its identifier from the quilt.
     ///
+    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
@@ -179,6 +185,8 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
 /// Encoder to construct a quilt and encode the blobs into slivers.
 pub trait QuiltEncoderApi<V: QuiltVersion> {
     /// Constructs a quilt by encoding the blobs.
+    ///
+    /// Note: This function returns an error if the blobs have duplicate identifiers.
     fn construct_quilt(&self) -> Result<V::Quilt, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers.
@@ -197,6 +205,9 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
+    ///
+    /// If there are duplicate identifiers, the first one in the sort order will be returned.
+    /// Note that the sort could be unstable.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.
@@ -775,7 +786,9 @@ impl QuiltV1 {
         }
 
         let columns_size = self.data.len() / self.row_size * self.symbol_size;
-        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, columns_size)?);
+        let quilt_index = QuiltVersionV1::decode_quilt_index(self, columns_size)?;
+        self.quilt_index = Some(quilt_index);
+
         Ok(self
             .quilt_index
             .as_ref()
@@ -1098,6 +1111,15 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // Sort blobs by their identifiers.
         blob_pairs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
 
+        // Check for duplicate identifiers.
+        for adjacent_blobs in blob_pairs.windows(2) {
+            if adjacent_blobs[0].identifier == adjacent_blobs[1].identifier {
+                return Err(QuiltError::DuplicateIdentifier(
+                    adjacent_blobs[0].identifier.clone(),
+                ));
+            }
+        }
+
         // Create initial QuiltPatches.
         let quilt_patches = blob_pairs
             .iter()
@@ -1124,13 +1146,12 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             )
             .collect::<Result<Vec<usize>, QuiltError>>()?;
 
-        let required_alignment = self.config.encoding_type().required_alignment() as usize;
         let symbol_size = utils::compute_symbol_size(
             &all_sizes,
             n_columns,
             n_rows,
             MAX_NUM_SLIVERS_FOR_QUILT_INDEX,
-            required_alignment,
+            self.config.encoding_type(),
         )?;
 
         let row_size = symbol_size * n_columns;
@@ -1239,24 +1260,16 @@ pub struct QuiltDecoderV1<'a> {
 
 impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError> {
-        if self.quilt_index.is_some() {
-            return Ok(self
-                .quilt_index
-                .as_ref()
-                .expect("quilt index should exist")
-                .clone()
-                .into());
+        if let Some(quilt_index) = self.quilt_index.as_ref() {
+            return Ok(quilt_index.clone().into());
         }
+
         self.check_missing_slivers(0, 1)?;
         let column_size = self.column_size.expect("column size should be set");
-        self.quilt_index = Some(QuiltVersionV1::decode_quilt_index(self, column_size)?);
+        let quilt_index = QuiltVersionV1::decode_quilt_index(self, column_size)?;
+        self.quilt_index = Some(quilt_index.clone());
 
-        Ok(self
-            .quilt_index
-            .as_ref()
-            .expect("quilt index should be decoded")
-            .clone()
-            .into())
+        Ok(quilt_index.into())
     }
 
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
@@ -1402,7 +1415,7 @@ mod utils {
         n_columns: usize,
         n_rows: usize,
         max_num_columns_for_quilt_index: usize,
-        required_alignment: usize,
+        encoding_type: EncodingType,
     ) -> Result<usize, QuiltError> {
         if blobs_sizes.len() > n_columns {
             // The first column is not user data.
@@ -1443,16 +1456,18 @@ mod utils {
             }
         }
 
-        let symbol_size = min_val.next_multiple_of(required_alignment);
+        let symbol_size = min_val.next_multiple_of(encoding_type.required_alignment().into());
         debug_assert!(can_blobs_fit_into_matrix(
             blobs_sizes,
             n_columns,
             symbol_size * n_rows
         ));
-        if symbol_size > MAX_SYMBOL_SIZE as usize {
+        let max_symbol_size = usize::from(encoding_type.max_symbol_size());
+        if symbol_size > max_symbol_size {
             return Err(QuiltError::QuiltOversize(format!(
-                "the resulting symbol size {} is too large, remove some blobs",
-                symbol_size
+                "the resulting symbol size {} is larger than the maximum symbol size {}; \
+                remove some blobs",
+                symbol_size, max_symbol_size
             )));
         }
 
@@ -1501,17 +1516,13 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-    use alloc::boxed::Box;
     use core::num::NonZeroU16;
 
     use rand::Rng;
-    use walrus_test_utils::{param_test, random_data};
+    use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::{
-        encoding::{RaptorQEncodingConfig, ReedSolomonEncodingConfig},
-        metadata::BlobMetadataApi as _,
-    };
+    use crate::{encoding::ReedSolomonEncodingConfig, metadata::BlobMetadataApi as _};
 
     /// Get the minimum required columns.
     fn min_required_columns(blobs: &[usize], length: usize) -> usize {
@@ -1527,23 +1538,22 @@ mod tests {
 
     param_test! {
         test_quilt_find_min_length: [
-            case_1: (&[2, 1, 2, 1], 3, 3, 1, 1, Err(QuiltError::TooManyBlobs(3, 2))),
-            case_2: (&[1000, 1, 1], 4, 7, 2, 2, Ok(72)),
+            case_1: (&[2, 1, 2, 1], 3, 3, 1, Err(QuiltError::TooManyBlobs(3, 2))),
+            case_2: (&[1000, 1, 1], 4, 7, 2, Ok(72)),
             case_3: (
                 &[],
                 3,
                 1,
                 1,
-                1,
                 Err(QuiltError::EmptyInput("blobs".to_string())),
             ),
-            case_4: (&[1], 3, 2, 1, 1, Ok(3)),
-            case_5: (&[115, 80, 4], 17, 9, 3, 1, Ok(5)),
-            case_6: (&[20, 20, 20], 3, 5, 2, 1, Ok(4)),
-            case_7: (&[5, 5, 5], 5, 1, 1, 2, Ok(6)),
-            case_8: (&[25, 35, 45], 200, 1, 3, 2, Ok(10)),
-            case_9: (&[10, 0, 0, 0], 17, 9, 2, 1, Ok(1)),
-            case_10: (&[10, 0, 0, 0], 17, 9, 2, 2, Ok(2)),
+            case_4: (&[1], 3, 2, 1, Ok(4)),
+            case_5: (&[115, 80, 4], 17, 9, 3, Ok(6)),
+            case_6: (&[20, 20, 20], 3, 5, 2, Ok(4)),
+            case_7: (&[5, 5, 5], 5, 1, 1, Ok(6)),
+            case_8: (&[25, 35, 45], 200, 1, 3, Ok(10)),
+            case_9: (&[10, 0, 0, 0], 17, 9, 2, Ok(2)),
+            case_10: (&[10, 0, 0, 0], 17, 9, 2, Ok(2)),
             case_11: (
                 &[
                     416, 253, 258, 384, 492, 303, 276, 464, 143, 251, 388, 263, 515, 433, 505,
@@ -1552,8 +1562,7 @@ mod tests {
                 34,
                 16,
                 3,
-                1,
-                Ok(31)
+                Ok(32)
             ),
         ]
     }
@@ -1562,17 +1571,15 @@ mod tests {
         n_columns: usize,
         n_rows: usize,
         max_num_slivers_for_quilt_index: usize,
-        required_alignment: usize,
         expected: Result<usize, QuiltError>,
     ) {
-        // Initialize tracing subscriber for this test
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
         let res = utils::compute_symbol_size(
             blobs,
             n_columns,
             n_rows,
             max_num_slivers_for_quilt_index,
-            required_alignment,
+            EncodingType::RS2,
         );
         assert_eq!(res, expected);
         if let Ok(min_size) = res {
@@ -1679,14 +1686,9 @@ mod tests {
         ]
     }
     fn test_quilt_construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], n_shards: u16) {
-        let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
 
-        construct_quilt(
-            quilt_store_blobs,
-            EncodingConfigEnum::RaptorQ(&raptorq_config),
-        );
         construct_quilt(
             quilt_store_blobs,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
@@ -1694,7 +1696,7 @@ mod tests {
     }
 
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -1738,6 +1740,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "ignore long-running test by default"]
     fn test_quilt_with_random_blobs() {
         for _ in 0..1000 {
             let mut rng = rand::thread_rng();
@@ -1773,18 +1776,19 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
-        let quilt_store_blobs = generate_random_blobs(num_blobs, max_blob_size, min_blob_size);
+        let blobs =
+            walrus_test_utils::generate_random_data(num_blobs, max_blob_size, min_blob_size);
+        let quilt_store_blobs = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i)))
+            .collect::<Vec<_>>();
 
-        let raptorq_config = RaptorQEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
 
-        encode_decode_quilt(
-            &quilt_store_blobs,
-            EncodingConfigEnum::RaptorQ(&raptorq_config),
-        );
         encode_decode_quilt(
             &quilt_store_blobs,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
@@ -1792,7 +1796,7 @@ mod tests {
     }
 
     fn encode_decode_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _guard = tracing_subscriber::fmt().try_init();
+        let _ = tracing_subscriber::fmt().try_init();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -1980,51 +1984,5 @@ mod tests {
 
         assert_eq!(reconstructed_header.length, length);
         assert_eq!(reconstructed_header.mask, mask);
-    }
-
-    /// Generate random blobs with sizes in the specified range.
-    ///
-    /// # Arguments
-    ///
-    /// * `num_blobs` - Number of blobs to generate
-    /// * `max_blob_size` - Maximum size of each blob
-    /// * `min_blob_size` - Minimum size of each blob
-    ///
-    /// # Returns
-    ///
-    /// A vector of QuiltStoreBlob objects with random content.
-    fn generate_random_blobs(
-        num_blobs: usize,
-        max_blob_size: usize,
-        min_blob_size: usize,
-    ) -> Vec<QuiltStoreBlob<'static>> {
-        use rand::{Rng, SeedableRng, rngs::StdRng};
-
-        // Create a deterministic RNG with a fixed seed for reproducibility.
-        let mut rng = StdRng::seed_from_u64(42);
-
-        // Store both blobs and their QuiltStoreBlob wrappers.
-        let mut result = Vec::with_capacity(num_blobs);
-
-        // Generate random blobs with sizes in the specified range.
-        for i in 0..num_blobs {
-            // Generate a random size in the range [min_blob_size, max_blob_size).
-            let blob_size = if min_blob_size == max_blob_size {
-                min_blob_size
-            } else {
-                rng.gen_range(min_blob_size..max_blob_size)
-            };
-
-            let blob_data = random_data(blob_size);
-
-            // Convert to static lifetime using Box::leak.
-            let static_data = Box::leak(blob_data.into_boxed_slice());
-
-            // Create and store the QuiltStoreBlob.
-            let quilt_store_blob = QuiltStoreBlob::new(static_data, format!("test-blob-{}", i));
-            result.push(quilt_store_blob);
-        }
-
-        result
     }
 }

@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(clippy::unwrap_used)]
+
 //! # Walrus Proxy
 //!
 //! This crate provides a proxy layer for the Walrus system.

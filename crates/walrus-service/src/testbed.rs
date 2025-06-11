@@ -161,24 +161,13 @@ pub fn metrics_socket_address(ip: IpAddr, port: u16, node_index: Option<u16>) ->
     SocketAddr::new(ip, port)
 }
 
-/// Formats the REST API address for a node. If both the node index and the committee size is
-/// provided, the port is adjusted to ensure uniqueness across nodes.
-pub fn rest_api_socket_address(
-    ip: IpAddr,
-    port: u16,
-    node_index: Option<u16>,
-    committee_size: Option<u16>,
-) -> SocketAddr {
-    SocketAddr::new(ip, rest_api_port(port, node_index, committee_size))
-}
-
 /// Creates the REST API address for a node. If both the node index and the committee size is
 /// provided, the port is adjusted to ensure uniqueness across nodes.
 pub fn public_rest_api_address(
     host: String,
     port: u16,
     node_index: Option<u16>,
-    committee_size: Option<u16>,
+    committee_size: Option<NonZeroU16>,
 ) -> NetworkAddress {
     NetworkAddress(format!(
         "{}:{}",
@@ -187,9 +176,9 @@ pub fn public_rest_api_address(
     ))
 }
 
-fn rest_api_port(port: u16, node_index: Option<u16>, committee_size: Option<u16>) -> u16 {
+fn rest_api_port(port: u16, node_index: Option<u16>, committee_size: Option<NonZeroU16>) -> u16 {
     if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
-        port + committee_size + node_index
+        port + committee_size.get() + node_index
     } else {
         port
     }
@@ -302,15 +291,16 @@ pub async fn deploy_walrus_contract(
     tracing::debug!("Deploying contract to Sui network: {}", sui_network);
 
     // Build one Sui storage node config for each storage node.
-    let committee_size = hosts.len() as u16;
+    let committee_size = hosts.len();
     let keypairs = if deterministic_keys {
-        deterministic_keypairs(committee_size as usize)
+        deterministic_keypairs(committee_size)
     } else {
-        random_keypairs(committee_size as usize)
+        random_keypairs(committee_size)
     };
+    let committee_size = committee_size_from_usize(committee_size)?;
 
     tracing::debug!(
-        "Finished generating keypairs for {} storage nodes",
+        "finished generating keypairs for {} storage nodes",
         committee_size
     );
 
@@ -320,8 +310,10 @@ pub async fn deploy_walrus_contract(
     for (i, ((keypair, network_keypair), host)) in
         keypairs.into_iter().zip(hosts.iter().cloned()).enumerate()
     {
-        let node_index = i as u16;
-        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
+        let node_index = i
+            .try_into()
+            .expect("we checked above that the number of keypairs is at most 2^16");
+        let name = node_config_name_prefix(node_index, committee_size);
         let network_address = if collocated {
             public_rest_api_address(host, rest_api_port, Some(node_index), Some(committee_size))
         } else {
@@ -352,7 +344,7 @@ pub async fn deploy_walrus_contract(
             commission_rate: 0,
             storage_price,
             write_price,
-            node_capacity: storage_capacity / (hosts.len() as u64),
+            node_capacity: storage_capacity / u64::from(committee_size.get()),
         });
     }
 
@@ -690,10 +682,10 @@ pub async fn create_storage_node_configs(
     };
 
     // Build one Sui storage node config for each storage node.
-    let committee_size = nodes.len() as u16;
+    let committee_size = committee_size_from_usize(nodes.len())?;
     let wallets = create_storage_node_wallets(
         working_dir,
-        NonZeroU16::new(committee_size).expect("committee size must be > 0"),
+        committee_size,
         testbed_config.sui_network,
         faucet_cooldown,
         admin_contract_client.wallet_mut(),
@@ -713,8 +705,10 @@ pub async fn create_storage_node_configs(
     let rpc = wallets[0].get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (node, rest_api_address)) in nodes.into_iter().zip(rest_api_addrs).enumerate() {
-        let node_index = i as u16;
-        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
+        let node_index = i
+            .try_into()
+            .expect("we checked above that the number of nodes is at most 2^16");
+        let name = node_config_name_prefix(node_index, committee_size);
 
         let metrics_address = if collocated {
             metrics_socket_address(rest_api_address.ip(), metrics_port, Some(node_index))
@@ -802,12 +796,13 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
+                enable_sliver_data_existence_check: false,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
             admin_socket_path: Some(working_dir.join(format!("admin-{}.sock", node_index))),
             node_recovery_config: Default::default(),
+            blob_event_processor_config: Default::default(),
         });
     }
 
@@ -879,6 +874,14 @@ fn replace_keystore_path(wallet_path: &Path, new_directory: &Path) -> anyhow::Re
     let serialized_config = serde_yaml::to_string(&wallet_contents)?;
     fs::write(wallet_path, serialized_config)?;
     Ok(())
+}
+
+fn committee_size_from_usize(n: usize) -> Result<NonZeroU16, anyhow::Error> {
+    NonZeroU16::new(
+        n.try_into()
+            .map_err(|_| anyhow!("committee size is too large: {} > {}", n, u16::MAX))?,
+    )
+    .ok_or_else(|| anyhow!("committee size must be > 0"))
 }
 
 async fn create_storage_node_wallets(

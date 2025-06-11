@@ -6,29 +6,23 @@
 // TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here (#307).
 
 mod basic_encoding;
-pub use basic_encoding::{
-    Decoder,
-    raptorq::{RaptorQDecoder, RaptorQEncoder},
-    reed_solomon::{ReedSolomonDecoder, ReedSolomonEncoder},
-};
+pub use basic_encoding::{Decoder, ReedSolomonDecoder, ReedSolomonEncoder};
 
 mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
-/// Quilt encoding.
 pub mod quilt_encoding;
 
 mod common;
-pub use common::{EncodingAxis, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE, Primary, Secondary};
+pub use common::{EncodingAxis, Primary, Secondary};
 
 mod config;
 pub use config::{
     EncodingConfig,
     EncodingConfigEnum,
     EncodingConfigTrait,
-    RaptorQEncodingConfig,
+    MAX_SOURCE_SYMBOLS,
     ReedSolomonEncodingConfig,
-    decoding_safety_limit,
     encoded_blob_length_for_n_shards,
     encoded_slivers_length_for_n_shards,
     max_blob_size_for_n_shards,

@@ -928,8 +928,10 @@ impl<K, V> DBMap<K, V> {
         let mut num_keys = 0;
         let mut key_bytes_total = 0;
         let mut value_bytes_total = 0;
-        let mut key_hist = hdrhistogram::Histogram::<u64>::new_with_max(100000, 2).unwrap();
-        let mut value_hist = hdrhistogram::Histogram::<u64>::new_with_max(100000, 2).unwrap();
+        let mut key_hist = hdrhistogram::Histogram::<u64>::new_with_max(100000, 2)
+            .expect("the function parameters are valid");
+        let mut value_hist = hdrhistogram::Histogram::<u64>::new_with_max(100000, 2)
+            .expect("the function parameters are valid");
         for item in self.safe_iter() {
             let (key, value) = item?;
             num_keys += 1;
@@ -987,7 +989,8 @@ impl<K, V> DBMap<K, V> {
         )
     }
 
-    // Creates a RocksDB read option with specified lower and upper bounds.
+    /// Creates a RocksDB read option with specified lower and upper bounds.
+    ///
     /// Lower bound is inclusive, and upper bound is exclusive.
     fn create_read_options_with_bounds(
         &self,

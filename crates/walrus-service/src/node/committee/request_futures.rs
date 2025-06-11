@@ -507,7 +507,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
         tracker.clear_in_progress();
 
         let upcoming_nodes = if let Some(committee) = committee.upgrade() {
-            let mut rng_guard = shared.rng.lock().expect("mutex not poisoned");
+            let mut rng_guard = shared.rng.lock().expect("mutex should not be poisoned");
             RemainingShards::new(&committee, &mut rng_guard)
         } else {
             // The committee has been dropped, so there are no nodes to query,
@@ -645,7 +645,8 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
         match self.pending_requests.len() {
             0 => (),
             i @ 1..=5 => self.stats.record_state(RecoveryStateLabel::TailRequest(
-                NonZero::new(i as u8).expect("zero is handled above"),
+                NonZero::new(i.try_into().expect("the number of requests is at most 5"))
+                    .expect("zero is handled above"),
             )),
             _ => self
                 .stats
@@ -1221,7 +1222,7 @@ fn are_storage_node_addresses_equivalent(committee: &Committee, other: &Committe
 
 async fn wait_before_next_attempts(backoff: &mut ExponentialBackoffState, rng: &SyncMutex<StdRng>) {
     let delay = backoff
-        .next_delay(&mut *rng.lock().expect("mutex is not poisoned"))
+        .next_delay(&mut *rng.lock().expect("mutex should not be poisoned"))
         .expect("infinite strategy");
     tracing::debug!(?delay, "sleeping before next attempts");
     tokio::time::sleep(delay).await;

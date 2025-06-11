@@ -77,7 +77,7 @@ pub fn price_for_encoded_length(
     price_per_unit_size: u64,
     epochs: EpochCount,
 ) -> u64 {
-    storage_units_from_size(encoded_length) * price_per_unit_size * (epochs as u64)
+    storage_units_from_size(encoded_length) * price_per_unit_size * u64::from(epochs)
 }
 
 /// Computes the price given the encoded blob size.
@@ -425,7 +425,7 @@ pub async fn get_sui_from_wallet_or_faucet(
         let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = client
-            .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
+            .select_coins(sender, None, u128::from(gas_budget + one_sui), vec![])
             .await?
             .iter()
             .map(|coin| coin.object_ref())

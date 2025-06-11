@@ -6,7 +6,7 @@
 use std::{
     collections::HashMap,
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -43,22 +43,20 @@ const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 
 /// Provides the path of the latest development contracts directory.
 pub fn development_contract_dir() -> anyhow::Result<PathBuf> {
-    Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("contracts"))
+    Ok(project_root_dir()?.join("contracts"))
 }
 
 /// Provides the path of the testnet contracts directory.
 pub fn testnet_contract_dir() -> anyhow::Result<PathBuf> {
+    Ok(project_root_dir()?.join("testnet-contracts"))
+}
+
+fn project_root_dir() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("testnet-contracts"))
+        .and_then(Path::parent)
+        .expect("the directory structure guarantees this exists")
+        .to_owned())
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.

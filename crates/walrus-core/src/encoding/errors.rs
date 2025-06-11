@@ -188,6 +188,9 @@ pub enum QuiltError {
     /// Invalid identifier.
     #[error("invalid identifier: {0}")]
     InvalidIdentifier(String),
+    /// Duplicate identifier found.
+    #[error("duplicate identifier found: {0}")]
+    DuplicateIdentifier(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

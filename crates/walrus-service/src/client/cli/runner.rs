@@ -1276,12 +1276,14 @@ async fn get_epochs_ahead(
             ensure!(
                 earliest_expiry_ts > estimated_start_of_current_epoch
                     && earliest_expiry_ts > Utc::now(),
-                "earliest_expiry_time must be greater than the current epoch start time
+                "earliest_expiry_time must be greater than the current epoch start time \
                 and the current time"
             );
             let delta =
                 (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
-            (delta / staking_object.epoch_duration() + 1) as u32
+            (delta / staking_object.epoch_duration() + 1)
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?
         }
         EpochArg {
             end_epoch: Some(end_epoch),

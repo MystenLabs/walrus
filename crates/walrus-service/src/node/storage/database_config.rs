@@ -54,7 +54,7 @@ pub struct DatabaseTableOptions {
     max_bytes_for_level_base: Option<u64>,
     /// Block cache size in bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
-    block_cache_size: Option<u64>,
+    block_cache_size: Option<usize>,
     /// Pin l0 filter and index blocks in block cache.
     #[serde(skip_serializing_if = "Option::is_none")]
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
@@ -235,7 +235,7 @@ impl DatabaseTableOptions {
         }
         if let Some(block_cache_size) = self.block_cache_size {
             let mut block_based_options = BlockBasedOptions::default();
-            block_based_options.set_block_cache(&Cache::new_lru_cache(block_cache_size as usize));
+            block_based_options.set_block_cache(&Cache::new_lru_cache(block_cache_size));
             if let Some(pin_l0_filter_and_index_blocks_in_block_cache) =
                 self.pin_l0_filter_and_index_blocks_in_block_cache
             {

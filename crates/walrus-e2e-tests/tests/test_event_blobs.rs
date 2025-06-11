@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in tests.
+#![allow(clippy::unwrap_used)]
+
 //! End-to-end tests for event blobs.
+
 use std::time::Duration;
 
 use anyhow::Context;

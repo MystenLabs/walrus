@@ -82,7 +82,7 @@ pub enum DbToolCommands {
         start_event_index: u64,
         /// Number of events to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
     },
 
     /// Read blob info from the RocksDB database.
@@ -96,7 +96,7 @@ pub enum DbToolCommands {
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
     },
 
     /// Read object blob info from the RocksDB database.
@@ -110,7 +110,7 @@ pub enum DbToolCommands {
         start_object_id: Option<ObjectID>,
         /// Count of objects to read.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
     },
 
     /// Count the number of certified blobs in the RocksDB database.
@@ -150,7 +150,7 @@ pub enum DbToolCommands {
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
         /// Output size only.
         #[arg(long, default_value = "false")]
         output_size_only: bool,
@@ -167,7 +167,7 @@ pub enum DbToolCommands {
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
         /// Shard index to read from.
         #[arg(long)]
         shard_index: u16,
@@ -184,7 +184,7 @@ pub enum DbToolCommands {
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
         /// Shard index to read from.
         #[arg(long)]
         shard_index: u16,
@@ -229,7 +229,7 @@ pub enum EventBlobWriterCommands {
         start_seq: Option<u64>,
         /// Number of entries to scan.
         #[arg(long, default_value = "1")]
-        count: u64,
+        count: usize,
     },
 
     /// Read failed-to-attest event blob metadata.
@@ -313,7 +313,7 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
     DB::repair(&opts, db_path).map_err(Into::into)
 }
 
-fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<()> {
+fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
     println!("Scanning events from event index {}", start_event_index);
     let opts = RocksdbOptions::default();
     let db = DB::open_cf_for_read_only(
@@ -353,7 +353,7 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<(
     Ok(())
 }
 
-fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u64) -> Result<()> {
+fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize) -> Result<()> {
     let blob_info_options = blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -375,7 +375,7 @@ fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u64) -
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
@@ -395,7 +395,7 @@ fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u64) -
 fn read_object_blob_info(
     db_path: PathBuf,
     start_object_id: Option<ObjectID>,
-    count: u64,
+    count: usize,
 ) -> Result<()> {
     let per_object_blob_info_options = per_object_blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
@@ -418,7 +418,7 @@ fn read_object_blob_info(
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let object_id: ObjectID = bcs::from_bytes(&key)?;
@@ -503,7 +503,7 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
 fn read_blob_metadata(
     db_path: PathBuf,
     start_blob_id: Option<BlobId>,
-    count: u64,
+    count: usize,
     output_size_only: bool,
 ) -> Result<()> {
     let db = DB::open_cf_with_opts_for_read_only(
@@ -530,7 +530,7 @@ fn read_blob_metadata(
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
@@ -558,7 +558,7 @@ fn read_blob_metadata(
 fn read_primary_slivers(
     db_path: PathBuf,
     start_blob_id: Option<BlobId>,
-    count: u64,
+    count: usize,
     shard_index: u16,
 ) -> Result<()> {
     let shard_index = ShardIndex::from(shard_index);
@@ -589,7 +589,7 @@ fn read_primary_slivers(
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
@@ -609,7 +609,7 @@ fn read_primary_slivers(
 fn read_secondary_slivers(
     db_path: PathBuf,
     start_blob_id: Option<BlobId>,
-    count: u64,
+    count: usize,
     shard_index: u16,
 ) -> Result<()> {
     let shard_index = ShardIndex::from(shard_index);
@@ -640,7 +640,7 @@ fn read_secondary_slivers(
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
@@ -735,7 +735,7 @@ fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: u64) -> Result<()> {
+fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: usize) -> Result<()> {
     let db = DB::open_cf_for_read_only(
         &RocksdbOptions::default(),
         db_path,
@@ -757,7 +757,7 @@ fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: u64
         db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
     };
 
-    for result in iter.take(count as usize) {
+    for result in iter.take(count) {
         match result {
             Ok((key, value)) => {
                 let seq: u64 = bcs::from_bytes(&key)?;

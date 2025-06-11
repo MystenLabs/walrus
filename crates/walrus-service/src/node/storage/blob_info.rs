@@ -26,7 +26,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
-use super::{DatabaseConfig, constants::*, database_config::DatabaseTableOptions};
+use super::{DatabaseConfig, constants, database_config::DatabaseTableOptions};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -71,19 +71,19 @@ impl BlobInfoTable {
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
-            Some(aggregate_blob_info_cf_name()),
+            Some(constants::aggregate_blob_info_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
         let per_object_blob_info = DBMap::reopen(
             database,
-            Some(per_object_blob_info_cf_name()),
+            Some(constants::per_object_blob_info_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
         let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
-            Some(event_index_cf_name()),
+            Some(constants::event_index_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?));
@@ -98,15 +98,15 @@ impl BlobInfoTable {
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
         vec![
             (
-                aggregate_blob_info_cf_name(),
+                constants::aggregate_blob_info_cf_name(),
                 blob_info_cf_options(db_config),
             ),
             (
-                per_object_blob_info_cf_name(),
+                constants::per_object_blob_info_cf_name(),
                 per_object_blob_info_cf_options(db_config),
             ),
             (
-                event_index_cf_name(),
+                constants::event_index_cf_name(),
                 // Doesn't make sense to have special options for the table containing a single
                 // value.
                 DatabaseTableOptions::default().to_options(),
@@ -123,7 +123,10 @@ impl BlobInfoTable {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self.latest_handled_event_index.lock().unwrap();
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating blob info for already handled event");
             return Ok(());
@@ -217,7 +220,7 @@ impl BlobInfoTable {
     }
 }
 
-// TODO(mlegner): Rewrite other tests without relying on blob-info internals. (#900)
+// TODO(#900): Rewrite other tests without relying on blob-info internals.
 #[cfg(test)]
 impl BlobInfoTable {
     pub fn batch(&self) -> DBBatch {
@@ -935,6 +938,16 @@ pub(crate) struct PermanentBlobInfoV1 {
 }
 
 impl PermanentBlobInfoV1 {
+    /// Creates a new `PermanentBlobInfoV1` object for the first blob with the given `end_epoch` and
+    /// `event`.
+    fn new_first(end_epoch: Epoch, event: EventID) -> Self {
+        Self {
+            count: NonZeroU32::new(1).expect("1 is non-zero"),
+            end_epoch,
+            event,
+        }
+    }
+
     /// Updates `self` with the `change_info`, increasing the count if `increase_count == true`.
     ///
     /// # Panics
@@ -972,11 +985,10 @@ impl PermanentBlobInfoV1 {
 
         match existing_info {
             None => {
-                *existing_info = Some(PermanentBlobInfoV1 {
-                    count: NonZeroU32::new(1).unwrap(),
-                    end_epoch: *new_end_epoch,
-                    event: *new_status_event,
-                })
+                *existing_info = Some(PermanentBlobInfoV1::new_first(
+                    *new_end_epoch,
+                    *new_status_event,
+                ))
             }
             Some(permanent_blob_info) => permanent_blob_info.update(change_info, true),
         }
@@ -985,7 +997,7 @@ impl PermanentBlobInfoV1 {
     #[cfg(test)]
     fn new_fixed_for_testing(count: u32, end_epoch: Epoch, event_seq: u64) -> Self {
         Self {
-            count: NonZeroU32::new(count).unwrap(),
+            count: NonZeroU32::new(count).expect("count must be non-zero"),
             end_epoch,
             event: walrus_sui::test_utils::fixed_event_id_for_testing(event_seq),
         }
@@ -994,7 +1006,7 @@ impl PermanentBlobInfoV1 {
     #[cfg(test)]
     fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
         Self {
-            count: NonZeroU32::new(count).unwrap(),
+            count: NonZeroU32::new(count).expect("count must be non-zero"),
             end_epoch,
             event: walrus_sui::test_utils::event_id_for_testing(),
         }
@@ -1140,11 +1152,7 @@ impl Mergeable for BlobInfoV1 {
                 }
             } else {
                 ValidBlobInfoV1 {
-                    permanent_total: Some(PermanentBlobInfoV1 {
-                        count: NonZeroU32::new(1).unwrap(),
-                        end_epoch,
-                        event: status_event,
-                    }),
+                    permanent_total: Some(PermanentBlobInfoV1::new_first(end_epoch, status_event)),
                     ..Default::default()
                 }
             }
@@ -1215,11 +1223,8 @@ impl BlobInfo {
             },
 
             BlobCertificationStatus::Registered | BlobCertificationStatus::Certified => {
-                let permanent_total = PermanentBlobInfoV1 {
-                    count: NonZeroU32::new(1).unwrap(),
-                    end_epoch,
-                    event: current_status_event,
-                };
+                let permanent_total =
+                    PermanentBlobInfoV1::new_first(end_epoch, current_status_event);
                 let permanent_certified = matches!(status, BlobCertificationStatus::Certified)
                     .then(|| permanent_total.clone());
                 ValidBlobInfoV1 {

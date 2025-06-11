@@ -8,6 +8,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
+use std::collections::HashSet;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -152,8 +153,6 @@ pub struct QuiltPatchInternalIdV1 {
 ///├─────────────┼──────────────────┼──────────────────┤
 ///│  Version    │   start_index    │    end_index     │
 ///│    Byte     │   (16 bits LE)   │   (16 bits LE)   │
-///├─────────────┼──────────────────┼──────────────────┤
-///│     8 bits  │     16 bits      │     16 bits      │
 ///└─────────────┴──────────────────┴──────────────────┘
 /// ```
 impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
@@ -220,6 +219,7 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
+    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     fn get_quilt_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_patches
             .iter()
@@ -227,19 +227,23 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
     }
 
+    /// If the quilt contains duplicate identifiers, all matching patches are returned.
     fn get_sliver_indices_for_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let patches = identifiers
+        let identifiers: HashSet<&str> = identifiers.iter().copied().collect();
+        let patches = self
+            .quilt_patches
             .iter()
-            .map(|identifier| self.get_quilt_patch_by_identifier(identifier))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(patches
+            .filter(|patch| identifiers.contains(&patch.identifier.as_str()))
+            .collect::<Vec<_>>();
+        let sliver_indices = patches
             .iter()
             .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect())
+            .collect();
+
+        Ok(sliver_indices)
     }
 
     fn patches(&self) -> &[QuiltPatchV1] {
@@ -393,7 +397,7 @@ impl VerifiedBlobMetadataWithId {
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
         let encoding_type = self.metadata.encoding_type();
-        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards(), encoding_type);
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
         let config = config.get_for_type(encoding_type);
 
         self.n_shards() == config.n_shards()
@@ -407,7 +411,10 @@ impl VerifiedBlobMetadataWithId {
     /// of shards in the encoding config with which this was verified.
     pub fn n_shards(&self) -> NonZeroU16 {
         let n_hashes = self.metadata.hashes().len();
-        NonZeroU16::new(n_hashes as u16).expect("verified metadata has a valid number of shards")
+        u16::try_from(n_hashes)
+            .ok()
+            .and_then(NonZeroU16::new)
+            .expect("verified metadata has a valid number of shards")
     }
 }
 

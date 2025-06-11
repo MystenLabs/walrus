@@ -280,7 +280,6 @@ components:
       type: string
       description: Supported Walrus encoding types.
       enum:
-      - RedStuffRaptorQ
       - RS2
     Epoch:
       type: integer

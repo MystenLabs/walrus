@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in benchmarks.
+#![allow(clippy::unwrap_used)]
+
 //! Gas cost benchmark for `walrus-sui`.
 
 use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, time::Duration};
@@ -66,10 +69,10 @@ impl FromStr for InputRange {
 }
 
 impl InputRange {
-    fn iter<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
+    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
         self.range
             .clone()
-            .step_by(self.step.clone())
+            .step_by(self.step)
             .map(|val| if self.exp { 2u32.pow(val) } else { val })
     }
 }
