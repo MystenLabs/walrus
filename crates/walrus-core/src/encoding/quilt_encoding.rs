@@ -101,6 +101,7 @@ pub trait QuiltApi<V: QuiltVersion> {
 
     /// Gets a blob by its identifier from the quilt.
     ///
+    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
@@ -182,9 +183,7 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
 pub trait QuiltEncoderApi<V: QuiltVersion> {
     /// Constructs a quilt by encoding the blobs.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the blobs have duplicate identifiers.
+    /// Note: This function returns an error if the blobs have duplicate identifiers.
     fn construct_quilt(&self) -> Result<V::Quilt, QuiltError>;
 
     /// Encodes the blobs into a quilt and returns the slivers.
@@ -203,6 +202,9 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError>;
 
     /// Gets a blob by its identifier from the quilt.
+    ///
+    /// If there are duplicate identifiers, the first one in the sort order will be returned.
+    /// Note that the sort could be unstable.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
     /// Adds slivers to the decoder.

@@ -219,6 +219,7 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
+    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     fn get_quilt_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
         self.quilt_patches
             .iter()
@@ -226,6 +227,7 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
     }
 
+    /// If the quilt contains duplicate identifiers, all matching patches are returned.
     fn get_sliver_indices_by_identifiers(
         &self,
         identifiers: &[&str],
