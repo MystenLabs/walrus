@@ -45,7 +45,7 @@ use crate::{
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
     params::{AuthPackage, Params},
-    tip::{TipConfig, check_response_tip},
+    tip::{TipConfig, check_response_tip, check_tx_freshness},
     utils::check_tx_authentication,
 };
 
@@ -53,6 +53,16 @@ const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 pub(crate) const BLOB_FAN_OUT_ROUTE: &str = "/v1/blob-fan-out";
 pub(crate) const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
 pub(crate) const API_DOCS: &str = "/v1/api";
+
+/// The maximum time gap between the time the tip transaction is executed (i.e., the tip is paid),
+/// and the request to store is made to the fan-out proxy.
+// TODO: Make this configurable.
+pub(crate) const FRESHNESS_THRESHOLD: Duration = Duration::from_secs(60 * 60); // 1 Hour.
+
+/// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
+/// This is to account for clock skew between the fan out proxy and the full nodes.
+// TODO: Make this configurable.
+pub(crate) const MAX_FUTURE_THRESHOLD: Duration = Duration::from_secs(30);
 
 /// The controller for the fanout proxy.
 ///
@@ -168,6 +178,7 @@ impl Controller {
             .await
             .map_err(Box::new)?;
 
+        check_tx_freshness(&tx, FRESHNESS_THRESHOLD, MAX_FUTURE_THRESHOLD)?;
         check_response_tip(
             &self.tip_config,
             &tx,

@@ -10,7 +10,7 @@ use walrus_sdk::sui::client::SuiClientError;
 pub(crate) enum TipError {
     /// The received transaction response does not match what is expected.
     #[error("an unexpected transaction response was received: {0}")]
-    UnexpectedResponse(String),
+    UnexpectedResponse(&'static str),
     /// The provided tip is insufficient.
     #[error("the tip is insufficient: balance change {0}; expected {1}")]
     InsufficientTip(i128, i128),
@@ -23,4 +23,7 @@ pub(crate) enum TipError {
     /// Error in the Sui client.
     #[error("sui client error: {0}")]
     SuiClient(#[from] Box<SuiClientError>),
+    /// The received transaction is too old.
+    #[error("the received transaction is too old")]
+    TxTooOld,
 }
