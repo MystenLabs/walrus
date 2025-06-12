@@ -28,12 +28,12 @@ pub(crate) fn check_tx_freshness(
     freshness_threshold: Duration,
     max_future_threshold: Duration,
 ) -> Result<(), TipError> {
-    let Some(tx_timestamp) = response.timestamp_ms else {
+    let Some(tx_timestamp_ms) = response.timestamp_ms else {
         return Err(TipError::UnexpectedResponse(
             "the transaction does not have a timestamp; it has not been executed",
         ));
     };
-    let tx_timestamp = Duration::from_millis(tx_timestamp);
+    let tx_timestamp = Duration::from_millis(tx_timestamp_ms);
     let cur_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clocks are set correctly");

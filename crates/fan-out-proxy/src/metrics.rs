@@ -10,5 +10,15 @@ define_metric_set! {
     pub(crate) struct FanOutProxyMetricSet {
         #[help = "The total count of blobs uploaded"]
         blobs_uploaded: IntCounter[],
+        #[help = "The count of blob id mismatches"]
+        blob_id_mismatch: IntCounter[],
+        #[help = "The count of errors looking up tip transactions"]
+        get_transaction_error: IntCounter[],
+        #[help = "The count of errors related to freshness checks of transactions"]
+        freshness_check_error: IntCounter[],
+        #[help = "The count of errors related to tip checks"]
+        tip_check_error: IntCounter[],
+        #[help = "The count of errors related to auth package checks"]
+        auth_package_check_error: IntCounter[],
     }
 }

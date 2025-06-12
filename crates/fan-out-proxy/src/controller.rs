@@ -22,7 +22,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
-use sui_types::digests::TransactionDigest;
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
@@ -108,8 +107,7 @@ impl Controller {
         params: Params,
     ) -> Result<ResponseType, FanOutError> {
         // Check authentication pre-conditions for fan-out.
-        self.validate_auth_package(params.tx_id, &params, body.as_ref())
-            .await?;
+        self.validate_auth_package(&params, body.as_ref()).await?;
 
         let encode_start_timer = Instant::now();
         // PERF: encoding should probably be done on a separate thread pool.
@@ -127,6 +125,7 @@ impl Controller {
         );
 
         if *metadata.blob_id() != params.blob_id {
+            self.metric_set.blob_id_mismatch.inc();
             return Err(FanOutError::BlobIdMismatch);
         }
 
@@ -165,39 +164,41 @@ impl Controller {
         })
     }
 
-    async fn validate_auth_package(
-        &self,
-        tx_id: TransactionDigest,
-        params: &Params,
-        blob: &[u8],
-    ) -> Result<(), FanOutError> {
+    async fn validate_auth_package(&self, params: &Params, blob: &[u8]) -> Result<(), FanOutError> {
         // Get transaction inputs from tx_id.
         let tx = self
             .client
             .sui_client()
             .sui_client()
             .get_transaction_with_options(
-                tx_id,
+                params.tx_id,
                 SuiTransactionBlockResponseOptions::new()
                     .with_raw_input()
                     .with_balance_changes(),
             )
             .await
-            .map_err(Box::new)?;
+            .map_err(|err| {
+                self.metric_set.get_transaction_error.inc();
+                Box::new(err)
+            })?;
 
         check_tx_freshness(
             &tx,
             self.fan_out_config.tx_freshness_threshold,
             self.fan_out_config.tx_max_future_threshold,
-        )?;
+        )
+        .inspect_err(|_| self.metric_set.freshness_check_error.inc())?;
         check_response_tip(
             &self.fan_out_config.tip_config,
             &tx,
             blob.len().try_into().expect("using 32 or 64 bit arch"),
             self.n_shards,
             params.encoding_type_or_default(),
-        )?;
-        check_tx_auth_package(blob, &params.nonce, tx)?;
+        )
+        .inspect_err(|_| self.metric_set.tip_check_error.inc())?;
+        check_tx_auth_package(blob, &params.nonce, tx).inspect_err(|_| {
+            self.metric_set.auth_package_check_error.inc();
+        })?;
 
         // This request looks OK.
         Ok(())
