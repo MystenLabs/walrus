@@ -21,6 +21,7 @@ use walrus_core::{
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
+use walrus_utils::read_blob_from_file;
 
 use crate::{
     client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
@@ -49,20 +50,18 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
             )));
         }
 
+        // Ignores non-file and non-directory paths.
         if path.is_file() {
             collected_files.insert(path.to_path_buf());
         } else if path.is_dir() {
             collected_files.extend(get_all_files_from_dir(path)?);
-        } else {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                format!("Path is neither a file nor a directory: {:?}.", path).into(),
-            )));
         }
     }
 
-    let mut collected_files_with_content: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut collected_files_with_content = Vec::with_capacity(collected_files.len());
     for file_path in collected_files {
-        let content = fs::read(&file_path).map_err(ClientError::other)?;
+        let content = read_blob_from_file(&file_path)
+            .map_err(|e| ClientError::from(ClientErrorKind::Other(e.to_string().into())))?;
         collected_files_with_content.push((file_path, content));
     }
 
@@ -70,7 +69,7 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
 }
 
 /// Get all file paths from a directory recursively.
-fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<Vec<PathBuf>> {
+fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<PathBuf>> {
     let path = path.as_ref();
     let mut collected_files: HashSet<PathBuf> = HashSet::new();
     let dir_entries = fs::read_dir(path).map_err(ClientError::other)?;
@@ -83,7 +82,7 @@ fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<Vec<PathBuf>>
         }
     }
 
-    Ok(collected_files.into_iter().collect())
+    Ok(collected_files)
 }
 
 /// A facade for interacting with Walrus quilt.
@@ -128,7 +127,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     "failed to retrieve index slivers, trying to get quilt instead {}",
                     quilt_id
                 );
-                self.get_quilt_enum(&metadata, certified_epoch)
+                // TODO(WAL-879): Cache the quilt.
+                self.get_full_quilt(&metadata, certified_epoch)
                     .await?
                     .get_quilt_index()?
             };
@@ -176,7 +176,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 self.retrieve_quilt_index_internal::<QuiltVersionV1>(
                     metadata,
                     certified_epoch,
-                    &slivers,
+                    first_sliver,
                 )
                 .await?
             }
@@ -189,14 +189,14 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
-        first_sliver: &[SliverData<V::SliverAxis>],
+        first_sliver: &SliverData<V::SliverAxis>,
     ) -> ClientResult<QuiltIndex>
     where
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
         let mut all_slivers = Vec::new();
-        let mut refs = Vec::new();
-        let first_sliver_refs: Vec<_> = first_sliver.iter().collect();
+        let mut refs = [first_sliver].to_vec();
+        let first_sliver_refs = [first_sliver].to_vec();
         let mut decoder = V::QuiltConfig::get_decoder(&first_sliver_refs);
 
         let quilt_index = match decoder.get_or_decode_quilt_index() {
@@ -245,7 +245,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         Ok(blobs)
     }
 
-    /// Retrieves quilt patches from QuiltV1 by identifiers.
+    /// Retrieves blobs from quilt by identifiers.
     async fn get_blobs_by_identifiers_impl<V: QuiltVersion>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -284,7 +284,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 })
                 .collect::<Result<Vec<_>, _>>()
         } else {
-            let quilt = self.get_quilt_enum(metadata, certified_epoch).await?;
+            let quilt = self.get_full_quilt(metadata, certified_epoch).await?;
             identifiers
                 .iter()
                 .map(|identifier| {
@@ -297,7 +297,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     }
 
     /// Retrieves the quilt from Walrus.
-    async fn get_quilt_enum(
+    async fn get_full_quilt(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
@@ -389,19 +389,12 @@ impl QuiltClient<'_, SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
-        // Read blobs from the paths.
-        let blobs_with_paths = read_blobs_from_paths(paths)?;
-        if blobs_with_paths.is_empty() {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                "No valid files found in the specified folder".into(),
-            )));
-        }
-
-        let quilt_store_blobs: Vec<_> = Self::assign_identifiers_with_paths(&blobs_with_paths);
-
+        let quilt = self
+            .construct_quilt_from_paths::<V, P>(paths, encoding_type)
+            .await?;
         let result = self
             .reserve_and_store_quilt::<V>(
-                &quilt_store_blobs,
+                &quilt,
                 encoding_type,
                 epochs_ahead,
                 store_when,
@@ -417,31 +410,13 @@ impl QuiltClient<'_, SuiContractClient> {
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
-        quilt_store_blobs: &[QuiltStoreBlob<'_>],
+        quilt: &V::Quilt,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
-        if quilt_store_blobs.is_empty() {
-            return Err(ClientError::from(ClientErrorKind::StoreBlobInternal(
-                "no blobs to store".to_string(),
-            )));
-        }
-
-        let encoder = V::QuiltConfig::get_encoder(
-            self.client.encoding_config().get_for_type(encoding_type),
-            quilt_store_blobs,
-        );
-        let quilt = encoder.construct_quilt()?;
-
-        tracing::debug!(
-            "constructed quilt, size: {:?}, symbol size: {:?}",
-            quilt.data().len(),
-            quilt.symbol_size()
-        );
-
         let result = self
             .client
             .reserve_and_store_blobs_retry_committees(

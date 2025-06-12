@@ -1039,7 +1039,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .await?;
     let store_operation_result = quilt_write_client
         .reserve_and_store_quilt::<QuiltVersionV1>(
-            &quilt_store_blobs,
+            &quilt,
             encoding_type,
             2,
             StoreWhen::Always,

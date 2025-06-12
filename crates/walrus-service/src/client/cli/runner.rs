@@ -56,7 +56,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::wallet::Wallet;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::args::{
     AggregatorArgs,
@@ -89,7 +89,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            read_blob_from_file,
             success,
             warning,
         },
