@@ -1447,7 +1447,7 @@ impl<T> Client<T> {
         self
     }
 
-    /// Returns a [`QuiltClient`] for storing quilts.
+    /// Returns a [`QuiltClient`] for storing and retrieving quilts.
     pub fn quilt_client(&self) -> QuiltClient<'_, T> {
         QuiltClient::new(self)
     }

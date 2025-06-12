@@ -28,7 +28,7 @@ use crate::{
     store_when::StoreWhen,
 };
 
-// Reads all files recursively from a given path and returns them as path-content pairs.
+/// Reads all files recursively from a given path and returns them as path-content pairs.
 ///
 /// If the path is a file, it's read directly.
 /// If the path is a directory, its files are read recursively.
@@ -45,7 +45,7 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
         // Validate path existence and accessibility.
         if !path.exists() {
             return Err(ClientError::from(ClientErrorKind::Other(
-                format!("Path does not exist: {:?}.", path).into(),
+                format!("Path '{}' does not exist.", path.display()).into(),
             )));
         }
 
