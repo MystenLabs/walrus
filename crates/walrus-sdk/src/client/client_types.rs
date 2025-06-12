@@ -35,7 +35,7 @@ pub struct StoredQuiltPatch {
     /// The identifier of the quilt patch.
     pub identifier: String,
     /// The quilt patch id.
-    pub quilt_blob_id: QuiltPatchId,
+    pub quilt_patch_id: String,
 }
 
 impl StoredQuiltPatch {
@@ -43,7 +43,7 @@ impl StoredQuiltPatch {
     pub fn new<T: QuiltPatchInternalIdApi>(blob_id: BlobId, identifier: &str, patch_id: T) -> Self {
         Self {
             identifier: identifier.to_string(),
-            quilt_blob_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()),
+            quilt_patch_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()).to_string(),
         }
     }
 }
