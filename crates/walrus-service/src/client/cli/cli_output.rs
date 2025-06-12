@@ -9,11 +9,17 @@ use indoc::printdoc;
 use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
-use walrus_core::{BlobId, ShardIndex};
+use walrus_core::{
+    BlobId,
+    ShardIndex,
+    encoding::quilt_encoding::{QuiltIndexApi, QuiltPatchApi},
+    metadata::{QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1},
+};
 use walrus_sdk::{
     client::{
+        client_types::StoredQuiltPatch,
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
     format_event_id,
 };
@@ -57,6 +63,7 @@ use crate::client::{
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
+        StoreQuiltDryRunOutput,
         WalletOutput,
     },
 };
@@ -239,6 +246,19 @@ impl CliOutput for BlobStoreResultWithPath {
     }
 }
 
+impl CliOutput for QuiltStoreResult {
+    fn print_cli_output(&self) {
+        let blob_store_result = BlobStoreResultWithPath {
+            blob_store_result: self.blob_store_result.clone(),
+            path: PathBuf::from("path(s) ignored for quilt store result"),
+        };
+        blob_store_result.print_cli_output();
+
+        let table_output = construct_stored_quilt_patch_table(&self.stored_quilt_blobs);
+        table_output.printstd();
+    }
+}
+
 impl CliOutput for ReadOutput {
     fn print_cli_output(&self) {
         if let Some(path) = &self.out {
@@ -287,6 +307,87 @@ impl CliOutput for DryRunOutput {
             HumanReadableFrost::from(self.storage_cost),
         )
     }
+}
+
+impl CliOutput for StoreQuiltDryRunOutput {
+    fn print_cli_output(&self) {
+        self.quilt_blob_output.print_cli_output();
+        let stored_quilt_patches = self
+            .quilt_index
+            .patches()
+            .iter()
+            .map(|patch| {
+                StoredQuiltPatch::new(
+                    self.quilt_blob_output.blob_id,
+                    &patch.identifier,
+                    patch.quilt_patch_internal_id(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let table_output = construct_stored_quilt_patch_table(&stored_quilt_patches);
+        table_output.printstd();
+    }
+}
+
+impl CliOutput for QuiltIndex {
+    fn print_cli_output(&self) {
+        match self {
+            QuiltIndex::V1(indexv1) => indexv1.print_cli_output(),
+        }
+    }
+}
+
+impl CliOutput for QuiltIndexV1 {
+    fn print_cli_output(&self) {
+        println!(
+            "{}",
+            format!(
+                "Quilt patches in QuiltV1, total number of patches: {}",
+                self.quilt_patches.len()
+            )
+            .bold()
+            .walrus_purple()
+        );
+
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![
+            b->"Index",
+            b->"Index Range",
+            b->"Identifier"
+        ]);
+
+        for (i, quilt_patch) in self.patches().iter().enumerate() {
+            table.add_row(row![
+                bFc->format!("{i}"),
+                format!("{}..{}", quilt_patch.start_index, quilt_patch.end_index),
+                quilt_patch.identifier
+            ]);
+        }
+
+        table.printstd();
+    }
+}
+
+fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Table {
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(row![
+        b->"Index",
+        b->"QuiltPatchId",
+        b->"Identifier"
+    ]);
+
+    for (i, quilt_patch) in quilt_patches.iter().enumerate() {
+        table.add_row(row![
+            bFc->format!("{i}"),
+            quilt_patch.quilt_patch_id,
+            quilt_patch.identifier
+        ]);
+    }
+
+    table
 }
 
 impl CliOutput for BlobStatusOutput {
@@ -1133,5 +1234,37 @@ impl CliOutput for GetBlobAttributeOutput {
         } else {
             println!("No attribute found");
         }
+    }
+}
+
+impl CliOutput for QuiltMetadata {
+    fn print_cli_output(&self) {
+        match self {
+            QuiltMetadata::V1(metadata_v1) => metadata_v1.print_cli_output(),
+        }
+    }
+}
+
+impl CliOutput for QuiltMetadataV1 {
+    fn print_cli_output(&self) {
+        println!("{}", "Quilt Metadata".bold().walrus_purple());
+        println!("Quilt Blob ID: {}", self.quilt_blob_id);
+
+        // Create the quilt blobs table from index
+        let stored_quilt_patches = self
+            .index
+            .quilt_patches
+            .iter()
+            .map(|patch| {
+                StoredQuiltPatch::new(
+                    self.quilt_blob_id,
+                    &patch.identifier,
+                    patch.quilt_patch_internal_id(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let table_output = construct_stored_quilt_patch_table(&stored_quilt_patches);
+        table_output.printstd();
     }
 }

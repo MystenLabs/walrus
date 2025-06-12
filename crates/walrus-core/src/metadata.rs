@@ -134,6 +134,13 @@ impl QuiltIndex {
             }
         }
     }
+
+    /// Returns the patches in the quilt index.
+    pub fn patches(&self) -> &[QuiltPatchV1] {
+        match self {
+            QuiltIndex::V1(quilt_index) => quilt_index.patches(),
+        }
+    }
 }
 
 /// QuiltPatchInternalIdV1.

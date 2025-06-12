@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use walrus_core::BlobId;
+use walrus_core::{BlobId, QuiltPatchId};
 use walrus_sdk::{
     blocklist::Blocklist,
     client::Client,
@@ -425,6 +425,14 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
         Err(_) => BlobIdParseError::InvalidBlobId,
         Ok(blob_id) => BlobIdParseError::BlobIdInDecimalFormat(blob_id.into()),
     })
+}
+
+/// Parses a quilt blob ID from a string.
+pub fn parse_quilt_blob_id(input: &str) -> Result<QuiltPatchId, BlobIdParseError> {
+    if let Ok(quilt_blob_id) = QuiltPatchId::from_str(input) {
+        return Ok(quilt_blob_id);
+    }
+    Err(BlobIdParseError::InvalidBlobId)
 }
 
 /// Helper struct to parse and format blob IDs as decimal numbers.
