@@ -36,6 +36,8 @@
   - [Data security](./dev-guide/data-security.md)
 - [Operating an aggregator or publisher](./operator-guide/aggregator.md)
   - [The authenticated Publisher](./operator-guide/auth-publisher.md)
+- [Operating a storage node](./operator-guide/storage-node.md)
+  - [Commission and Governance](./operator-guide/commission-governance.md)
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
