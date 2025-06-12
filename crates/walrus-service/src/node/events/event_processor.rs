@@ -1013,6 +1013,8 @@ impl EventProcessor {
         metrics: Option<&EventProcessorMetrics>,
     ) -> Result<()> {
         tracing::info!("Starting event catchup using event blobs");
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_catchup_using_event_blobs_start");
         let next_checkpoint = stores
             .checkpoint_store
             .reversed_safe_iter_with_bounds(None, None)?
