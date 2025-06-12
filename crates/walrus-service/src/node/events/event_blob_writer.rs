@@ -45,17 +45,20 @@ use walrus_sui::{
 };
 use walrus_utils::metrics::Registry;
 
-use crate::node::{
-    DatabaseConfig,
-    StorageNodeInner,
-    errors::StoreSliverError,
-    events::{
-        EventStreamCursor,
-        EventStreamElement,
-        IndexedStreamEvent,
-        InitState,
-        PositionedStreamEvent,
-        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+use crate::{
+    common::event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
+    node::{
+        DatabaseConfig,
+        StorageNodeInner,
+        errors::StoreSliverError,
+        events::{
+            EventStreamCursor,
+            EventStreamElement,
+            IndexedStreamEvent,
+            InitState,
+            PositionedStreamEvent,
+            event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+        },
     },
 };
 
@@ -108,17 +111,16 @@ pub struct EventBlobMetadata<T, U> {
 }
 
 /// Metadata for a blob that is waiting for attestation.
-pub(crate) type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
+pub type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
 
 /// Metadata for a blob that failed to attest.
-pub(crate) type FailedToAttestEventBlobMetadata =
-    EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub type FailedToAttestEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last attested.
-pub(crate) type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last certified.
-pub(crate) type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
+pub type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
 
 impl PendingEventBlobMetadata {
     fn new(
@@ -279,13 +281,7 @@ impl EventBlobWriterFactory {
     }
 
     /// Cleans up orphaned blob files from the filesystem that don't exist in any database.
-    fn cleanup_orphaned_blobs(
-        blobs_path: &Path,
-        pending: &DBMap<u64, PendingEventBlobMetadata>,
-        attested: &DBMap<(), AttestedEventBlobMetadata>,
-        failed_to_attest: &DBMap<(), FailedToAttestEventBlobMetadata>,
-        certified: &DBMap<(), CertifiedEventBlobMetadata>,
-    ) -> Result<()> {
+    fn cleanup_orphaned_blobs(&self, blobs_path: &Path) -> Result<()> {
         if !blobs_path.exists() {
             return Ok(());
         }
@@ -304,23 +300,26 @@ impl EventBlobWriterFactory {
                 .and_then(|name| name.parse::<u64>().ok());
             if let Some(event_index) = event_index {
                 // Check if blob exists in any database
-                let exists_in_db = pending.safe_iter().any(|result| {
+                let exists_in_db = self.pending.safe_iter().any(|result| {
                     result
                         .map(|(_, metadata)| metadata.event_cursor.element_index == event_index)
                         .unwrap_or(false)
-                }) || attested
+                }) || self
+                    .attested
                     .get(&())
                     .ok()
                     .flatten()
                     .map(|metadata| metadata.event_cursor.element_index == event_index)
                     .unwrap_or(false)
-                    || failed_to_attest
+                    || self
+                        .failed_to_attest
                         .get(&())
                         .ok()
                         .flatten()
                         .map(|metadata| metadata.event_cursor.element_index == event_index)
                         .unwrap_or(false)
-                    || certified
+                    || self
+                        .certified
                         .get(&())
                         .ok()
                         .flatten()
@@ -342,13 +341,13 @@ impl EventBlobWriterFactory {
     }
 
     /// Create a new event blob writer factory.
-    pub fn new(
+    pub async fn new(
         root_dir_path: &Path,
         db_config: &DatabaseConfig,
         node: Arc<StorageNodeInner>,
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
-        last_certified_event_blob: Option<SuiEventBlob>,
+        last_certified_event_blob: Option<LastCertifiedEventBlob>,
         num_uncertified_blob_threshold: Option<usize>,
     ) -> Result<EventBlobWriterFactory> {
         let db_path = Self::db_path(root_dir_path);
@@ -414,94 +413,230 @@ impl EventBlobWriterFactory {
             false,
         )?;
 
-        let blobs_path = Self::blobs_path(root_dir_path);
-        Self::cleanup_orphaned_blobs(
-            &blobs_path,
-            &pending,
-            &attested,
-            &failed_to_attest,
-            &certified,
-        )?;
-
-        Self::reset_uncertified_blobs(
-            &pending,
-            &attested,
-            &failed_to_attest,
-            num_uncertified_blob_threshold,
-            last_certified_event_blob,
-            &blobs_path,
-        )?;
-
-        let event_cursor = pending
-            .safe_iter()
-            .last()
-            .map(|result| result.map(|(_, metadata)| metadata.event_cursor))
-            .transpose()?
-            .or_else(|| {
-                failed_to_attest
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.event_cursor)
-            })
-            .or_else(|| {
-                attested
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.event_cursor)
-            })
-            .or_else(|| {
-                certified
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.event_cursor)
-            });
-        let epoch = pending
-            .safe_iter()
-            .last()
-            .map(|result| result.map(|(_, metadata)| metadata.epoch))
-            .transpose()?
-            .or_else(|| {
-                failed_to_attest
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.epoch)
-            })
-            .or_else(|| {
-                attested
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.epoch)
-            })
-            .or_else(|| {
-                certified
-                    .get(&())
-                    .ok()
-                    .flatten()
-                    .map(|metadata| metadata.epoch)
-            });
-        let prev_certified_blob_id = certified
-            .get(&())
-            .ok()
-            .flatten()
-            .map(|metadata| metadata.blob_id);
-        Ok(Self {
+        let mut factory = Self {
             root_dir_path: root_dir_path.to_path_buf(),
             node,
             metrics: Arc::new(EventBlobWriterMetrics::new(registry)),
-            event_cursor,
-            epoch,
-            prev_certified_blob_id,
+            event_cursor: None,
+            epoch: None,
+            prev_certified_blob_id: None,
             certified,
             attested,
             pending,
             failed_to_attest,
             num_checkpoints_per_blob,
-        })
+        };
+
+        // Touch a file in msim environment to notify that last certified blob is
+        // with or without metadata
+        #[cfg(msim)]
+        {
+            match last_certified_event_blob {
+                Some(LastCertifiedEventBlob::EventBlobWithMetadata(_)) => {
+                    let file_path =
+                        Self::db_path(root_dir_path).join("last_certified_blob_with_metadata");
+                    fs::File::create(file_path)?;
+                    // Remove file without metadata
+                    let file_path =
+                        Self::db_path(root_dir_path).join("last_certified_blob_without_metadata");
+                    if file_path.exists() {
+                        fs::remove_file(file_path)?;
+                    }
+                }
+                None | Some(LastCertifiedEventBlob::EventBlob(_)) => {
+                    let file_path =
+                        Self::db_path(root_dir_path).join("last_certified_blob_without_metadata");
+                    fs::File::create(file_path)?;
+                    // Remove file with metadata
+                    let file_path =
+                        Self::db_path(root_dir_path).join("last_certified_blob_with_metadata");
+                    if file_path.exists() {
+                        fs::remove_file(file_path)?;
+                    }
+                }
+            }
+        }
+
+        let mut wb = factory.pending.batch();
+        match last_certified_event_blob {
+            Some(LastCertifiedEventBlob::EventBlobWithMetadata(latest)) => {
+                factory.handle_event_blob_with_metadata(
+                    latest,
+                    num_uncertified_blob_threshold,
+                    &mut wb,
+                )?;
+            }
+            Some(LastCertifiedEventBlob::EventBlob(event_blob)) => {
+                factory.handle_event_blob_without_metadata(
+                    event_blob,
+                    num_uncertified_blob_threshold,
+                    &mut wb,
+                )?;
+            }
+            None => {
+                tracing::info!("No certified event blob exists");
+            }
+        }
+
+        wb.write()?;
+
+        // flush db in msim
+        #[cfg(msim)]
+        {
+            tracing::info!("flushing db");
+            factory.certified.flush()?;
+        }
+
+        let blobs_path = Self::blobs_path(root_dir_path);
+        factory.cleanup_orphaned_blobs(&blobs_path)?;
+
+        let event_cursor = factory
+            .pending
+            .safe_iter()
+            .last()
+            .map(|result| result.map(|(_, metadata)| metadata.event_cursor))
+            .transpose()?
+            .or_else(|| {
+                factory
+                    .failed_to_attest
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor)
+            })
+            .or_else(|| {
+                factory
+                    .attested
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor)
+            })
+            .or_else(|| {
+                factory
+                    .certified
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor)
+            });
+        let epoch = factory
+            .pending
+            .safe_iter()
+            .last()
+            .map(|result| result.map(|(_, metadata)| metadata.epoch))
+            .transpose()?
+            .or_else(|| {
+                factory
+                    .failed_to_attest
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.epoch)
+            })
+            .or_else(|| {
+                factory
+                    .attested
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.epoch)
+            })
+            .or_else(|| {
+                factory
+                    .certified
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.epoch)
+            });
+        let prev_certified_blob_id = factory
+            .certified
+            .get(&())
+            .ok()
+            .flatten()
+            .map(|metadata| metadata.blob_id);
+
+        factory.event_cursor = event_cursor;
+        factory.epoch = epoch;
+        factory.prev_certified_blob_id = prev_certified_blob_id;
+
+        Ok(factory)
+    }
+
+    /// Handles the case where the last certified event blob has metadata.
+    fn handle_event_blob_with_metadata(
+        &self,
+        latest: EventBlobWithMetadata,
+        num_uncertified_blob_threshold: Option<usize>,
+        wb: &mut DBBatch,
+    ) -> Result<()> {
+        tracing::info!(
+            "Found last certified event blob with metadata: {:?}",
+            latest
+        );
+        let current_certified = self.certified.get(&())?;
+        tracing::info!("current certified: {:?}", current_certified);
+        if current_certified.is_some_and(|current_certified| {
+            latest.event_stream_cursor.element_index > current_certified.event_cursor.element_index
+        }) {
+            // The last certified event blob is ahead of the local certified event blob.
+            // We skip past all the blobs until the last certified event blob and delete
+            // all the uncertified blobs. If this was a local fork, the pending blobs
+            // will also be in bad shape and discarding them is needed to recover.
+            tracing::info!("Skipping past all the blobs until the last certified event blob");
+            let certified_metadata = CertifiedEventBlobMetadata::new(
+                latest.blob_id,
+                latest.event_stream_cursor,
+                latest.epoch,
+            );
+            wb.insert_batch(&self.certified, std::iter::once(((), certified_metadata)))?;
+            wb.delete_batch(&self.attested, std::iter::once(()))?;
+            wb.delete_batch(&self.failed_to_attest, std::iter::once(()))?;
+            for entry in self.pending.safe_iter() {
+                wb.delete_batch(&self.pending, std::iter::once(entry?.0))?;
+            }
+        } else {
+            // The last certified event blob is same as the local certified event blob.
+            // We reset the uncertified blobs to recover from potential global fork where
+            // nodes cannot agree on the last certified event blob.
+            Self::reset_uncertified_blobs(
+                &self.pending,
+                &self.attested,
+                &self.failed_to_attest,
+                num_uncertified_blob_threshold,
+                Some(latest.blob()),
+                &Self::blobs_path(&self.root_dir_path),
+                wb,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Handles the case where the last certified event blob does not have metadata.
+    fn handle_event_blob_without_metadata(
+        &self,
+        event_blob: SuiEventBlob,
+        num_uncertified_blob_threshold: Option<usize>,
+        wb: &mut DBBatch,
+    ) -> Result<()> {
+        // Without metadata, we don't have enough information to skip past any blobs.
+        // We reset the uncertified blobs to recover from potential global fork where
+        // nodes cannot agree on the last certified event blob.
+        tracing::info!(
+            "Found last certified event blob without metadata: {:?}",
+            event_blob
+        );
+        Self::reset_uncertified_blobs(
+            &self.pending,
+            &self.attested,
+            &self.failed_to_attest,
+            num_uncertified_blob_threshold,
+            Some(event_blob),
+            &Self::blobs_path(&self.root_dir_path),
+            wb,
+        )?;
+        Ok(())
     }
 
     /// Returns a clone of the current event cursor position.
@@ -576,6 +711,7 @@ impl EventBlobWriterFactory {
         num_uncertified_blob_threshold: Option<usize>,
         last_certified_event_blob: Option<SuiEventBlob>,
         blobs_path: &Path,
+        write_batch: &mut DBBatch,
     ) -> Result<()> {
         let Some(last_certified_event_blob) = last_certified_event_blob else {
             return Ok(());
@@ -645,24 +781,21 @@ impl EventBlobWriterFactory {
         );
 
         let mut blobs_to_delete = Vec::new();
-        let mut wb = pending_db.batch();
 
         for (k, metadata) in pending {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(pending_db, std::iter::once(k))?;
+            write_batch.delete_batch(pending_db, std::iter::once(k))?;
         }
 
         for (_, metadata) in attested {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(attested_db, std::iter::once(()))?;
+            write_batch.delete_batch(attested_db, std::iter::once(()))?;
         }
 
         for (_, metadata) in failed_to_attest {
             blobs_to_delete.push(metadata.event_cursor.element_index);
-            wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
+            write_batch.delete_batch(failed_to_attest_db, std::iter::once(()))?;
         }
-
-        wb.write()?;
 
         for blob_index in blobs_to_delete {
             let blob_path = blobs_path.join(blob_index.to_string());
@@ -676,6 +809,15 @@ impl EventBlobWriterFactory {
         }
 
         Ok(())
+    }
+
+    /// Returns the event cursor of the last certified event blob.
+    pub fn last_certified_event_blob_cursor(&self) -> Option<EventStreamCursor> {
+        self.certified
+            .get(&())
+            .ok()
+            .flatten()
+            .map(|metadata| metadata.event_cursor)
     }
 }
 
@@ -1376,6 +1518,11 @@ impl EventBlobWriter {
 
         batch.write()?;
 
+        #[cfg(msim)]
+        {
+            self.certified.flush()?;
+        }
+
         self.metrics
             .latest_processed_event_index
             .set(element_index.try_into()?);
@@ -1658,7 +1805,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1711,7 +1859,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 
@@ -1794,7 +1943,8 @@ mod tests {
             Some(10),
             None,
             None,
-        )?;
+        )
+        .await?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * u64::from(blob_writer.num_checkpoints_per_blob());
 

@@ -12803,10 +12803,12 @@ name = "walrus-simtest"
 version = "1.27.0"
 dependencies = [
  "anyhow",
+ "bcs",
  "futures",
  "prometheus",
  "rand 0.8.5",
  "reqwest",
+ "rocksdb",
  "sui-macros",
  "sui-protocol-config",
  "sui-rpc-api",
@@ -12814,6 +12816,7 @@ dependencies = [
  "sui-types",
  "tokio",
  "tracing",
+ "typed-store 1.27.0",
  "walrus-core",
  "walrus-proc-macros",
  "walrus-sdk",
