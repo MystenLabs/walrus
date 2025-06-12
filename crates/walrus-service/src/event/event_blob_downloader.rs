@@ -83,10 +83,9 @@ impl EventBlobDownloader {
         let blob = LocalEventBlob::new(&result)?;
         let blob_epoch = blob.ending_epoch()?;
         let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();
-        let blob_iter = blob.into_iter();
-        let blob_event = blob_iter
-            .last()
-            .ok_or(anyhow::anyhow!("No events in blob"))?;
+        let blob_event = blob.into_iter().last().ok_or(anyhow::anyhow!(
+            "last certified event blob does not contain any events"
+        ))?;
         Ok(Some(EventBlobWithMetadata {
             blob_id,
             event_stream_cursor: EventStreamCursor::new(
@@ -110,7 +109,7 @@ impl EventBlobDownloader {
         metrics: &EventCatchupManagerMetrics,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
-        let mut prev_event_blob = match from_blob {
+        let mut event_blob_id = match from_blob {
             Some(blob) => blob,
             None => match self.sui_read_client.last_certified_event_blob().await? {
                 Some(blob) => blob.blob_id,
@@ -120,61 +119,60 @@ impl EventBlobDownloader {
 
         tracing::info!(
             "starting download of event blobs from latest blob ID {} and going backwards",
-            prev_event_blob
+            event_blob_id
         );
 
-        while prev_event_blob != BlobId::ZERO {
-            let blob_status = match self
-                .walrus_client
-                .get_blob_status_with_retries(&prev_event_blob, &self.sui_read_client)
-                .await
-            {
-                Ok(blob_status) => blob_status,
-                Err(err) => {
-                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                        // We've reached an expired blob, safe to terminate
-                        break;
-                    } else {
-                        return Err(err.into());
-                    }
-                }
-            };
-
-            if blob_status == BlobStatus::Nonexistent {
-                // We've reached an expired blob, safe to terminate
+        loop {
+            if event_blob_id == BlobId::ZERO {
+                tracing::info!("reached the beginning of the event history",);
                 break;
             }
 
-            let blob_path = path.join(prev_event_blob.to_string());
-            let blob = if blob_path.exists() {
-                metrics
-                    .event_catchup_manager_event_blob_fetched
-                    .with_label_values(&["local"])
-                    .inc();
-                std::fs::read(blob_path.as_path())?
+            let blob_status = match self
+                .walrus_client
+                .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
+                .await
+            {
+                Ok(blob_status) => blob_status,
+                Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
+                    BlobStatus::Nonexistent
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            if blob_status == BlobStatus::Nonexistent {
+                tracing::info!(
+                    "stopping downloading event blobs with expired blob {}",
+                    event_blob_id
+                );
+                break;
+            }
+
+            let blob_path = path.join(event_blob_id.to_string());
+            let (blob, blob_source) = if blob_path.exists() {
+                (std::fs::read(blob_path.as_path())?, "local")
             } else {
                 match self
                     .walrus_client
                     .read_blob_with_status::<walrus_core::encoding::Primary>(
-                        &prev_event_blob,
+                        &event_blob_id,
                         blob_status,
                     )
                     .await
                 {
-                    Ok(blob) => {
-                        metrics
-                            .event_catchup_manager_event_blob_fetched
-                            .with_label_values(&["network"])
-                            .inc();
-                        blob
-                    }
+                    Ok(blob) => (blob, "network"),
                     Err(err) => {
                         return Err(err.into());
                     }
                 }
             };
 
-            tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
+            metrics
+                .event_catchup_manager_event_blob_fetched
+                .with_label_values(&[blob_source])
+                .inc();
+
+            tracing::info!(blob_id = %event_blob_id, "finished reading event blob");
 
             let mut event_blob = LocalEventBlob::new(&blob)?;
 
@@ -186,19 +184,19 @@ impl EventBlobDownloader {
             };
 
             if should_store {
-                blobs.push(prev_event_blob);
+                blobs.push(event_blob_id);
                 let num_checkpoints_stored = event_blob.end_checkpoint_sequence_number()
                     - event_blob.start_checkpoint_sequence_number()
                     + 1;
                 tracing::info!(
                     "storing event blob {} with {} checkpoints",
-                    prev_event_blob,
+                    event_blob_id,
                     num_checkpoints_stored
                 );
             } else {
                 tracing::info!(
                     "skipping event blob {} as it contains events only before the next checkpoint",
-                    prev_event_blob
+                    event_blob_id
                 );
                 break;
             }
@@ -213,7 +211,7 @@ impl EventBlobDownloader {
                 }
             }
 
-            prev_event_blob = event_blob.prev_blob_id();
+            event_blob_id = event_blob.prev_blob_id();
         }
 
         Ok(blobs)

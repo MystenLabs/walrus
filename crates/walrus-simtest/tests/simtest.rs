@@ -8,7 +8,10 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{Arc, atomic::AtomicBool},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
@@ -83,6 +86,7 @@ mod tests {
             false,
             &mut blobs_written,
             0,
+            None,
         )
         .await
         .expect("workload should not fail");
@@ -142,9 +146,10 @@ mod tests {
             .unwrap();
 
         let client_arc = Arc::new(client);
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true, 0);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), true, 0, None);
 
-        // Run the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
         // Repeatedly move shards among storage nodes.
@@ -206,7 +211,7 @@ mod tests {
         fail_triggered: Arc<AtomicBool>,
         crash_duration: Duration,
     ) {
-        if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
+        if fail_triggered.load(Ordering::SeqCst) {
             // We only need to trigger failure once.
             return;
         }
@@ -217,7 +222,7 @@ mod tests {
         }
 
         tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
-        fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
+        fail_triggered.store(true, Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
@@ -268,9 +273,9 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
-        // Running the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(90)).await;
 
         walrus_cluster.nodes[5].node_id = Some(
@@ -451,9 +456,9 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
-        // Running the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
         // Register a fail point to have a temporary pause in the node recovery process that is
@@ -525,9 +530,10 @@ mod tests {
             .await
             .unwrap();
 
-        let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true, 0);
+        let workload_handle =
+            simtest_utils::start_background_workload(Arc::new(client), true, 0, None);
 
-        // Run the workload for 120 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(120)).await;
 
         workload_handle.abort();

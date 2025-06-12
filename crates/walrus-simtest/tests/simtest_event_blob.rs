@@ -473,7 +473,7 @@ mod tests {
 
         // Wait for the cluster to process some events.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.

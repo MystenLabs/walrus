@@ -84,6 +84,7 @@ mod tests {
                 false,
                 &mut blobs_written,
                 0,
+                None,
             )
             .await
             .expect("workload should not fail");
@@ -106,6 +107,7 @@ mod tests {
                     false,
                     &mut blobs_written,
                     0,
+                    None,
                 )
                 .await
                 .expect("workload should not fail");
@@ -231,7 +233,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -429,7 +431,8 @@ mod tests {
         let client_arc = Arc::new(client);
 
         // Use a higher write retry limit given that the epoch duration is short.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true, 5);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), true, 5, None);
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
@@ -647,7 +650,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node is lagging behind.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;

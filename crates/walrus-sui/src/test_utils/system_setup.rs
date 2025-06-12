@@ -37,7 +37,9 @@ use crate::{
     wallet::Wallet,
 };
 
-const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
+/// The default value for the maximum number of epochs for which blobs can be stored.
+pub const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 53;
+
 const ONE_WAL: u64 = 1_000_000_000;
 const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 

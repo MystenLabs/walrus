@@ -203,6 +203,8 @@ impl EventBlobCatchupManager {
     /// could be greater than `0`).
     async fn catchup_using_event_blobs(&self) -> anyhow::Result<()> {
         tracing::info!("starting event catchup using event blobs");
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_catchup_using_event_blobs_start");
 
         let next_checkpoint = self.get_next_checkpoint()?;
         self.ensure_recovery_directory()?;
