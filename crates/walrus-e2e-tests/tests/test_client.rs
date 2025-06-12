@@ -1437,6 +1437,8 @@ async fn test_extend_owned_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_share_blobs() -> TestResult {
+    const EXTEND_EPOCHS: EpochCount = 10;
+    const INITIAL_FUNDS: u64 = 1000000000;
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
@@ -1483,7 +1485,7 @@ async fn test_share_blobs() -> TestResult {
     client
         .as_ref()
         .sui_client()
-        .fund_shared_blob(shared_blob_object_id, 1000000000)
+        .fund_shared_blob(shared_blob_object_id, INITIAL_FUNDS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1491,13 +1493,13 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.funds, 1000000000);
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS);
 
     // Extend the shared blob.
     client
         .as_ref()
         .sui_client()
-        .extend_shared_blob(shared_blob_object_id, 100)
+        .extend_shared_blob(shared_blob_object_id, EXTEND_EPOCHS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1505,8 +1507,11 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
-    assert_eq!(shared_blob.funds, 999999500);
+    assert_eq!(
+        shared_blob.blob.storage.end_epoch,
+        end_epoch + EXTEND_EPOCHS
+    );
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS - 50);
 
     // Read the blob object with attributes from the shared blob object id
     let _blob_with_attribute = client

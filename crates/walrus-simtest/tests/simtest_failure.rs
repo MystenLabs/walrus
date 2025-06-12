@@ -92,6 +92,7 @@ mod tests {
                 false,
                 false,
                 &mut blobs_written,
+                None,
             )
             .await
             .expect("workload should not fail");
@@ -113,6 +114,7 @@ mod tests {
                     false,
                     false,
                     &mut blobs_written,
+                    None,
                 )
                 .await
                 .expect("workload should not fail");
@@ -237,7 +239,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -438,6 +441,7 @@ mod tests {
                 true,
                 false,
                 &mut blobs_written,
+                None,
             )
             .await
             .expect("workload should not fail");
@@ -650,7 +654,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node is lagging behind.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
