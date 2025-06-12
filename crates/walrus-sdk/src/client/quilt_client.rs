@@ -85,19 +85,45 @@ fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<PathB
     Ok(collected_files)
 }
 
+/// Configuration for the QuiltClient.
+#[derive(Debug, Clone)]
+pub struct QuiltClientConfig {
+    /// The maximum number of attempts to retrieve slivers.
+    pub max_retrieve_slivers_attempts: usize,
+    /// The timeout duration for retrieving slivers.
+    pub timeout_duration: Duration,
+}
+
+impl QuiltClientConfig {
+    /// Creates a new QuiltClientConfig.
+    pub fn new(max_retrieve_slivers_attempts: usize, timeout_duration: Duration) -> Self {
+        Self {
+            max_retrieve_slivers_attempts,
+            timeout_duration,
+        }
+    }
+}
+
+impl Default for QuiltClientConfig {
+    fn default() -> Self {
+        Self {
+            max_retrieve_slivers_attempts: 2,
+            timeout_duration: Duration::from_secs(10),
+        }
+    }
+}
+
 /// A facade for interacting with Walrus quilt.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
     client: &'a Client<T>,
+    config: QuiltClientConfig,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
-    const MAX_RETRIEVE_SLIVERS_ATTEMPTS: usize = 2;
-    const TIMEOUT_DURATION: Duration = Duration::from_secs(10);
-
     /// Creates a new QuiltClient.
-    pub fn new(client: &'a Client<T>) -> Self {
-        Self { client }
+    pub fn new(client: &'a Client<T>, config: QuiltClientConfig) -> Self {
+        Self { client, config }
     }
 }
 
@@ -163,8 +189,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 metadata,
                 &[SliverIndex::new(0)],
                 certified_epoch,
-                Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
-                Self::TIMEOUT_DURATION,
+                self.config.max_retrieve_slivers_attempts,
+                self.config.timeout_duration,
             )
             .await?;
 
@@ -208,8 +234,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             metadata,
                             &indices,
                             certified_epoch,
-                            Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
-                            Self::TIMEOUT_DURATION,
+                            self.config.max_retrieve_slivers_attempts,
+                            self.config.timeout_duration,
                         )
                         .await?,
                 );
@@ -267,8 +293,8 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 metadata,
                 &sliver_indices,
                 certified_epoch,
-                Self::MAX_RETRIEVE_SLIVERS_ATTEMPTS,
-                Self::TIMEOUT_DURATION,
+                self.config.max_retrieve_slivers_attempts,
+                self.config.timeout_duration,
             )
             .await;
 

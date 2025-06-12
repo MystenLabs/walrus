@@ -75,7 +75,7 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
-    client::quilt_client::QuiltClient,
+    client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
@@ -1448,8 +1448,8 @@ impl<T> Client<T> {
     }
 
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.
-    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
-        QuiltClient::new(self)
+    pub fn quilt_client(&self, config: QuiltClientConfig) -> QuiltClient<'_, T> {
+        QuiltClient::new(self, config)
     }
 
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending

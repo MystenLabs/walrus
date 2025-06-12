@@ -48,6 +48,7 @@ use walrus_sdk::{
         Client,
         WalrusStoreBlob,
         WalrusStoreBlobApi,
+        quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{
@@ -1033,11 +1034,11 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_write_client = client.quilt_client();
-    let quilt = quilt_write_client
+    let quilt_client = client.quilt_client(QuiltClientConfig::new(4, Duration::from_secs(30)));
+    let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
-    let store_operation_result = quilt_write_client
+    let store_operation_result = quilt_client
         .reserve_and_store_quilt::<QuiltVersionV1>(
             &quilt,
             encoding_type,
@@ -1062,15 +1063,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .iter()
         .map(|b| (b.identifier(), b))
         .collect::<HashMap<_, _>>();
-    let read_client = Client::new_read_client_with_refresher(
-        client.config().clone(),
-        (*client.sui_client().read_client()).clone(),
-    )
-    .await?;
 
     let blob_id = blob_object.blob_id;
-    let quilt_read_client = read_client.quilt_client();
-    let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
+    let quilt_metadata = quilt_client.get_quilt_metadata(&blob_id).await?;
     let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
     assert_eq!(&metadata_v1.index, quilt.quilt_index()?);
 
@@ -1083,7 +1078,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     tracing::info!(groups = ?groups, "test retrieving quilts by groups");
 
     for group in groups {
-        let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
+        let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_client
             .get_blobs_by_identifiers(&blob_id, &group)
             .await?;
 
