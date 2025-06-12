@@ -29,7 +29,10 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        node::config::NodeRecoveryConfig,
+        node::{
+            config::{NodeRecoveryConfig, StorageNodeConfig},
+            events::EventProcessorConfig,
+        },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
@@ -411,6 +414,192 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
 
         clear_fail_point("fail_point_direct_shard_sync_recovery");
+    }
+
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_recovery_with_incomplete_history() {
+        // TODO(mlegner): Can we also test crashes during this recovery?
+        const MAX_EPOCHS_AHEAD: EpochCount = 3;
+        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1;
+        const EPOCH_DURATION: Duration = Duration::from_secs(30);
+
+        // Tracks if a node enters recovery mode with incomplete history.
+        let recovery_with_incomplete_history_triggered = Arc::new(AtomicBool::new(false));
+        // Tracks if a node starts catchup using event blobs.
+        let catchup_using_event_blobs_triggered = Arc::new(AtomicBool::new(false));
+
+        {
+            let recovery_with_incomplete_history_triggered =
+                recovery_with_incomplete_history_triggered.clone();
+            register_fail_point("fail_point_recovery_with_incomplete_history", move || {
+                recovery_with_incomplete_history_triggered.store(true, Ordering::SeqCst);
+            });
+            let catchup_using_event_blobs_triggered = catchup_using_event_blobs_triggered.clone();
+            register_fail_point("fail_point_catchup_using_event_blobs_start", move || {
+                catchup_using_event_blobs_triggered.store(true, Ordering::SeqCst);
+            });
+        }
+
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(EPOCH_DURATION)
+                .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
+                .with_test_nodes_config(TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    ..Default::default()
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = simtest_utils::start_background_workload(
+            client_arc.clone(),
+            false,
+            Some(MAX_EPOCHS_AHEAD),
+        );
+
+        // Wait for the cluster to reach the target epoch (with one extra epoch for safety).
+        tokio::time::timeout(EPOCH_DURATION * (TARGET_EPOCH + 1), {
+            let client_arc = client_arc.clone();
+            async move {
+                while client_arc
+                    .inner
+                    .sui_client()
+                    .read_client
+                    .current_epoch()
+                    .await
+                    .unwrap()
+                    < TARGET_EPOCH
+                {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        })
+        .await
+        .expect("cluster should have reached target epoch");
+        // Sleeping for an additional epoch duration to make sure all nodes reach the target epoch.
+        tokio::time::sleep(EPOCH_DURATION).await;
+
+        // Spawn the new node, making sure it catches up using event blobs.
+        let storage_node_config = walrus_cluster.nodes[5].storage_node_config.clone();
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                Arc::new(RwLock::new(StorageNodeConfig {
+                    event_processor_config: EventProcessorConfig {
+                        event_stream_catchup_min_checkpoint_lag: 0,
+                        ..storage_node_config.event_processor_config
+                    },
+                    ..storage_node_config
+                })),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // TODO(mlegner): Can we get the starting epoch from the node itself?
+        let new_node_starting_epoch = client_arc
+            .inner
+            .sui_client()
+            .read_client
+            .current_epoch()
+            .await
+            .unwrap();
+
+        // Add stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        // Give the new node time to catch up and recover.
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .unwrap();
+        let current_committee = committees.current_committee();
+
+        assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
+        assert!(node_health_info[5].shard_detail.is_some());
+
+        // Check that shards in the new node matches the shards in the committees.
+        let shards_in_new_node_based_on_committee = committees
+            .current_committee()
+            .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
+        let shards_in_new_node_owned = node_health_info[5]
+            .shard_detail
+            .as_ref()
+            .unwrap()
+            .owned
+            .clone();
+        assert_eq!(
+            shards_in_new_node_based_on_committee.len(),
+            shards_in_new_node_owned.len()
+        );
+        for shard in shards_in_new_node_owned {
+            assert!(shards_in_new_node_based_on_committee.contains(&shard.shard));
+        }
+
+        assert_eq!(node_health_info[5].node_status, "Active");
+
+        workload_handle.abort();
+
+        loop {
+            if let Some(_blob) = client_arc
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        blob_info_consistency_check
+            .check_storage_node_consistency_from_epoch(new_node_starting_epoch);
+
+        assert!(
+            catchup_using_event_blobs_triggered.load(Ordering::SeqCst),
+            "catchup using event blobs should be triggered"
+        );
+        assert!(
+            recovery_with_incomplete_history_triggered.load(Ordering::SeqCst),
+            "recovery with incomplete history should be triggered"
+        );
+        clear_fail_point("fail_point_recovery_with_incomplete_history");
+        clear_fail_point("fail_point_catchup_using_event_blobs_start");
     }
 
     // The node recovery process is artificially prolonged to be longer than 1 epoch.

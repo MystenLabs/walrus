@@ -945,6 +945,8 @@ impl StorageNode {
             panic!("recovery with incomplete event history is only possible for fresh nodes");
         }
 
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_recovery_with_incomplete_history");
         tracing::info!(
             "repositioning node event cursor from {} to {} and setting node status to \
             RecoveryCatchUpWithIncompleteHistory",
