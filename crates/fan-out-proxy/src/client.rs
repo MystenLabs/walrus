@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::Result;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::Serialize;
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
@@ -72,12 +73,11 @@ pub(crate) async fn run_client(
         .unwrap();
 
     let auth_package = AuthPackage::new(&blob)?;
-    let auth_digest = auth_package.to_digest()?;
 
     // Transaction creation.
     let (fanout, signed_tx) = fanout
         .with_pt_builder()?
-        .add_pure_input(auth_digest)?
+        .add_pure_input(auth_package.to_hashed())?
         .add_buy_and_register(&metadata, epochs, encoded_size)
         .await?
         .add_tip(encoded_size)
@@ -101,6 +101,7 @@ pub(crate) async fn run_client(
 
     let params = Params {
         blob_id: computed_blob_id,
+        nonce: auth_package.nonce,
         deletable_blob_object: None,
         tx_id,
         encoding_type: None,
@@ -445,12 +446,15 @@ pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url>
 
     url.query_pairs_mut()
         .append_pair("blob_id", &params.blob_id.to_string())
-        .append_pair("tx_id", &params.tx_id.to_string());
+        .append_pair("tx_id", &params.tx_id.to_string())
+        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.nonce));
 
     if let Some(object_id) = params.deletable_blob_object {
         url.query_pairs_mut()
             .append_pair("deletable_blob_object", &object_id.to_string());
     };
+
+    // TODO: add encoding type serialization.
 
     Ok(url)
 }

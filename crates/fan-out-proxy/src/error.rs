@@ -29,14 +29,20 @@ pub enum FanOutError {
     )]
     BlobDigestMismatch,
 
+    /// The provided blob length and the blob length resulting from the uploaded blob do not match.
+    #[error(
+        "the provided blob length and the blob length resulting from the uploaded blob do not match"
+    )]
+    BlobLengthMismatch,
+
     /// BlobId was not registered in the given transaction.
     #[allow(unused)]
     #[error("blob_id {0} was not registered in the referenced transaction")]
     BlobIdNotRegistered(BlobId),
 
     /// The provided auth package hash is invalid.
-    #[error("the provided auth package hash is invalid")]
-    InvalidPtbAuthPackageHash,
+    #[error("the provided nonce hash in the ptb is invalid")]
+    InvalidNonceHash,
 
     /// A Walrus client error occurred.
     #[error(transparent)]
@@ -101,8 +107,9 @@ impl IntoResponse for FanOutError {
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
             }
             FanOutError::BlobDigestMismatch
+            | FanOutError::BlobLengthMismatch
             | FanOutError::BlobIdNotRegistered(_)
-            | FanOutError::InvalidPtbAuthPackageHash => {
+            | FanOutError::InvalidNonceHash => {
                 tracing::error!(error = ?self, "failure relating to authentication of payload");
                 (StatusCode::UNAUTHORIZED, self.to_string()).into_response()
             }

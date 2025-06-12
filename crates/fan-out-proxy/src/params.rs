@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use fastcrypto::hash::Digest;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::digests::TransactionDigest;
@@ -13,7 +13,7 @@ use walrus_sdk::{
     sui::ObjectIdSchema,
 };
 
-use crate::utils::compute_blob_digest_sha256;
+use crate::utils::compute_digest_sha256;
 
 pub(crate) const DIGEST_LEN: usize = 32;
 
@@ -28,17 +28,17 @@ pub(crate) const DIGEST_LEN: usize = 32;
 )]
 pub(crate) struct TransactionDigestSchema(());
 
-/// Schema for the blob digest.
+/// Schema for 32-byte digests.
 #[derive(Debug, utoipa::ToSchema)]
 #[schema(
     as = BlobDigest,
     value_type = String,
     format = Byte,
-    title = "Blob digest",
-    description = "Blob digest (or hash) as a URL-encoded (without padding) Base64 string",
+    title = "Digest",
+    description = "A 32-byte digest (or hash) as a URL-encoded (without padding) Base64 string",
     examples("rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ"),
 )]
-pub(crate) struct BlobDigestSchema(());
+pub(crate) struct DigestSchema(());
 
 /// The query parameters for the fanout proxy.
 #[serde_as]
@@ -52,6 +52,10 @@ pub(crate) struct Params {
     /// The Base58 transaction ID of the transaction that sends the tip to the proxy.
     #[param(value_type = TransactionDigestSchema)]
     pub tx_id: TransactionDigest,
+    /// The nonce, the preimage of the hash added to the transaction inputs.
+    #[serde(with = "b64urlencode_bytes")]
+    #[param(value_type = DigestSchema)]
+    pub nonce: [u8; DIGEST_LEN],
     /// The object ID of the deletable blob to be stored.
     ///
     /// If the blob is to be stored as a permanent one, this parameter should not be specified.
@@ -72,34 +76,54 @@ impl Params {
     }
 }
 
-/// The authentication structure for a blob store request.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, IntoParams)]
-#[into_params(parameter_in = Query, style = Form)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+/// The tip authentication structure.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct AuthPackage {
     /// The SHA256 hash of the blob data.
-    #[serde(with = "b64urlencode_bytes")]
-    #[param(value_type = BlobDigestSchema)]
     pub blob_digest: [u8; DIGEST_LEN],
+    /// A nonce.
+    pub nonce: [u8; DIGEST_LEN],
+    /// The length in bytes of the unencoded blob.
+    pub unencoded_length: u64,
+}
+
+/// The tip authentication structure, with hashed nonce.
+///
+/// Helper struct to serialize/deserialize with the hashed nonce.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct HashedAuthPackage {
+    /// The SHA256 hash of the blob data.
+    pub blob_digest: [u8; DIGEST_LEN],
+    /// The digest of a nonce.
+    pub nonce_digest: [u8; DIGEST_LEN],
+    /// The length in bytes of the unencoded blob.
+    pub unencoded_length: u64,
 }
 
 impl AuthPackage {
     /// Creates an authentication package for the blob.
     pub(crate) fn new(blob: &[u8]) -> Result<Self> {
-        let blob_digest = compute_blob_digest_sha256(blob);
+        let blob_digest = compute_digest_sha256(blob);
+        let mut std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
+        let nonce: [u8; 32] = std_rng.r#gen();
 
         Ok(Self {
             blob_digest: blob_digest.into(),
+            nonce,
+            unencoded_length: blob.len().try_into()?,
         })
     }
 
-    /// Returns the digest of the authentication package, that is to be placed in the first input of
-    /// the transaction.
+    /// Creates a `HashedAuthPackage` by hashing the nonce.
     ///
-    /// Note that this, for the moment, is equivalent to the `blob_digest`.
-    pub(crate) fn to_digest(&self) -> Result<Digest<DIGEST_LEN>> {
-        Ok(Digest::new(self.blob_digest))
+    /// Does not consume self.
+    pub(crate) fn to_hashed(&self) -> HashedAuthPackage {
+        let nonce_digest = compute_digest_sha256(&self.nonce).digest;
+        HashedAuthPackage {
+            blob_digest: self.blob_digest,
+            nonce_digest,
+            unencoded_length: self.unencoded_length,
+        }
     }
 }
 
@@ -143,8 +167,10 @@ mod tests {
         let blob_id =
             BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
         let tx_id = TransactionDigest::new([13; 32]);
+        let nonce = [23; 32];
         let params = Params {
             blob_id,
+            nonce,
             deletable_blob_object: Some(ObjectID::from_single_byte(42)),
             tx_id,
             encoding_type: None,
@@ -158,6 +184,7 @@ mod tests {
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");
 
         assert_eq!(params.blob_id, result.blob_id);
+        assert_eq!(params.nonce, result.nonce);
         assert_eq!(params.tx_id, result.tx_id);
         assert_eq!(params.deletable_blob_object, result.deletable_blob_object);
     }

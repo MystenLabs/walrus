@@ -48,9 +48,9 @@ use walrus_sdk::{
 use crate::{
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
-    params::{BlobDigestSchema, Params, TransactionDigestSchema},
+    params::{DigestSchema, Params, TransactionDigestSchema},
     tip::{TipConfig, TipKind, check_response_tip, check_tx_freshness},
-    utils::check_tx_blob_digest,
+    utils::check_tx_auth_package,
 };
 
 const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
@@ -193,13 +193,11 @@ impl Controller {
         check_response_tip(
             &self.fan_out_config.tip_config,
             &tx,
-            blob.len()
-                .try_into()
-                .expect("we are running on a 64bit machine"),
+            blob.len().try_into().expect("using 32 or 64 bit arch"),
             self.n_shards,
             params.encoding_type_or_default(),
         )?;
-        check_tx_blob_digest(blob, tx)?;
+        check_tx_auth_package(blob, &params.nonce, tx)?;
 
         // This request looks OK.
         Ok(())
@@ -273,7 +271,7 @@ pub(crate) fn cors_layer() -> CorsLayer {
         EncodingType,
         ObjectIdSchema,
         TransactionDigestSchema,
-        BlobDigestSchema,
+        DigestSchema,
         TipKind,
         TipConfig,
     ))
@@ -327,7 +325,7 @@ pub(crate) struct Binary(());
         // FanOutError, // TODO: add the FanOutError IntoResponses implementation
     ),
 )]
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(%params.blob_id))]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id=%params.blob_id))]
 pub(crate) async fn fan_out_blob_slivers(
     State(controller): State<Arc<Controller>>,
     Query(params): Query<Params>,
