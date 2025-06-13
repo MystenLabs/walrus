@@ -415,6 +415,16 @@ pub enum BlobIdParseError {
     InvalidBlobId,
 }
 
+// pub enum QuiltPatchIdParseError {
+//     /// Returned when attempting to parse a decimal value for the quilt patch ID.
+//     #[error(
+//         "you seem to be using a numeric value in decimal format corresponding to a Walrus quilt patch ID \
+//         (maybe copied from a Sui explorer) whereas Walrus uses URL-safe base64 encoding;\n\
+//         the Walrus quilt patch ID corresponding to the provided value is {0}"
+//     )]
+//     QuiltPatchIdInDecimalFormat(QuiltPatchId),
+// }
+
 /// Attempts to parse the blob ID and provides a detailed error when the blob ID was provided in
 /// decimal format.
 pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
