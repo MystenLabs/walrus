@@ -18,7 +18,7 @@ use tracing::Level;
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB, errors::typed_store_err_from_rocks_err},
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
@@ -95,20 +95,13 @@ impl BlobInfoTable {
         })
     }
 
-    // TODO(mlegner): Can we clear the column families in an atomic way?
-    pub fn unsafe_clear(
-        &self,
-        database: &Arc<RocksDB>,
-        db_config: &DatabaseConfig,
-    ) -> Result<(), TypedStoreError> {
-        for (cf_name, cf_options) in Self::options(db_config) {
-            database
-                .drop_cf(cf_name)
-                .map_err(typed_store_err_from_rocks_err)?;
-            database
-                .create_cf(cf_name, &cf_options)
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
+    pub fn clear(&self) -> Result<(), TypedStoreError> {
+        self.aggregate_blob_info.schedule_delete_all()?;
+        self.per_object_blob_info.schedule_delete_all()?;
+        self.latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned")
+            .schedule_delete_all()?;
 
         Ok(())
     }
@@ -173,7 +166,8 @@ impl BlobInfoTable {
         batch.write()
     }
 
-    /// Updates the blob info for a blob based on the [`BlobEvent`].
+    /// Updates the blob info for a blob based on the [`BlobEvent`] when the node is in recovery
+    /// with incomplete history.
     ///
     /// Only updates the info if the provided `event_index` hasn't been processed yet.
     #[tracing::instrument(skip(self))]
@@ -184,6 +178,7 @@ impl BlobInfoTable {
         first_epoch: Epoch,
         epoch_at_start: Epoch,
     ) -> Result<(), TypedStoreError> {
+        tracing::debug!("updating blob info during recovery with incomplete history");
         let extension_event = match event {
             BlobEvent::Registered(BlobRegistered { end_epoch, .. })
             | BlobEvent::Certified(BlobCertified { end_epoch, .. })
