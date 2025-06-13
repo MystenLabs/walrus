@@ -21,9 +21,10 @@ use config::PathOrInPlace;
 use fs::File;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::{ObjectID, SuiAddress};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
     runtime::{self, Runtime},
     sync::oneshot,
     task::JoinHandle,
@@ -1361,6 +1362,7 @@ impl StorageNodeRuntime {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn start_admin_socket(
         admin_args: AdminArgs,
         cancel_token: CancellationToken,
@@ -1409,6 +1411,15 @@ impl StorageNodeRuntime {
         });
 
         Ok(Some(handle))
+    }
+
+    #[cfg(windows)]
+    fn start_admin_socket(
+        _admin_args: AdminArgs,
+        _cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        tracing::warn!("Unix domain sockets are not supported on Windows");
+        Ok(None)
     }
 }
 
