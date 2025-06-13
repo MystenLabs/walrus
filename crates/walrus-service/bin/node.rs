@@ -1504,6 +1504,7 @@ async fn handle_checkpoint_command(
 }
 
 /// Handles a connection to the admin socket.
+#[cfg(unix)]
 async fn handle_connection(stream: UnixStream, args: AdminArgs) {
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
