@@ -860,15 +860,19 @@ impl StorageNode {
     ) -> anyhow::Result<EventStreamWithStartingIndices> {
         let event_cursor = storage_node_cursor.min(event_blob_writer_cursor);
         let lowest_needed_event_index = event_cursor.element_index;
+        let processing_starting_index = storage_node_cursor.element_index;
+        let writer_starting_index = event_blob_writer_cursor.element_index;
 
-        let mut result = EventStreamWithStartingIndices {
-            event_stream: Pin::from(self.inner.event_manager.events(event_cursor).await?),
-            processing_starting_index: storage_node_cursor.element_index,
-            writer_starting_index: event_blob_writer_cursor.element_index,
+        let default_result = || async {
+            Ok(EventStreamWithStartingIndices {
+                event_stream: Pin::from(self.inner.event_manager.events(event_cursor).await?),
+                processing_starting_index,
+                writer_starting_index,
+            })
         };
 
         let Some(init_state) = self.inner.event_manager.init_state(event_cursor).await? else {
-            return Ok(result);
+            return default_result().await;
         };
 
         self.inner
@@ -876,33 +880,42 @@ impl StorageNode {
             .store(init_state.epoch, Ordering::SeqCst);
         let first_available_event_index = init_state.event_cursor.element_index;
         if first_available_event_index <= lowest_needed_event_index {
-            return Ok(result);
+            return default_result().await;
         }
+
+        // If we reach this point, we have to reposition at least one of the event cursors.
+        // Important: We need to make sure we start the event stream from the correct cursor.
+
+        // Reposition the node event cursor if it is behind the first available event.
+        let new_event_cursor = self
+            .reposition_event_cursor_if_starting_with_incomplete_history(
+                storage_node_cursor.element_index,
+                init_state.clone(),
+            )?
+            .unwrap_or(event_cursor);
+        let new_starting_index = new_event_cursor.element_index;
 
         // Reposition the event blob writer if it is behind the first available event.
         if let Some(writer) = event_blob_writer {
-            if result.writer_starting_index < first_available_event_index {
+            if writer_starting_index < first_available_event_index {
                 tracing::info!(
                     "repositioning event blob writer cursor from {} to {}",
-                    result.writer_starting_index,
+                    writer_starting_index,
                     first_available_event_index
                 );
                 writer.update(init_state.clone()).await?;
-                result.writer_starting_index = first_available_event_index;
             }
         }
 
-        result.processing_starting_index = self
-            .reposition_event_cursor_if_starting_with_incomplete_history(
-                result.processing_starting_index,
-                init_state,
-            )?;
-
-        Ok(result)
+        Ok(EventStreamWithStartingIndices {
+            event_stream: Pin::from(self.inner.event_manager.events(new_event_cursor).await?),
+            processing_starting_index: processing_starting_index.max(new_starting_index),
+            writer_starting_index: writer_starting_index.max(new_starting_index),
+        })
     }
 
     /// Checks if the node is a fresh node starting with incomplete event history, adjusts the event
-    /// cursor and status if necessary, and returns the new starting event index.
+    /// cursor and status if necessary, and returns the new event cursor.
     ///
     /// Normally, when an existing node restarts, the next event to be processed exists is available
     /// through checkpoints or the event blobs. In this case, no special handling is necessary, and
@@ -922,11 +935,11 @@ impl StorageNode {
         &self,
         next_event_index: u64,
         init_state: InitState,
-    ) -> anyhow::Result<u64> {
+    ) -> anyhow::Result<Option<EventStreamCursor>> {
         let first_available_event_index = init_state.event_cursor.element_index;
         if next_event_index >= first_available_event_index {
             // Standard case: the node is not behind the first available event.
-            return Ok(next_event_index);
+            return Ok(None);
         }
         if next_event_index != 0 {
             panic!("recovery with incomplete event history is only possible for fresh nodes");
@@ -962,14 +975,35 @@ impl StorageNode {
                 first_complete_epoch
             );
         }
+
+        tracing::info!(
+            "repositioning node event cursor from {} to {} and setting node status to \
+            RecoveryCatchUpWithIncompleteHistory (first complete epoch: {}, current epoch: {})",
+            next_event_index,
+            first_available_event_index,
+            first_complete_epoch,
+            current_epoch,
+        );
+
         self.inner
             .storage
             .set_node_status(NodeStatus::RecoveryCatchUpWithIncompleteHistory {
                 first_complete_epoch,
                 epoch_at_start: current_epoch,
             })?;
+        self.inner.reposition_event_cursor(
+            init_state
+                .event_cursor
+                .event_id
+                .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
+            first_available_event_index,
+        )?;
 
-        Ok(first_available_event_index)
+        // TODO(mlegner): Is this actually necessary, given that we only reach this point when we
+        // start from the very beginning?
+        self.inner.storage.clear_blob_info_table()?;
+
+        Ok(Some(init_state.event_cursor))
     }
 
     async fn get_event_blob_downloader_from_config(
@@ -1057,6 +1091,11 @@ impl StorageNode {
             })
             .await
         {
+            tracing::info!(
+                %element_index,
+                ?stream_element,
+                "processing event",
+            );
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
                 format!("process_event {}", event_label)
@@ -1098,6 +1137,8 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
+    /// Returns `false` if the node is recovering with incomplete history and the event is not
+    /// relevant to the recovery.
     fn should_process_event(&self, stream_element: &PositionedStreamEvent) -> anyhow::Result<bool> {
         let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
             first_complete_epoch: first_epoch,

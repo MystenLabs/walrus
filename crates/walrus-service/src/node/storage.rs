@@ -157,11 +157,12 @@ impl Display for NodeStatus {
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
             NodeStatus::RecoveryCatchUpWithIncompleteHistory {
-                epoch_at_start,
                 first_complete_epoch: first_epoch,
+                epoch_at_start,
             } => write!(
                 f,
-                "RecoveryCatchUpWithIncompleteHistory ({epoch_at_start}, {first_epoch})"
+                "RecoveryCatchUpWithIncompleteHistory \
+                (first complete epoch: {first_epoch}, epoch at start: {epoch_at_start})"
             ),
         }
     }
@@ -334,7 +335,7 @@ impl Storage {
     }
 
     pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
-        self.blob_info.unsafe_clear(&self.database, &self.config)
+        self.blob_info.clear()
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
