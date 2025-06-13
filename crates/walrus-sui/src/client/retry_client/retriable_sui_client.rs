@@ -1009,14 +1009,14 @@ impl RetriableSuiClient {
         kind: TransactionKind,
         gas_price: u64,
     ) -> SuiClientResult<u64> {
-        let dry_run_tx_data = self
-            .failover_sui_client
-            .get_current_client()
-            .await
-            .expect("client must have been created")
-            .transaction_builder()
-            .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
-            .await;
+        let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
+            kind,
+            signer,
+            vec![],
+            MAX_GAS_BUDGET,
+            gas_price,
+            signer,
+        );
         let effects = self
             .dry_run_transaction_block(dry_run_tx_data)
             .await
