@@ -3,12 +3,13 @@
 
 //! Walrus Storage Node entry point.
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fmt::Display,
     fs,
     io::{self, Write},
     net::SocketAddr,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -1199,6 +1200,7 @@ mod commands {
 
     /// Handle local admin commands.
     #[tokio::main]
+    #[cfg(unix)]
     pub(crate) async fn handle_admin_command(
         command: AdminCommands,
         socket_path: PathBuf,
@@ -1237,6 +1239,14 @@ mod commands {
         }
 
         Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(crate) async fn handle_admin_command(
+        _command: AdminCommands,
+        _socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Admin commands via Unix domain sockets are not supported on Windows")
     }
 }
 
