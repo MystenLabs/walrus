@@ -85,7 +85,15 @@ if ! cargo nextest --help > /dev/null 2>&1; then
   exit 1
 fi
 
-cargo_command=( nextest run --cargo-profile simulator )
+if [[ -n "$1" ]]; then
+  echo "Running test $1"
+  cargo_command=( nextest run "$1" --cargo-profile simulator --run-ignored all )
+else
+  echo "Running all simtest"
+  # Adding `simtest` after `run` since all walrus simtest is prefixed with `simtest`.
+  cargo_command=( nextest run simtest --cargo-profile simulator --run-ignored all )
+fi
+
 if [[ "$1" = "build" ]]; then
   shift
   cargo_command=( build --profile simulator )
@@ -98,7 +106,7 @@ export TMPDIR
 # Set the example move package for the simtest static initializer
 # https://github.com/MystenLabs/sui/blob/7bc276d534c6c758ac2cfefe96431c2b1318ca01/crates/sui-proc-macros/src/lib.rs#L52
 root_dir=$(git rev-parse --show-toplevel)
-export SIMTEST_STATIC_INIT_MOVE=$root_dir"/examples/move/basics"
+export SIMTEST_STATIC_INIT_MOVE=$root_dir"/contracts/walrus"
 
 cargo "${cargo_command[@]}" \
   --config "build.rustflags = [$(IFS=, ; echo "${rust_flags[*]}")]" \
