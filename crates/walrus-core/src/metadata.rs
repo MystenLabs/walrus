@@ -124,14 +124,21 @@ pub enum QuiltIndex {
 
 impl QuiltIndex {
     /// Returns the sliver indices of the quilt patch with the given identifiers.
-    pub fn get_sliver_indices_by_identifiers(
+    pub fn get_sliver_indices_for_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError> {
         match self {
             QuiltIndex::V1(quilt_index) => {
-                quilt_index.get_sliver_indices_by_identifiers(identifiers)
+                quilt_index.get_sliver_indices_for_identifiers(identifiers)
             }
+        }
+    }
+
+    /// Returns the patches in the quilt index.
+    pub fn patches(&self) -> &[QuiltPatchV1] {
+        match self {
+            QuiltIndex::V1(quilt_index) => quilt_index.patches(),
         }
     }
 }
@@ -228,7 +235,7 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
     }
 
     /// If the quilt contains duplicate identifiers, all matching patches are returned.
-    fn get_sliver_indices_by_identifiers(
+    fn get_sliver_indices_for_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError> {

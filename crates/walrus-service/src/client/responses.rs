@@ -34,7 +34,7 @@ use walrus_core::{
         metadata_length_for_n_shards,
         source_symbols_for_n_shards,
     },
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_sdk::{
     client::NodeCommunicationFactory,
@@ -133,6 +133,15 @@ pub(crate) struct DryRunOutput {
     pub storage_cost: u64,
     /// The encoding type used for the blob.
     pub encoding_type: EncodingType,
+}
+
+/// The output of the `construct-quilt` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoreQuiltDryRunOutput {
+    pub(crate) quilt_blob_output: DryRunOutput,
+    pub(crate) quilt_index: QuiltIndex,
 }
 
 /// The output of the `blob-status` command.

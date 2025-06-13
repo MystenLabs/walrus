@@ -125,7 +125,7 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     -> Result<&V::QuiltPatch, QuiltError>;
 
     /// Returns the sliver indices of the quilt patches stored in.
-    fn get_sliver_indices_by_identifiers(
+    fn get_sliver_indices_for_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<SliverIndex>, QuiltError>;
@@ -1878,7 +1878,7 @@ mod tests {
         );
 
         let required_indices = quilt_index_v1
-            .get_sliver_indices_by_identifiers(&[identifier])
+            .get_sliver_indices_for_identifiers(&[identifier])
             .expect("Should get sliver indices by identifiers");
         assert_eq!(required_indices, missing_indices);
 
