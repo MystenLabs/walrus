@@ -1242,7 +1242,7 @@ mod commands {
     }
 
     #[cfg(windows)]
-    pub(crate) async fn handle_admin_command(
+    pub(crate) fn handle_admin_command(
         _command: AdminCommands,
         _socket_path: PathBuf,
     ) -> anyhow::Result<()> {
