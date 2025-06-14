@@ -1,6 +1,7 @@
 [workspace]
 default-members = [
   "crates/checkpoint-downloader",
+  "crates/fan-out-proxy",
   "crates/typed-store",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
@@ -101,6 +102,7 @@ scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_test = "1.0.177"
+serde_urlencoded = { version = "0.7.1" }
 serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
