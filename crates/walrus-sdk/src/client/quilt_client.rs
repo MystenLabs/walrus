@@ -50,12 +50,7 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
             )));
         }
 
-        // Ignores non-file and non-directory paths.
-        if path.is_file() {
-            collected_files.insert(path.to_path_buf());
-        } else if path.is_dir() {
-            collected_files.extend(get_all_files_from_dir(path)?);
-        }
+        collected_files.extend(get_all_files_from_path(path)?);
     }
 
     let mut collected_files_with_content = Vec::with_capacity(collected_files.len());
@@ -69,16 +64,16 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
 }
 
 /// Get all file paths from a directory recursively.
-fn get_all_files_from_dir<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<PathBuf>> {
+fn get_all_files_from_path<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<PathBuf>> {
     let path = path.as_ref();
-    let mut collected_files: HashSet<PathBuf> = HashSet::new();
-    let dir_entries = fs::read_dir(path).map_err(ClientError::other)?;
-    for entry in dir_entries {
-        let current_entry_path = entry.map_err(ClientError::other)?.path();
-        if current_entry_path.is_file() {
-            collected_files.insert(current_entry_path);
-        } else if current_entry_path.is_dir() {
-            collected_files.extend(get_all_files_from_dir(&current_entry_path)?);
+    let mut collected_files = HashSet::new();
+
+    if path.is_file() {
+        collected_files.insert(path.to_owned());
+    } else if path.is_dir() {
+        for entry in fs::read_dir(path).map_err(ClientError::other)? {
+            let current_entry_path = entry.map_err(ClientError::other)?.path();
+            collected_files.extend(get_all_files_from_path(&current_entry_path)?);
         }
     }
 
@@ -221,7 +216,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
         let mut all_slivers = Vec::new();
-        let mut refs = [first_sliver].to_vec();
+        let mut refs = vec![first_sliver];
         let first_sliver_refs = [first_sliver].to_vec();
         let mut decoder = V::QuiltConfig::get_decoder(&first_sliver_refs);
 
@@ -361,6 +356,8 @@ impl QuiltClient<'_, SuiContractClient> {
     ///
     /// The on-disk file names are used as identifiers for the quilt patches.
     /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-<index>".
+    //
+    // TODO(WAL-887): Use relative paths to deduplicate the identifiers.
     fn assign_identifiers_with_paths(
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
     ) -> Vec<QuiltStoreBlob> {
