@@ -31,12 +31,14 @@ pub enum EventIdWithProgress {
 }
 
 impl EventIdWithProgress {
+    /// Returns the EventID of the event.
     pub fn event_id(&self) -> EventID {
         match self {
             EventIdWithProgress::V1(v1) => v1.event_id,
         }
     }
 
+    /// Returns the next event index.
     pub fn next_event_index(&self) -> u64 {
         match self {
             EventIdWithProgress::V1(v1) => v1.next_event_index,
@@ -81,6 +83,8 @@ pub(super) struct EventCursorTable {
 }
 
 impl EventCursorTable {
+    /// Reopens the event cursor table from the given RocksDB instance,
+    /// initializing the event sequencer and progress counters.
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let inner = DBMap::reopen(
             database,
@@ -108,6 +112,8 @@ impl EventCursorTable {
         Ok(this)
     }
 
+    /// Returns the RocksDB column family name and options for the event cursor table,
+    /// configured based on the provided database configuration.
     pub fn options(config: &DatabaseConfig) -> (&'static str, Options) {
         let mut options = config.event_cursor().to_options();
         options.set_merge_operator(
@@ -118,6 +124,8 @@ impl EventCursorTable {
         (event_cursor_cf_name(), options)
     }
 
+    /// Repositions the event cursor to the specified `cursor` with the given next event index,
+    /// updating the persisted counter and the event sequencer accordingly.
     pub fn reposition_event_cursor(
         &self,
         cursor: EventID,
@@ -140,6 +148,7 @@ impl EventCursorTable {
         Ok(())
     }
 
+    /// Returns the count of sequentially processed events as recorded in the event cursor entry.
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         let entry = self.inner.get(event_cursor_key())?;
         Ok(entry.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index))
@@ -152,6 +161,8 @@ impl EventCursorTable {
         self.inner.get(event_cursor_key())
     }
 
+    /// Attempts to advance the event cursor by adding the given event index and cursor.
+    /// Updates internal counters and the event sequencer, then returns the updated event progress.
     pub fn maybe_advance_event_cursor(
         &self,
         event_index: u64,
