@@ -2,11 +2,12 @@
 
 [move]
 version = 3
-manifest_digest = "80A026835683A6C1D4F7E24881BA4748E8519E576E168876CF8148F72AD8C762"
-deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
+manifest_digest = "B715806A93D7896BC44F6F20E67B1757600CC2525D9B2890CECCF493426E41EF"
+deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
 dependencies = [
   { id = "Sui", name = "Sui" },
   { id = "WAL", name = "WAL" },
+  { id = "Walrus", name = "Walrus" },
 ]
 
 [[move.package]]
@@ -27,6 +28,15 @@ source = { local = "../wal" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
+id = "Walrus"
+source = { local = "../walrus" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+  { id = "WAL", name = "WAL" },
 ]
 
 [move.toolchain-version]
