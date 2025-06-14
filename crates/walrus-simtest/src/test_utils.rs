@@ -18,6 +18,7 @@ pub mod simtest_utils {
     use walrus_core::{
         DEFAULT_ENCODING,
         Epoch,
+        EpochCount,
         encoding::{Primary, Secondary},
     };
     use walrus_sdk::{
@@ -55,9 +56,10 @@ pub mod simtest_utils {
         write_only: bool,
         deletable: bool,
         blobs_written: &mut HashSet<ObjectID>,
+        epochs_max: Option<EpochCount>,
     ) -> anyhow::Result<()> {
         // Get a random epoch length for the blob to be stored.
-        let epoch_ahead = rand::thread_rng().gen_range(1..=5);
+        let epoch_ahead = rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(5));
 
         tracing::info!(
             "generating random blobs of length {data_length} and store them for {epoch_ahead} \
@@ -212,6 +214,7 @@ pub mod simtest_utils {
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
         write_only: bool,
+        epochs_max: Option<EpochCount>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut data_length = 64;
@@ -228,6 +231,7 @@ pub mod simtest_utils {
                     write_only,
                     deletable,
                     &mut blobs_written,
+                    epochs_max,
                 )
                 .await
                 .expect("workload should not fail");
@@ -294,52 +298,83 @@ pub mod simtest_utils {
 
         /// Checks the consistency of the storage node.
         pub fn check_storage_node_consistency(&self) {
+            self.check_storage_node_consistency_from_epoch(0);
+        }
+
+        /// Checks the consistency of the storage node for all epochs starting with `min_epoch`.
+        pub fn check_storage_node_consistency_from_epoch(&self, min_epoch: Epoch) {
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            // Ensure that for all epochs, all nodes have the same certified blob digest.
+            self.check_certified_blob_digest(min_epoch);
+            self.check_per_object_blob_digest(min_epoch);
+            self.check_blob_existence(min_epoch);
+        }
+
+        /// Ensures that for all epochs, all nodes have the same certified blob digest.
+        #[tracing::instrument(skip(self))]
+        fn check_certified_blob_digest(&self, min_epoch: Epoch) {
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same certified blob digest.
-                let mut epoch_digest = None;
-                for (node_id, digest) in node_digest_map.iter() {
+                if *epoch < min_epoch {
                     tracing::info!(
-                        "blob info consistency check: node {node_id} has digest \
-                        {digest} in epoch {epoch}",
+                        "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
                     );
-                    if epoch_digest.is_none() {
-                        epoch_digest = Some(digest);
-                    } else {
-                        assert_eq!(epoch_digest, Some(digest));
-                    }
+                    continue;
                 }
+                Self::check_digests_are_equal(*epoch, node_digest_map);
             }
+        }
 
-            // Ensure that for all epochs, all nodes have the same per object blob digest.
+        /// Ensures that for all epochs, all nodes have the same per object blob digest.
+        #[tracing::instrument(skip(self))]
+        fn check_per_object_blob_digest(&self, min_epoch: Epoch) {
             let digest_map = self.per_object_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same per object blob digest.
-                let mut epoch_digest = None;
-                for (node_id, digest) in node_digest_map.iter() {
+                if *epoch < min_epoch {
                     tracing::info!(
-                        "blob info consistency check: node {node_id} has digest \
-                        {digest} in epoch {epoch}",
+                        "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
                     );
-                    if epoch_digest.is_none() {
+                    continue;
+                }
+                Self::check_digests_are_equal(*epoch, node_digest_map);
+            }
+        }
+
+        fn check_digests_are_equal(epoch: Epoch, node_digest_map: &HashMap<ObjectID, u64>) {
+            let mut epoch_digest = None;
+            for (node_id, digest) in node_digest_map.iter() {
+                tracing::info!("node {node_id} has digest {digest} in epoch {epoch}",);
+                match epoch_digest {
+                    None => {
                         epoch_digest = Some(digest);
-                    } else {
-                        assert_eq!(epoch_digest, Some(digest));
+                    }
+                    Some(expected_digest) => {
+                        assert_eq!(
+                            expected_digest, digest,
+                            "consistency check failed for epoch {epoch}; node {node_id} has \
+                            digest {digest} but expected {expected_digest}"
+                        );
                     }
                 }
             }
+        }
 
+        #[tracing::instrument(skip(self))]
+        fn check_blob_existence(&self, min_epoch: Epoch) {
             let existence_check_map = self.blob_existence_check_map.lock().unwrap();
             for (epoch, node_existence_check_map) in existence_check_map.iter() {
+                if *epoch < min_epoch {
+                    tracing::info!(
+                        "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
+                    );
+                    continue;
+                }
                 // 100% of blobs are fully stored all the time.
                 for (node_id, existence_check) in node_existence_check_map.iter() {
                     tracing::info!(
                         "blob sliver data existence check: node {node_id} has existence check \
-                        {existence_check} in epoch {epoch}",
+                    {existence_check} in epoch {epoch}",
                     );
 
                     assert_eq!(*existence_check, 1.0);
@@ -396,10 +431,12 @@ pub mod simtest_utils {
     }
 
     /// Helper function to get health info for a list of nodes.
-    pub async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
+    pub async fn get_nodes_health_info(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Vec<ServiceHealthInfo> {
         futures::future::join_all(
             nodes
-                .iter()
+                .into_iter()
                 .map(|node_handle| async {
                     let client = walrus_storage_node_client::StorageNodeClient::builder()
                         .authenticate_with_public_key(node_handle.network_public_key.clone())
@@ -416,5 +453,53 @@ pub mod simtest_utils {
                 .collect::<Vec<_>>(),
         )
         .await
+    }
+
+    /// Gets the minimum epoch from a list of nodes by looking at the health info.
+    pub async fn get_min_epoch_from_nodes(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Epoch {
+        let health_info = get_nodes_health_info(nodes).await;
+        health_info
+            .iter()
+            .map(|info| info.epoch)
+            .min()
+            .expect("at least one node should be running")
+    }
+
+    /// Returns the current epoch of a node based on the health info.
+    pub async fn get_current_epoch_from_node(node: &SimStorageNodeHandle) -> Epoch {
+        get_min_epoch_from_nodes([node]).await
+    }
+
+    /// Waits until all nodes reach the given epoch based on their health info.
+    pub async fn wait_for_nodes_to_reach_epoch(
+        nodes: &[SimStorageNodeHandle],
+        target_epoch: Epoch,
+        timeout: Duration,
+    ) {
+        tokio::time::timeout(timeout, async {
+            loop {
+                let min_epoch = get_min_epoch_from_nodes(nodes).await;
+                if min_epoch >= target_epoch {
+                    break;
+                }
+                tracing::info!(
+                    "waiting for {} nodes to reach epoch {}, current min epoch: {}",
+                    nodes.len(),
+                    target_epoch,
+                    min_epoch
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        })
+        .await
+        .expect(
+            format!(
+                "timed out waiting for all nodes to reach epoch {}",
+                target_epoch
+            )
+            .as_str(),
+        );
     }
 }
