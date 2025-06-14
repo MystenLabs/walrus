@@ -5460,7 +5460,9 @@ mod tests {
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
-            assert!(shard_storage_dst.status().unwrap() == ShardStatus::None);
+            assert!(
+                shard_storage_dst.status().expect("should succeed in test") == ShardStatus::None
+            );
 
             if fail_before_start_fetching {
                 clear_fail_point("fail_point_shard_sync_recovery_metadata_error_before_fetch");
