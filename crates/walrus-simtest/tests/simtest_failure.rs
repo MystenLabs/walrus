@@ -297,8 +297,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -497,7 +496,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                     .await;
             tracing::info!(
                 "event progress: persisted {:?}, pending {:?}",
@@ -516,7 +515,7 @@ mod tests {
 
         // And finally the node should be in Active state.
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                 .await
                 .get(0)
                 .unwrap()
@@ -568,7 +567,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
             tracing::info!(
                 "last checkpoint seq number in node 0: {:?}",
                 node_health_info[0].latest_checkpoint_sequence_number,
@@ -705,8 +704,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {

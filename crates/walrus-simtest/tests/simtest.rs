@@ -329,8 +329,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         let committees = client_arc
             .inner
@@ -387,7 +386,7 @@ mod tests {
         }
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[5]])
                 .await
                 .get(0)
                 .unwrap()
@@ -472,27 +471,15 @@ mod tests {
             Some(MAX_EPOCHS_AHEAD),
         );
 
-        // Wait for the cluster to reach the target epoch (with one extra epoch for safety).
-        tokio::time::timeout(EPOCH_DURATION * (TARGET_EPOCH + 1), {
-            let client_arc = client_arc.clone();
-            async move {
-                while client_arc
-                    .inner
-                    .sui_client()
-                    .read_client
-                    .current_epoch()
-                    .await
-                    .unwrap()
-                    < TARGET_EPOCH
-                {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-            }
-        })
-        .await
-        .expect("cluster should have reached target epoch");
-        // Sleeping for an additional epoch duration to make sure all nodes reach the target epoch.
-        tokio::time::sleep(EPOCH_DURATION).await;
+        // Wait for the cluster to reach the target epoch (+1 for robustness), with a very long
+        // timeout for robustness.
+        // TODO(mlegner): Maybe better check for the first event blob to become expired?
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..4],
+            TARGET_EPOCH + 1,
+            EPOCH_DURATION * (TARGET_EPOCH + 3),
+        )
+        .await;
 
         // Spawn the new node, making sure it catches up using event blobs.
         let storage_node_config = walrus_cluster.nodes[5].storage_node_config.clone();
@@ -512,14 +499,8 @@ mod tests {
             .id(),
         );
 
-        // TODO(mlegner): Can we get the starting epoch from the node itself?
-        let new_node_starting_epoch = client_arc
-            .inner
-            .sui_client()
-            .read_client
-            .current_epoch()
-            .await
-            .unwrap();
+        let new_node_starting_epoch =
+            simtest_utils::get_current_epoch_from_node(&walrus_cluster.nodes[5]).await;
 
         // Add stake to the new node so that it can be in Active state.
         client_arc
@@ -539,8 +520,7 @@ mod tests {
         // Give the new node time to catch up and recover.
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         let committees = client_arc
             .inner
             .get_latest_committees_in_test()
@@ -674,8 +654,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(180)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -684,7 +663,7 @@ mod tests {
         }
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]])
                 .await
                 .get(0)
                 .unwrap()
@@ -731,8 +710,7 @@ mod tests {
         // Wait for event to catch up.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         for node_health in health_info {
             assert!(node_health.event_progress.pending < 10);
         }

@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(metadata, metadata_on_chain);
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[5]])
                 .await
                 .get(0)
                 .unwrap()
