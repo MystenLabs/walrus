@@ -4,6 +4,7 @@
 //! Metadata associated with a Blob and stored by storage nodes.
 
 use alloc::{
+    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
@@ -69,6 +70,8 @@ pub struct QuiltPatchV1 {
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     pub identifier: String,
+    /// The tags of the blob.
+    pub tags: BTreeMap<String, String>,
 }
 
 impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
@@ -90,6 +93,22 @@ impl QuiltPatchV1 {
             identifier,
             start_index: 0,
             end_index: 0,
+            tags: BTreeMap::new(),
+        })
+    }
+
+    /// Creates a new [`QuiltPatchV1`] with tags.
+    pub fn new_with_tags<T: IntoIterator<Item = (String, String)>>(
+        identifier: String,
+        tags: T,
+    ) -> Result<Self, QuiltError> {
+        Self::validate_identifier(&identifier)?;
+
+        Ok(Self {
+            identifier,
+            start_index: 0,
+            end_index: 0,
+            tags: tags.into_iter().collect(),
         })
     }
 
@@ -225,6 +244,19 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
             .iter()
             .find(|patch| patch.identifier == identifier)
             .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
+
+    fn get_quilt_patches_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<&QuiltPatchV1>, QuiltError> {
+        let patches = self
+            .quilt_patches
+            .iter()
+            .filter(|patch| patch.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value))
+            .collect::<Vec<_>>();
+        Ok(patches)
     }
 
     /// If the quilt contains duplicate identifiers, all matching patches are returned.
