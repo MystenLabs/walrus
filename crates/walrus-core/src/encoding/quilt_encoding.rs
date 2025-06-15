@@ -56,6 +56,9 @@ const QUILT_VERSION_BYTES_LENGTH: usize = 1;
 /// The number of bytes used to store the identifier of the blob.
 const BLOB_IDENTIFIER_SIZE_BYTES_LENGTH: usize = 2;
 
+/// The number of bytes used to store the extension of the blob.
+const TAGS_SIZE_BYTES_LENGTH: usize = 2;
+
 /// The maximum number of bytes for the identifier of the blob.
 const MAX_BLOB_IDENTIFIER_BYTES_LENGTH: usize = (1 << (8 * BLOB_IDENTIFIER_SIZE_BYTES_LENGTH)) - 1;
 
@@ -364,6 +367,19 @@ impl<'a> QuiltStoreBlob<'a> {
         }
     }
 
+    /// Creates a new `QuiltStoreBlob` from a blob, an identifier, and tags.
+    pub fn new_with_tags(
+        blob: &'a [u8],
+        identifier: impl Into<String>,
+        tags: BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+            tags,
+        }
+    }
+
     /// Returns a reference to the blob data.
     pub fn data(&self) -> &'a [u8] {
         self.blob
@@ -385,27 +401,38 @@ pub struct QuiltStoreBlobOwned {
     pub blob: Vec<u8>,
     /// The identifier of the blob.
     pub identifier: String,
+    /// The tags of the blob.
+    pub tags: BTreeMap<String, String>,
 }
 
 // Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
 impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
     fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
-        self.blob == other.blob.as_slice() && self.identifier == other.identifier
+        self.blob == other.blob.as_slice()
+            && self.identifier == other.identifier
+            && self.tags == other.tags
     }
 }
 
 impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
     fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
-        self.blob.as_slice() == other.blob && self.identifier == other.identifier
+        self.blob.as_slice() == other.blob
+            && self.identifier == other.identifier
+            && self.tags == other.tags
     }
 }
 
 impl QuiltStoreBlobOwned {
     /// Creates a new `QuiltStoreBlobOwned` from an owned blob and an identifier.
-    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
+    pub fn new(
+        blob: Vec<u8>,
+        identifier: impl Into<String>,
+        tags: BTreeMap<String, String>,
+    ) -> Self {
         Self {
             blob,
             identifier: identifier.into(),
+            tags,
         }
     }
 
@@ -482,11 +509,15 @@ impl QuiltVersionV1 {
                 MAX_BLOB_IDENTIFIER_BYTES_LENGTH
             )));
         }
+        let mut prefix_size = identifier_size as usize + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
 
-        Ok(identifier_size
-            + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH
-            + blob.data().len()
-            + QuiltVersionV1::BLOB_HEADER_SIZE)
+        if !blob.tags.is_empty() {
+            let tags_size = bcs::serialized_size(&blob.tags)
+                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {}", e)))?;
+            prefix_size += tags_size + TAGS_SIZE_BYTES_LENGTH;
+        }
+
+        Ok(prefix_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE)
     }
 
     /// Decodes a blob from a column data source.
@@ -515,10 +546,19 @@ impl QuiltVersionV1 {
         offset += bytes_consumed;
         blob_bytes_size -= bytes_consumed;
 
+        let tags = if blob_header.has_tags() {
+            let (tags, bytes_consumed) = Self::decode_blob_tags(data_source, start_col, offset)?;
+            offset += bytes_consumed;
+            blob_bytes_size -= bytes_consumed;
+            tags
+        } else {
+            BTreeMap::new()
+        };
+
         let data_bytes = data_source.range_read_from_columns(start_col, offset, blob_bytes_size)?;
         assert!(data_bytes.len() == blob_bytes_size);
 
-        Ok(QuiltStoreBlobOwned::new(data_bytes, identifier))
+        Ok(QuiltStoreBlobOwned::new(data_bytes, identifier, tags))
     }
 
     /// Decodes the blob identifier from a column data source.
@@ -563,6 +603,32 @@ impl QuiltVersionV1 {
         let bytes_consumed = BLOB_IDENTIFIER_SIZE_BYTES_LENGTH + identifier_size;
 
         Ok((identifier, bytes_consumed))
+    }
+
+    /// Decodes the blob tags from a column data source.
+    fn decode_blob_tags<T>(
+        data_source: &T,
+        start_col: usize,
+        initial_offset: usize,
+    ) -> Result<(BTreeMap<String, String>, usize), QuiltError>
+    where
+        T: QuiltColumnRangeReader,
+    {
+        let size_bytes = data_source.range_read_from_columns(
+            start_col,
+            initial_offset,
+            TAGS_SIZE_BYTES_LENGTH,
+        )?;
+        assert!(size_bytes.len() == TAGS_SIZE_BYTES_LENGTH);
+        let tags_size =
+            u16::from_le_bytes(size_bytes.try_into().expect("size_bytes should be 2 bytes"));
+        let mut offset = initial_offset + TAGS_SIZE_BYTES_LENGTH;
+        let tags_bytes =
+            data_source.range_read_from_columns(start_col, offset, tags_size as usize)?;
+        let tags = bcs::from_bytes(&tags_bytes)
+            .map_err(|error| QuiltError::FailedToDecodeExtension("tags".into(), error))?;
+        offset += tags_size as usize;
+        Ok((tags, offset - initial_offset))
     }
 }
 
@@ -639,14 +705,14 @@ impl BlobHeaderV1 {
         data
     }
 
-    /// Returns true if the blob has attributes.
-    pub fn has_attributes(&self) -> bool {
+    /// Returns true if the blob has tags.
+    pub fn has_tags(&self) -> bool {
         self.mask & Self::METADATA_ENABLED != 0
     }
 
-    /// Set the attributes flag to true.
-    pub fn set_has_attributes(&mut self, has_attributes: bool) {
-        if has_attributes {
+    /// Set the tags flag to true.
+    pub fn set_has_tags(&mut self, has_tags: bool) {
+        if has_tags {
             self.mask |= Self::METADATA_ENABLED;
         } else {
             self.mask &= !Self::METADATA_ENABLED;
@@ -1014,6 +1080,22 @@ impl<'a> QuiltEncoderV1<'a> {
             QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
         })?);
         extension_bytes.push(identifier_bytes);
+
+        if !blob.tags.is_empty() {
+            header.set_has_tags(true);
+            let serialized_tags = bcs::to_bytes(&blob.tags)
+                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {}", e)))?;
+
+            // This must be the same as TAGS_SIZE_BYTES_LENGTH.
+            let tags_size = u16::try_from(serialized_tags.len()).map_err(|e| {
+                QuiltError::Other(format!("Failed to convert tags size to u16: {}", e))
+            })?;
+
+            let mut result_bytes = Vec::with_capacity(tags_size as usize + serialized_tags.len());
+            result_bytes.extend_from_slice(&tags_size.to_le_bytes());
+            result_bytes.extend_from_slice(&serialized_tags);
+            extension_bytes.push(result_bytes);
+        }
 
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
         header.length = total_size as u32;
@@ -1585,7 +1667,7 @@ mod tests {
     use core::num::NonZeroU16;
     use std::collections::HashSet;
 
-    use rand::Rng;
+    use rand::{Rng, seq::SliceRandom};
     use walrus_test_utils::param_test;
 
     use super::*;
@@ -1848,7 +1930,7 @@ mod tests {
                 n_shards
             );
             // test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
-            test_quilt_encoder_and_decoder(28, 25, 568, 55);
+            test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
         }
     }
 
@@ -1871,12 +1953,9 @@ mod tests {
         let _ = tracing_subscriber::fmt().try_init();
 
         let blobs =
-            walrus_test_utils::generate_random_data(num_blobs, max_blob_size, min_blob_size);
-        let quilt_store_blobs = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i)))
-            .collect::<Vec<_>>();
+            walrus_test_utils::generate_random_data(num_blobs, min_blob_size, max_blob_size);
+        let blobs_refs = blobs.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
+        let quilt_store_blobs = populate_identifiers_and_tags(blobs_refs);
 
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -1885,6 +1964,47 @@ mod tests {
             &quilt_store_blobs,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
         );
+    }
+
+    fn populate_identifiers_and_tags<'a>(blob_data: Vec<&'a [u8]>) -> Vec<QuiltStoreBlob<'a>> {
+        let mut rng = rand::thread_rng();
+        let num_tags = if rng.gen_bool(0.3) {
+            0
+        } else {
+            rng.gen_range(1..=blob_data.len())
+        };
+
+        const NUM_TAG_VALUES: usize = 3;
+        let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, 100);
+        let raw_tag_keys = walrus_test_utils::generate_random_data(NUM_TAG_VALUES, 1, 100);
+        let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
+        let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
+
+        let mut res = Vec::with_capacity(blob_data.len());
+        let mut identifiers = HashSet::with_capacity(blob_data.len());
+        while identifiers.len() < blob_data.len() {
+            identifiers.insert(hex::encode(walrus_test_utils::random_data(
+                rng.gen_range(1..100),
+            )));
+        }
+        for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
+            let mut tags = BTreeMap::new();
+            let num_keys_for_blob = rng.gen_range(0..=num_tags);
+            if num_keys_for_blob > 0 {
+                let selected_keys: Vec<_> = tag_keys
+                    .as_slice()
+                    .choose_multiple(&mut rng, num_keys_for_blob)
+                    .collect();
+
+                for key in selected_keys {
+                    let value = tag_values.choose(&mut rng).expect("Should choose a value");
+                    tags.insert(key.clone(), value.clone());
+                }
+            }
+            res.push(QuiltStoreBlob::new_with_tags(data, identifier, tags));
+        }
+
+        res
     }
 
     #[allow(clippy::type_complexity)]
