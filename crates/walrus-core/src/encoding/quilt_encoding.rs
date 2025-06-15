@@ -56,7 +56,7 @@ const QUILT_VERSION_BYTES_LENGTH: usize = 1;
 /// The number of bytes used to store the identifier of the blob.
 const BLOB_IDENTIFIER_SIZE_BYTES_LENGTH: usize = 2;
 
-/// The number of bytes used to store the extension of the blob.
+/// The number of bytes used to store the size of the extension.
 const TAGS_SIZE_BYTES_LENGTH: usize = 2;
 
 /// The maximum number of bytes for the identifier of the blob.
@@ -135,12 +135,19 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     fn get_quilt_patch_by_identifier(&self, identifier: &str)
     -> Result<&V::QuiltPatch, QuiltError>;
 
-    /// Returns the quilt patch by its identifier and tags.
+    /// Returns the quilt patches matching the given tag.
     fn get_quilt_patches_by_tag(
         &self,
         target_tag: &str,
         target_value: &str,
     ) -> Result<Vec<&V::QuiltPatch>, QuiltError>;
+
+    /// Returns the sliver indices of the quilt patches matching the given tag.
+    fn get_sliver_indices_for_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<SliverIndex>, QuiltError>;
 
     /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_for_identifiers(
@@ -367,7 +374,7 @@ impl<'a> QuiltStoreBlob<'a> {
         }
     }
 
-    /// Creates a new `QuiltStoreBlob` from a blob, an identifier, and tags.
+    /// Creates a new `QuiltStoreBlob` with tags.
     pub fn new_with_tags(
         blob: &'a [u8],
         identifier: impl Into<String>,
@@ -661,7 +668,7 @@ impl BlobHeaderV1 {
     /// The number of bytes used to store the size of the serialized blob.
     const BLOB_SIZE_BYTES_LENGTH: usize = 4;
     /// The mask bit that indicates whether the blob has attributes.
-    const METADATA_ENABLED: u8 = 1;
+    const TAGS_ENABLED: u8 = 1;
 
     /// The maximum value of the length.
     const MAX_SERIALIZED_BLOB_SIZE: u32 = u32::MAX;
@@ -707,15 +714,15 @@ impl BlobHeaderV1 {
 
     /// Returns true if the blob has tags.
     pub fn has_tags(&self) -> bool {
-        self.mask & Self::METADATA_ENABLED != 0
+        self.mask & Self::TAGS_ENABLED != 0
     }
 
     /// Set the tags flag to true.
     pub fn set_has_tags(&mut self, has_tags: bool) {
         if has_tags {
-            self.mask |= Self::METADATA_ENABLED;
+            self.mask |= Self::TAGS_ENABLED;
         } else {
-            self.mask &= !Self::METADATA_ENABLED;
+            self.mask &= !Self::TAGS_ENABLED;
         }
     }
 }
@@ -2149,7 +2156,7 @@ mod tests {
             assert_eq!(blob, *quilt_store_blob);
         }
 
-        for (tag, val) in tag_blobs_map {
+        for (tag, val) in &tag_blobs_map {
             for (tag_value, identifiers) in val {
                 let blobs = quilt_decoder
                     .get_blobs_by_tag(tag, tag_value)
@@ -2159,7 +2166,7 @@ mod tests {
                     .iter()
                     .map(|blob| blob.identifier.as_str())
                     .collect::<HashSet<_>>();
-                assert_eq!(identifiers_set, identifiers);
+                assert_eq!(identifiers_set, *identifiers);
             }
         }
 
@@ -2188,6 +2195,20 @@ mod tests {
                 .expect("Should construct quilt")
                 .data()
         );
+
+        for (tag, val) in &tag_blobs_map {
+            for (tag_value, identifiers) in val {
+                let blobs = quilt
+                    .get_blobs_by_tag(tag, tag_value)
+                    .expect("Should get blobs by tag");
+                assert_eq!(blobs.len(), identifiers.len());
+                let identifiers_set = blobs
+                    .iter()
+                    .map(|blob| blob.identifier.as_str())
+                    .collect::<HashSet<_>>();
+                assert_eq!(identifiers_set, *identifiers);
+            }
+        }
     }
 
     param_test! {

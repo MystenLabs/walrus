@@ -259,6 +259,19 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
         Ok(patches)
     }
 
+    fn get_sliver_indices_for_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        let patches = self.get_quilt_patches_by_tag(target_tag, target_value)?;
+        let sliver_indices = patches
+            .iter()
+            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
+            .collect();
+        Ok(sliver_indices)
+    }
+
     /// If the quilt contains duplicate identifiers, all matching patches are returned.
     fn get_sliver_indices_for_identifiers(
         &self,
