@@ -191,6 +191,9 @@ pub enum QuiltError {
     /// Duplicate identifier found.
     #[error("duplicate identifier found: {0}")]
     DuplicateIdentifier(String),
+    /// Failed to decode extension.
+    #[error("failed to decode extension {0}: {1}")]
+    FailedToDecodeExtension(String, bcs::Error),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

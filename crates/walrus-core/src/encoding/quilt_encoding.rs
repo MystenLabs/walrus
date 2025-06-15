@@ -14,6 +14,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use alloc::{
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
@@ -54,6 +55,9 @@ const QUILT_VERSION_BYTES_LENGTH: usize = 1;
 
 /// The number of bytes used to store the identifier of the blob.
 const BLOB_IDENTIFIER_SIZE_BYTES_LENGTH: usize = 2;
+
+/// The number of bytes used to store the size of the extension.
+const TAGS_SIZE_BYTES_LENGTH: usize = 2;
 
 /// The maximum number of bytes for the identifier of the blob.
 const MAX_BLOB_IDENTIFIER_BYTES_LENGTH: usize = (1 << (8 * BLOB_IDENTIFIER_SIZE_BYTES_LENGTH)) - 1;
@@ -108,6 +112,13 @@ pub trait QuiltApi<V: QuiltVersion> {
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
 
+    /// Gets blobs matching the given tag from the quilt.
+    fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError>;
+
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
 
@@ -123,6 +134,20 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
     fn get_quilt_patch_by_identifier(&self, identifier: &str)
     -> Result<&V::QuiltPatch, QuiltError>;
+
+    /// Returns the quilt patches matching the given tag.
+    fn get_quilt_patches_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<&V::QuiltPatch>, QuiltError>;
+
+    /// Returns the sliver indices of the quilt patches matching the given tag.
+    fn get_sliver_indices_for_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<SliverIndex>, QuiltError>;
 
     /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_for_identifiers(
@@ -209,6 +234,13 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     /// If there are duplicate identifiers, the first one in the sort order will be returned.
     /// Note that the sort could be unstable.
     fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
+
+    /// Gets blobs matching the given tag from the quilt.
+    fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError>;
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<V::SliverAxis>]);
@@ -326,6 +358,8 @@ impl QuiltEnum {
 /// underscores, hyphens, and periods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
+    /// The tags of the blob.
+    pub tags: BTreeMap<String, String>,
     blob: &'a [u8],
     identifier: String,
 }
@@ -336,6 +370,20 @@ impl<'a> QuiltStoreBlob<'a> {
         Self {
             blob,
             identifier: identifier.into(),
+            tags: BTreeMap::new(),
+        }
+    }
+
+    /// Creates a new `QuiltStoreBlob` with tags.
+    pub fn new_with_tags(
+        blob: &'a [u8],
+        identifier: impl Into<String>,
+        tags: BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            blob,
+            identifier: identifier.into(),
+            tags,
         }
     }
 
@@ -360,27 +408,38 @@ pub struct QuiltStoreBlobOwned {
     pub blob: Vec<u8>,
     /// The identifier of the blob.
     pub identifier: String,
+    /// The tags of the blob.
+    pub tags: BTreeMap<String, String>,
 }
 
 // Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
 impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
     fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
-        self.blob == other.blob.as_slice() && self.identifier == other.identifier
+        self.blob == other.blob.as_slice()
+            && self.identifier == other.identifier
+            && self.tags == other.tags
     }
 }
 
 impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
     fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
-        self.blob.as_slice() == other.blob && self.identifier == other.identifier
+        self.blob.as_slice() == other.blob
+            && self.identifier == other.identifier
+            && self.tags == other.tags
     }
 }
 
 impl QuiltStoreBlobOwned {
     /// Creates a new `QuiltStoreBlobOwned` from an owned blob and an identifier.
-    pub fn new(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
+    pub fn new(
+        blob: Vec<u8>,
+        identifier: impl Into<String>,
+        tags: BTreeMap<String, String>,
+    ) -> Self {
         Self {
             blob,
             identifier: identifier.into(),
+            tags,
         }
     }
 
@@ -457,11 +516,15 @@ impl QuiltVersionV1 {
                 MAX_BLOB_IDENTIFIER_BYTES_LENGTH
             )));
         }
+        let mut prefix_size = identifier_size as usize + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
 
-        Ok(identifier_size
-            + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH
-            + blob.data().len()
-            + QuiltVersionV1::BLOB_HEADER_SIZE)
+        if !blob.tags.is_empty() {
+            let tags_size = bcs::serialized_size(&blob.tags)
+                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {}", e)))?;
+            prefix_size += tags_size + TAGS_SIZE_BYTES_LENGTH;
+        }
+
+        Ok(prefix_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE)
     }
 
     /// Decodes a blob from a column data source.
@@ -490,10 +553,19 @@ impl QuiltVersionV1 {
         offset += bytes_consumed;
         blob_bytes_size -= bytes_consumed;
 
+        let tags = if blob_header.has_tags() {
+            let (tags, bytes_consumed) = Self::decode_blob_tags(data_source, start_col, offset)?;
+            offset += bytes_consumed;
+            blob_bytes_size -= bytes_consumed;
+            tags
+        } else {
+            BTreeMap::new()
+        };
+
         let data_bytes = data_source.range_read_from_columns(start_col, offset, blob_bytes_size)?;
         assert!(data_bytes.len() == blob_bytes_size);
 
-        Ok(QuiltStoreBlobOwned::new(data_bytes, identifier))
+        Ok(QuiltStoreBlobOwned::new(data_bytes, identifier, tags))
     }
 
     /// Decodes the blob identifier from a column data source.
@@ -539,6 +611,32 @@ impl QuiltVersionV1 {
 
         Ok((identifier, bytes_consumed))
     }
+
+    /// Decodes the blob tags from a column data source.
+    fn decode_blob_tags<T>(
+        data_source: &T,
+        start_col: usize,
+        initial_offset: usize,
+    ) -> Result<(BTreeMap<String, String>, usize), QuiltError>
+    where
+        T: QuiltColumnRangeReader,
+    {
+        let size_bytes = data_source.range_read_from_columns(
+            start_col,
+            initial_offset,
+            TAGS_SIZE_BYTES_LENGTH,
+        )?;
+        assert!(size_bytes.len() == TAGS_SIZE_BYTES_LENGTH);
+        let tags_size =
+            u16::from_le_bytes(size_bytes.try_into().expect("size_bytes should be 2 bytes"));
+        let mut offset = initial_offset + TAGS_SIZE_BYTES_LENGTH;
+        let tags_bytes =
+            data_source.range_read_from_columns(start_col, offset, tags_size as usize)?;
+        let tags = bcs::from_bytes(&tags_bytes)
+            .map_err(|error| QuiltError::FailedToDecodeExtension("tags".into(), error))?;
+        offset += tags_size as usize;
+        Ok((tags, offset - initial_offset))
+    }
 }
 
 impl QuiltVersion for QuiltVersionV1 {
@@ -570,7 +668,7 @@ impl BlobHeaderV1 {
     /// The number of bytes used to store the size of the serialized blob.
     const BLOB_SIZE_BYTES_LENGTH: usize = 4;
     /// The mask bit that indicates whether the blob has attributes.
-    const METADATA_ENABLED: u8 = 1;
+    const TAGS_ENABLED: u8 = 1;
 
     /// The maximum value of the length.
     const MAX_SERIALIZED_BLOB_SIZE: u32 = u32::MAX;
@@ -614,17 +712,17 @@ impl BlobHeaderV1 {
         data
     }
 
-    /// Returns true if the blob has attributes.
-    pub fn has_attributes(&self) -> bool {
-        self.mask & Self::METADATA_ENABLED != 0
+    /// Returns true if the blob has tags.
+    pub fn has_tags(&self) -> bool {
+        self.mask & Self::TAGS_ENABLED != 0
     }
 
-    /// Set the attributes flag to true.
-    pub fn set_has_attributes(&mut self, has_attributes: bool) {
-        if has_attributes {
-            self.mask |= Self::METADATA_ENABLED;
+    /// Set the tags flag to true.
+    pub fn set_has_tags(&mut self, has_tags: bool) {
+        if has_tags {
+            self.mask |= Self::TAGS_ENABLED;
         } else {
-            self.mask &= !Self::METADATA_ENABLED;
+            self.mask &= !Self::TAGS_ENABLED;
         }
     }
 }
@@ -699,6 +797,24 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
             .and_then(|quilt_patch| {
                 let start_col = usize::from(quilt_patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
+            })
+    }
+
+    fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError> {
+        self.quilt_index()?
+            .get_quilt_patches_by_tag(target_tag, target_value)
+            .and_then(|patches| {
+                patches
+                    .iter()
+                    .map(|patch| {
+                        let start_col = usize::from(patch.start_index);
+                        QuiltVersionV1::decode_blob(self, start_col)
+                    })
+                    .collect()
             })
     }
 
@@ -972,6 +1088,22 @@ impl<'a> QuiltEncoderV1<'a> {
         })?);
         extension_bytes.push(identifier_bytes);
 
+        if !blob.tags.is_empty() {
+            header.set_has_tags(true);
+            let serialized_tags = bcs::to_bytes(&blob.tags)
+                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {}", e)))?;
+
+            // This must be the same as TAGS_SIZE_BYTES_LENGTH.
+            let tags_size = u16::try_from(serialized_tags.len()).map_err(|e| {
+                QuiltError::Other(format!("Failed to convert tags size to u16: {}", e))
+            })?;
+
+            let mut result_bytes = Vec::with_capacity(tags_size as usize + serialized_tags.len());
+            result_bytes.extend_from_slice(&tags_size.to_le_bytes());
+            result_bytes.extend_from_slice(&serialized_tags);
+            extension_bytes.push(result_bytes);
+        }
+
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
         header.length = total_size as u32;
         let header_bytes = header.as_bytes();
@@ -1123,7 +1255,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         // Create initial QuiltPatches.
         let quilt_patches = blob_pairs
             .iter()
-            .map(|blob| QuiltPatchV1::new(blob.identifier.clone()))
+            .map(|blob| QuiltPatchV1::new_with_tags(blob.identifier.clone(), blob.tags.clone()))
             .collect::<Result<Vec<QuiltPatchV1>, QuiltError>>()?;
 
         let mut quilt_index = QuiltIndexV1 { quilt_patches };
@@ -1277,11 +1409,23 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
-            .and_then(|quilt_patch| {
-                let start_idx = usize::from(quilt_patch.start_index);
-                let end_idx = usize::from(quilt_patch.end_index);
-                self.check_missing_slivers(start_idx, end_idx)?;
-                QuiltVersionV1::decode_blob(self, start_idx)
+            .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
+    }
+
+    fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError> {
+        self.quilt_index
+            .as_ref()
+            .ok_or(QuiltError::MissingQuiltIndex)
+            .and_then(|quilt_index| quilt_index.get_quilt_patches_by_tag(target_tag, target_value))
+            .and_then(|patches| {
+                patches
+                    .iter()
+                    .map(|patch| self.get_blob_by_quilt_patch(patch))
+                    .collect()
             })
     }
 
@@ -1370,6 +1514,17 @@ impl<'a> QuiltDecoderV1<'a> {
             quilt_index: Some(quilt_index),
             column_size,
         }
+    }
+
+    /// Gets the blob by QuiltPatchV1.
+    fn get_blob_by_quilt_patch(
+        &self,
+        quilt_patch: &QuiltPatchV1,
+    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+        let start_col = usize::from(quilt_patch.start_index);
+        let end_col = usize::from(quilt_patch.end_index);
+        self.check_missing_slivers(start_col, end_col)?;
+        QuiltVersionV1::decode_blob(self, start_col)
     }
 
     /// Checks if the desired slivers are missing.
@@ -1517,8 +1672,9 @@ mod utils {
 #[cfg(test)]
 mod tests {
     use core::num::NonZeroU16;
+    use std::collections::HashSet;
 
-    use rand::Rng;
+    use rand::{Rng, seq::SliceRandom};
     use walrus_test_utils::param_test;
 
     use super::*;
@@ -1594,14 +1750,17 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
+                        tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                 ],
                 7
@@ -1611,14 +1770,17 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-1".to_string(),
+                        tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-2".to_string(),
+                        tags: BTreeMap::from([("tag2".to_string(), "value2".to_string())]),
                     },
                 ],
                 7
@@ -1628,14 +1790,26 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::from([
+                            ("tag1".to_string(), "value1".to_string()),
+                            ("tag2".to_string(), "value1".to_string()),
+                        ]),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "test-blob-1".to_string(),
+                        tags: BTreeMap::from([
+                            ("tag3".to_string(), "value3".to_string()),
+                            ("tag2".to_string(), "value2".to_string()),
+                        ]),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        tags: BTreeMap::from([
+                            ("tag3".to_string(), "value1".to_string()),
+                            ("tag2".to_string(), "value3".to_string()),
+                        ]),
                     },
                 ],
                 7
@@ -1645,14 +1819,17 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
                         identifier: "".to_string(),
+                        tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
                         identifier: "test-blob-2".to_string(),
+                        tags: BTreeMap::new(),
                     },
                 ],
                 7
@@ -1662,14 +1839,17 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[1, 3][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[255u8; 1024][..],
                         identifier: "test-blob-1".to_string(),
+                        tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
                         blob: &[1, 2, 3][..],
                         identifier: "test-blob-2".to_string(),
+                        tags: BTreeMap::new(),
                     },
                 ],
                 12
@@ -1679,6 +1859,7 @@ mod tests {
                     QuiltStoreBlob {
                         blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
                         identifier: "test-blob-0".to_string(),
+                        tags: BTreeMap::new(),
                     },
                 ],
                 7
@@ -1756,7 +1937,7 @@ mod tests {
                 n_shards
             );
             // test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
-            test_quilt_encoder_and_decoder(28, 25, 568, 55);
+            test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
         }
     }
 
@@ -1779,12 +1960,9 @@ mod tests {
         let _ = tracing_subscriber::fmt().try_init();
 
         let blobs =
-            walrus_test_utils::generate_random_data(num_blobs, max_blob_size, min_blob_size);
-        let quilt_store_blobs = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i)))
-            .collect::<Vec<_>>();
+            walrus_test_utils::generate_random_data(num_blobs, min_blob_size, max_blob_size);
+        let blobs_refs = blobs.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
+        let quilt_store_blobs = populate_identifiers_and_tags(blobs_refs);
 
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -1795,8 +1973,71 @@ mod tests {
         );
     }
 
+    fn populate_identifiers_and_tags<'a>(blob_data: Vec<&'a [u8]>) -> Vec<QuiltStoreBlob<'a>> {
+        let mut rng = rand::thread_rng();
+        let num_tags = if rng.gen_bool(0.3) {
+            0
+        } else {
+            rng.gen_range(1..=blob_data.len())
+        };
+
+        const NUM_TAG_VALUES: usize = 3;
+        let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, 100);
+        let raw_tag_keys = walrus_test_utils::generate_random_data(NUM_TAG_VALUES, 1, 100);
+        let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
+        let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
+
+        let mut res = Vec::with_capacity(blob_data.len());
+        let mut identifiers = HashSet::with_capacity(blob_data.len());
+        while identifiers.len() < blob_data.len() {
+            identifiers.insert(hex::encode(walrus_test_utils::random_data(
+                rng.gen_range(1..100),
+            )));
+        }
+        for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
+            let mut tags = BTreeMap::new();
+            let num_keys_for_blob = rng.gen_range(0..=num_tags);
+            if num_keys_for_blob > 0 {
+                let selected_keys: Vec<_> = tag_keys
+                    .as_slice()
+                    .choose_multiple(&mut rng, num_keys_for_blob)
+                    .collect();
+
+                for key in selected_keys {
+                    let value = tag_values.choose(&mut rng).expect("Should choose a value");
+                    tags.insert(key.clone(), value.clone());
+                }
+            }
+            res.push(QuiltStoreBlob::new_with_tags(data, identifier, tags));
+        }
+
+        res
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn get_tag_blobs_map<'a>(
+        quilt_patches: &'a [QuiltStoreBlob<'a>],
+    ) -> Vec<(&'a str, Vec<(&'a str, HashSet<&'a str>)>)> {
+        let mut map: BTreeMap<&'a str, BTreeMap<&'a str, HashSet<&'a str>>> = BTreeMap::new();
+
+        for patch in quilt_patches {
+            for (tag_key, tag_value) in &patch.tags {
+                map.entry(tag_key.as_str())
+                    .or_default()
+                    .entry(tag_value.as_str())
+                    .or_default()
+                    .insert(patch.identifier.as_str());
+            }
+        }
+
+        map.into_iter()
+            .map(|(key, values)| (key, values.into_iter().collect()))
+            .collect()
+    }
+
     fn encode_decode_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
         let _ = tracing_subscriber::fmt().try_init();
+        let tag_blobs_map = get_tag_blobs_map(quilt_store_blobs);
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -1915,6 +2156,20 @@ mod tests {
             assert_eq!(blob, *quilt_store_blob);
         }
 
+        for (tag, val) in &tag_blobs_map {
+            for (tag_value, identifiers) in val {
+                let blobs = quilt_decoder
+                    .get_blobs_by_tag(tag, tag_value)
+                    .expect("Should get blobs by tag");
+                assert_eq!(blobs.len(), identifiers.len());
+                let identifiers_set = blobs
+                    .iter()
+                    .map(|blob| blob.identifier.as_str())
+                    .collect::<HashSet<_>>();
+                assert_eq!(identifiers_set, *identifiers);
+            }
+        }
+
         let mut decoder = config
             .get_blob_decoder::<Secondary>(quilt_metadata_v1.metadata.unencoded_length())
             .expect("Should create decoder");
@@ -1940,6 +2195,20 @@ mod tests {
                 .expect("Should construct quilt")
                 .data()
         );
+
+        for (tag, val) in &tag_blobs_map {
+            for (tag_value, identifiers) in val {
+                let blobs = quilt
+                    .get_blobs_by_tag(tag, tag_value)
+                    .expect("Should get blobs by tag");
+                assert_eq!(blobs.len(), identifiers.len());
+                let identifiers_set = blobs
+                    .iter()
+                    .map(|blob| blob.identifier.as_str())
+                    .collect::<HashSet<_>>();
+                assert_eq!(identifiers_set, *identifiers);
+            }
+        }
     }
 
     param_test! {

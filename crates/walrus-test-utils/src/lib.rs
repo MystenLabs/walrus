@@ -365,8 +365,8 @@ pub fn random_data_list(data_length: usize, count: usize) -> Vec<Vec<u8>> {
 /// Generate random data with sizes in the specified range.
 pub fn generate_random_data(
     num_blobs: usize,
-    max_blob_size: usize,
     min_blob_size: usize,
+    max_blob_size: usize,
 ) -> Vec<Vec<u8>> {
     // Create a deterministic RNG with a fixed seed for reproducibility.
     let mut rng = StdRng::seed_from_u64(42);
