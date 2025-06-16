@@ -153,8 +153,8 @@ pub enum SymbolVerificationError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QuiltError {
     /// The blob is not found in the quilt.
-    #[error("the blob is not found in the quilt: {0}")]
-    BlobNotFoundInQuilt(String),
+    #[error("the blobs are not found in the quilt: {}", .0.join(", "))]
+    BlobsNotFoundInQuilt(Vec<String>),
     /// The quilt version does not match the expected version.
     #[error("the quilt version does not match the expected version: {0}, expected: {1}")]
     QuiltVersionMismatch(u8, u8),

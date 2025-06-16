@@ -22,7 +22,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{cmp, fmt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use hex;
 use serde::{Deserialize, Serialize};
@@ -145,7 +145,9 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
         self.patches()
             .iter()
             .find(|patch| patch.identifier() == identifier)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+            .ok_or(QuiltError::BlobsNotFoundInQuilt(vec![
+                identifier.to_string(),
+            ]))
     }
 
     /// Returns the quilt patches matching the given tag.
@@ -161,17 +163,37 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     }
 
     /// Returns the sliver indices of the quilt patches matching the given tag.
-    fn get_sliver_indices_for_tag(
-        &self,
-        target_tag: &str,
-        target_value: &str,
-    ) -> Result<Vec<SliverIndex>, QuiltError>;
+    fn get_sliver_indices_for_tag(&self, target_tag: &str, target_value: &str) -> Vec<SliverIndex> {
+        self.patches()
+            .iter()
+            .filter(|patch| patch.has_matched_tag(target_tag, target_value))
+            .flat_map(|patch| patch.sliver_indices())
+            .collect()
+    }
 
     /// Returns the sliver indices of the quilt patches stored in.
     fn get_sliver_indices_for_identifiers(
         &self,
         identifiers: &[&str],
-    ) -> Result<Vec<SliverIndex>, QuiltError>;
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        let mut identifiers: HashSet<&str> = identifiers.iter().copied().collect();
+        let patches = self
+            .patches()
+            .iter()
+            .filter(|patch| identifiers.remove(&patch.identifier()))
+            .collect::<Vec<_>>();
+
+        if !identifiers.is_empty() {
+            return Err(QuiltError::BlobsNotFoundInQuilt(
+                identifiers.into_iter().map(|id| id.to_string()).collect(),
+            ));
+        }
+
+        Ok(patches
+            .iter()
+            .flat_map(|patch| patch.sliver_indices())
+            .collect())
+    }
 
     /// Returns the quilt patches.
     fn patches(&self) -> &[V::QuiltPatch];
@@ -196,6 +218,9 @@ pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
 
     /// Returns true if the quilt patch has the given tag.
     fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool;
+
+    /// Returns the sliver indices that the patch is stored in.
+    fn sliver_indices(&self) -> Vec<SliverIndex>;
 }
 /// API for QuiltPatchInternalId.
 ///

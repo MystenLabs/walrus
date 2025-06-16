@@ -9,7 +9,6 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
-use std::collections::HashSet;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -87,6 +86,12 @@ impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
 
     fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool {
         self.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value)
+    }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
     }
 }
 
@@ -244,37 +249,6 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
-    fn get_sliver_indices_for_tag(
-        &self,
-        target_tag: &str,
-        target_value: &str,
-    ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let sliver_indices = self
-            .get_quilt_patch_iter_by_tag(target_tag, target_value)
-            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect();
-        Ok(sliver_indices)
-    }
-
-    /// If the quilt contains duplicate identifiers, all matching patches are returned.
-    fn get_sliver_indices_for_identifiers(
-        &self,
-        identifiers: &[&str],
-    ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let identifiers: HashSet<&str> = identifiers.iter().copied().collect();
-        let patches = self
-            .quilt_patches
-            .iter()
-            .filter(|patch| identifiers.contains(&patch.identifier.as_str()))
-            .collect::<Vec<_>>();
-        let sliver_indices = patches
-            .iter()
-            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect();
-
-        Ok(sliver_indices)
-    }
-
     fn patches(&self) -> &[QuiltPatchV1] {
         &self.quilt_patches
     }
@@ -308,17 +282,6 @@ impl QuiltIndexV1 {
             self.quilt_patches[i].start_index = prev_end_index;
             prev_end_index = self.quilt_patches[i].end_index;
         }
-    }
-
-    /// Returns an iterator over the quilt patches that match the given tag.
-    fn get_quilt_patch_iter_by_tag(
-        &self,
-        target_tag: &str,
-        target_value: &str,
-    ) -> impl Iterator<Item = &QuiltPatchV1> {
-        self.quilt_patches
-            .iter()
-            .filter(|patch| patch.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value))
     }
 }
 
