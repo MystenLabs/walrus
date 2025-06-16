@@ -977,7 +977,6 @@ impl StorageNode {
             first_available_event_index,
         )?;
         self.inner
-            .storage
             .set_node_status(NodeStatus::RecoveryCatchUpWithIncompleteHistory {
                 first_complete_epoch,
                 epoch_at_start: current_epoch,

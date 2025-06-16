@@ -330,7 +330,7 @@ impl Storage {
             .map(|value| value.expect("node status should always be set"))
     }
 
-    pub(crate) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+    pub(super) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
     }
 
