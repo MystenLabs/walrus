@@ -434,6 +434,17 @@ pub mod simtest_utils {
     pub async fn get_nodes_health_info(
         nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
     ) -> Vec<ServiceHealthInfo> {
+        try_get_nodes_health_info(nodes)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("get health info should succeed")
+    }
+
+    /// Helper function to get health info for a list of nodes.
+    pub async fn try_get_nodes_health_info(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Vec<anyhow::Result<ServiceHealthInfo>> {
         futures::future::join_all(
             nodes
                 .into_iter()
@@ -444,11 +455,11 @@ pub mod simtest_utils {
                         .no_proxy()
                         .tls_built_in_root_certs(false)
                         .build_for_remote_ip(node_handle.rest_api_address)
-                        .expect("create node client failed");
+                        .context("create node client failed")?;
                     client
                         .get_server_health_info(true)
                         .await
-                        .expect("getting server health info should succeed")
+                        .context("get health info failed")
                 })
                 .collect::<Vec<_>>(),
         )
@@ -459,10 +470,10 @@ pub mod simtest_utils {
     pub async fn get_min_epoch_from_nodes(
         nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
     ) -> Epoch {
-        let health_info = get_nodes_health_info(nodes).await;
-        health_info
+        try_get_nodes_health_info(nodes)
+            .await
             .iter()
-            .map(|info| info.epoch)
+            .map(|result| result.as_ref().map(|info| info.epoch).unwrap_or_default())
             .min()
             .expect("at least one node should be running")
     }

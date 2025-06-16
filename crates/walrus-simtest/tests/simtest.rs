@@ -419,9 +419,14 @@ mod tests {
     #[walrus_simtest]
     async fn test_recovery_with_incomplete_history() {
         // TODO(mlegner): Can we also test crashes during this recovery?
+
         const MAX_EPOCHS_AHEAD: EpochCount = 3;
-        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1;
         const EPOCH_DURATION: Duration = Duration::from_secs(30);
+
+        // We need to wait at least until `MAX_EPOCHS_AHEAD + 1` until the first event blob is
+        // expired. The additional +2 is to account for the fact that the first event blob may only
+        // be certified in epoch 2 or 3.
+        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 2;
 
         // Tracks if a node enters recovery mode with incomplete history.
         let recovery_with_incomplete_history_triggered = Arc::new(AtomicBool::new(false));
@@ -471,17 +476,19 @@ mod tests {
             Some(MAX_EPOCHS_AHEAD),
         );
 
-        // Wait for the cluster to reach the target epoch (+1 for robustness), with a very long
-        // timeout for robustness.
+        tracing::info!("waiting for nodes to reach target epoch {}", TARGET_EPOCH);
+        // We need to wait at least for`EPOCH_DURATION * TARGET_EPOCH`. We allow for some more
+        // epochs to increase the test robustness.
         // TODO(mlegner): Maybe better check for the first event blob to become expired?
+        tokio::time::sleep(EPOCH_DURATION * TARGET_EPOCH).await;
         simtest_utils::wait_for_nodes_to_reach_epoch(
             &walrus_cluster.nodes[..4],
-            TARGET_EPOCH + 1,
-            EPOCH_DURATION * (TARGET_EPOCH + 3),
+            TARGET_EPOCH,
+            2 * EPOCH_DURATION,
         )
         .await;
 
-        // Spawn the new node, making sure it catches up using event blobs.
+        tracing::info!("spawning a new node");
         let storage_node_config = walrus_cluster.nodes[5].storage_node_config.clone();
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
@@ -502,7 +509,7 @@ mod tests {
         let new_node_starting_epoch =
             simtest_utils::get_current_epoch_from_node(&walrus_cluster.nodes[5]).await;
 
-        // Add stake to the new node so that it can be in Active state.
+        tracing::info!("adding stake to the new node");
         client_arc
             .as_ref()
             .as_ref()
@@ -517,9 +524,10 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        // Give the new node time to catch up and recover.
+        tracing::info!("waiting for the new node to catch up and recover");
         tokio::time::sleep(Duration::from_secs(150)).await;
 
+        tracing::info!("checking the cluster's health info");
         let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         let committees = client_arc
             .inner
@@ -531,7 +539,7 @@ mod tests {
         assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
         assert!(node_health_info[5].shard_detail.is_some());
 
-        // Check that shards in the new node matches the shards in the committees.
+        tracing::info!("checking that shards in the new node matches the shards in the committees");
         let shards_in_new_node_based_on_committee = committees
             .current_committee()
             .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
