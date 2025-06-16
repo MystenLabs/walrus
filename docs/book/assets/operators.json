@@ -149,11 +149,11 @@
       },
       "https://walrus-mainnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs"
@@ -332,7 +332,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -364,7 +364,7 @@
       },
       "https://walrus-testnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
