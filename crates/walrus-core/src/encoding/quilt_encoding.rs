@@ -14,6 +14,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use alloc::{
+    borrow::Cow,
     collections::BTreeMap,
     format,
     string::{String, ToString},
@@ -110,14 +111,17 @@ pub trait QuiltApi<V: QuiltVersion> {
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
 
     /// Gets blobs matching the given tag from the quilt.
     fn get_blobs_by_tag(
         &self,
         target_tag: &str,
         target_value: &str,
-    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError>;
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
@@ -233,14 +237,17 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ///
     /// If there are duplicate identifiers, the first one in the sort order will be returned.
     /// Note that the sort could be unstable.
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError>;
+    fn get_blob_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
 
     /// Gets blobs matching the given tag from the quilt.
     fn get_blobs_by_tag(
         &self,
         target_tag: &str,
         target_value: &str,
-    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError>;
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Adds slivers to the decoder.
     fn add_slivers(&mut self, slivers: &'a [&'a SliverData<V::SliverAxis>]);
@@ -338,7 +345,7 @@ impl QuiltEnum {
     pub fn get_blob_by_identifier(
         &self,
         identifier: &str,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
         match self {
             QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
         }
@@ -358,89 +365,37 @@ impl QuiltEnum {
 /// underscores, hyphens, and periods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
+    /// The blob data, either borrowed or owned.
+    blob: Cow<'a, [u8]>,
+    /// The identifier of the blob.
+    identifier: String,
     /// The tags of the blob.
     pub tags: BTreeMap<String, String>,
-    blob: &'a [u8],
-    identifier: String,
 }
 
 impl<'a> QuiltStoreBlob<'a> {
-    /// Creates a new `QuiltStoreBlob` from a blob and an identifier.
+    /// Creates a new `QuiltStoreBlob` from a borrowed blob and an identifier.
     pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Self {
         Self {
-            blob,
+            blob: Cow::Borrowed(blob),
             identifier: identifier.into(),
             tags: BTreeMap::new(),
         }
     }
 
-    /// Creates a new `QuiltStoreBlob` with tags.
-    pub fn new_with_tags(
-        blob: &'a [u8],
-        identifier: impl Into<String>,
-        tags: BTreeMap<String, String>,
-    ) -> Self {
+    /// Creates a new `QuiltStoreBlob` from an owned blob and an identifier.
+    pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
         Self {
-            blob,
+            blob: Cow::Owned(blob),
             identifier: identifier.into(),
-            tags,
+            tags: BTreeMap::new(),
         }
     }
 
-    /// Returns a reference to the blob data.
-    pub fn data(&self) -> &'a [u8] {
-        self.blob
-    }
-
-    /// Returns a reference to the identifier.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
-    }
-}
-
-/// A wrapper around an owned blob and its identifier.
-///
-/// A valid identifier is a string that contains only alphanumeric characters,
-/// underscores, hyphens, and periods.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct QuiltStoreBlobOwned {
-    /// The blob data.
-    pub blob: Vec<u8>,
-    /// The identifier of the blob.
-    pub identifier: String,
-    /// The tags of the blob.
-    pub tags: BTreeMap<String, String>,
-}
-
-// Implement cross-type equality between QuiltStoreBlob and QuiltStoreBlobOwned
-impl PartialEq<QuiltStoreBlobOwned> for QuiltStoreBlob<'_> {
-    fn eq(&self, other: &QuiltStoreBlobOwned) -> bool {
-        self.blob == other.blob.as_slice()
-            && self.identifier == other.identifier
-            && self.tags == other.tags
-    }
-}
-
-impl PartialEq<QuiltStoreBlob<'_>> for QuiltStoreBlobOwned {
-    fn eq(&self, other: &QuiltStoreBlob<'_>) -> bool {
-        self.blob.as_slice() == other.blob
-            && self.identifier == other.identifier
-            && self.tags == other.tags
-    }
-}
-
-impl QuiltStoreBlobOwned {
-    /// Creates a new `QuiltStoreBlobOwned` from an owned blob and an identifier.
-    pub fn new(
-        blob: Vec<u8>,
-        identifier: impl Into<String>,
-        tags: BTreeMap<String, String>,
-    ) -> Self {
-        Self {
-            blob,
-            identifier: identifier.into(),
-            tags,
-        }
+    /// Adds tags to the blob.
+    pub fn with_tags(mut self, tags: BTreeMap<String, String>) -> Self {
+        self.tags = tags;
+        self
     }
 
     /// Returns a reference to the blob data.
@@ -451,6 +406,23 @@ impl QuiltStoreBlobOwned {
     /// Returns a reference to the identifier.
     pub fn identifier(&self) -> &str {
         &self.identifier
+    }
+
+    /// Returns a reference to the tags.
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
+
+    /// Converts the blob to owned data if it isn't already.
+    pub fn into_owned(self) -> Self {
+        match self.blob {
+            Cow::Borrowed(_) => Self {
+                blob: Cow::Owned(self.blob.into_owned()),
+                identifier: self.identifier,
+                tags: self.tags,
+            },
+            Cow::Owned(_) => self,
+        }
     }
 }
 
@@ -531,7 +503,7 @@ impl QuiltVersionV1 {
     pub fn decode_blob<T>(
         data_source: &T,
         start_col: usize,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError>
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError>
     where
         T: QuiltColumnRangeReader,
     {
@@ -565,7 +537,7 @@ impl QuiltVersionV1 {
         let data_bytes = data_source.range_read_from_columns(start_col, offset, blob_bytes_size)?;
         assert!(data_bytes.len() == blob_bytes_size);
 
-        Ok(QuiltStoreBlobOwned::new(data_bytes, identifier, tags))
+        Ok(QuiltStoreBlob::new_owned(data_bytes, identifier).with_tags(tags))
     }
 
     /// Decodes the blob identifier from a column data source.
@@ -791,7 +763,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         Ok(quilt)
     }
 
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
         self.quilt_index()?
             .get_quilt_patch_by_identifier(identifier)
             .and_then(|quilt_patch| {
@@ -804,7 +779,7 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         &self,
         target_tag: &str,
         target_value: &str,
-    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError> {
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         self.quilt_index()?
             .get_quilt_patches_by_tag(target_tag, target_value)
             .and_then(|patches| {
@@ -1404,7 +1379,10 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         Ok(quilt_index.into())
     }
 
-    fn get_blob_by_identifier(&self, identifier: &str) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    fn get_blob_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
@@ -1416,7 +1394,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         &self,
         target_tag: &str,
         target_value: &str,
-    ) -> Result<Vec<QuiltStoreBlobOwned>, QuiltError> {
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
@@ -1520,7 +1498,7 @@ impl<'a> QuiltDecoderV1<'a> {
     fn get_blob_by_quilt_patch(
         &self,
         quilt_patch: &QuiltPatchV1,
-    ) -> Result<QuiltStoreBlobOwned, QuiltError> {
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
         let start_col = usize::from(quilt_patch.start_index);
         let end_col = usize::from(quilt_patch.end_index);
         self.check_missing_slivers(start_col, end_col)?;
@@ -1748,17 +1726,17 @@ mod tests {
             case_0: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
+                        blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5][..]),
                         identifier: "test-blob-1".to_string(),
                         tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5, 6, 78, 8][..]),
                         identifier: "test-blob-2".to_string(),
                         tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
@@ -1768,17 +1746,17 @@ mod tests {
             case_0_random_order: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5, 6, 78, 8][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::from([("tag1".to_string(), "value1".to_string())]),
                     },
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5][..]),
                         identifier: "test-blob-1".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
+                        blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
                         identifier: "test-blob-2".to_string(),
                         tags: BTreeMap::from([("tag2".to_string(), "value2".to_string())]),
                     },
@@ -1788,7 +1766,7 @@ mod tests {
             case_1: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
+                        blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::from([
                             ("tag1".to_string(), "value1".to_string()),
@@ -1796,7 +1774,7 @@ mod tests {
                         ]),
                     },
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
+                        blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
                         identifier: "test-blob-1".to_string(),
                         tags: BTreeMap::from([
                             ("tag3".to_string(), "value3".to_string()),
@@ -1804,7 +1782,7 @@ mod tests {
                         ]),
                     },
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5, 6, 78, 8][..]),
                         identifier: "test-blob-2".to_string(),
                         tags: BTreeMap::from([
                             ("tag3".to_string(), "value1".to_string()),
@@ -1817,17 +1795,17 @@ mod tests {
             case_1_random_order: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..],
+                        blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
                         identifier: "".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
-                        blob: &[5, 68, 3, 2, 5, 6, 78, 8][..],
+                        blob: Cow::Borrowed(&[5, 68, 3, 2, 5, 6, 78, 8][..]),
                         identifier: "test-blob-2".to_string(),
                         tags: BTreeMap::new(),
                     },
@@ -1837,17 +1815,17 @@ mod tests {
             case_2: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[1, 3][..],
+                        blob: Cow::Borrowed(&[1, 3][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
-                        blob: &[255u8; 1024][..],
+                        blob: Cow::Borrowed(&[255u8; 1024][..]),
                         identifier: "test-blob-1".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
-                        blob: &[1, 2, 3][..],
+                        blob: Cow::Borrowed(&[1, 2, 3][..]),
                         identifier: "test-blob-2".to_string(),
                         tags: BTreeMap::new(),
                     },
@@ -1857,7 +1835,7 @@ mod tests {
             case_3: (
                 &[
                     QuiltStoreBlob {
-                        blob: &[9, 8, 7, 6, 5, 4, 3, 2, 1][..],
+                        blob: Cow::Borrowed(&[9, 8, 7, 6, 5, 4, 3, 2, 1][..]),
                         identifier: "test-blob-0".to_string(),
                         tags: BTreeMap::new(),
                     },
@@ -2008,7 +1986,11 @@ mod tests {
                     tags.insert(key.clone(), value.clone());
                 }
             }
-            res.push(QuiltStoreBlob::new_with_tags(data, identifier, tags));
+            let mut blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier);
+            if !tags.is_empty() {
+                blob = blob.with_tags(tags);
+            }
+            res.push(blob);
         }
 
         res
