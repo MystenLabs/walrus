@@ -136,15 +136,29 @@ pub trait QuiltApi<V: QuiltVersion> {
 /// API for QuiltIndex.
 pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
-    fn get_quilt_patch_by_identifier(&self, identifier: &str)
-    -> Result<&V::QuiltPatch, QuiltError>;
+    ///
+    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
+    fn get_quilt_patch_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<&V::QuiltPatch, QuiltError> {
+        self.patches()
+            .iter()
+            .find(|patch| patch.identifier() == identifier)
+            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
 
     /// Returns the quilt patches matching the given tag.
     fn get_quilt_patches_by_tag(
         &self,
         target_tag: &str,
         target_value: &str,
-    ) -> Result<Vec<&V::QuiltPatch>, QuiltError>;
+    ) -> Vec<&V::QuiltPatch> {
+        self.patches()
+            .iter()
+            .filter(|patch| patch.has_matched_tag(target_tag, target_value))
+            .collect()
+    }
 
     /// Returns the sliver indices of the quilt patches matching the given tag.
     fn get_sliver_indices_for_tag(
@@ -179,6 +193,9 @@ pub trait QuiltPatchApi<V: QuiltVersion>: Clone {
 
     /// Returns the identifier of the quilt patch.
     fn identifier(&self) -> &str;
+
+    /// Returns true if the quilt patch has the given tag.
+    fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool;
 }
 /// API for QuiltPatchInternalId.
 ///
@@ -782,15 +799,12 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         self.quilt_index()?
             .get_quilt_patches_by_tag(target_tag, target_value)
-            .and_then(|patches| {
-                patches
-                    .iter()
-                    .map(|patch| {
-                        let start_col = usize::from(patch.start_index);
-                        QuiltVersionV1::decode_blob(self, start_col)
-                    })
-                    .collect()
+            .iter()
+            .map(|patch| {
+                let start_col = usize::from(patch.start_index);
+                QuiltVersionV1::decode_blob(self, start_col)
             })
+            .collect()
     }
 
     fn quilt_index(&self) -> Result<&QuiltIndexV1, QuiltError> {
@@ -1398,9 +1412,9 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
-            .and_then(|quilt_index| quilt_index.get_quilt_patches_by_tag(target_tag, target_value))
-            .and_then(|patches| {
-                patches
+            .and_then(|quilt_index| {
+                quilt_index
+                    .get_quilt_patches_by_tag(target_tag, target_value)
                     .iter()
                     .map(|patch| self.get_blob_by_quilt_patch(patch))
                     .collect()
@@ -2235,5 +2249,39 @@ mod tests {
 
         assert_eq!(reconstructed_header.length, length);
         assert_eq!(reconstructed_header.mask, mask);
+    }
+
+    #[test]
+    fn test_quilt_store_blob_equality() {
+        // Create blobs with same content but different storage (borrowed vs owned)
+        let data = vec![1, 2, 3, 4, 5];
+        let borrowed = QuiltStoreBlob::new(&data, "test-blob");
+        let owned = QuiltStoreBlob::new_owned(data.clone(), "test-blob");
+
+        // They should be equal because content is the same
+        assert_eq!(borrowed, owned);
+
+        // Add same tags to both
+        let mut tags = BTreeMap::new();
+        tags.insert("key1".to_string(), "value1".to_string());
+        let borrowed_with_tags = borrowed.clone().with_tags(tags.clone());
+        let owned_with_tags = owned.clone().with_tags(tags);
+
+        // They should still be equal with same tags
+        assert_eq!(borrowed_with_tags, owned_with_tags);
+
+        // Different content should not be equal
+        let different = QuiltStoreBlob::new(&[1, 2, 3, 4, 6], "test-blob");
+        assert_ne!(borrowed, different);
+
+        // Different identifier should not be equal
+        let different_id = QuiltStoreBlob::new(&data, "different-id");
+        assert_ne!(borrowed, different_id);
+
+        // Different tags should not be equal
+        let mut different_tags = BTreeMap::new();
+        different_tags.insert("key1".to_string(), "different-value".to_string());
+        let borrowed_different_tags = borrowed.with_tags(different_tags);
+        assert_ne!(borrowed_with_tags, borrowed_different_tags);
     }
 }

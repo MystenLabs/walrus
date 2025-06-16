@@ -84,6 +84,10 @@ impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
     fn identifier(&self) -> &str {
         &self.identifier
     }
+
+    fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool {
+        self.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value)
+    }
 }
 
 impl QuiltPatchV1 {
@@ -240,24 +244,6 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
-    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
-    fn get_quilt_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_patches
-            .iter()
-            .find(|patch| patch.identifier == identifier)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
-    }
-
-    fn get_quilt_patches_by_tag(
-        &self,
-        target_tag: &str,
-        target_value: &str,
-    ) -> Result<Vec<&QuiltPatchV1>, QuiltError> {
-        Ok(self
-            .get_quilt_patch_iter_by_tag(target_tag, target_value)
-            .collect())
-    }
-
     fn get_sliver_indices_for_tag(
         &self,
         target_tag: &str,
