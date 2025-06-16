@@ -111,7 +111,7 @@ impl ClientError {
 impl From<QuiltError> for ClientError {
     fn from(value: QuiltError) -> Self {
         ClientError {
-            kind: Box::new(ClientErrorKind::QuiltError(value.to_string())),
+            kind: Box::new(ClientErrorKind::QuiltError(value)),
         }
     }
 }
@@ -220,5 +220,5 @@ pub enum ClientErrorKind {
     StoreBlobInternal(String),
     /// An error when storing/retrieving a quilt.
     #[error("quilt error: {0}")]
-    QuiltError(String),
+    QuiltError(#[from] QuiltError),
 }

@@ -243,14 +243,20 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
         blobs: &'a [QuiltStoreBlob<'a>],
     ) -> V::QuiltEncoder<'a>;
 
-    /// Returns a new decoder for the given slivers.
-    fn get_decoder(slivers: &'a [&'a SliverData<V::SliverAxis>]) -> V::QuiltDecoder<'a>;
+    /// Returns a new decoder without slivers.
+    fn get_decoder(
+        slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
+    ) -> V::QuiltDecoder<'a>
+    where
+        V::SliverAxis: 'a;
 
     /// Returns a new decoder for the given slivers and quilt index.
     fn get_decoder_with_quilt_index(
-        slivers: &'a [&'a SliverData<V::SliverAxis>],
+        slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
         quilt_index: &'a QuiltIndex,
-    ) -> V::QuiltDecoder<'a>;
+    ) -> V::QuiltDecoder<'a>
+    where
+        V::SliverAxis: 'a;
 }
 
 /// Encoder to construct a quilt and encode the blobs into slivers.
@@ -292,7 +298,9 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Adds slivers to the decoder.
-    fn add_slivers(&mut self, slivers: &'a [&'a SliverData<V::SliverAxis>]);
+    fn add_slivers(&mut self, slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>)
+    where
+        V::SliverAxis: 'a;
 }
 
 /// A trait to read bytes from quilt columns.
@@ -1046,14 +1054,22 @@ impl<'a> QuiltConfigApi<'a, QuiltVersionV1> for QuiltConfigV1 {
         QuiltEncoderV1::new(encoding_config, blobs)
     }
 
-    fn get_decoder(slivers: &'a [&'a SliverData<Secondary>]) -> QuiltDecoderV1<'a> {
+    fn get_decoder(
+        slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
+    ) -> QuiltDecoderV1<'a>
+    where
+        Secondary: 'a,
+    {
         QuiltDecoderV1::new(slivers)
     }
 
     fn get_decoder_with_quilt_index(
-        slivers: &'a [&'a SliverData<Secondary>],
+        slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
         quilt_index: &QuiltIndex,
-    ) -> QuiltDecoderV1<'a> {
+    ) -> QuiltDecoderV1<'a>
+    where
+        Secondary: 'a,
+    {
         let QuiltIndex::V1(quilt_index) = quilt_index;
         QuiltDecoderV1::new_with_quilt_index(slivers, quilt_index.clone())
     }
@@ -1446,7 +1462,10 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             })
     }
 
-    fn add_slivers(&mut self, slivers: &'a [&'a SliverData<Secondary>]) {
+    fn add_slivers(&mut self, slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>)
+    where
+        Secondary: 'a,
+    {
         for sliver in slivers {
             self.column_size
                 .get_or_insert_with(|| sliver.symbols.data().len());
@@ -1507,14 +1526,18 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
 }
 
 impl<'a> QuiltDecoderV1<'a> {
-    /// Creates a new QuiltDecoderV1 with the given slivers.
-    pub fn new(slivers: &'a [&'a SliverData<Secondary>]) -> Self {
-        let column_size = slivers.first().map(|s| s.symbols.data().len());
+    /// Creates a new QuiltDecoderV1 without slivers.
+    pub fn new(slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>) -> Self
+    where
+        Secondary: 'a,
+    {
+        let slivers = slivers
+            .into_iter()
+            .map(|s| (s.index, s))
+            .collect::<HashMap<_, _>>();
+        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
         Self {
-            slivers: slivers
-                .iter()
-                .map(|s| (s.index, *s))
-                .collect::<HashMap<_, _>>(),
+            slivers,
             quilt_index: None,
             column_size,
         }
@@ -1522,12 +1545,19 @@ impl<'a> QuiltDecoderV1<'a> {
 
     /// Creates a new QuiltDecoderV1 with the given slivers, and a quilt index.
     pub fn new_with_quilt_index(
-        slivers: &'a [&'a SliverData<Secondary>],
+        slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
         quilt_index: QuiltIndexV1,
-    ) -> Self {
-        let column_size = slivers.first().map(|s| s.symbols.data().len());
+    ) -> Self
+    where
+        Secondary: 'a,
+    {
+        let slivers = slivers
+            .into_iter()
+            .map(|s| (s.index, s))
+            .collect::<HashMap<_, _>>();
+        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
         Self {
-            slivers: slivers.iter().map(|s| (s.index, *s)).collect(),
+            slivers,
             quilt_index: Some(quilt_index),
             column_size,
         }
@@ -2086,15 +2116,14 @@ mod tests {
             get_quilt_version_enum(first_sliver.symbols.data()).expect("Should get quilt version");
         assert!(matches!(quilt_version, QuiltVersionEnum::V1));
 
-        let mut quilt_decoder = QuiltConfigV1::get_decoder(&[]);
+        let mut quilt_decoder = QuiltConfigV1::get_decoder(core::iter::empty());
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         assert!(matches!(
             decode_index_result,
             Err(QuiltError::MissingSlivers(_))
         ));
 
-        let first_sliver_vec = vec![*first_sliver];
-        quilt_decoder.add_slivers(&first_sliver_vec);
+        quilt_decoder.add_slivers(vec![*first_sliver]);
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         let missing_slivers =
             if let Err(QuiltError::MissingSlivers(missing_indices)) = decode_index_result {
@@ -2109,7 +2138,7 @@ mod tests {
             };
 
         if !missing_slivers.is_empty() {
-            quilt_decoder.add_slivers(&missing_slivers);
+            quilt_decoder.add_slivers(missing_slivers);
             assert!(quilt_decoder.get_or_decode_quilt_index().is_ok());
         }
 
@@ -2150,7 +2179,7 @@ mod tests {
             .filter(|sliver| missing_indices.contains(&sliver.index))
             .copied()
             .collect();
-        quilt_decoder.add_slivers(&missing_slivers);
+        quilt_decoder.add_slivers(missing_slivers);
 
         // Check we can decode the blob with the slivers we added.
         let decoded_blob = quilt_decoder
@@ -2163,7 +2192,7 @@ mod tests {
         assert_eq!(decoded_blob, *expected_blob);
 
         // Now, add all slivers to the decoder, all the blobs should be reconstructed.
-        quilt_decoder.add_slivers(&slivers);
+        quilt_decoder.add_slivers(slivers);
         assert_eq!(
             quilt_decoder.get_or_decode_quilt_index(),
             Ok(quilt_metadata_v1.index.into())

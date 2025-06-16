@@ -6,6 +6,7 @@
 use std::{
     collections::HashSet,
     fs,
+    marker::PhantomData,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -78,6 +79,114 @@ fn get_all_files_from_path<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<Path
     }
 
     Ok(collected_files)
+}
+struct DecoderBasedCacheReader<V: QuiltVersion> {
+    pub slivers: Vec<SliverData<V::SliverAxis>>,
+}
+
+impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
+    pub fn new(slivers: Vec<SliverData<V::SliverAxis>>) -> Self {
+        Self { slivers }
+    }
+
+    pub fn get_blobs_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        let decoder = V::QuiltConfig::get_decoder(&self.slivers);
+        identifiers
+            .iter()
+            .map(|identifier| decoder.get_blob_by_identifier(identifier))
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+enum QuiltCacheReader<V: QuiltVersion> {
+    Uninitialized,
+    Decoder(DecoderBasedCacheReader<V>),
+    FullQuilt(QuiltEnum),
+}
+
+/// A wrapper for quilt decoder and quilt.
+struct QuiltReader<'a, V: QuiltVersion, T: ReadClient> {
+    pub reader: QuiltCacheReader<V>,
+    pub client: &'a QuiltClient<'a, T>,
+    pub config: QuiltClientConfig,
+    phantom: PhantomData<V>,
+}
+
+impl<'a, V: QuiltVersion, T: ReadClient> QuiltReader<'a, V, T>
+where
+    SliverData<V::SliverAxis>: TryFrom<Sliver>,
+{
+    /// Creates a new QuiltReader.
+    pub async fn new(client: &'a QuiltClient<'a, T>, config: QuiltClientConfig) -> Self {
+        Self {
+            reader: QuiltCacheReader::Uninitialized,
+            client,
+            config,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Retrieves blobs from quilt by identifiers.
+    pub async fn download_data(
+        &mut self,
+        sliver_indices: &[SliverIndex],
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<()> {
+        if matches!(self.reader, QuiltCacheReader::FullQuilt(_)) {
+            return Ok(());
+        }
+
+        let retrieved_slivers = self
+            .client
+            .client
+            .retrieve_slivers_with_retry::<V::SliverAxis>(
+                metadata,
+                sliver_indices,
+                certified_epoch,
+                self.config.max_retrieve_slivers_attempts,
+                self.config.timeout_duration,
+            )
+            .await;
+
+        if let Ok(slivers) = retrieved_slivers {
+            self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(slivers));
+            Ok(())
+        } else {
+            let quilt = self
+                .client
+                .get_full_quilt(metadata, certified_epoch)
+                .await?;
+            self.reader = QuiltCacheReader::FullQuilt(quilt);
+            Ok(())
+        }
+    }
+
+    /// Retrieves a blob from the quilt by identifier.
+    pub async fn get_blobs_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized => Err(ClientError::from(ClientErrorKind::Other(
+                "Reader not initialized".into(),
+            ))),
+            QuiltCacheReader::Decoder(cache) => cache
+                .get_blobs_by_identifiers(identifiers)
+                .map_err(ClientError::other),
+            QuiltCacheReader::FullQuilt(quilt) => identifiers
+                .iter()
+                .map(|identifier| {
+                    quilt
+                        .get_blob_by_identifier(identifier)
+                        .map_err(ClientError::other)
+                })
+                .collect::<Result<Vec<_>, _>>(),
+        }
+    }
 }
 
 /// Configuration for the QuiltClient.
@@ -216,9 +325,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
         let mut all_slivers = Vec::new();
-        let mut refs = vec![first_sliver];
-        let first_sliver_refs = [first_sliver].to_vec();
-        let mut decoder = V::QuiltConfig::get_decoder(&first_sliver_refs);
+        let mut decoder = V::QuiltConfig::get_decoder(std::iter::once(first_sliver));
 
         let quilt_index = match decoder.get_or_decode_quilt_index() {
             Ok(quilt_index) => quilt_index,
@@ -234,8 +341,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         )
                         .await?,
                 );
-                refs.extend(all_slivers.iter());
-                decoder.add_slivers(&refs);
+                decoder.add_slivers(&all_slivers);
                 decoder.get_or_decode_quilt_index()?
             }
             Err(e) => return Err(e.into()),
@@ -282,39 +388,14 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .client
             .get_blob_status_and_certified_epoch(metadata.blob_id(), None)
             .await?;
-        let retrieved_slivers = self
-            .client
-            .retrieve_slivers_with_retry::<V::SliverAxis>(
-                metadata,
-                &sliver_indices,
-                certified_epoch,
-                self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
-            )
-            .await;
-
-        if let Ok(slivers) = retrieved_slivers {
-            let sliver_refs: Vec<_> = slivers.iter().collect();
-            let decoder = V::QuiltConfig::get_decoder_with_quilt_index(&sliver_refs, index);
-            identifiers
-                .iter()
-                .map(|identifier| {
-                    decoder
-                        .get_blob_by_identifier(identifier)
-                        .map_err(ClientError::other)
-                })
-                .collect::<Result<Vec<_>, _>>()
-        } else {
-            let quilt = self.get_full_quilt(metadata, certified_epoch).await?;
-            identifiers
-                .iter()
-                .map(|identifier| {
-                    quilt
-                        .get_blob_by_identifier(identifier)
-                        .map_err(ClientError::other)
-                })
-                .collect::<Result<Vec<_>, _>>()
-        }
+        let mut quilt_reader = QuiltReader::<'_, V, T>::new(self, self.config.clone()).await;
+        quilt_reader
+            .download_data(&sliver_indices, metadata, certified_epoch)
+            .await?;
+        quilt_reader
+            .get_blobs_by_identifiers(identifiers)
+            .await
+            .map_err(ClientError::other)
     }
 
     /// Retrieves the quilt from Walrus.
