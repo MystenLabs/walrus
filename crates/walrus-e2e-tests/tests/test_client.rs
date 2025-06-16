@@ -15,7 +15,7 @@ use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
     path::PathBuf,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use indicatif::MultiProgress;
@@ -97,32 +97,6 @@ use walrus_sui::{
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-/// Read a blob with retries if the blob is registered but not certified.
-async fn read_blob_with_wait_for_certification(
-    client: &Client<SuiContractClient>,
-    blob_id: &BlobId,
-    timeout_duration: Duration,
-) -> TestResult<Vec<u8>> {
-    let start = Instant::now();
-
-    while start.elapsed() < timeout_duration {
-        match client.read_blob::<Primary>(blob_id).await {
-            Ok(data) => return Ok(data),
-            Err(err) => {
-                // Check if the error is BlobIdDoesNotExist.
-                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    continue;
-                }
-
-                return Err(err.into());
-            }
-        }
-    }
-
-    Err(anyhow::anyhow!("Timed out waiting for blob to be available").into())
-}
-
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
@@ -199,12 +173,7 @@ where
 
     // Read back and verify all blobs.
     for (path, blob_id) in path_to_blob_id {
-        let read_data = read_blob_with_wait_for_certification(
-            client.as_ref(),
-            &blob_id,
-            Duration::from_secs(30),
-        )
-        .await?;
+        let read_data = client.as_ref().read_blob::<Primary>(&blob_id).await?;
 
         assert_eq!(
             read_data,
@@ -635,16 +604,15 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     let read_result =
         futures::future::join_all(store_result_with_path.iter().map(|result| async {
-            let blob = read_blob_with_wait_for_certification(
-                client,
-                &result
-                    .blob_store_result
-                    .blob_id()
-                    .expect("blob id should be present"),
-                Duration::from_secs(30),
-            )
-            .await
-            .expect("should be able to read blob");
+            let blob = client
+                .read_blob::<Primary>(
+                    &result
+                        .blob_store_result
+                        .blob_id()
+                        .expect("blob id should be present"),
+                )
+                .await
+                .expect("should be able to read blob");
             (result.blob_store_result.blob_id(), blob)
         }))
         .await;
@@ -950,12 +918,9 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        read_blob_with_wait_for_certification(
-            client,
-            &blob_id.expect("blob id should be present"),
-            Duration::from_secs(30),
-        )
-        .await?,
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .await?,
         blob
     );
 
@@ -1130,12 +1095,9 @@ async fn test_blocklist() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        read_blob_with_wait_for_certification(
-            client,
-            &blob_id.expect("blob id should be present"),
-            Duration::from_secs(30)
-        )
-        .await?,
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .await?,
         blob
     );
 
