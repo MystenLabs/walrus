@@ -71,6 +71,8 @@ pub struct QuiltPatchV1 {
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     pub identifier: String,
     /// The tags of the blob.
+    //
+    // A BTreeMap is used to ensure deterministic serialization.
     pub tags: BTreeMap<String, String>,
 }
 
@@ -251,12 +253,9 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
         target_tag: &str,
         target_value: &str,
     ) -> Result<Vec<&QuiltPatchV1>, QuiltError> {
-        let patches = self
-            .quilt_patches
-            .iter()
-            .filter(|patch| patch.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value))
-            .collect::<Vec<_>>();
-        Ok(patches)
+        Ok(self
+            .get_quilt_patch_iter_by_tag(target_tag, target_value)
+            .collect())
     }
 
     fn get_sliver_indices_for_tag(
@@ -264,9 +263,8 @@ impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
         target_tag: &str,
         target_value: &str,
     ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let patches = self.get_quilt_patches_by_tag(target_tag, target_value)?;
-        let sliver_indices = patches
-            .iter()
+        let sliver_indices = self
+            .get_quilt_patch_iter_by_tag(target_tag, target_value)
             .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
             .collect();
         Ok(sliver_indices)
@@ -324,6 +322,17 @@ impl QuiltIndexV1 {
             self.quilt_patches[i].start_index = prev_end_index;
             prev_end_index = self.quilt_patches[i].end_index;
         }
+    }
+
+    /// Returns an iterator over the quilt patches that match the given tag.
+    fn get_quilt_patch_iter_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> impl Iterator<Item = &QuiltPatchV1> {
+        self.quilt_patches
+            .iter()
+            .filter(|patch| patch.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value))
     }
 }
 
