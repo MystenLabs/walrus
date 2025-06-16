@@ -569,7 +569,7 @@ mod tests {
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
             .expect("Failed to open temporary directory")
-            .into_path();
+            .keep();
         let database = {
             let _lock = global_test_lock().lock().await;
             rocks::open_cf_opts(
