@@ -947,23 +947,6 @@ impl StorageNode {
 
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_recovery_with_incomplete_history");
-        tracing::info!(
-            "repositioning node event cursor from {} to {} and setting node status to \
-            RecoveryCatchUpWithIncompleteHistory",
-            next_event_index,
-            first_available_event_index
-        );
-        self.inner.reposition_event_cursor(
-            init_state
-                .event_cursor
-                .event_id
-                .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
-            first_available_event_index,
-        )?;
-
-        // TODO(mlegner): Given that we only reach this point when we start from the very beginning,
-        // clearing the blob-info table may not actually be necessary.
-        self.inner.storage.clear_blob_info_table()?;
 
         let current_epoch = self.inner.committee_service.get_epoch();
         let first_complete_epoch =
@@ -986,13 +969,6 @@ impl StorageNode {
             first_complete_epoch,
             current_epoch,
         );
-
-        self.inner
-            .storage
-            .set_node_status(NodeStatus::RecoveryCatchUpWithIncompleteHistory {
-                first_complete_epoch,
-                epoch_at_start: current_epoch,
-            })?;
         self.inner.reposition_event_cursor(
             init_state
                 .event_cursor
@@ -1000,9 +976,15 @@ impl StorageNode {
                 .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
             first_available_event_index,
         )?;
+        self.inner
+            .storage
+            .set_node_status(NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                first_complete_epoch,
+                epoch_at_start: current_epoch,
+            })?;
 
-        // TODO(mlegner): Is this actually necessary, given that we only reach this point when we
-        // start from the very beginning?
+        // TODO(mlegner): Given that we only reach this point when we start from the very beginning,
+        // clearing the blob-info table may not actually be necessary.
         self.inner.storage.clear_blob_info_table()?;
 
         Ok(Some(init_state.event_cursor))
@@ -1093,11 +1075,6 @@ impl StorageNode {
             })
             .await
         {
-            tracing::info!(
-                %element_index,
-                ?stream_element,
-                "processing event",
-            );
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
                 format!("process_event {}", event_label)
