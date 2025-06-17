@@ -120,6 +120,13 @@ public struct ContractUpgradeQuorumReached has copy, drop {
     package_digest: vector<u8>,
 }
 
+/// Signals that the protocol version has been updated.
+public struct ProtocolVersionUpdated has copy, drop {
+    epoch: u32,
+    node_id: ID,
+    protocol_version: u64,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -189,6 +196,10 @@ public(package) fun emit_shard_recovery_start(epoch: u32, shards: vector<u16>) {
 
 public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: u64) {
     event::emit(ContractUpgraded { epoch, package_id, version })
+}
+
+public(package) fun emit_protocol_version(epoch: u32, node_id: ID, protocol_version: u64) {
+    event::emit(ProtocolVersionUpdated { epoch, node_id, protocol_version })
 }
 
 public(package) fun emit_register_deny_list_update(

@@ -641,6 +641,33 @@ macro fun storage_units_from_size($size: u64): u64 {
     size.divide_and_round_up(BYTES_PER_UNIT_SIZE)
 }
 
+// === Protocol Version ===
+
+/// Check quorum of committee members and emit the protocol version event.
+public(package) fun update_protocol_version(
+    self: &SystemStateInnerV1,
+    cap: &StorageNodeCap,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
+
+    let certified_message = self
+        .committee
+        .verify_quorum_in_epoch(signature, members_bitmap, message);
+
+    let epoch = certified_message.cert_epoch();
+    let message = certified_message.protocol_version_message();
+    assert!(epoch == self.epoch(), EInvalidIdEpoch);
+
+    events::emit_protocol_version(
+        epoch,
+        cap.node_id(),
+        message.protocol_version(),
+    );
+}
+
 // === DenyList ===
 
 /// Announce a deny list update for a storage node.
