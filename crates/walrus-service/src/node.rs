@@ -948,18 +948,26 @@ impl StorageNode {
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_recovery_with_incomplete_history");
 
+        // `first_complete_epoch` is the oldest epoch for which all events are guaranteed to be
+        // still available through non-expired event blobs.
         let current_epoch = self.inner.committee_service.get_epoch();
         let first_complete_epoch =
             current_epoch + 1 - self.inner.system_parameters.max_epochs_ahead;
-        if first_complete_epoch < init_state.epoch
-        // || first_complete_epoch == init_state.epoch
-        //     && todo!("first event is not an EpochChangeStart")
-        {
-            panic!(
-                "inconsistent event-blob state: we do not have access to all events from epoch {}",
-                first_complete_epoch
-            );
-        }
+
+        assert!(
+            // Note that the first event of the first non-expired event blob cannot be the
+            // `EpochChangeStart` for the first complete epoch:
+            //
+            // Assume we have epoch `E` as the first complete epoch and that event blob `B` has the
+            // `EpochChangeStart` for epoch `E` as its first event. This means the previous event
+            // blob `B-1` cannot have been certified in epoch `E-1` as we would otherwise miss its
+            // registration and certification events. This means that `B-1` must have been certified
+            // in epoch `E` (or later). So we definitely have events for epoch `E-1` in our
+            // incomplete history.
+            init_state.epoch < first_complete_epoch,
+            "inconsistent event-blob state: we do not have access to all events from epoch {}",
+            first_complete_epoch
+        );
 
         tracing::info!(
             "repositioning node event cursor from {} to {} and setting node status to \

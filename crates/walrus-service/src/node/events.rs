@@ -300,7 +300,7 @@ impl Ord for EventStreamCursor {
     }
 }
 
-/// A stream of events with starting indices for event processing and the event-blob writer..
+/// A stream of events with starting indices for event processing and the event-blob writer.
 pub(crate) struct EventStreamWithStartingIndices<'a> {
     /// The event stream.
     pub event_stream: Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'a>>,
