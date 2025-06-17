@@ -123,6 +123,7 @@ public struct CertifiedInvalidBlobId has drop {
 
 /// Message type for protocol version updates.
 public struct ProtocolVersionMessage has drop {
+    start_epoch: u32,
     protocol_version: u64,
 }
 
@@ -220,9 +221,10 @@ public(package) fun protocol_version_message(message: CertifiedMessage): Protoco
 
     let message_body = message.into_message();
     let mut bcs_body = bcs::new(message_body);
+    let start_epoch = bcs_body.peel_u32();
     let protocol_version = bcs_body.peel_u64();
 
-    ProtocolVersionMessage { protocol_version }
+    ProtocolVersionMessage { start_epoch, protocol_version }
 }
 
 /// Construct the certified deny list update message, note that constructing
@@ -306,6 +308,10 @@ public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
 }
 
 // === Accessors for ProtocolVersionMessage ===
+
+public(package) fun start_epoch(self: &ProtocolVersionMessage): u32 {
+    self.start_epoch
+}
 
 public(package) fun protocol_version(self: &ProtocolVersionMessage): u64 {
     self.protocol_version
