@@ -194,9 +194,6 @@ pub enum QuiltError {
     /// Failed to decode extension.
     #[error("failed to decode extension {0}: {1}")]
     FailedToDecodeExtension(String, bcs::Error),
-    /// Failed to parse quilt patch internal id.
-    #[error("failed to parse quilt patch internal id: {0}")]
-    FailedToParseQuiltPatchInternalId(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

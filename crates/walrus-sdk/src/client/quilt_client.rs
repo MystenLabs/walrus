@@ -81,6 +81,10 @@ fn get_all_files_from_path<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<Path
 
     Ok(collected_files)
 }
+
+/// A wrapper around QuiltDecoder, slivers and quilt index.
+///
+/// This is used to cache the slivers and quilt index for a given quilt.
 struct DecoderBasedCacheReader<V: QuiltVersion> {
     pub slivers: Vec<SliverData<V::SliverAxis>>,
     pub quilt_index: Option<QuiltIndex>,
@@ -135,13 +139,18 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
     }
 }
 
+/// An enum to represent either a cache of slivers and quilt index or a full quilt.
+///
+/// It is an candidate for the future quilt cache.
 enum QuiltCacheReader<V: QuiltVersion> {
     Uninitialized,
     Decoder(DecoderBasedCacheReader<V>),
     FullQuilt(QuiltEnum),
 }
 
-/// A wrapper for quilt decoder and quilt.
+/// A wrapper round different types of cached quilt readers.
+///
+/// This hides the details of the source of the data required to read the quilt patches.
 struct QuiltReader<'a, V: QuiltVersion, T: ReadClient> {
     pub reader: QuiltCacheReader<V>,
     pub client: &'a QuiltClient<'a, T>,
