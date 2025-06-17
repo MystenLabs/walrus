@@ -479,8 +479,8 @@ impl<'a> QuiltStoreBlob<'a> {
     }
 
     /// Adds tags to the blob.
-    pub fn with_tags(mut self, tags: BTreeMap<String, String>) -> Self {
-        self.tags = tags;
+    pub fn with_tags(mut self, tags: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.tags = tags.into_iter().collect();
         self
     }
 

@@ -83,18 +83,31 @@ fn get_all_files_from_path<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<Path
 }
 struct DecoderBasedCacheReader<V: QuiltVersion> {
     pub slivers: Vec<SliverData<V::SliverAxis>>,
+    pub quilt_index: Option<QuiltIndex>,
 }
 
 impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
-    pub fn new(slivers: Vec<SliverData<V::SliverAxis>>) -> Self {
-        Self { slivers }
+    pub fn new(slivers: Vec<SliverData<V::SliverAxis>>, quilt_index: Option<QuiltIndex>) -> Self {
+        Self {
+            slivers,
+            quilt_index,
+        }
+    }
+
+    fn get_decoder(&self) -> V::QuiltDecoder<'_> {
+        match &self.quilt_index {
+            Some(quilt_index) => {
+                V::QuiltConfig::get_decoder_with_quilt_index(&self.slivers, quilt_index)
+            }
+            None => V::QuiltConfig::get_decoder(&self.slivers),
+        }
     }
 
     pub fn get_blobs_by_identifiers(
         &self,
         identifiers: &[&str],
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
-        let decoder = V::QuiltConfig::get_decoder(&self.slivers);
+        let decoder = self.get_decoder();
         identifiers
             .iter()
             .map(|identifier| decoder.get_blob_by_identifier(identifier))
@@ -133,6 +146,7 @@ struct QuiltReader<'a, V: QuiltVersion, T: ReadClient> {
     pub reader: QuiltCacheReader<V>,
     pub client: &'a QuiltClient<'a, T>,
     pub config: QuiltClientConfig,
+    pub quilt_index: Option<QuiltIndex>,
     phantom: PhantomData<V>,
 }
 
@@ -141,11 +155,16 @@ where
     SliverData<V::SliverAxis>: TryFrom<Sliver>,
 {
     /// Creates a new QuiltReader.
-    pub async fn new(client: &'a QuiltClient<'a, T>, config: QuiltClientConfig) -> Self {
+    pub async fn new(
+        client: &'a QuiltClient<'a, T>,
+        config: QuiltClientConfig,
+        quilt_index: Option<QuiltIndex>,
+    ) -> Self {
         Self {
             reader: QuiltCacheReader::Uninitialized,
             client,
             config,
+            quilt_index,
             phantom: PhantomData,
         }
     }
@@ -174,7 +193,10 @@ where
             .await;
 
         if let Ok(slivers) = retrieved_slivers {
-            self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(slivers));
+            self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(
+                slivers,
+                self.quilt_index.clone(),
+            ));
             Ok(())
         } else {
             let quilt = self
@@ -431,8 +453,12 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     .client
                     .get_blob_status_and_certified_epoch(quilt_id, None)
                     .await?;
-                let mut quilt_reader =
-                    QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone()).await;
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                    self,
+                    self.config.clone(),
+                    Some(metadata.index.clone().into()),
+                )
+                .await;
                 quilt_reader
                     .download_data(
                         &sliver_indices,
@@ -470,8 +496,12 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     .client
                     .get_blob_status_and_certified_epoch(quilt_id, None)
                     .await?;
-                let mut quilt_reader =
-                    QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone()).await;
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                    self,
+                    self.config.clone(),
+                    Some(metadata.index.clone().into()),
+                )
+                .await;
                 quilt_reader
                     .download_data(
                         &sliver_indices,
@@ -560,7 +590,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         }
 
         let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone()).await;
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
         quilt_reader
             .download_data(&sliver_indices, metadata, certified_epoch)
             .await?;

@@ -15,6 +15,7 @@ use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
     path::PathBuf,
+    str::FromStr,
     time::{Duration, Instant},
 };
 
@@ -30,6 +31,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     ShardIndex,
     SliverPairIndex,
     encoding::{
@@ -1030,11 +1032,17 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_store_blobs = blobs
         .iter()
         .enumerate()
-        .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
+        .map(|(i, blob)| {
+            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1));
+            if i == 0 {
+                blob = blob.with_tags(vec![("tag1".to_string(), "value1".to_string())]);
+            }
+            blob
+        })
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_client = client.quilt_client(QuiltClientConfig::new(4, Duration::from_secs(30)));
+    let quilt_client = client.quilt_client(QuiltClientConfig::new(6, Duration::from_secs(60)));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -1094,6 +1102,31 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
                 .expect("identifier should be present");
             assert_eq!(&retrieved_quilt_blob, original_blob);
         }
+    }
+
+    // Test retrieving blobs by patch IDs
+    let quilt_patch_ids: Vec<QuiltPatchId> = stored_quilt_blobs
+        .iter()
+        .map(|stored_blob| {
+            QuiltPatchId::from_str(&stored_blob.quilt_patch_id)
+                .expect("should be able to parse quilt patch id")
+        })
+        .collect();
+
+    let retrieved_blobs_by_ids = quilt_client.get_blobs_by_ids(&quilt_patch_ids).await?;
+
+    assert_eq!(
+        retrieved_blobs_by_ids.len(),
+        quilt_patch_ids.len(),
+        "Number of retrieved blobs should match number of patch IDs"
+    );
+
+    // Verify that retrieved blobs match the original blobs
+    for retrieved_blob in &retrieved_blobs_by_ids {
+        let original_blob = id_blob_map
+            .get(retrieved_blob.identifier())
+            .expect("identifier should be present");
+        assert_eq!(retrieved_blob, *original_blob);
     }
 
     Ok(())
