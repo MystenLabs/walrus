@@ -1129,6 +1129,13 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         assert_eq!(retrieved_blob, *original_blob);
     }
 
+    // Test retrieving the blobs by tag.
+    let retrieved_blobs_by_tag = quilt_client
+        .get_blobs_by_tag(&blob_id, "tag1", "value1")
+        .await?;
+    assert_eq!(retrieved_blobs_by_tag.len(), 1);
+    assert_eq!(retrieved_blobs_by_tag[0].identifier(), "test-blob-1");
+
     Ok(())
 }
 

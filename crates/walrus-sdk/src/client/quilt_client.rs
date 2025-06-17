@@ -119,7 +119,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         target_tag: &str,
         target_value: &str,
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
-        let decoder = V::QuiltConfig::get_decoder(&self.slivers);
+        let decoder = self.get_decoder();
         decoder.get_blobs_by_tag(target_tag, target_value)
     }
 
@@ -183,7 +183,7 @@ where
         let retrieved_slivers = self
             .client
             .client
-            .retrieve_slivers_with_retry::<V::SliverAxis>(
+            .retrieve_slivers_retry_committees::<V::SliverAxis>(
                 metadata,
                 sliver_indices,
                 certified_epoch,
@@ -374,7 +374,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         // For now since we only support QuiltV1, we use the first secondary sliver.
         let slivers = self
             .client
-            .retrieve_slivers_with_retry::<Secondary>(
+            .retrieve_slivers_retry_committees::<Secondary>(
                 metadata,
                 &[SliverIndex::new(0)],
                 certified_epoch,
@@ -417,7 +417,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             Err(QuiltError::MissingSlivers(indices)) => {
                 all_slivers.extend(
                     self.client
-                        .retrieve_slivers_with_retry::<V::SliverAxis>(
+                        .retrieve_slivers_retry_committees::<V::SliverAxis>(
                             metadata,
                             &indices,
                             certified_epoch,

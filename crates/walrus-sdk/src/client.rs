@@ -519,6 +519,29 @@ impl<T: ReadClient> Client<T> {
         }
     }
 
+    async fn retrieve_slivers_retry_committees<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+        max_attempts: usize,
+        timeout_duration: Duration,
+    ) -> Result<Vec<SliverData<E>>, ClientError>
+    where
+        SliverData<E>: TryFrom<Sliver>,
+    {
+        self.retry_if_error_epoch_change(|| {
+            self.retrieve_slivers_with_retry(
+                metadata,
+                sliver_indices,
+                certified_epoch,
+                max_attempts,
+                timeout_duration,
+            )
+        })
+        .await
+    }
+
     /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
     ///
     /// Only unique slivers are retrieved, duplicates sliver indices are ignored.
