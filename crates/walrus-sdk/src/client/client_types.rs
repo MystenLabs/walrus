@@ -31,7 +31,6 @@ pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
 
 /// Identifies a stored quilt patch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct StoredQuiltPatch {
     /// The identifier of the quilt patch.
     pub identifier: String,

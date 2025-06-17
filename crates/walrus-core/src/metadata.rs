@@ -4,11 +4,11 @@
 //! Metadata associated with a Blob and stored by storage nodes.
 
 use alloc::{
+    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
-use std::collections::HashSet;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -69,6 +69,10 @@ pub struct QuiltPatchV1 {
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     pub identifier: String,
+    /// The tags of the blob.
+    //
+    // A BTreeMap is used to ensure deterministic serialization.
+    pub tags: BTreeMap<String, String>,
 }
 
 impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
@@ -78,6 +82,16 @@ impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
 
     fn identifier(&self) -> &str {
         &self.identifier
+    }
+
+    fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool {
+        self.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value)
+    }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
     }
 }
 
@@ -90,6 +104,22 @@ impl QuiltPatchV1 {
             identifier,
             start_index: 0,
             end_index: 0,
+            tags: BTreeMap::new(),
+        })
+    }
+
+    /// Creates a new [`QuiltPatchV1`] with tags.
+    pub fn new_with_tags<T: IntoIterator<Item = (String, String)>>(
+        identifier: String,
+        tags: T,
+    ) -> Result<Self, QuiltError> {
+        Self::validate_identifier(&identifier)?;
+
+        Ok(Self {
+            identifier,
+            start_index: 0,
+            end_index: 0,
+            tags: tags.into_iter().collect(),
         })
     }
 
@@ -135,10 +165,10 @@ impl QuiltIndex {
         }
     }
 
-    /// Returns the patches in the quilt index.
+    /// Returns the patches of the quilt index.
     pub fn patches(&self) -> &[QuiltPatchV1] {
         match self {
-            QuiltIndex::V1(quilt_index) => quilt_index.patches(),
+            QuiltIndex::V1(quilt_index) => &quilt_index.quilt_patches,
         }
     }
 }
@@ -202,6 +232,12 @@ impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
             end_index,
         })
     }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
+    }
 }
 
 impl QuiltPatchInternalIdV1 {
@@ -226,33 +262,6 @@ pub struct QuiltIndexV1 {
 }
 
 impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
-    /// If the quilt contains duplicate identifiers, the first matching patch is returned.
-    fn get_quilt_patch_by_identifier(&self, identifier: &str) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_patches
-            .iter()
-            .find(|patch| patch.identifier == identifier)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
-    }
-
-    /// If the quilt contains duplicate identifiers, all matching patches are returned.
-    fn get_sliver_indices_for_identifiers(
-        &self,
-        identifiers: &[&str],
-    ) -> Result<Vec<SliverIndex>, QuiltError> {
-        let identifiers: HashSet<&str> = identifiers.iter().copied().collect();
-        let patches = self
-            .quilt_patches
-            .iter()
-            .filter(|patch| identifiers.contains(&patch.identifier.as_str()))
-            .collect::<Vec<_>>();
-        let sliver_indices = patches
-            .iter()
-            .flat_map(|patch| (patch.start_index..patch.end_index).map(SliverIndex::new))
-            .collect();
-
-        Ok(sliver_indices)
-    }
-
     fn patches(&self) -> &[QuiltPatchV1] {
         &self.quilt_patches
     }
@@ -304,6 +313,7 @@ impl QuiltMetadata {
         }
     }
 }
+
 /// Metadata associated with a quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {

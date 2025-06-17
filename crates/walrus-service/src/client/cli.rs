@@ -5,8 +5,7 @@
 
 use std::{
     fmt::{self, Display},
-    fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
 
@@ -14,7 +13,7 @@ use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use walrus_core::{BlobId, QuiltPatchId};
+use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
 use walrus_sdk::{
     blocklist::Blocklist,
     client::Client,
@@ -391,14 +390,6 @@ fn thousands_separator_float(num: f64, digits: u32) -> String {
     format!("{}.{:0digits$}", thousands_separator(integer), decimal)
 }
 
-/// Reads a blob from the filesystem or returns a helpful error message.
-pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
-    fs::read(&path).context(format!(
-        "unable to read blob from '{}'",
-        path.as_ref().display()
-    ))
-}
-
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
 /// other parse error.
 #[derive(Debug, thiserror::Error)]
@@ -415,16 +406,6 @@ pub enum BlobIdParseError {
     InvalidBlobId,
 }
 
-// pub enum QuiltPatchIdParseError {
-//     /// Returned when attempting to parse a decimal value for the quilt patch ID.
-//     #[error(
-//         "you seem to be using a numeric value in decimal format corresponding to a Walrus quilt patch ID \
-//         (maybe copied from a Sui explorer) whereas Walrus uses URL-safe base64 encoding;\n\
-//         the Walrus quilt patch ID corresponding to the provided value is {0}"
-//     )]
-//     QuiltPatchIdInDecimalFormat(QuiltPatchId),
-// }
-
 /// Attempts to parse the blob ID and provides a detailed error when the blob ID was provided in
 /// decimal format.
 pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
@@ -438,11 +419,11 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
 }
 
 /// Parses a quilt blob ID from a string.
-pub fn parse_quilt_blob_id(input: &str) -> Result<QuiltPatchId, BlobIdParseError> {
+pub fn parse_quilt_patch_id(input: &str) -> Result<QuiltPatchId, QuiltError> {
     if let Ok(quilt_blob_id) = QuiltPatchId::from_str(input) {
         return Ok(quilt_blob_id);
     }
-    Err(BlobIdParseError::InvalidBlobId)
+    Err(QuiltError::QuiltPatchIdParseError(input.to_string()))
 }
 
 /// Helper struct to parse and format blob IDs as decimal numbers.

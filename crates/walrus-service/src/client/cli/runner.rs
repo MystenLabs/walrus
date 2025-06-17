@@ -38,7 +38,12 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, QuiltIndex},
 };
 use walrus_sdk::{
-    client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
+    client::{
+        Client,
+        NodeCommunicationFactory,
+        quilt_client::QuiltClientConfig,
+        resource::RegisterBlobOp,
+    },
     config::load_configuration,
     error::ClientErrorKind,
     store_when::StoreWhen,
@@ -58,7 +63,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::wallet::Wallet;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::args::{
     AggregatorArgs,
@@ -91,7 +96,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            read_blob_from_file,
             success,
             warning,
         },
@@ -559,7 +563,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client();
+        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
         let retrieved_blobs = if let Some(blob_id) = blob_id {
             let identifiers = identifiers.iter().map(|id| id.as_str()).collect::<Vec<_>>();
             quilt_read_client
@@ -604,7 +608,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client();
+        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
         if !self.json {
@@ -772,7 +776,7 @@ impl ClientCommandRunner {
         }
 
         let start_timer = std::time::Instant::now();
-        let quilt_write_client = client.quilt_client();
+        let quilt_write_client = client.quilt_client(QuiltClientConfig::default());
         let result = quilt_write_client
             .reserve_and_store_quilt_from_paths::<QuiltVersionV1, PathBuf>(
                 &paths,
@@ -803,7 +807,7 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         tracing::info!("performing dry-run for quilt from {:?}", paths);
 
-        let quilt_client = client.quilt_client();
+        let quilt_client = client.quilt_client(QuiltClientConfig::default());
         let quilt = quilt_client
             .construct_quilt_from_paths::<QuiltVersionV1, PathBuf>(paths, encoding_type)
             .await?;

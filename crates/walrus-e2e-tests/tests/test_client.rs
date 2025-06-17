@@ -15,6 +15,7 @@ use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
     path::PathBuf,
+    str::FromStr,
     time::{Duration, Instant},
 };
 
@@ -30,12 +31,13 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     ShardIndex,
     SliverPairIndex,
     encoding::{
         EncodingConfigTrait as _,
         Primary,
-        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltStoreBlobOwned, QuiltVersionV1},
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     merkle::Node,
     messages::BlobPersistenceType,
@@ -48,6 +50,7 @@ use walrus_sdk::{
         Client,
         WalrusStoreBlob,
         WalrusStoreBlobApi,
+        quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{
@@ -1029,17 +1032,23 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_store_blobs = blobs
         .iter()
         .enumerate()
-        .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
+        .map(|(i, blob)| {
+            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1));
+            if i == 0 {
+                blob = blob.with_tags(vec![("tag1".to_string(), "value1".to_string())]);
+            }
+            blob
+        })
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_write_client = client.quilt_client();
-    let quilt = quilt_write_client
+    let quilt_client = client.quilt_client(QuiltClientConfig::new(6, Duration::from_secs(60)));
+    let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
-    let store_operation_result = quilt_write_client
+    let store_operation_result = quilt_client
         .reserve_and_store_quilt::<QuiltVersionV1>(
-            &quilt_store_blobs,
+            &quilt,
             encoding_type,
             2,
             StoreWhen::Always,
@@ -1062,15 +1071,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .iter()
         .map(|b| (b.identifier(), b))
         .collect::<HashMap<_, _>>();
-    let read_client = Client::new_read_client_with_refresher(
-        client.config().clone(),
-        (*client.sui_client().read_client()).clone(),
-    )
-    .await?;
 
     let blob_id = blob_object.blob_id;
-    let quilt_read_client = read_client.quilt_client();
-    let quilt_metadata = quilt_read_client.get_quilt_metadata(&blob_id).await?;
+    let quilt_metadata = quilt_client.get_quilt_metadata(&blob_id).await?;
     let QuiltMetadata::V1(metadata_v1) = quilt_metadata;
     assert_eq!(&metadata_v1.index, quilt.quilt_index()?);
 
@@ -1083,7 +1086,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     tracing::info!(groups = ?groups, "test retrieving quilts by groups");
 
     for group in groups {
-        let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_read_client
+        let retrieved_quilt_blobs: Vec<QuiltStoreBlob> = quilt_client
             .get_blobs_by_identifiers(&blob_id, &group)
             .await?;
 
@@ -1100,6 +1103,38 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
             assert_eq!(&retrieved_quilt_blob, original_blob);
         }
     }
+
+    // Test retrieving blobs by patch IDs
+    let quilt_patch_ids: Vec<QuiltPatchId> = stored_quilt_blobs
+        .iter()
+        .map(|stored_blob| {
+            QuiltPatchId::from_str(&stored_blob.quilt_patch_id)
+                .expect("should be able to parse quilt patch id")
+        })
+        .collect();
+
+    let retrieved_blobs_by_ids = quilt_client.get_blobs_by_ids(&quilt_patch_ids).await?;
+
+    assert_eq!(
+        retrieved_blobs_by_ids.len(),
+        quilt_patch_ids.len(),
+        "Number of retrieved blobs should match number of patch IDs"
+    );
+
+    // Verify that retrieved blobs match the original blobs
+    for retrieved_blob in &retrieved_blobs_by_ids {
+        let original_blob = id_blob_map
+            .get(retrieved_blob.identifier())
+            .expect("identifier should be present");
+        assert_eq!(retrieved_blob, *original_blob);
+    }
+
+    // Test retrieving the blobs by tag.
+    let retrieved_blobs_by_tag = quilt_client
+        .get_blobs_by_tag(&blob_id, "tag1", "value1")
+        .await?;
+    assert_eq!(retrieved_blobs_by_tag.len(), 1);
+    assert_eq!(retrieved_blobs_by_tag[0].identifier(), "test-blob-1");
 
     Ok(())
 }
@@ -2347,7 +2382,6 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
         .await?;
 
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.as_ref().get_rpc_url().unwrap()];
 
     // Create a new client with the funded wallet.

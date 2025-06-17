@@ -30,14 +30,9 @@ use walrus_sui::{
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
+use walrus_utils::read_blob_from_file;
 
-use super::{
-    BlobIdDecimal,
-    HumanReadableBytes,
-    parse_blob_id,
-    parse_quilt_blob_id,
-    read_blob_from_file,
-};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -341,7 +336,9 @@ pub enum CliCommands {
         /// Read the quilt patches with the given quilt patch IDs.
         /// Can be provided as a space-separated list (e.g., --quilt-patch-ids id1 id2 id3).
         #[serde_as(as = "Vec<DisplayFromStr>")]
-        #[arg(long, allow_hyphen_values = true, value_parser = parse_quilt_blob_id, num_args = 0..)]
+        #[arg(
+            long, allow_hyphen_values = true, value_parser = parse_quilt_patch_id, num_args = 0..
+        )]
         #[serde(default)]
         quilt_patch_ids: Vec<QuiltPatchId>,
 

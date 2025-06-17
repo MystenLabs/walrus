@@ -3,12 +3,13 @@
 
 //! Walrus Storage Node entry point.
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fmt::Display,
     fs,
     io::{self, Write},
     net::SocketAddr,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -21,9 +22,10 @@ use config::PathOrInPlace;
 use fs::File;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::{ObjectID, SuiAddress};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
     runtime::{self, Runtime},
     sync::oneshot,
     task::JoinHandle,
@@ -217,7 +219,13 @@ enum CheckpointCommands {
     },
 
     /// List existing checkpoints.
-    List,
+    List {
+        /// The path to the checkpoint directory. If not provided, the directory configured in
+        /// [`StorageNodeConfig::checkpoint_config`] will be used. If none of these are provided an
+        /// error will be returned.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 
     /// Cancel an ongoing checkpoint creation.
     Cancel,
@@ -1192,6 +1200,7 @@ mod commands {
 
     /// Handle local admin commands.
     #[tokio::main]
+    #[cfg(unix)]
     pub(crate) async fn handle_admin_command(
         command: AdminCommands,
         socket_path: PathBuf,
@@ -1230,6 +1239,14 @@ mod commands {
         }
 
         Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn handle_admin_command(
+        _command: AdminCommands,
+        _socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Admin commands via Unix domain sockets are not supported on Windows")
     }
 }
 
@@ -1355,6 +1372,7 @@ impl StorageNodeRuntime {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn start_admin_socket(
         admin_args: AdminArgs,
         cancel_token: CancellationToken,
@@ -1404,6 +1422,15 @@ impl StorageNodeRuntime {
 
         Ok(Some(handle))
     }
+
+    #[cfg(windows)]
+    fn start_admin_socket(
+        _admin_args: AdminArgs,
+        _cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        tracing::warn!("Unix domain sockets are not supported on Windows");
+        Ok(None)
+    }
 }
 
 /// Handle checkpoint commands from admin socket.
@@ -1436,11 +1463,24 @@ async fn handle_checkpoint_command(
                 },
             }
         }
-        CheckpointCommands::List => {
-            // List operation not yet implemented.
-            AdminCommandResponse {
-                success: true,
-                message: "Checkpoint listing not implemented yet".to_string(),
+        CheckpointCommands::List { path } => {
+            let result = manager.list_db_checkpoints(path.as_deref());
+            match result {
+                Ok(db_checkpoints) => AdminCommandResponse {
+                    success: true,
+                    message: format!(
+                        "Backups:\n{}",
+                        db_checkpoints
+                            .iter()
+                            .map(|b| format!("  {}", b))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to list db checkpoints: {}", e),
+                },
             }
         }
         CheckpointCommands::Cancel => {
@@ -1464,6 +1504,7 @@ async fn handle_checkpoint_command(
 }
 
 /// Handles a connection to the admin socket.
+#[cfg(unix)]
 async fn handle_connection(stream: UnixStream, args: AdminArgs) {
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);

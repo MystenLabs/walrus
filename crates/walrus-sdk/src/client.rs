@@ -75,7 +75,7 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
-    client::quilt_client::QuiltClient,
+    client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
@@ -517,6 +517,29 @@ impl<T: ReadClient> Client<T> {
             },
             result = future => result,
         }
+    }
+
+    async fn retrieve_slivers_retry_committees<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+        max_attempts: usize,
+        timeout_duration: Duration,
+    ) -> Result<Vec<SliverData<E>>, ClientError>
+    where
+        SliverData<E>: TryFrom<Sliver>,
+    {
+        self.retry_if_error_epoch_change(|| {
+            self.retrieve_slivers_with_retry(
+                metadata,
+                sliver_indices,
+                certified_epoch,
+                max_attempts,
+                timeout_duration,
+            )
+        })
+        .await
     }
 
     /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
@@ -1447,9 +1470,9 @@ impl<T> Client<T> {
         self
     }
 
-    /// Returns a [`QuiltClient`] for storing quilts.
-    pub fn quilt_client(&self) -> QuiltClient<'_, T> {
-        QuiltClient::new(self)
+    /// Returns a [`QuiltClient`] for storing and retrieving quilts.
+    pub fn quilt_client(&self, config: QuiltClientConfig) -> QuiltClient<'_, T> {
+        QuiltClient::new(self, config)
     }
 
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
