@@ -116,6 +116,12 @@ pub trait QuiltApi<V: QuiltVersion> {
         identifier: &str,
     ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
 
+    /// Gets a blob by its patch internal id.
+    fn get_blob_by_patch_internal_id(
+        &self,
+        patch_internal_id: &[u8],
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
+
     /// Gets blobs matching the given tag from the quilt.
     fn get_blobs_by_tag(
         &self,
@@ -233,6 +239,9 @@ pub trait QuiltPatchInternalIdApi: Clone {
 
     /// Deserializes the quilt patch internal id from bytes.
     fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError>;
+
+    /// Returns the sliver indices that the patch is stored in.
+    fn sliver_indices(&self) -> Vec<SliverIndex>;
 }
 
 /// The configuration of the quilt.
@@ -288,6 +297,12 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     fn get_blob_by_identifier(
         &self,
         identifier: &str,
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
+
+    /// Gets a blob by its patch internal id.
+    fn get_blob_by_patch_internal_id(
+        &self,
+        patch_internal_id: &[u8],
     ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
 
     /// Gets blobs matching the given tag from the quilt.
@@ -398,6 +413,27 @@ impl QuiltEnum {
     ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
         match self {
             QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
+        }
+    }
+
+    /// Gets a blob by its patch internal id.
+    pub fn get_blob_by_patch_internal_id(
+        &self,
+        patch_internal_id: &[u8],
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_patch_internal_id(patch_internal_id),
+        }
+    }
+
+    /// Gets blobs matching the given tag from the quilt.
+    pub fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blobs_by_tag(target_tag, target_value),
         }
     }
 
@@ -823,6 +859,15 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 let start_col = usize::from(quilt_patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
             })
+    }
+
+    fn get_blob_by_patch_internal_id(
+        &self,
+        patch_internal_id: &[u8],
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        let patch_internal_id = QuiltPatchInternalIdV1::from_bytes(patch_internal_id)?;
+        let start_col = usize::from(patch_internal_id.start_index);
+        QuiltVersionV1::decode_blob(self, start_col)
     }
 
     fn get_blobs_by_tag(
@@ -1443,6 +1488,17 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
             .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
+    }
+
+    fn get_blob_by_patch_internal_id(
+        &self,
+        patch_internal_id: &[u8],
+    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        let patch_internal_id = QuiltPatchInternalIdV1::from_bytes(patch_internal_id)?;
+        let start_col = usize::from(patch_internal_id.start_index);
+        let end_col = usize::from(patch_internal_id.end_index);
+        self.check_missing_slivers(start_col, end_col)?;
+        QuiltVersionV1::decode_blob(self, start_col)
     }
 
     fn get_blobs_by_tag(
