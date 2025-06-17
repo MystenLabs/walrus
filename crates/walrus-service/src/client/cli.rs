@@ -36,6 +36,7 @@ pub use args::{
     NodeSelection,
     NodeSortBy,
     PublisherArgs,
+    QuiltBlobInput,
     SortBy,
 };
 pub use cli_output::CliOutput;

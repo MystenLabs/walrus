@@ -32,7 +32,7 @@ use walrus_core::{
         EncodingConfigTrait as _,
         Primary,
         encoded_blob_length_for_n_shards,
-        quilt_encoding::{QuiltApi, QuiltVersionV1},
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     ensure,
     metadata::{BlobMetadataApi as _, QuiltIndex},
@@ -41,7 +41,12 @@ use walrus_sdk::{
     client::{
         Client,
         NodeCommunicationFactory,
-        quilt_client::QuiltClientConfig,
+        quilt_client::{
+            QuiltClientConfig,
+            assign_identifiers_with_paths,
+            generate_identifier_from_path,
+            read_blobs_from_paths,
+        },
         resource::RegisterBlobOp,
     },
     config::load_configuration,
@@ -93,6 +98,7 @@ use crate::{
             CliOutput,
             HumanReadableFrost,
             HumanReadableMist,
+            QuiltBlobInput,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -226,6 +232,7 @@ impl ClientCommandRunner {
 
             CliCommands::StoreQuilt {
                 path,
+                blob_inputs,
                 epoch_arg,
                 dry_run,
                 force,
@@ -236,6 +243,7 @@ impl ClientCommandRunner {
             } => {
                 self.store_quilt(
                     path,
+                    blob_inputs,
                     epoch_arg,
                     dry_run,
                     StoreWhen::from_flags(force, ignore_resources),
@@ -739,6 +747,7 @@ impl ClientCommandRunner {
     pub(crate) async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
+        blob_inputs: Vec<QuiltBlobInput>,
         epoch_arg: EpochArg,
         dry_run: bool,
         store_when: StoreWhen,
@@ -764,6 +773,8 @@ impl ClientCommandRunner {
         let epochs_ahead =
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
+        let quilt_store_blobs = Self::read_blobs(&paths, blob_inputs).await?;
+
         if dry_run {
             return Self::store_quilt_dry_run(
                 client,
@@ -777,9 +788,12 @@ impl ClientCommandRunner {
 
         let start_timer = std::time::Instant::now();
         let quilt_write_client = client.quilt_client(QuiltClientConfig::default());
+        let quilt = quilt_write_client
+            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+            .await?;
         let result = quilt_write_client
-            .reserve_and_store_quilt_from_paths::<QuiltVersionV1, PathBuf>(
-                &paths,
+            .reserve_and_store_quilt::<QuiltVersionV1>(
+                &quilt,
                 encoding_type,
                 epochs_ahead,
                 store_when,
@@ -795,6 +809,44 @@ impl ClientCommandRunner {
         );
 
         result.print_output(self.json)
+    }
+
+    async fn read_blobs(
+        paths: &[PathBuf],
+        blob_inputs: Vec<QuiltBlobInput>,
+    ) -> Result<Vec<QuiltStoreBlob<'static>>> {
+        if !paths.is_empty() && !blob_inputs.is_empty() {
+            anyhow::bail!("cannot provide both paths and blob_inputs");
+        } else if !paths.is_empty() {
+            let blobs = read_blobs_from_paths(paths)?;
+            Ok(assign_identifiers_with_paths(blobs))
+        } else if !blob_inputs.is_empty() {
+            let paths = blob_inputs
+                .iter()
+                .map(|input| input.path.clone())
+                .collect::<Vec<_>>();
+            let mut blobs = read_blobs_from_paths(&paths)?;
+            let quilt_store_blobs = blob_inputs
+                .into_iter()
+                .enumerate()
+                .map(|(i, input)| {
+                    let (path, blob) = blobs
+                        .remove_entry(&input.path)
+                        .expect("blob should have been read");
+                    QuiltStoreBlob::new_owned(
+                        blob,
+                        input
+                            .identifier
+                            .clone()
+                            .unwrap_or_else(|| generate_identifier_from_path(&path, i)),
+                    )
+                    .with_tags(input.tags.clone())
+                })
+                .collect();
+            Ok(quilt_store_blobs)
+        } else {
+            anyhow::bail!("either paths or blob_inputs must be provided");
+        }
     }
 
     /// Performs a dry run of quilt storage

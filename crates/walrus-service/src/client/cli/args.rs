@@ -4,9 +4,11 @@
 //! The arguments to the Walrus client binary.
 
 use std::{
+    collections::BTreeMap,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
@@ -255,13 +257,27 @@ pub enum CliCommands {
         /// If the path is a directory, all the files in the directory will be included
         /// in the quilt.
         /// If the path is a file, the file will be included in the quilt.
-        #[arg(required = true, value_name = "PATH", alias("path-list"))]
+        #[arg(value_name = "PATH", alias("path-list"))]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
-        #[arg(long, num_args = 1..)]
+        #[arg(long, num_args = 0..)]
         path: Vec<PathBuf>,
+        /// A blob to include in the quilt, specified as a JSON string. May be repeated.
+        /// Example:
+        ///
+        /// ```bash
+        /// walrus store-quilt \
+        /// --input '{ \
+        /// "path":"/path/to/research-paper.pdf", \
+        /// "identifier":"paper-v2", \
+        /// "tags":{"author":"Dr. Smith", "project":"blue-sky", "status":"final-review"} \
+        /// }' \
+        /// --epochs 100 \
+        /// ```
+        #[arg(long = "input", action = clap::ArgAction::Append)]
+        #[serde(default)]
+        blob_inputs: Vec<QuiltBlobInput>,
         /// The epoch argument to specify either the number of epochs to store the quilt, or the
         /// end epoch, or the earliest expiry time in rfc3339 format.
-        ///
         #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
@@ -1078,25 +1094,27 @@ impl FileOrBlobId {
     }
 }
 
-#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+/// Represents a blob to be stored in a quilt, together with its identifier and tags.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltBlobInput {
     /// The path to the quilt blob.
-    #[arg(long)]
-    #[serde(default)]
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub(crate) path: PathBuf,
     /// The identifier of the quilt blob.
-    #[arg(long)]
     #[serde(default)]
     pub(crate) identifier: Option<String>,
     /// The tags of the quilt blob.
-    #[arg(
-        long = "tag",
-        value_names = &["KEY", "VALUE"],
-        num_args = 2,
-        action = clap::ArgAction::Append,
-    )]
-    pub(crate) tags: Vec<String>,
+    #[serde(default)]
+    pub(crate) tags: BTreeMap<String, String>,
+}
+
+impl FromStr for QuiltBlobInput {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
 }
 
 /// Represents a blob.

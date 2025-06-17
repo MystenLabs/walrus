@@ -31,14 +31,42 @@ use crate::{
     store_when::StoreWhen,
 };
 
+/// Generate identifier from path.
+pub fn generate_identifier_from_path(path: &Path, index: usize) -> String {
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .map(String::from)
+        .unwrap_or_else(|| format!("unnamed-blob-{}", index))
+}
+
+/// Converts a list of blobs with paths to a list of [`QuiltStoreBlob`]s.
+///
+/// The on-disk file names are used as identifiers for the quilt patches.
+/// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-index".
+//
+// TODO(WAL-887): Use relative paths to deduplicate the identifiers.
+pub fn assign_identifiers_with_paths(
+    blobs_with_paths: impl IntoIterator<Item = (PathBuf, Vec<u8>)>,
+) -> Vec<QuiltStoreBlob<'static>> {
+    blobs_with_paths
+        .into_iter()
+        .enumerate()
+        .map(|(i, (path, blob))| {
+            QuiltStoreBlob::new_owned(blob, generate_identifier_from_path(&path, i))
+        })
+        .collect()
+}
+
 /// Reads all files recursively from a given path and returns them as path-content pairs.
 ///
 /// If the path is a file, it's read directly.
 /// If the path is a directory, its files are read recursively.
 /// Returns error if path doesn't exist or is not accessible.
-pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
+pub fn read_blobs_from_paths<P: AsRef<Path>>(
+    paths: &[P],
+) -> ClientResult<HashMap<PathBuf, Vec<u8>>> {
     if paths.is_empty() {
-        return Ok(Vec::new());
+        return Ok(HashMap::new());
     }
 
     let mut collected_files: HashSet<PathBuf> = HashSet::new();
@@ -55,11 +83,11 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
         collected_files.extend(get_all_files_from_path(path)?);
     }
 
-    let mut collected_files_with_content = Vec::with_capacity(collected_files.len());
+    let mut collected_files_with_content = HashMap::with_capacity(collected_files.len());
     for file_path in collected_files {
         let content = read_blob_from_file(&file_path)
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.to_string().into())))?;
-        collected_files_with_content.push((file_path, content));
+        collected_files_with_content.insert(file_path, content);
     }
 
     Ok(collected_files_with_content)
@@ -647,30 +675,6 @@ impl QuiltClient<'_, SuiContractClient> {
         encoder.construct_quilt().map_err(ClientError::other)
     }
 
-    /// Converts a list of blobs with paths to a list of [`QuiltStoreBlob`]s.
-    ///
-    /// The on-disk file names are used as identifiers for the quilt patches.
-    /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-<index>".
-    //
-    // TODO(WAL-887): Use relative paths to deduplicate the identifiers.
-    fn assign_identifiers_with_paths(
-        blobs_with_paths: &[(PathBuf, Vec<u8>)],
-    ) -> Vec<QuiltStoreBlob> {
-        blobs_with_paths
-            .iter()
-            .enumerate()
-            .map(|(i, (path, blob))| {
-                QuiltStoreBlob::new(
-                    blob,
-                    path.file_name()
-                        .and_then(|file_name| file_name.to_str())
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("unnamed-blob-{}", i)),
-                )
-            })
-            .collect()
-    }
-
     /// Constructs a quilt from a list of paths.
     ///
     /// The paths can be files or directories; if they are directories, their files are read
@@ -690,7 +694,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = Self::assign_identifiers_with_paths(&blobs_with_paths);
+        let quilt_store_blobs: Vec<_> = assign_identifiers_with_paths(blobs_with_paths);
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
             .await
