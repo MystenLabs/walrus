@@ -2945,6 +2945,7 @@ and looks like this:</p>
     # module: site
     # portal: wal.app
     package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
     # general:
     #   rpc_url: https://fullnode.testnet.sui.io:443
     #   wallet: /path/to/.sui/sui_config/client.yaml
@@ -2955,6 +2956,7 @@ and looks like this:</p>
     # module: site
     # portal: wal.app
     package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
     # general:
     #   rpc_url: https://fullnode.mainnet.sui.io:443
     #   wallet: /path/to/.sui/sui_config/client.yaml
@@ -3201,7 +3203,7 @@ resources contained within, and on subsequent calls, it updates the existing sit
 <p>The deploy command determines whether to publish a new site or update an existing one by looking for
 a Site Object ID. It finds the ID with the following priority:</p>
 <ul>
-<li>An ID provided directly via the --object-id &lt;OBJECT_ID&gt; command-line flag.</li>
+<li>An ID provided directly via the <code>--object-id &lt;OBJECT_ID&gt;</code> command-line flag.</li>
 <li>An ID found in the object_id field of the ws-resources.json file.</li>
 <li>If no ID is found by either method, deploy will publish a new site.</li>
 </ul>
