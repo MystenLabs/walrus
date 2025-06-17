@@ -22,7 +22,7 @@ a Site Object ID. It finds the ID with the following priority:
 - An ID found in the object_id field of the ws-resources.json file.
 - If no ID is found by either method, deploy will publish a new site.
 
-When a new site is published, its object_id is automatically saved back to ws-resources.json,
+When a new site is published, its object_id is automatically saved back to `ws-resources.json`,
 streamlining future updates.
 
 ### Usage
