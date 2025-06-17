@@ -18,7 +18,7 @@ resources contained within, and on subsequent calls, it updates the existing sit
 The deploy command determines whether to publish a new site or update an existing one by looking for
 a Site Object ID. It finds the ID with the following priority:
 
-- An ID provided directly via the --object-id <OBJECT_ID> command-line flag.
+- An ID provided directly via the `--object-id <OBJECT_ID>` command-line flag.
 - An ID found in the object_id field of the ws-resources.json file.
 - If no ID is found by either method, deploy will publish a new site.
 
