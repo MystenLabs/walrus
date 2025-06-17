@@ -3011,7 +3011,7 @@ repository that contains multiple kinds of sites that you can use for reference.
 <h2 id="publish-the-site"><a class="header" href="#publish-the-site">Publish the site</a></h2>
 <p>Since we have placed the <code>walrus</code> and <code>site-builder</code> binaries and configuration in their default
 locations, publishing the <code>./walrus-snake</code> site is as simple as calling the publishing command:</p>
-<pre><code class="language-sh">site-builder publish ./walrus-snake --epochs 1
+<pre><code class="language-sh">site-builder deploy ./walrus-snake --epochs 1
 </code></pre>
 <div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
 <div class="admonition-title">
@@ -3022,7 +3022,7 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 </div>
 <div>
 <p>Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.</p>
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
 <p>The end of the output should look like the following:</p>
@@ -3058,7 +3058,8 @@ To browse the site, you have the following options:
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
-browse the site.</p>
+browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json</p>
 <p>Note here that we are implicitly using the default <code>sites-config.yaml</code> as the config for the site
 builder that we set up previously on the <a href="walrus-sites/./tutorial-install.html">installation section</a>. The
 configuration file is necessary to ensure that the <code>site-builder</code> knows the correct Sui package for
@@ -3069,10 +3070,10 @@ configuration</a> section.</p>
 <p>Let's say now you want to update the content of the site, for example by changing the title from
 "eat all the blobs!" to "Glob all the Blobs!".</p>
 <p>First, make this edit on in the <code>./walrus-snake/index.html</code> file.</p>
-<p>Then, you can update the existing site by running the <code>update</code> command, providing the directory
-where to find the updated files (still <code>./walrus-snake</code>) and the object ID of the existing site
-(<code>0x407a3081...</code>):</p>
-<pre><code class="language-sh">site-builder update --epochs 1 ./walrus-snake 0xe674c14...
+<p>Then, you can update the existing site by running the <code>deploy</code> command again. The deploy command will
+use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
+to update. You do not need to specify the object ID manually:</p>
+<pre><code class="language-sh">site-builder deploy --epochs 1 ./walrus-snake
 </code></pre>
 <p>The output this time should be:</p>
 <pre><code class="language-txt">Execution completed
@@ -3089,8 +3090,8 @@ To browse the site, you have the following options:
            First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
            Finally, browse it with: https://example-domain.wal.app
 </code></pre>
-<p>Compared to the <code>publish</code> action, we can see that now the only actions performed were to delete the
-old <code>index.html</code>, and update it with the newer one.</p>
+<p>Compared to the when the site was first published, we can see that now the only actions performed
+were to delete the old <code>index.html</code>, and update it with the newer one.</p>
 <p>Browsing to the provided URL should reflect the change. You've updated the site!</p>
 <div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
 <div class="admonition-title">
@@ -3194,22 +3195,137 @@ Sites</em> to create per-object websites!</p>
 CLI (<code>site-builder --help</code>) or individual commands (e.g. <code>site-builder update --help</code>).</p>
 </div>
 </div>
+<h2 id="deploy"><a class="header" href="#deploy"><code>deploy</code></a></h2>
+<p>The <code>deploy</code> command is the primary and recommended command for managing your Walrus Site on Sui.
+The command takes a directory as input and creates a new Walrus Site from the
+resources contained within, and on subsequent calls, it updates the existing site.</p>
+<h3 id="behavior"><a class="header" href="#behavior">Behavior</a></h3>
+<p>The deploy command determines whether to publish a new site or update an existing one by looking for
+a Site Object ID. It finds the ID with the following priority:</p>
+<ul>
+<li>An ID provided directly via the <code>--object-id &lt;OBJECT_ID&gt;</code> command-line flag.</li>
+<li>An ID found in the object_id field of the ws-resources.json file.</li>
+<li>If no ID is found by either method, deploy will publish a new site.</li>
+</ul>
+<p>When a new site is published, its object_id is automatically saved back to <code>ws-resources.json</code>,
+streamlining future updates.</p>
+<h3 id="usage"><a class="header" href="#usage">Usage</a></h3>
+<p>As shown by the command's help information, the typical usage is:</p>
+<pre><code class="language-sh">site-builder deploy [OPTIONS] --epochs &lt;EPOCHS&gt; &lt;DIRECTORY&gt;
+</code></pre>
+<p>The <code>deploy</code> command determines whether to publish or update based on the presence of an <code>object_id</code>
+field in the <code>ws-resources.json</code> file. <a href="walrus-sites/./routing.html">specifying headers and routing</a>.</p>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-info"></a>
+</div>
+<div>
+<p>The <code>object_id</code> field is automatically set by the <code>deploy</code>
+command, when deploying a new site, so there is no need for manually tracking the Site's Object ID.</p>
+</div>
+</div>
+<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div class="admonition-title">
+<div id="admonition-note-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-note"></a>
+</div>
+<div>
+<p>The wallet you are using to update an existing Site must be the <em>owner</em> of the Walrus Site object to be able
+to update it.</p>
+</div>
+</div>
+<p>The <code>--epochs</code> flag specifies the number of epochs for which the site's resources will be stored
+on Walrus (e.g., 10). You can also use max to store for the maximum allowed duration.</p>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-warning"></a>
+</div>
+<div>
+<p>The <code>--epochs</code> flag is required &amp; it's value must be greater than 0.</p>
+</div>
+</div>
+<div id="admonition-epoch-duration-on-walrus" class="admonition admonish-danger" role="note" aria-labelledby="admonition-epoch-duration-on-walrus-title">
+<div class="admonition-title">
+<div id="admonition-epoch-duration-on-walrus-title">
+<p>Epoch duration on Walrus</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus"></a>
+</div>
+<div>
+<p>On Walrus Testnet, the epoch duration is <strong>one day</strong>.
+On Walrus Mainnet, the epoch duration is <strong>fourteen days</strong>.
+Therefore, consider storing your site for a large number of epochs
+if you want to make it available for the following months!
+The maximum duration is set to 53 epochs.</p>
+</div>
+</div>
+<p>If you are just uploading raw files without an <code>index.html</code>, you may want to use the
+<code>--list-directory</code> flag, which will automatically create an index page to browse the files. See for
+example <a href="https://bin.wal.app">https://bin.wal.app</a>.</p>
+<h3 id="migrating-from-publishupdate"><a class="header" href="#migrating-from-publishupdate">Migrating from <code>publish</code>/<code>update</code></a></h3>
+<p>If you have a site that was previously managed with the <code>publish</code> and <code>update</code> commands, you can
+easily switch to the <code>deploy</code> command using one of the following methods:</p>
+<ul>
+<li><strong>Recommended</strong>: Use the <code>--object-id</code> cli flag
+Simply run the <code>deploy</code> command and provide your existing Site's Object ID via the <code>--object-id</code> flag:</li>
+</ul>
+<pre><code class="language-sh">site-builder deploy --object-id &lt;YOUR_EXISTING_SITE_ID&gt; --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
+<p>On success, this will update your site and automatically create (or update if already existing) a
+<code>ws-resources.json</code> file with the Site's Object ID saved in the <code>object_id</code> field.
+Future deployments will then be as simple as:</p>
+<pre><code class="language-sh">site-builder deploy --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
+<ul>
+<li>Manual <code>ws-resources.json</code> setup.
+You can manually create or update a <code>ws-resources.json</code> file in your site's root directory and add
+the <code>object_id</code> field with your existing site's Object ID.</li>
+</ul>
+<pre><code class="language-json">{
+  "object_id": "0x123...abc"
+}
+</code></pre>
+<p>Then, you can simply run:</p>
+<pre><code class="language-sh">site-builder deploy --epochs &lt;NUMBER&gt; ./path/to/your/site
+</code></pre>
 <h2 id="publish"><a class="header" href="#publish"><code>publish</code></a></h2>
+<div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
+<div class="admonition-title">
+<div id="admonition-note-1-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-note-1"></a>
+</div>
+<div>
+<p>The <code>deploy</code> command is the new standard for publishing and updating your Walrus Sites.
+Users are encouraged to migrate to the <code>deploy</code> command for a simpler and more robust experience.</p>
+</div>
+</div>
 <p>The <code>publish</code> command, as described in the <a href="walrus-sites/./tutorial-publish.html">previous section</a>, publishes a
 new site on Sui. The command takes a directory as input and creates a new Walrus Site from the
 resources contained within.</p>
 <p>The <code>--epochs</code> flag allows you to specify for how long the site data will be stored on Walrus.</p>
-<div id="admonition-epoch-duration-on-walrus-testnet" class="admonition admonish-danger" role="note" aria-labelledby="admonition-epoch-duration-on-walrus-testnet-title">
+<div id="admonition-epoch-duration-on-walrus-1" class="admonition admonish-danger" role="note" aria-labelledby="admonition-epoch-duration-on-walrus-1-title">
 <div class="admonition-title">
-<div id="admonition-epoch-duration-on-walrus-testnet-title">
-<p>Epoch duration on Walrus Testnet</p>
+<div id="admonition-epoch-duration-on-walrus-1-title">
+<p>Epoch duration on Walrus</p>
 </div>
-<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-testnet"></a>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-epoch-duration-on-walrus-1"></a>
 </div>
 <div>
-<p>On Walrus Testnet, the epoch duration is <strong>two days</strong>. Therefore, consider storing your site for a
-large number of epochs if you want to make it available for the following months! The maximum
-duration is set to 183 epochs (corresponding to one year).</p>
+<p>On Walrus Testnet, the epoch duration is <strong>one day</strong>.
+On Walrus Mainnet, the epoch duration is <strong>fourteen days</strong>.
+Therefore, consider storing your site for a large number of epochs
+if you want to make it available for the following months!
+The maximum duration is set to 53 epochs.</p>
 </div>
 </div>
 <p>If you are just uploading raw files without an <code>index.html</code>, you may want to use the
@@ -3218,14 +3334,26 @@ example <a href="https://bin.wal.app">https://bin.wal.app</a>.</p>
 <p>The <code>publish</code> command will also respect the instructions in the <code>ws-resources.json</code> configuration
 file. To know more, see the section on <a href="walrus-sites/./routing.html">specifying headers and routing</a>.</p>
 <h2 id="update"><a class="header" href="#update"><code>update</code></a></h2>
-<p>This command is the equivalent of <code>publish</code>, but for updating an existing site. It takes the same
-arguments, with the addition of the Sui object ID of the site to update.</p>
-<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div id="admonition-note-2" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-2-title">
 <div class="admonition-title">
-<div id="admonition-note-title">
+<div id="admonition-note-2-title">
 <p>Note</p>
 </div>
-<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-note"></a>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-note-2"></a>
+</div>
+<div>
+<p>The <code>deploy</code> command is the new standard for publishing and updating your Walrus Sites.
+Users are encouraged to migrate to the <code>deploy</code> command for a simpler and more robust experience.</p>
+</div>
+</div>
+<p>This command is the equivalent of <code>publish</code>, but for updating an existing site. It takes the same
+arguments, with the addition of the Sui object ID of the site to update.</p>
+<div id="admonition-note-3" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-3-title">
+<div class="admonition-title">
+<div id="admonition-note-3-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/commands.html#admonition-note-3"></a>
 </div>
 <div>
 <p>The wallet you are using to call <code>update</code> must be the <em>owner</em> of the Walrus Site object to be able
@@ -3308,7 +3436,7 @@ directly specify resource headers and routing rules.</p>
 site's resources (in other words, the file is not part of the resulting Walrus Site and is not
 served by the portal).</p>
 <p>If you don't want to use this default location, you can specify the path to the configuration file
-with the <code>--ws-resources</code> flag when running the <code>publish</code> or <code>update</code> commands.</p>
+with the <code>--ws-resources</code> flag when running the <code>deploy</code>, <code>publish</code> or <code>update</code> commands.</p>
 <p>The file is JSON-formatted, and looks like the following:</p>
 <pre><code class="language-JSON">{
   "headers": {
@@ -3329,11 +3457,24 @@ with the <code>--ws-resources</code> flag when running the <code>publish</code> 
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
   },
+  "site_name": "My Walrus Site",
+  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
   "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 </code></pre>
-<p>We now describe in detail four sections of the configuration file: <code>headers</code>, <code>routes</code>,
-<code>metadata</code>, and the <code>ignore</code> section.</p>
+<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div class="admonition-title">
+<div id="admonition-note-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note"></a>
+</div>
+<div>
+<p>The <code>ws-resources.json</code> file, expects the field names to be in <code>snake_case</code></p>
+</div>
+</div>
+<p>We now describe in detail six sections of the configuration file: <code>headers</code>, <code>routes</code>,
+<code>metadata</code>, <code>site_name</code>, <code>object_id</code> and the <code>ignore</code> section.</p>
 <h2 id="specifying-http-response-headers"><a class="header" href="#specifying-http-response-headers">Specifying HTTP response headers</a></h2>
 <p>The <code>headers</code> section allows you to specify custom HTTP response headers for specific resources.
 The keys in the <code>headers</code> object are the paths of the resources, and the values are lists of
@@ -3343,12 +3484,12 @@ key-value pairs corresponding to the headers that the portal will attach to the 
 <code>max-age=3500</code>.</p>
 <p>This mechanism allows you to control various aspects of the resource delivery, such as caching,
 encoding, and content types.</p>
-<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
 <div class="admonition-title">
-<div id="admonition-note-title">
+<div id="admonition-note-1-title">
 <p>Note</p>
 </div>
-<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note"></a>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-1"></a>
 </div>
 <div>
 <p>The resource path is always represented as starting from the root <code>/</code>.</p>
@@ -3367,12 +3508,12 @@ when you want to use a single-page application (SPA) framework, such as React or
 <p>The configuration in the <code>routes</code> object is a mapping from route keys to resource paths.</p>
 <p>The <strong><code>routes</code> keys</strong> are path patterns in the form <code>/path/to/some/*</code>, where the <code>*</code> character
 represents a wildcard.</p>
-<div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
+<div id="admonition-note-2" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-2-title">
 <div class="admonition-title">
-<div id="admonition-note-1-title">
+<div id="admonition-note-2-title">
 <p>Note</p>
 </div>
-<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-1"></a>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-2"></a>
 </div>
 <div>
 <p>Currently, the wildcard <em>can only be specified at the end of the path</em>.
@@ -3400,12 +3541,12 @@ path to the <code>routes</code>.</li>
 <li>All matching routes are then <em>lexicographically ordered</em>, and the <em>longest</em> match is chosen.</li>
 <li>The resource corresponding to this longest match is then served.</li>
 </ul>
-<div id="admonition-note-2" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-2-title">
+<div id="admonition-note-3" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-3-title">
 <div class="admonition-title">
-<div id="admonition-note-2-title">
+<div id="admonition-note-3-title">
 <p>Note</p>
 </div>
-<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-2"></a>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-3"></a>
 </div>
 <div>
 <p>In other words, the portal will <em>always</em> serve a resource if present, and if not present will serve
@@ -3455,6 +3596,42 @@ example you can place a link to your sites favicon.</li>
 <li><code>project_url</code>: If your site is open-source, add a link to your site's GitHub repository.</li>
 <li><code>creator</code>: Add the name of your company, group, or individual creator of your site.</li>
 </ul>
+<h2 id="site-name-site_name"><a class="header" href="#site-name-site_name">Site Name (<code>site_name</code>)</a></h2>
+<p>You can set a Name for your Walrus Site, via the optional <code>site_name</code> field in your
+<code>ws-resources.json</code> file.</p>
+<div id="admonition-note-4" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-4-title">
+<div class="admonition-title">
+<div id="admonition-note-4-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-4"></a>
+</div>
+<div>
+<p>In case you have also provided a Site Name via the <code>--site-name</code> cli flag, the cli flag
+will take priority over the <code>site_name</code> field in the <code>ws-resources.json</code>, which will be
+overwritten.</p>
+</div>
+</div>
+<div id="admonition-note-5" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-5-title">
+<div class="admonition-title">
+<div id="admonition-note-5-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/routing.html#admonition-note-5"></a>
+</div>
+<div>
+<p>If a Site Name is not provided at all (neither through the <code>--site-name</code> cli flag, nor
+through the <code>site_name</code> field in <code>ws-resources.json</code>), then a default name will be used.</p>
+</div>
+</div>
+<h2 id="site-object-id-object_id"><a class="header" href="#site-object-id-object_id">Site Object ID (<code>object_id</code>)</a></h2>
+<p>The optional <code>object_id</code> field in your <code>ws-resources.json</code> file stores the Sui Object ID of your
+deployed Walrus Site.</p>
+<p><strong>Role in Deployment:</strong></p>
+<p>The <code>site-builder deploy</code> command primarily uses this field to identify an existing site for updates.
+If a valid <code>object_id</code> is present, <code>deploy</code> will target that site for modifications.
+If this field is missing (and no <code>--object-id</code> CLI flag is used), <code>deploy</code> will publish a new site.
+If successful, then the command automatically populates this <code>object_id</code> field in your <code>ws-resources.json</code>.</p>
 <h2 id="ignoring-files-from-being-uploaded"><a class="header" href="#ignoring-files-from-being-uploaded">Ignoring files from being uploaded</a></h2>
 <p>You can use the optional <code>ignore</code> field to exclude certain files or folders from being published.
 This is useful when you want to keep development files, secrets, or temporary assets out of

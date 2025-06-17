@@ -244,7 +244,7 @@ repository that contains multiple kinds of sites that you can use for reference.
 <h2 id="publish-the-site"><a class="header" href="#publish-the-site">Publish the site</a></h2>
 <p>Since we have placed the <code>walrus</code> and <code>site-builder</code> binaries and configuration in their default
 locations, publishing the <code>./walrus-snake</code> site is as simple as calling the publishing command:</p>
-<pre><code class="language-sh">site-builder publish ./walrus-snake --epochs 1
+<pre><code class="language-sh">site-builder deploy ./walrus-snake --epochs 1
 </code></pre>
 <div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
 <div class="admonition-title">
@@ -255,7 +255,7 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 </div>
 <div>
 <p>Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.</p>
+duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
 <p>The end of the output should look like the following:</p>
@@ -291,7 +291,8 @@ To browse the site, you have the following options:
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
 respective blob ID. Further, it prints the object ID of the Walrus Site object on Sui (so you can
 have a look in the explorer and use it to set the SuiNS name) and, finally, the URL at which you can
-browse the site.</p>
+browse the site.
+The deploy command will also save this new Site Object ID to the ws-resources.json</p>
 <p>Note here that we are implicitly using the default <code>sites-config.yaml</code> as the config for the site
 builder that we set up previously on the <a href="./tutorial-install.html">installation section</a>. The
 configuration file is necessary to ensure that the <code>site-builder</code> knows the correct Sui package for
@@ -302,10 +303,10 @@ configuration</a> section.</p>
 <p>Let's say now you want to update the content of the site, for example by changing the title from
 "eat all the blobs!" to "Glob all the Blobs!".</p>
 <p>First, make this edit on in the <code>./walrus-snake/index.html</code> file.</p>
-<p>Then, you can update the existing site by running the <code>update</code> command, providing the directory
-where to find the updated files (still <code>./walrus-snake</code>) and the object ID of the existing site
-(<code>0x407a3081...</code>):</p>
-<pre><code class="language-sh">site-builder update --epochs 1 ./walrus-snake 0xe674c14...
+<p>Then, you can update the existing site by running the <code>deploy</code> command again. The deploy command will
+use the Site Object ID stored in ws-resources.json (from the initial deployment) to identify which site
+to update. You do not need to specify the object ID manually:</p>
+<pre><code class="language-sh">site-builder deploy --epochs 1 ./walrus-snake
 </code></pre>
 <p>The output this time should be:</p>
 <pre><code class="language-txt">Execution completed
@@ -322,8 +323,8 @@ To browse the site, you have the following options:
            First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
            Finally, browse it with: https://example-domain.wal.app
 </code></pre>
-<p>Compared to the <code>publish</code> action, we can see that now the only actions performed were to delete the
-old <code>index.html</code>, and update it with the newer one.</p>
+<p>Compared to the when the site was first published, we can see that now the only actions performed
+were to delete the old <code>index.html</code>, and update it with the newer one.</p>
 <p>Browsing to the provided URL should reflect the change. You've updated the site!</p>
 <div id="admonition-note-1" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-1-title">
 <div class="admonition-title">
