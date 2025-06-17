@@ -619,7 +619,10 @@ impl StorageNode {
             .max_concurrent(config.thread_pool.max_concurrent_tasks)
             .metrics_registry(registry.clone())
             .build_bounded();
-        let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new_with_metrics(
+            &config.blocklist_path,
+            Some(registry),
+        )?);
         let checkpoint_manager = match DbCheckpointManager::new(
             storage.get_db(),
             config.checkpoint_config.clone(),

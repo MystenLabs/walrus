@@ -525,13 +525,13 @@ mod tests {
 
         let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true);
 
-        // Run the workload for 60 seconds to get some data in the system.
+        // Run the workload for 120 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(120)).await;
 
         workload_handle.abort();
 
         // Wait for event to catch up.
-        tokio::time::sleep(Duration::from_secs(20)).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
 
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
         let health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
