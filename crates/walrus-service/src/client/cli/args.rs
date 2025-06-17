@@ -1081,6 +1081,27 @@ impl FileOrBlobId {
     }
 }
 
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltBlobInput {
+    /// The path to the quilt blob.
+    #[arg(long)]
+    #[serde(default)]
+    pub(crate) path: PathBuf,
+    /// The identifier of the quilt blob.
+    #[arg(long)]
+    #[serde(default)]
+    pub(crate) identifier: Option<String>,
+    /// The tags of the quilt blob.
+    #[arg(
+        long = "tag",
+        value_names = &["KEY", "VALUE"],
+        num_args = 2,
+        action = clap::ArgAction::Append,
+    )]
+    pub(crate) tags: Vec<String>,
+}
+
 /// Represents a blob.
 #[serde_as]
 #[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
