@@ -107,7 +107,7 @@ pub trait QuiltApi<V: QuiltVersion> {
         encoding_config: &EncodingConfigEnum<'_>,
     ) -> Result<V::Quilt, QuiltError>;
 
-    /// Gets a blob by its identifier from the quilt.
+    /// Gets multiple blobs by their identifiers from the quilt.
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
@@ -141,7 +141,7 @@ pub trait QuiltApi<V: QuiltVersion> {
 
 /// API for QuiltIndex.
 pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
-    /// Returns the quilt patch by its identifier.
+    /// Returns the quilt patches matching the given identifiers.
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     fn get_quilt_patches_by_identifiers(
@@ -260,7 +260,7 @@ pub trait QuiltConfigApi<'a, V: QuiltVersion> {
         blobs: &'a [QuiltStoreBlob<'a>],
     ) -> V::QuiltEncoder<'a>;
 
-    /// Returns a new decoder without slivers.
+    /// Returns a new decoder.
     fn get_decoder(
         slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
     ) -> V::QuiltDecoder<'a>
@@ -298,7 +298,7 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     /// using the `get_quilt_index` method after this method returns.
     fn get_or_decode_quilt_index(&mut self) -> Result<QuiltIndex, QuiltError>;
 
-    /// Gets a blob by its identifier from the quilt.
+    /// Gets multiple blobs by their identifiers from the quilt.
     ///
     /// If there are duplicate identifiers, the first one in the sort order will be returned.
     /// Note that the sort could be unstable.
