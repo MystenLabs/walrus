@@ -144,11 +144,25 @@ pub enum TlsCertificateSource {
     },
 }
 
+#[derive(Debug)]
+pub(crate) struct RestApiState<S> {
+    pub service: Arc<S>,
+    pub config: Arc<RestApiConfig>,
+}
+
+impl<S> Clone for RestApiState<S> {
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            config: self.config.clone(),
+        }
+    }
+}
+
 /// Represents a server for the Walrus REST API.
 #[derive(Debug)]
 pub struct RestApiServer<S> {
-    state: Arc<S>,
-    config: RestApiConfig,
+    state: RestApiState<S>,
     metrics: MetricsMiddlewareState,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
@@ -160,17 +174,19 @@ where
 {
     /// Creates a new REST API server.
     pub fn new(
-        state: Arc<S>,
+        service: Arc<S>,
         cancel_token: CancellationToken,
         config: RestApiConfig,
         registry: &Registry,
     ) -> Self {
         Self {
-            state,
+            state: RestApiState {
+                service,
+                config: Arc::new(config),
+            },
             metrics: MetricsMiddlewareState::new(registry),
             cancel_token,
             handle: Default::default(),
-            config,
         }
     }
 
@@ -206,11 +222,11 @@ where
         let handle = self.init_handle().await;
 
         let server = if let Some(tls_config) = self.configure_tls().await? {
-            let server = axum_server::bind_rustls(self.config.bind_address, tls_config)
+            let server = axum_server::bind_rustls(self.config().bind_address, tls_config)
                 .handle(handle.clone());
             Either::Left(self.configure_server(server).serve(app))
         } else {
-            let server = axum_server::bind(self.config.bind_address).handle(handle.clone());
+            let server = axum_server::bind(self.config().bind_address).handle(handle.clone());
             Either::Right(self.configure_server(server).serve(app))
         };
 
@@ -218,7 +234,7 @@ where
             Self::handle_shutdown_signal(
                 handle,
                 self.cancel_token.clone(),
-                self.config.graceful_shutdown_period,
+                self.config().graceful_shutdown_period,
             )
             .in_current_span(),
         );
@@ -230,7 +246,7 @@ where
     }
 
     fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
-        let config = &self.config.http2_config;
+        let config = &self.config().http2_config;
         let mut http2_builder = server.http_builder().http2();
         http2_builder
             .max_concurrent_streams(config.http2_max_concurrent_streams)
@@ -274,7 +290,7 @@ where
     }
 
     async fn configure_tls(&self) -> Result<Option<RustlsConfig>, anyhow::Error> {
-        let Some(ref tls_certificate) = self.config.tls_certificate else {
+        let Some(ref tls_certificate) = self.config().tls_certificate else {
             return Ok(None);
         };
 
@@ -331,7 +347,7 @@ where
             .await;
     }
 
-    fn define_routes(&self) -> Router<Arc<S>> {
+    fn define_routes(&self) -> Router<RestApiState<S>> {
         Router::new()
             .merge(Redoc::with_url(
                 routes::API_DOCS_ENDPOINT,
@@ -350,7 +366,7 @@ where
                 put(routes::put_sliver)
                     .route_layer(DefaultBodyLimit::max(
                         usize::try_from(encoding::max_sliver_size_for_n_shards(
-                            self.state.n_shards(),
+                            self.state.service.n_shards(),
                         ))
                         .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
@@ -399,6 +415,10 @@ where
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
+    }
+
+    fn config(&self) -> &RestApiConfig {
+        &self.state.config
     }
 }
 

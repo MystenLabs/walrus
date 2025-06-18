@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, sync::Arc};
+use std::num::NonZeroU16;
 
 use axum::{
     extract::{Path, Query, State},
@@ -39,6 +39,7 @@ use walrus_storage_node_client::{
 use walrus_sui::ObjectIdSchema;
 
 use super::{
+    RestApiState,
     extract::{Authorization, Bcs},
     openapi::{self},
     responses::OrRejection,
@@ -110,10 +111,10 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
     tag = openapi::GROUP_READING_BLOBS
 )]
 pub async fn get_metadata<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<Bcs<VerifiedBlobMetadataWithId>, RetrieveMetadataError> {
-    Ok(Bcs(state.retrieve_metadata(&blob_id)?))
+    Ok(Bcs(state.service.retrieve_metadata(&blob_id)?))
 }
 
 /// Check if the metadata for a blob is already stored.
@@ -133,10 +134,10 @@ pub async fn get_metadata<S: SyncServiceState>(
     tag = openapi::GROUP_STATUS
 )]
 pub async fn get_metadata_status<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<StoredOnNodeStatus>, RetrieveMetadataError> {
-    Ok(ApiSuccess::ok(state.metadata_status(&blob_id)?))
+    Ok(ApiSuccess::ok(state.service.metadata_status(&blob_id)?))
 }
 
 /// Store blob metadata.
@@ -161,11 +162,12 @@ pub async fn get_metadata_status<S: SyncServiceState>(
     tag = openapi::GROUP_STORING_BLOBS
 )]
 pub async fn put_metadata<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
     let (code, message) = if state
+        .service
         .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
         .await?
     {
@@ -202,7 +204,7 @@ pub async fn put_metadata<S: SyncServiceState>(
     tag = openapi::GROUP_READING_BLOBS
 )]
 pub async fn get_sliver<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, sliver_pair_index, sliver_type)): Path<(
         BlobIdString,
         SliverPairIndex,
@@ -211,6 +213,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 ) -> Result<Response, RetrieveSliverError> {
     let blob_id = blob_id.0;
     let sliver = state
+        .service
         .retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)
         .await?;
 
@@ -245,7 +248,7 @@ pub async fn get_sliver<S: SyncServiceState>(
     tag = openapi::GROUP_STORING_BLOBS,
 )]
 pub async fn put_sliver<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, sliver_pair_index, sliver_type)): Path<(
         BlobIdString,
         SliverPairIndex,
@@ -260,6 +263,7 @@ pub async fn put_sliver<S: SyncServiceState>(
     };
 
     state
+        .service
         .store_sliver(blob_id, sliver_pair_index, sliver)
         .await?;
 
@@ -296,7 +300,7 @@ pub async fn put_sliver<S: SyncServiceState>(
     tag = openapi::GROUP_STATUS
 )]
 pub async fn get_sliver_status<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, sliver_pair_index, sliver_type)): Path<(
         BlobIdString,
         SliverPairIndex,
@@ -307,11 +311,13 @@ pub async fn get_sliver_status<S: SyncServiceState>(
     let status = match sliver_type {
         SliverType::Primary => {
             state
+                .service
                 .sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index)
                 .await
         }
         SliverType::Secondary => {
             state
+                .service
                 .sliver_status::<SecondaryEncoding>(&blob_id, sliver_pair_index)
                 .await
         }
@@ -336,10 +342,11 @@ pub async fn get_sliver_status<S: SyncServiceState>(
     tag = openapi::GROUP_STORING_BLOBS
 )]
 pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let confirmation = state
+        .service
         .compute_storage_confirmation(&blob_id, &BlobPersistenceType::Permanent)
         .await?;
 
@@ -367,11 +374,12 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
     tag = openapi::GROUP_STORING_BLOBS
 )]
 pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id_string, object_id)): Path<(BlobIdString, ObjectID)>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let blob_id = blob_id_string.0;
     let confirmation = state
+        .service
         .compute_storage_confirmation(
             &blob_id,
             &BlobPersistenceType::Deletable {
@@ -413,7 +421,7 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
 )]
 #[deprecated = "use `get_recovery_symbol_by_id` instead"]
 pub async fn get_recovery_symbol<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, sliver_pair_index, sliver_type, target_pair_index)): Path<(
         BlobIdString,
         SliverPairIndex,
@@ -422,7 +430,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
     )>,
 ) -> Result<Response, RetrieveSymbolError> {
     let blob_id = blob_id.0;
-    let n_shards = state.n_shards();
+    let n_shards = state.service.n_shards();
 
     check_index(sliver_pair_index, n_shards)?;
     check_index(target_pair_index, n_shards)?;
@@ -446,6 +454,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
     };
     let symbol_id = SymbolId::new(primary_index, secondary_index);
     let symbol = state
+        .service
         .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))
         .await?
         .into();
@@ -483,10 +492,11 @@ fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), Index
     tag = openapi::GROUP_RECOVERY
 )]
 pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
 ) -> Result<Response, RetrieveSymbolError> {
     let symbol = state
+        .service
         .retrieve_recovery_symbol(&blob_id.0, symbol_id, None)
         .await?;
 
@@ -568,12 +578,13 @@ impl TryFrom<ListRecoverySymbolsQuery> for RecoverySymbolsFilter {
     tag = openapi::GROUP_RECOVERY
 )]
 pub async fn list_recovery_symbols<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
     let filter = query.try_into()?;
     let symbols = state
+        .service
         .retrieve_multiple_recovery_symbols(&blob_id, filter)
         .await?;
 
@@ -600,7 +611,7 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     tag = openapi::GROUP_RECOVERY
 )]
 pub async fn inconsistency_proof<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path((blob_id, sliver_type)): Path<(BlobIdString, SliverType)>,
     body: axum::body::Bytes,
 ) -> Result<ApiSuccess<InvalidBlobIdAttestation>, OrRejection<InconsistencyProofError>> {
@@ -611,6 +622,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
     };
 
     let attestation = state
+        .service
         .verify_inconsistency_proof(&blob_id, inconsistency_proof)
         .await?;
 
@@ -633,10 +645,10 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
     tag = openapi::GROUP_READING_BLOBS
 )]
 pub async fn get_blob_status<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<BlobStatus>, BlobStatusError> {
-    Ok(ApiSuccess::ok(state.blob_status(&blob_id)?))
+    Ok(ApiSuccess::ok(state.service.blob_status(&blob_id)?))
 }
 
 #[derive(Debug, Clone, serde::Deserialize, utoipa::IntoParams)]
@@ -662,9 +674,9 @@ pub struct HealthInfoQuery {
 )]
 pub async fn health_info<S: SyncServiceState>(
     Query(query): Query<HealthInfoQuery>,
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
-    ApiSuccess::ok(state.health_info(query.detailed).await)
+    ApiSuccess::ok(state.service.health_info(query.detailed).await)
 }
 
 #[tracing::instrument(skip_all)]
@@ -682,9 +694,9 @@ pub async fn health_info<S: SyncServiceState>(
     tag = openapi::GROUP_SYNC_SHARD
 )]
 pub async fn sync_shard<S: SyncServiceState>(
-    State(state): State<Arc<S>>,
+    State(state): State<RestApiState<S>>,
     Authorization(public_key): Authorization,
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardServiceError>> {
-    Ok(Bcs(state.sync_shard(public_key, signed_request).await?).into_response())
+    Ok(Bcs(state.service.sync_shard(public_key, signed_request).await?).into_response())
 }
