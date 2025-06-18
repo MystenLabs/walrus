@@ -781,7 +781,7 @@ impl ClientCommandRunner {
         if dry_run {
             return Self::store_quilt_dry_run(
                 client,
-                &paths,
+                &quilt_store_blobs,
                 encoding_type,
                 epochs_ahead,
                 self.json,
@@ -855,16 +855,16 @@ impl ClientCommandRunner {
     /// Performs a dry run of quilt storage
     async fn store_quilt_dry_run(
         client: Client<SuiContractClient>,
-        paths: &[PathBuf],
+        blobs: &[QuiltStoreBlob<'static>],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         json: bool,
     ) -> Result<()> {
-        tracing::info!("performing dry-run for quilt from {:?}", paths);
+        tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
         let quilt_client = client.quilt_client(QuiltClientConfig::default());
         let quilt = quilt_client
-            .construct_quilt_from_paths::<QuiltVersionV1, PathBuf>(paths, encoding_type)
+            .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
             .await?;
         let (_, metadata) =
             client.encode_pairs_and_metadata(quilt.data(), encoding_type, &MultiProgress::new())?;
