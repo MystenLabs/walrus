@@ -111,10 +111,10 @@ pub trait QuiltApi<V: QuiltVersion> {
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
     /// TODO(WAL-862): Deduplicate the `get_blob*` functions.
-    fn get_blob_by_identifier(
+    fn get_blobs_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Gets a blob by its patch internal id.
     fn get_blob_by_patch_internal_id(
@@ -144,16 +144,24 @@ pub trait QuiltIndexApi<V: QuiltVersion>: Clone + Into<QuiltIndex> {
     /// Returns the quilt patch by its identifier.
     ///
     /// If the quilt contains duplicate identifiers, the first matching patch is returned.
-    fn get_quilt_patch_by_identifier(
+    fn get_quilt_patches_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<&V::QuiltPatch, QuiltError> {
-        self.patches()
+        identifiers: &[&str],
+    ) -> Result<Vec<&V::QuiltPatch>, QuiltError> {
+        let mut identifiers: HashSet<&str> = identifiers.iter().copied().collect();
+        let patches = self
+            .patches()
             .iter()
-            .find(|patch| patch.identifier() == identifier)
-            .ok_or(QuiltError::BlobsNotFoundInQuilt(vec![
-                identifier.to_string(),
-            ]))
+            .filter(|patch| identifiers.remove(&patch.identifier()))
+            .collect::<Vec<_>>();
+
+        if !identifiers.is_empty() {
+            return Err(QuiltError::BlobsNotFoundInQuilt(
+                identifiers.into_iter().map(|id| id.to_string()).collect(),
+            ));
+        }
+
+        Ok(patches)
     }
 
     /// Returns the quilt patches matching the given tag.
@@ -294,10 +302,10 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ///
     /// If there are duplicate identifiers, the first one in the sort order will be returned.
     /// Note that the sort could be unstable.
-    fn get_blob_by_identifier(
+    fn get_blobs_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlob<'static>, QuiltError>;
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Gets a blob by its patch internal id.
     fn get_blob_by_patch_internal_id(
@@ -406,13 +414,13 @@ impl QuiltEnum {
         }
     }
 
-    /// Returns the blob identified by the given identifier.
-    pub fn get_blob_by_identifier(
+    /// Returns the blobs identified by the given identifiers.
+    pub fn get_blobs_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         match self {
-            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blob_by_identifier(identifier),
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_blobs_by_identifiers(identifiers),
         }
     }
 
@@ -849,16 +857,15 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         Ok(quilt)
     }
 
-    fn get_blob_by_identifier(
+    fn get_blobs_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         self.quilt_index()?
-            .get_quilt_patch_by_identifier(identifier)
-            .and_then(|quilt_patch| {
-                let start_col = usize::from(quilt_patch.start_index);
-                QuiltVersionV1::decode_blob(self, start_col)
-            })
+            .get_quilt_patches_by_identifiers(identifiers)?
+            .iter()
+            .map(|patch| QuiltVersionV1::decode_blob(self, usize::from(patch.start_index)))
+            .collect()
     }
 
     fn get_blob_by_patch_internal_id(
@@ -1479,15 +1486,17 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         Ok(quilt_index.into())
     }
 
-    fn get_blob_by_identifier(
+    fn get_blobs_by_identifiers(
         &self,
-        identifier: &str,
-    ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         self.quilt_index
             .as_ref()
             .ok_or(QuiltError::MissingQuiltIndex)
-            .and_then(|quilt_index| quilt_index.get_quilt_patch_by_identifier(identifier))
-            .and_then(|quilt_patch| self.get_blob_by_quilt_patch(quilt_patch))
+            .and_then(|quilt_index| quilt_index.get_quilt_patches_by_identifiers(identifiers))?
+            .iter()
+            .map(|patch| self.get_blob_by_quilt_patch(patch))
+            .collect()
     }
 
     fn get_blob_by_patch_internal_id(
@@ -1989,9 +1998,12 @@ mod tests {
         // Verify each blob and its description.
         for quilt_store_blob in quilt_store_blobs {
             // Verify blob data matches.
+            let identifiers = vec![quilt_store_blob.identifier.as_str()];
             let extracted_blob = quilt
-                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
-                .expect("Patch should exist for this blob identifier");
+                .get_blobs_by_identifiers(&identifiers)
+                .expect("Patch should exist for this blob identifier")
+                .pop()
+                .expect("Should be able to get blob by identifier");
             assert_eq!(
                 extracted_blob, *quilt_store_blob,
                 "Mismatch in encoded blob"
@@ -2000,15 +2012,20 @@ mod tests {
             let quilt_patch = quilt
                 .quilt_index()
                 .expect("Quilt index should exist")
-                .get_quilt_patch_by_identifier(quilt_store_blob.identifier.as_str())
-                .expect("Patch should exist for this blob ID");
+                .get_quilt_patches_by_identifiers(&identifiers)
+                .expect("Patch should exist for this blob ID")
+                .pop()
+                .expect("Should be able to get quilt patch by identifier");
             assert_eq!(
-                quilt_patch.identifier, quilt_store_blob.identifier,
+                quilt_patch.identifier(),
+                quilt_store_blob.identifier(),
                 "Mismatch in blob description"
             );
 
             let blob_by_identifier = quilt
-                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blobs_by_identifiers(&identifiers)
+                .expect("Should be able to get blob by identifier")
+                .pop()
                 .expect("Should be able to get blob by identifier");
             assert_eq!(blob_by_identifier, *quilt_store_blob);
         }
@@ -2212,7 +2229,9 @@ mod tests {
             .get_or_decode_quilt_index()
             .expect("quilt index should exist");
         let patch = quilt_index_v1
-            .get_quilt_patch_by_identifier(identifier)
+            .get_quilt_patches_by_identifiers(&[identifier])
+            .expect("quilt patch should exist")
+            .pop()
             .expect("quilt patch should exist");
         assert_eq!(patch.identifier, identifier);
 
@@ -2220,7 +2239,7 @@ mod tests {
             .map(SliverIndex)
             .collect();
         assert_eq!(
-            quilt_decoder.get_blob_by_identifier(identifier),
+            quilt_decoder.get_blobs_by_identifiers(&[identifier]),
             Err(QuiltError::MissingSlivers(missing_indices.clone()))
         );
 
@@ -2239,7 +2258,9 @@ mod tests {
 
         // Check we can decode the blob with the slivers we added.
         let decoded_blob = quilt_decoder
-            .get_blob_by_identifier(identifier)
+            .get_blobs_by_identifiers(&[identifier])
+            .expect("Should be able to decode blob after adding missing slivers")
+            .pop()
             .expect("Should be able to decode blob after adding missing slivers");
         let expected_blob = quilt_store_blobs
             .iter()
@@ -2257,7 +2278,9 @@ mod tests {
         for quilt_store_blob in quilt_store_blobs {
             tracing::debug!("decoding blob {}", quilt_store_blob.identifier);
             let blob = quilt_decoder
-                .get_blob_by_identifier(quilt_store_blob.identifier.as_str())
+                .get_blobs_by_identifiers(&[quilt_store_blob.identifier.as_str()])
+                .expect("Should get blob by identifier")
+                .pop()
                 .expect("Should get blob by identifier");
             assert_eq!(blob, *quilt_store_blob);
         }

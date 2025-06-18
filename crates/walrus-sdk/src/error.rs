@@ -111,7 +111,7 @@ impl ClientError {
 impl From<QuiltError> for ClientError {
     fn from(value: QuiltError) -> Self {
         ClientError {
-            kind: Box::new(ClientErrorKind::QuiltError(value)),
+            kind: ClientErrorKind::from(value).into(),
         }
     }
 }
