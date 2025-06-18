@@ -415,18 +415,20 @@ mod tests {
         clear_fail_point("fail_point_direct_shard_sync_recovery");
     }
 
+    // TODO(WAL-896): Extend this test to include the following scenarios:
+    // - The catching-up node crashes and restarts.
+    // - A blob is registered and certified in different epochs.
+    // - A blob is deleted.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_recovery_with_incomplete_history() {
-        // TODO(mlegner): Can we also test crashes during this recovery?
-
         const MAX_EPOCHS_AHEAD: EpochCount = 3;
         const EPOCH_DURATION: Duration = Duration::from_secs(30);
 
         // We need to wait at least until `MAX_EPOCHS_AHEAD + 1` until the first event blob is
-        // expired. The additional +2 is to account for the fact that the first event blob may only
-        // be certified in epoch 2 or 3.
-        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 2;
+        // expired. The additional +3 is to account for the fact that the first event blob may only
+        // be certified in a later epoch.
+        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 3;
 
         // Tracks if a node enters recovery mode with incomplete history.
         let recovery_with_incomplete_history_triggered = Arc::new(AtomicBool::new(false));
@@ -479,7 +481,7 @@ mod tests {
         tracing::info!("waiting for nodes to reach target epoch {}", TARGET_EPOCH);
         // We need to wait at least for`EPOCH_DURATION * TARGET_EPOCH`. We allow for some more
         // epochs to increase the test robustness.
-        // TODO(mlegner): Maybe better check for the first event blob to become expired?
+        // TODO(WAL-896): Maybe better check for the first event blob to become expired?
         tokio::time::sleep(EPOCH_DURATION * TARGET_EPOCH).await;
         simtest_utils::wait_for_nodes_to_reach_epoch(
             &walrus_cluster.nodes[..4],
@@ -560,20 +562,6 @@ mod tests {
         assert_eq!(node_health_info[5].node_status, "Active");
 
         workload_handle.abort();
-
-        loop {
-            if let Some(_blob) = client_arc
-                .inner
-                .sui_client()
-                .read_client
-                .last_certified_event_blob()
-                .await
-                .unwrap()
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
 
         blob_info_consistency_check
             .check_storage_node_consistency_from_epoch(new_node_starting_epoch);

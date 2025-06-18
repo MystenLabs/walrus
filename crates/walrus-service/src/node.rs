@@ -942,7 +942,13 @@ impl StorageNode {
             return Ok(None);
         }
         if next_event_index != 0 {
-            panic!("recovery with incomplete event history is only possible for fresh nodes");
+            // TODO(WAL-894): Implement recovery with incomplete event history for nodes that are
+            // not new.
+            unimplemented!(
+                "the node is too far behind for normal recovery and recovery with incomplete event \
+                history is only implemented for fresh nodes; \
+                please wipe the DB and restart the node"
+            );
         }
 
         #[cfg(msim)]
@@ -990,8 +996,9 @@ impl StorageNode {
                 epoch_at_start: current_epoch,
             })?;
 
-        // TODO(mlegner): Given that we only reach this point when we start from the very beginning,
-        // clearing the blob-info table may not actually be necessary.
+        // Remark: Given that we only reach this point when we start from the very beginning,
+        // clearing the blob-info table may not actually be necessary. However, it also doesn't hurt
+        // in that case.
         self.inner.storage.clear_blob_info_table()?;
 
         Ok(Some(init_state.event_cursor))
@@ -1125,6 +1132,9 @@ impl StorageNode {
 
     /// Returns `false` if the node is recovering with incomplete history and the event is not
     /// relevant to the recovery.
+    ///
+    /// An event is relevant, if the current event epoch is greater than or equal to the first
+    /// complete epoch of the recovery.
     fn should_process_event(&self, stream_element: &PositionedStreamEvent) -> anyhow::Result<bool> {
         let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
             first_complete_epoch: first_epoch,
@@ -1133,6 +1143,7 @@ impl StorageNode {
         else {
             return Ok(true);
         };
+
         if self.inner.current_event_epoch() >= first_epoch {
             return Ok(true);
         }
@@ -1141,6 +1152,8 @@ impl StorageNode {
         )) = &stream_element.element
         {
             if *epoch >= first_epoch {
+                // Processing this event will set the `current_event_epoch` to `epoch`, such that we
+                // will take the previous if-statement and return `true` for all future events.
                 return Ok(true);
             }
         }
@@ -1219,6 +1232,8 @@ impl StorageNode {
     ///
     /// If so, the node will enter RecoveryCatchUp mode, and try to catch up with events until
     /// the latest epoch as fast as possible.
+    // TODO(WAL-895): We should simplify/improve the way we check if the node is lagging behind
+    // after storing the latest event epoch in the DB.
     fn check_if_node_lagging_and_enter_recovery_mode(
         &self,
         event: &ContractEvent,
@@ -1230,9 +1245,6 @@ impl StorageNode {
         };
 
         let Some(event_epoch) = event.event_epoch() else {
-            // For blob extension events, the epoch is the event's original
-            // certified epoch, and not the current epoch. Skip node lagging check
-            // for blob extension events.
             return Ok(());
         };
 

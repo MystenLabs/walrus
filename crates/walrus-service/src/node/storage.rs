@@ -94,8 +94,9 @@ pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
 ///
 /// ```text
 ///    RecoveryCatchUpWithIncompleteHistory
-///      /                              \
-///     v                                v
+///       ^                             |
+///      /                              |
+///     v                               v
 /// Standby <--> RecoveryCatchUp --> RecoveryInProgress
 ///      \          /        ^       /
 ///       v        v          \     v
@@ -119,9 +120,11 @@ pub enum NodeStatus {
     /// The node is in recovery mode and catching up with the chain, but the history is incomplete
     /// due to expired event blobs.
     RecoveryCatchUpWithIncompleteHistory {
-        /// The first epoch for which all events are available and relevant.
+        /// The first epoch for which all events are available and relevant. When processing events,
+        /// we will discard all events issued before this epoch.
         first_complete_epoch: Epoch,
-        /// The epoch at which the node started recovering.
+        /// The epoch at which the node started recovering. When processing events, we will include
+        /// events for all blobs that expire after this epoch.
         epoch_at_start: Epoch,
     },
 }
@@ -548,16 +551,13 @@ impl Storage {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        if let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
-            first_complete_epoch,
-            epoch_at_start,
-        } = self.node_status()?
+        if let NodeStatus::RecoveryCatchUpWithIncompleteHistory { epoch_at_start, .. } =
+            self.node_status()?
         {
             self.blob_info
                 .update_blob_info_during_recovery_with_incomplete_history(
                     event_index,
                     event,
-                    first_complete_epoch,
                     epoch_at_start,
                 )
         } else {

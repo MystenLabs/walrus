@@ -175,7 +175,6 @@ impl BlobInfoTable {
         &self,
         event_index: u64,
         event: &BlobEvent,
-        first_epoch: Epoch,
         epoch_at_start: Epoch,
     ) -> Result<(), TypedStoreError> {
         tracing::debug!("updating blob info during recovery with incomplete history");
@@ -191,6 +190,9 @@ impl BlobInfoTable {
                 return Ok(());
             }
             BlobEvent::Registered(_)
+            // The registration event related to this certification must have the same end epoch, so
+            // it must also be included in our incomplete event history. This means we have already
+            // processed the registration event and can process the certification event normally.
             | BlobEvent::Certified(BlobCertified {
                 is_extension: false,
                 ..

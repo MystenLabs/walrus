@@ -12,6 +12,7 @@ pub mod simtest_utils {
     };
 
     use anyhow::Context;
+    use itertools::Itertools;
     use rand::{Rng, seq::IteratorRandom};
     use sui_types::base_types::ObjectID;
     use tokio::task::JoinHandle;
@@ -303,6 +304,7 @@ pub mod simtest_utils {
 
         /// Checks the consistency of the storage node for all epochs starting with `min_epoch`.
         pub fn check_storage_node_consistency_from_epoch(&self, min_epoch: Epoch) {
+            tracing::info!("checking storage node consistency starting with epoch {min_epoch}");
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
@@ -314,8 +316,9 @@ pub mod simtest_utils {
         /// Ensures that for all epochs, all nodes have the same certified blob digest.
         #[tracing::instrument(skip(self))]
         fn check_certified_blob_digest(&self, min_epoch: Epoch) {
+            tracing::info!("checking blob digest consistency starting with epoch {min_epoch}");
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
-            for (epoch, node_digest_map) in digest_map.iter() {
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
@@ -329,8 +332,11 @@ pub mod simtest_utils {
         /// Ensures that for all epochs, all nodes have the same per object blob digest.
         #[tracing::instrument(skip(self))]
         fn check_per_object_blob_digest(&self, min_epoch: Epoch) {
+            tracing::info!(
+                "checking per object blob digest consistency starting with epoch {min_epoch}"
+            );
             let digest_map = self.per_object_blob_digest_map.lock().unwrap();
-            for (epoch, node_digest_map) in digest_map.iter() {
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
@@ -362,8 +368,12 @@ pub mod simtest_utils {
 
         #[tracing::instrument(skip(self))]
         fn check_blob_existence(&self, min_epoch: Epoch) {
+            tracing::info!("checking blob existence starting with epoch {min_epoch}");
             let existence_check_map = self.blob_existence_check_map.lock().unwrap();
-            for (epoch, node_existence_check_map) in existence_check_map.iter() {
+            for (epoch, node_existence_check_map) in existence_check_map
+                .iter()
+                .sorted_by_key(|(epoch, _)| *epoch)
+            {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
