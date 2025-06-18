@@ -37,6 +37,11 @@ pub use args::{
     NodeSortBy,
     PublisherArgs,
     QuiltBlobInput,
+    QuiltPatchByIdentifier,
+    QuiltPatchByPatchId,
+    QuiltPatchByTag,
+    QuiltPatchQuery,
+    QuiltPatchSelector,
     SortBy,
 };
 pub use cli_output::CliOutput;

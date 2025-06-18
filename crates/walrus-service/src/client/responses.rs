@@ -32,6 +32,7 @@ use walrus_core::{
         max_blob_size_for_n_shards,
         max_sliver_size_for_n_secondary,
         metadata_length_for_n_shards,
+        quilt_encoding::QuiltStoreBlob,
         source_symbols_for_n_shards,
     },
     metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
@@ -762,6 +763,28 @@ impl NodeHealthOutput {
             (Err(err_a), Err(err_b)) => err_a.cmp(err_b).then_with(|| self.cmp_by_name(other)),
             (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
             (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+/// Read quilt output.
+#[derive(Serialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadQuiltOutput {
+    /// The output directory path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub out: Option<PathBuf>,
+    /// The structure of the quilt.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub retrieved_blobs: Vec<QuiltStoreBlob<'static>>,
+}
+
+impl ReadQuiltOutput {
+    /// Creates a new [`ReadQuiltOutput`] object.
+    pub fn new(out: Option<PathBuf>, retrieved_blobs: Vec<QuiltStoreBlob<'static>>) -> Self {
+        Self {
+            out,
+            retrieved_blobs,
         }
     }
 }

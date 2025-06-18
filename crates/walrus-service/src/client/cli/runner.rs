@@ -25,7 +25,6 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
-    QuiltPatchId,
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
@@ -99,6 +98,11 @@ use crate::{
             HumanReadableFrost,
             HumanReadableMist,
             QuiltBlobInput,
+            QuiltPatchByIdentifier,
+            QuiltPatchByPatchId,
+            QuiltPatchByTag,
+            QuiltPatchQuery,
+            QuiltPatchSelector,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -124,6 +128,7 @@ use crate::{
             InfoSizeOutput,
             InfoStorageOutput,
             ReadOutput,
+            ReadQuiltOutput,
             ServiceHealthInfoOutput,
             ShareBlobOutput,
             StakeOutput,
@@ -193,15 +198,10 @@ impl ClientCommandRunner {
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::ReadQuilt {
-                blob_id,
-                identifiers,
-                quilt_patch_ids,
+                query,
                 out,
                 rpc_arg: RpcArg { rpc_url },
-            } => {
-                self.read_quilt(blob_id, identifiers, quilt_patch_ids, out, rpc_url)
-                    .await
-            }
+            } => self.read_quilt(query, out, rpc_url).await,
 
             CliCommands::ListPatchesInQuilt {
                 quilt_id,
@@ -560,9 +560,7 @@ impl ClientCommandRunner {
 
     pub(crate) async fn read_quilt(
         self,
-        blob_id: Option<BlobId>,
-        identifiers: Vec<String>,
-        quilt_blob_ids: Vec<QuiltPatchId>,
+        query: QuiltPatchQuery,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
@@ -572,38 +570,43 @@ impl ClientCommandRunner {
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
-        let retrieved_blobs = if let Some(blob_id) = blob_id {
-            let identifiers = identifiers.iter().map(|id| id.as_str()).collect::<Vec<_>>();
-            quilt_read_client
-                .get_blobs_by_identifiers(&blob_id, &identifiers)
-                .await?
-        } else if !quilt_blob_ids.is_empty() {
-            anyhow::bail!("quilt_blob_ids are not supported yet")
-        } else {
-            anyhow::bail!("Either blob_id or quilt_blob_ids must be provided")
+
+        let retrieved_blobs = match query.get_selector()? {
+            QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                quilt_id,
+                identifiers,
+            }) => {
+                let identifiers: Vec<&str> = identifiers.iter().map(|s| s.as_str()).collect();
+                quilt_read_client
+                    .get_blobs_by_identifiers(&quilt_id, &identifiers)
+                    .await?
+            }
+            QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                quilt_id,
+                tag,
+                value,
+            }) => {
+                quilt_read_client
+                    .get_blobs_by_tag(&quilt_id, &tag, &value)
+                    .await?
+            }
+            QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId { quilt_patch_ids }) => {
+                quilt_read_client.get_blobs_by_ids(&quilt_patch_ids).await?
+            }
         };
 
-        for blob_with_id in retrieved_blobs {
-            let identifier = blob_with_id.identifier();
-            let blob_data = blob_with_id.data();
-            let output_file_path = out.as_ref().map(|path| path.join(identifier));
-
-            match output_file_path.as_ref() {
-                Some(output_file_path) => {
-                    std::fs::write(output_file_path, blob_data)?;
-                }
-                None => {
-                    if !self.json {
-                        std::io::stdout().write_all(blob_data)?
-                    }
-                }
+        let quilt_read_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
+        if let Some(out) = out.as_ref() {
+            for blob in &quilt_read_output.retrieved_blobs {
+                let output_file_path = out.join(blob.identifier());
+                std::fs::write(output_file_path, blob.data())?;
             }
-            println!(
-                "Successfully wrote blob '{}' to '{:?}'",
-                identifier, output_file_path
-            );
+        } else if !self.json {
+            for blob in &quilt_read_output.retrieved_blobs {
+                std::io::stdout().write_all(blob.data())?;
+            }
         }
-        Ok(())
+        quilt_read_output.print_output(self.json)
     }
 
     pub(crate) async fn list_patches_in_quilt(

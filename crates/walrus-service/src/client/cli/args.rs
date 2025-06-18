@@ -338,25 +338,10 @@ pub enum CliCommands {
     },
     /// Read quilt patches (blobs) from Walrus.
     ReadQuilt {
-        /// The quilt ID.
-        #[serde_as(as = "Option<DisplayFromStr>")]
-        #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
-        blob_id: Option<BlobId>,
-
-        /// The identifiers of the blobs to be read from the quilt.
-        /// Can be provided as a space-separated list (e.g., --identifiers identifier1 identifier2).
-        #[arg(long, num_args = 1.., requires = "blob_id")]
-        #[serde(default)]
-        identifiers: Vec<String>,
-
-        /// Read the quilt patches with the given quilt patch IDs.
-        /// Can be provided as a space-separated list (e.g., --quilt-patch-ids id1 id2 id3).
-        #[serde_as(as = "Vec<DisplayFromStr>")]
-        #[arg(
-            long, allow_hyphen_values = true, value_parser = parse_quilt_patch_id, num_args = 0..
-        )]
-        #[serde(default)]
-        quilt_patch_ids: Vec<QuiltPatchId>,
+        /// The query parameters for reading from the quilt.
+        #[command(flatten)]
+        #[serde(flatten)]
+        query: QuiltPatchQuery,
 
         /// The file path where to write the blobs.
         ///
@@ -1151,6 +1136,139 @@ impl std::fmt::Display for BlobIdentity {
     }
 }
 
+/// Query for quilt patches by identifier.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByIdentifier {
+    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    pub quilt_id: BlobId,
+    /// The identifiers to query from the quilt.
+    pub identifiers: Vec<String>,
+}
+
+/// Query for quilt patches by tag.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByTag {
+    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    pub quilt_id: BlobId,
+    /// The tag key to search for.
+    pub tag: String,
+    /// The tag value to search for.
+    pub value: String,
+}
+
+/// Query for quilt patches by patch ID.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByPatchId {
+    /// The quilt patch IDs to query.
+    pub quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+/// Selector for quilt patches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuiltPatchSelector {
+    /// Query for quilt patches by identifier.
+    ByIdentifier(QuiltPatchByIdentifier),
+    /// Query for quilt patches by tag.
+    ByTag(QuiltPatchByTag),
+    /// Query for quilt patches by patch ID.
+    ByPatchId(QuiltPatchByPatchId),
+}
+
+/// Query for quilt patches.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchQuery {
+    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    pub quilt_id: Option<BlobId>,
+
+    /// The identifiers to query from the quilt (can be repeated).
+    #[arg(long = "identifier", action = clap::ArgAction::Append)]
+    #[serde(default)]
+    pub identifiers: Vec<String>,
+
+    /// The tag key to search for.
+    #[arg(long)]
+    pub tag: Option<String>,
+
+    /// The tag value to search for.
+    #[arg(long)]
+    pub value: Option<String>,
+
+    /// The quilt patch IDs to query (can be repeated).
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[arg(
+        long = "quilt-patch-id",
+        allow_hyphen_values = true,
+        value_parser = parse_quilt_patch_id,
+        action = clap::ArgAction::Append
+    )]
+    #[serde(default)]
+    pub quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+impl QuiltPatchQuery {
+    fn get_error(&self) -> anyhow::Error {
+        anyhow!(
+            "Exactly one query type must be specified. Valid query types are:\n\
+            - --quilt-id <ID> --identifier <NAME>... for identifier queries\n\
+            - --quilt-id <ID> --tag <KEY> --value <VALUE> for tag query\n\
+            - --quilt-patch-id <ID>... for patch ID queries"
+        )
+    }
+
+    /// Get the selector for execution.
+    pub fn get_selector(&self) -> Result<QuiltPatchSelector> {
+        if !self.identifiers.is_empty() {
+            if self.quilt_id.is_none()
+                || self.tag.is_some()
+                || self.value.is_some()
+                || !self.quilt_patch_ids.is_empty()
+            {
+                return Err(self.get_error());
+            }
+            let quilt_id = self.quilt_id.expect("quilt_id should be present");
+            Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                quilt_id,
+                identifiers: self.identifiers.clone(),
+            }))
+        } else if self.tag.is_some() {
+            if self.value.is_none()
+                || self.quilt_id.is_none()
+                || !self.identifiers.is_empty()
+                || !self.quilt_patch_ids.is_empty()
+            {
+                return Err(self.get_error());
+            }
+            let quilt_id = self.quilt_id.expect("quilt_id should be present");
+            let tag = self.tag.clone().expect("tag should be present");
+            let value = self.value.clone().expect("value should be present");
+            Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                quilt_id,
+                tag,
+                value,
+            }))
+        } else if !self.quilt_patch_ids.is_empty() {
+            if self.quilt_id.is_some()
+                || !self.identifiers.is_empty()
+                || self.tag.is_some()
+                || self.value.is_some()
+            {
+                return Err(self.get_error());
+            }
+            Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+                quilt_patch_ids: self.quilt_patch_ids.clone(),
+            }))
+        } else {
+            Err(self.get_error())
+        }
+    }
+}
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

@@ -59,6 +59,7 @@ use crate::client::{
         InfoStorageOutput,
         NodeHealthOutput,
         ReadOutput,
+        ReadQuiltOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
         StakeOutput,
@@ -1266,5 +1267,34 @@ impl CliOutput for QuiltMetadataV1 {
 
         let table_output = construct_stored_quilt_patch_table(&stored_quilt_patches);
         table_output.printstd();
+    }
+}
+
+impl CliOutput for ReadQuiltOutput {
+    fn print_cli_output(&self) {
+        if let Some(out) = &self.out {
+            println!(
+                "{} Retrieved {} blobs and saved to directory: {}",
+                success(),
+                self.retrieved_blobs.len(),
+                out.display()
+            );
+        }
+
+        if !self.retrieved_blobs.is_empty() {
+            println!("{}", "Retrieved Quilt Blobs".bold().walrus_purple());
+            for (i, blob) in self.retrieved_blobs.iter().enumerate() {
+                println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
+                if blob.tags().is_empty() {
+                    println!("   Tags: (none)");
+                } else {
+                    println!("   Tags:");
+                    for (key, value) in blob.tags() {
+                        println!("     {}: {}", key, value);
+                    }
+                }
+                println!(); // Empty line for separation
+            }
+        }
     }
 }

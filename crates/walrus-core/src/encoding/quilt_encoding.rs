@@ -449,7 +449,7 @@ impl QuiltEnum {
 ///
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
     /// The blob data, either borrowed or owned.
     blob: Cow<'a, [u8]>,
