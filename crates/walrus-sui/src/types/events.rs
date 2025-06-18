@@ -660,6 +660,43 @@ impl TryFrom<SuiEvent> for ContractUpgradeQuorumReachedEvent {
     }
 }
 
+
+/// Sui event that a contract upgrade has received a quorum of votes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolVersionUpdatedEvent {
+    /// The epoch in which the contract upgrade was proposed.
+    pub epoch: Epoch,
+    /// The ID of the node that updated the protocol version.
+    pub node_id: ObjectID,
+    /// The start epoch of the protocol version update.
+    pub start_epoch: Epoch,
+    /// The protocol version.
+    pub protocol_version: u64,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ProtocolVersionUpdatedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ProtocolVersionUpdated;
+}
+
+impl TryFrom<SuiEvent> for ProtocolVersionUpdatedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, node_id, start_epoch, protocol_version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            node_id,
+            start_epoch,
+            protocol_version,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap package events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
