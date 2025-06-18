@@ -83,7 +83,7 @@ public fun update_deny_list_message(
     sequence_number: u64,
 ): vector<u8> {
     let certified_message = vector[
-        bcs::to_bytes(&3u8), // intent type for deny list update
+        bcs::to_bytes(&4u8), // intent type for deny list update
         bcs::to_bytes(&0u8), // intent version
         bcs::to_bytes(&3u8), // app ID
         bcs::to_bytes(&epoch), // epoch

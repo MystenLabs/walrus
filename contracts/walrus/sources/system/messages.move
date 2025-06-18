@@ -11,12 +11,18 @@ const INTENT_VERSION: u8 = 0;
 const BLS_KEY_LEN: u64 = 48;
 
 // Message Types
+// Please, refer to `walrus-core/src/messages.rs` for the list of message types.
+// Make sure to update the list of intents in `contracts/walrus/docs/msg_formats.txt` as well.
+
 const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
-const DENY_LIST_UPDATE_MSG_TYPE: u8 = 3;
-const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 4;
-const PROTOCOL_VERSION_MSG_TYPE: u8 = 5;
+#[allow(unused_const)]
+// Only used in Rust.
+const SYNC_SHARD_MSG_TYPE: u8 = 3;
+const DENY_LIST_UPDATE_MSG_TYPE: u8 = 4;
+const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 5;
+const PROTOCOL_VERSION_MSG_TYPE: u8 = 6;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
