@@ -55,7 +55,7 @@ pub struct BlobStoreResultWithPath {
 
 /// Result when attempting to store a blob.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the
@@ -142,7 +142,7 @@ impl BlobStoreResult {
 }
 
 /// Result when attempting to store a quilt.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltStoreResult {
     /// The result of storing the quilt data as a blob.

@@ -449,7 +449,7 @@ impl QuiltEnum {
 ///
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
     /// The blob data, either borrowed or owned.
     blob: Cow<'a, [u8]>,
@@ -1446,7 +1446,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let quilt_metadata = QuiltMetadata::V1(QuiltMetadataV1 {
-            quilt_blob_id: *metadata.blob_id(),
+            quilt_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
                 quilt_patches: quilt.quilt_index()?.quilt_patches.clone(),
@@ -2282,7 +2282,7 @@ mod tests {
 
         let (quilt_blob, metadata_with_id) = decoder
             .decode_and_verify(
-                &quilt_metadata_v1.quilt_blob_id,
+                &quilt_metadata_v1.quilt_id,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())

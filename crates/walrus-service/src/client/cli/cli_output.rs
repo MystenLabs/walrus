@@ -1249,7 +1249,7 @@ impl CliOutput for QuiltMetadata {
 impl CliOutput for QuiltMetadataV1 {
     fn print_cli_output(&self) {
         println!("{}", "Quilt Metadata".bold().walrus_purple());
-        println!("Quilt Blob ID: {}", self.quilt_blob_id);
+        println!("Quilt Blob ID: {}", self.quilt_id);
 
         // Create the quilt blobs table from index
         let stored_quilt_patches = self
@@ -1258,7 +1258,7 @@ impl CliOutput for QuiltMetadataV1 {
             .iter()
             .map(|patch| {
                 StoredQuiltPatch::new(
-                    self.quilt_blob_id,
+                    self.quilt_id,
                     &patch.identifier,
                     patch.quilt_patch_internal_id(),
                 )

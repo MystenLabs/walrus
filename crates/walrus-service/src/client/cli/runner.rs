@@ -231,8 +231,8 @@ impl ClientCommandRunner {
             }
 
             CliCommands::StoreQuilt {
-                path,
-                blob_inputs,
+                paths,
+                blobs,
                 epoch_arg,
                 dry_run,
                 force,
@@ -242,8 +242,8 @@ impl ClientCommandRunner {
                 encoding_type,
             } => {
                 self.store_quilt(
-                    path,
-                    blob_inputs,
+                    paths,
+                    blobs,
                     epoch_arg,
                     dry_run,
                     StoreWhen::from_flags(force, ignore_resources),
@@ -750,7 +750,7 @@ impl ClientCommandRunner {
     pub(crate) async fn store_quilt(
         self,
         paths: Vec<PathBuf>,
-        blob_inputs: Vec<QuiltBlobInput>,
+        blobs: Vec<QuiltBlobInput>,
         epoch_arg: EpochArg,
         dry_run: bool,
         store_when: StoreWhen,
@@ -776,7 +776,7 @@ impl ClientCommandRunner {
         let epochs_ahead =
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
-        let quilt_store_blobs = Self::read_blobs(&paths, blob_inputs).await?;
+        let quilt_store_blobs = Self::read_blobs(&paths, blobs).await?;
 
         if dry_run {
             return Self::store_quilt_dry_run(

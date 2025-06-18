@@ -318,7 +318,7 @@ impl QuiltMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {
     /// The BlobId of the quilt blob.
-    pub quilt_blob_id: BlobId,
+    pub quilt_id: BlobId,
     /// The blob metadata of the quilt blob.
     pub metadata: BlobMetadata,
     /// The index of the quilt.
@@ -328,10 +328,7 @@ pub struct QuiltMetadataV1 {
 impl QuiltMetadataV1 {
     /// Returns the verified metadata for the quilt blob.
     pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
-        VerifiedBlobMetadataWithId::new_verified_unchecked(
-            self.quilt_blob_id,
-            self.metadata.clone(),
-        )
+        VerifiedBlobMetadataWithId::new_verified_unchecked(self.quilt_id, self.metadata.clone())
     }
 }
 

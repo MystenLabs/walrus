@@ -387,7 +387,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let quilt_metadata = match quilt_index {
             QuiltIndex::V1(quilt_index) => QuiltMetadata::V1(QuiltMetadataV1 {
-                quilt_blob_id: *quilt_id,
+                quilt_id: *quilt_id,
                 metadata: metadata.metadata().clone(),
                 index: quilt_index.clone(),
             }),
@@ -559,18 +559,18 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         &self,
         quilt_patch_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
-        let mut grouped_quilt_blob_ids = HashMap::new();
-        for quilt_blob_id in quilt_patch_ids {
-            let quilt_id = quilt_blob_id.quilt_id;
-            grouped_quilt_blob_ids
+        let mut grouped_quilt_patch_ids = HashMap::new();
+        for quilt_patch_id in quilt_patch_ids {
+            let quilt_id = quilt_patch_id.quilt_id;
+            grouped_quilt_patch_ids
                 .entry(quilt_id)
                 .or_insert_with(Vec::new)
-                .push(quilt_blob_id.clone());
+                .push(quilt_patch_id.clone());
         }
 
         let mut futures = Vec::new();
-        for quilt_blob_ids in grouped_quilt_blob_ids.values() {
-            futures.push(self.get_blobs_from_quilt_by_internal_ids(quilt_blob_ids));
+        for quilt_patch_ids in grouped_quilt_patch_ids.values() {
+            futures.push(self.get_blobs_from_quilt_by_internal_ids(quilt_patch_ids));
         }
 
         let results = futures::future::try_join_all(futures).await?;
@@ -580,17 +580,17 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
     async fn get_blobs_from_quilt_by_internal_ids(
         &self,
-        quilt_blob_ids: &[QuiltPatchId],
+        quilt_patch_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
-        assert!(!quilt_blob_ids.is_empty());
-        let quilt_blob_id = quilt_blob_ids.first().expect("no quilt blob id provided");
-        let version_enum = quilt_blob_id.version_enum()?;
-        let quilt_id = quilt_blob_id.quilt_id;
+        assert!(!quilt_patch_ids.is_empty());
+        let quilt_patch_id = quilt_patch_ids.first().expect("no quilt patch id provided");
+        let version_enum = quilt_patch_id.version_enum()?;
+        let quilt_id = quilt_patch_id.quilt_id;
 
         debug_assert!(
-            quilt_blob_ids
+            quilt_patch_ids
                 .iter()
-                .all(|quilt_blob_id| quilt_blob_id.quilt_id == quilt_id)
+                .all(|quilt_patch_id| quilt_patch_id.quilt_id == quilt_id)
         );
 
         let (certified_epoch, _) = self
@@ -607,7 +607,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 self.get_blobs_from_quilt_by_internal_ids_impl::<QuiltVersionV1>(
                     &metadata,
                     certified_epoch,
-                    quilt_blob_ids,
+                    quilt_patch_ids,
                 )
                 .await
             }
@@ -618,11 +618,11 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
-        quilt_blob_ids: &[QuiltPatchId],
+        quilt_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
         let mut sliver_indices = Vec::new();
-        for quilt_blob_id in quilt_blob_ids {
-            let id = V::QuiltPatchInternalId::from_bytes(&quilt_blob_id.patch_id_bytes)?;
+        for quilt_id in quilt_ids {
+            let id = V::QuiltPatchInternalId::from_bytes(&quilt_id.patch_id_bytes)?;
             sliver_indices.extend(id.sliver_indices());
         }
 
@@ -631,9 +631,9 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         quilt_reader
             .download_data(&sliver_indices, metadata, certified_epoch)
             .await?;
-        let internal_ids = quilt_blob_ids
+        let internal_ids = quilt_ids
             .iter()
-            .map(|quilt_blob_id| quilt_blob_id.patch_id_bytes.as_slice())
+            .map(|quilt_id| quilt_id.patch_id_bytes.as_slice())
             .collect::<Vec<_>>();
         quilt_reader
             .get_blobs_by_patch_internal_ids(&internal_ids)

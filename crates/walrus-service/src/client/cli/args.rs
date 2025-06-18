@@ -257,25 +257,33 @@ pub enum CliCommands {
         /// If the path is a directory, all the files in the directory will be included
         /// in the quilt.
         /// If the path is a file, the file will be included in the quilt.
-        #[arg(value_name = "PATH", alias("path-list"))]
+        /// The filenames are used as the identifiers of the quilt patches.
+        /// Custom identifiers and tags are not supported for quilt patches.
+        /// Use --blob to specify custom identifiers and tags.
+        #[arg(value_name = "PATHS", alias("path-list"))]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
-        #[arg(long, num_args = 0..)]
-        path: Vec<PathBuf>,
-        /// A blob to include in the quilt, specified as a JSON string. May be repeated.
+        #[arg(long = "path", action = clap::ArgAction::Append)]
+        paths: Vec<PathBuf>,
+        /// A blob to include in the quilt, specified as a JSON string.
         /// Example:
         ///
         /// ```bash
         /// walrus store-quilt \
-        /// --input '{ \
-        /// "path":"/path/to/research-paper.pdf", \
+        /// --blob '{ \
+        /// "path":"/path/to/food-locations.pdf", \
         /// "identifier":"paper-v2", \
-        /// "tags":{"author":"Dr. Smith", "project":"blue-sky", "status":"final-review"} \
+        /// "tags":{"author":"Walrus", "project":"food", "status":"final-review"} \
         /// }' \
-        /// --epochs 100 \
+        /// --blob '{ \
+        /// "path":"/path/to/water-locations.pdf", \
+        /// "identifier":"water-v3", \
+        /// "tags":{"author":"Walrus", "project":"water", "status":"draft"} \
+        /// }' \
+        /// --epochs 10 \
         /// ```
-        #[arg(long = "input", action = clap::ArgAction::Append)]
+        #[arg(long = "blob", action = clap::ArgAction::Append)]
         #[serde(default)]
-        blob_inputs: Vec<QuiltBlobInput>,
+        blobs: Vec<QuiltBlobInput>,
         /// The epoch argument to specify either the number of epochs to store the quilt, or the
         /// end epoch, or the earliest expiry time in rfc3339 format.
         #[command(flatten)]
@@ -338,14 +346,13 @@ pub enum CliCommands {
     },
     /// Read quilt patches (blobs) from Walrus.
     ReadQuilt {
-        /// The query parameters for reading from the quilt.
+        /// The query parameters to specify the quilt patches to read.
         #[command(flatten)]
         #[serde(flatten)]
         query: QuiltPatchQuery,
-
-        /// The file path where to write the blobs.
+        /// The directory path where to write the quilt patches.
         ///
-        /// If unset, prints the blob to stdout.
+        /// If unset, prints the quilt patches to stdout.
         #[arg(long)]
         #[serde(
             default,
@@ -358,8 +365,9 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// List the blobs in a quilt.
+    #[command(alias("resolve-quilt"))]
     ListPatchesInQuilt {
-        /// The blob ID to be read.
+        /// The quilt ID to be inspected.
         #[serde_as(as = "DisplayFromStr")]
         #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
         quilt_id: BlobId,
