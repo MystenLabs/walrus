@@ -32,7 +32,6 @@ use opentelemetry::propagation::Extractor;
 use prometheus::{
     Histogram,
     HistogramVec,
-    IntGauge,
     IntGaugeVec,
     Opts,
     core::{AtomicU64, Collector, GenericGauge},
@@ -47,7 +46,7 @@ use walrus_core::Epoch;
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_utils::{
     http::{BodyVisitor, VisitBody, http_body::Frame},
-    metrics::{Registry, TaskMonitorFamily},
+    metrics::{OwnedGaugeGuard, Registry, TaskMonitorFamily},
 };
 
 /// Route string used in metrics for invalid routes.
@@ -390,7 +389,7 @@ pub(crate) async fn metrics_middleware(
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         http_route
     );
-    active_requests.inc();
+    let active_requests = OwnedGaugeGuard::acquire(active_requests);
 
     // Observe the body size of the request, as we cannot always rely on `Content-Length`.
     let body_size_total = Arc::new(StdAtomicU64::default());
@@ -466,7 +465,7 @@ pub(crate) async fn metrics_middleware(
         Body::new(VisitBody::new(
             body,
             ResponseBodyVisitor {
-                active_requests,
+                active_requests: Some(active_requests),
                 request_duration,
                 response_body_size,
                 response_available_at,
@@ -478,7 +477,8 @@ pub(crate) async fn metrics_middleware(
 }
 
 struct ResponseBodyVisitor {
-    active_requests: IntGauge,
+    // INV: Decremented when the body is dropped or the struct is cleaned up.
+    active_requests: Option<OwnedGaugeGuard>,
     request_duration: Histogram,
     response_body_size: Histogram,
     response_available_at: Instant,
@@ -495,7 +495,7 @@ impl<E> BodyVisitor<Bytes, E> for ResponseBodyVisitor {
     }
 
     fn body_dropped(&mut self, _is_end_stream: bool) {
-        self.active_requests.dec();
+        self.active_requests = None;
         self.request_duration
             .observe(self.response_available_at.elapsed().as_secs_f64());
         self.response_body_size.observe(
