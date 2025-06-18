@@ -18,7 +18,7 @@ use futures::{FutureExt, future::Either};
 use openapi::RestApiDoc;
 use p256::{SecretKey, elliptic_curve::pkcs8::EncodePrivateKey as _};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -70,6 +70,9 @@ pub struct RestApiConfig {
 
     /// Configuration of HTTP/2 connections.
     pub http2_config: Http2Config,
+
+    /// Limit on the number of active recovery symbol requests.
+    pub max_active_recovery_symbols_requests: Option<usize>,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -108,6 +111,9 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             tls_certificate,
             graceful_shutdown_period,
             http2_config: config.rest_server.http2_config.clone(),
+            max_active_recovery_symbols_requests: config
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
         }
     }
 }
@@ -146,8 +152,21 @@ pub enum TlsCertificateSource {
 
 #[derive(Debug)]
 pub(crate) struct RestApiState<S> {
-    pub service: Arc<S>,
-    pub config: Arc<RestApiConfig>,
+    service: Arc<S>,
+    config: Arc<RestApiConfig>,
+    recovery_symbols_limit: Option<Arc<Semaphore>>,
+}
+
+impl<S> RestApiState<S> {
+    fn new(service: Arc<S>, config: Arc<RestApiConfig>) -> Self {
+        Self {
+            service,
+            recovery_symbols_limit: config
+                .max_active_recovery_symbols_requests
+                .map(|limit| Arc::new(Semaphore::new(limit))),
+            config,
+        }
+    }
 }
 
 impl<S> Clone for RestApiState<S> {
@@ -155,6 +174,7 @@ impl<S> Clone for RestApiState<S> {
         Self {
             service: self.service.clone(),
             config: self.config.clone(),
+            recovery_symbols_limit: self.recovery_symbols_limit.clone(),
         }
     }
 }
@@ -180,10 +200,7 @@ where
         registry: &Registry,
     ) -> Self {
         Self {
-            state: RestApiState {
-                service,
-                config: Arc::new(config),
-            },
+            state: RestApiState::new(service, Arc::new(config)),
             metrics: MetricsMiddlewareState::new(registry),
             cancel_token,
             handle: Default::default(),
@@ -502,6 +519,7 @@ mod tests {
             ServiceHealthInfo,
             ShardStatusSummary,
             StoredOnNodeStatus,
+            errors::StatusCode as ApiStatusCode,
         },
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -1321,6 +1339,29 @@ mod tests {
             .await
             .expect("request should succeed");
         assert!(symbols.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn limit_recovery_symbols() {
+        let mut config = test_utils::storage_node_config();
+        config
+            .as_mut()
+            .rest_server
+            .experimental_max_active_recovery_symbols_requests = Some(0);
+        let _handle = start_rest_api_with_config(config.as_ref()).await;
+
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let error = client
+            .list_recovery_symbols(
+                &blob_id,
+                &RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary),
+            )
+            .await
+            .expect_err("request should fail due to the limit");
+        let error_status = error.status().expect("there should be a structured error");
+        assert_eq!(error_status.code(), ApiStatusCode::Unavailable)
     }
 
     #[tokio::test]

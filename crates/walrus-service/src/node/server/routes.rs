@@ -12,6 +12,7 @@ use axum_extra::extract::Query as ExtraQuery;
 use serde::Deserialize;
 use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use sui_types::base_types::ObjectID;
+use tokio::sync::{Semaphore, SemaphorePermit, TryAcquireError};
 use tracing::Level;
 use walrus_core::{
     BlobId,
@@ -57,7 +58,7 @@ use crate::{
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
-        errors::{IndexOutOfRange, ListSymbolsError},
+        errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
     },
 };
 
@@ -431,6 +432,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ) -> Result<Response, RetrieveSymbolError> {
     let blob_id = blob_id.0;
     let n_shards = state.service.n_shards();
+    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
 
     check_index(sliver_pair_index, n_shards)?;
     check_index(target_pair_index, n_shards)?;
@@ -495,6 +497,8 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
 ) -> Result<Response, RetrieveSymbolError> {
+    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
+
     let symbol = state
         .service
         .retrieve_recovery_symbol(&blob_id.0, symbol_id, None)
@@ -582,6 +586,8 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
+    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
+
     let filter = query.try_into()?;
     let symbols = state
         .service
@@ -589,6 +595,25 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
         .await?;
 
     Ok(Bcs(symbols))
+}
+
+/// Acquires and returns a permit that allows making a request for one or more recovery symbols.
+///
+/// If no semaphore is provided, then this always succeeds but does not return a permit.
+/// Returns [`RetrieveSymbolError::Unavailable`] if no permits are available, otherwise returns the
+/// acquired permit.
+fn limit_symbol_recovery_requests(
+    limit: Option<&Semaphore>,
+) -> Result<Option<SemaphorePermit<'_>>, RetrieveSymbolError> {
+    let Some(semaphore) = limit else {
+        return Ok(None);
+    };
+
+    match semaphore.try_acquire() {
+        Ok(permit) => Ok(Some(permit)),
+        Err(TryAcquireError::Closed) => panic!("the semaphore must not be closed"),
+        Err(TryAcquireError::NoPermits) => Err(Unavailable.into()),
+    }
 }
 
 /// Verify blob inconsistency.
