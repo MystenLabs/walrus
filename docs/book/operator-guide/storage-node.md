@@ -1,4 +1,4 @@
-# Operating a Storage Node
+# Operating a storage node
 
 This section contains information about operating a storage node. Currently, this guide contains
 information about [storage node commissions and governance](commission-governance.md).
