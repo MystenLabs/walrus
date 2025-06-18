@@ -584,7 +584,10 @@ public(package) fun add_subsidy(
 
 /// Adds rewards to the system for future epochs, where `subsidies[i]` is added to the rewards
 /// of epoch `system.epoch() + i`.
-public fun add_per_epoch_subsidies(self: &mut SystemStateInnerV1, subsidies: vector<Balance<WAL>>) {
+public(package) fun add_per_epoch_subsidies(
+    self: &mut SystemStateInnerV1,
+    subsidies: vector<Balance<WAL>>,
+) {
     assert!(
         subsidies.length() <= self.future_accounting.max_epochs_ahead() as u64,
         EInvalidEpochsAhead,

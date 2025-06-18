@@ -9,6 +9,7 @@
 ///  - Add funds to the shared subsidy pool.
 ///  - Set subsidy rates for buyers and storage nodes.
 ///  - Apply subsidies when reserving storage or extending blob lifetimes.
+#[deprecated(note = b"This module is superseded by the walrus_subsidies module")]
 module subsidies::subsidies;
 
 use std::type_name;

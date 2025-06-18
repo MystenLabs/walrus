@@ -5,12 +5,7 @@ module walrus_subsidies::walrus_subsidies_tests;
 
 use std::unit_test::assert_eq;
 use sui::{test_scenario, test_utils::destroy};
-use walrus::{
-    e2e_runner::{Self, TestRunner},
-    staking::Staking,
-    system::System,
-    test_utils::{mint_wal, wal_to_frost}
-};
+use walrus::{e2e_runner::{Self, TestRunner}, system::System, test_utils::{mint_wal, wal_to_frost}};
 use walrus_subsidies::walrus_subsidies::{Self, WalrusSubsidies};
 
 // === Constants ===
@@ -261,11 +256,11 @@ fun add_usage_and_check_usage_subsidies(runner: &mut TestRunner, system_subsidy_
         pre_subsidy_per_epoch_rewards = system.future_accounting().per_epoch_rewards();
     });
 
-    // Process subsidies again, should add more rewards for the usage-dependent subsidies, but not
-    // for the usage-independent subsidy.
+    // Process subsidies, should always add more rewards for the usage-dependent subsidies, but only
+    // to the usage-independent subsidy the first time it's called in an epoch.
     runner.tx!(admin, |staking, system, _| {
         let mut subsidies = runner.scenario().take_shared<WalrusSubsidies>();
-        subsidies.process_subsidies(staking, system);
+        subsidies.process_subsidies(staking, system, runner.clock());
         test_scenario::return_shared(subsidies);
     });
 

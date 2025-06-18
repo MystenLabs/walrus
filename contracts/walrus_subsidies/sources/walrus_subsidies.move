@@ -5,10 +5,17 @@
 module walrus_subsidies::walrus_subsidies;
 
 use std::type_name;
-use sui::{balance::Balance, coin::Coin, dynamic_field as df, hex};
+use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df, hex};
 use wal::wal::WAL;
 use walrus::{staking::Staking, system::System};
 use walrus_subsidies::walrus_subsidies_inner::{Self, WalrusSubsidiesInnerV1};
+
+// === Errors ===
+
+/// The admin cap is not authorized for this WalrusSubsidies object.
+const EUnauthorizedAdminCap: u64 = 0;
+/// The package version is not compatible with the WalrusSubsidies object.
+const EWrongVersion: u64 = 1;
 
 // === Versioning ===
 
@@ -34,13 +41,6 @@ fun package_id_for_type<T>(): ID {
     let address_bytes = hex::decode(address_str.into_bytes());
     object::id_from_bytes(address_bytes)
 }
-
-// === Errors ===
-
-/// The admin cap is not authorized for this WalrusSubsidies object.
-const EUnauthorizedAdminCap: u64 = 0;
-/// The package version is not compatible with the WalrusSubsidies object.
-const EWrongVersion: u64 = 1;
 
 // === Dynamic Field Keys ===
 
@@ -159,9 +159,10 @@ public fun process_subsidies(
     self: &mut WalrusSubsidies,
     staking: &mut Staking,
     system: &mut System,
+    clock: &Clock,
 ) {
     check_version(self);
-    self.inner_mut().process_subsidies(staking, system);
+    self.inner_mut().process_subsidies(staking, system, clock);
 }
 
 // === Internal Functions ===

@@ -4,7 +4,7 @@
 /// Module to subsidize the Walrus system and its storage nodes.
 module walrus_subsidies::walrus_subsidies_inner;
 
-use sui::{bag::{Self, Bag}, balance::{Self, Balance}};
+use sui::{bag::{Self, Bag}, balance::{Self, Balance}, clock::Clock};
 use wal::wal::WAL;
 use walrus::{staking::Staking, system::System};
 use walrus_subsidies::epoch_balance::{Self, EpochBalanceRingBuffer};
@@ -45,6 +45,9 @@ public struct WalrusSubsidiesInnerV1 has store {
     /// Ring buffer to track how much of the per-epoch balance of the walrus system object has
     /// already had subsidies added.
     already_subsidized_balances: EpochBalanceRingBuffer,
+    /// Timestamp in ms of the last time the subsidies were processed. Enables storage nodes to
+    /// easily check if subsidies were processed recently. Not read in the contracts.
+    last_subsidized_ts: u64,
     /// Reserved for future use and migrations.
     extra_fields: Bag,
 }
@@ -82,6 +85,7 @@ public(package) fun new(
         subsidy_per_shard,
         latest_epoch,
         already_subsidized_balances,
+        last_subsidized_ts: 0,
         extra_fields: bag::new(ctx),
     }
 }
@@ -129,9 +133,11 @@ public(package) fun process_subsidies(
     self: &mut WalrusSubsidiesInnerV1,
     staking: &mut Staking,
     system: &mut System,
+    clock: &Clock,
 ) {
     self.process_fixed_rate_subsidies(staking);
     self.process_usage_subsidies(system);
+    self.last_subsidized_ts = clock.timestamp_ms();
 }
 
 /// Processes the usage-independent subsidies if they have not been processed in the current epoch
