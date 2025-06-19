@@ -30,8 +30,10 @@ Intent types (add here):
 const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
-const DENY_LIST_UPDATE_MSG_TYPE: u8 = 3;
-const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 4;
+const SYNC_SHARD_MSG_TYPE: u8 = 3; // not used in Move
+const DENY_LIST_UPDATE_MSG_TYPE: u8 = 4;
+const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 5;
+const PROTOCOL_VERSION_MSG_TYPE: u8 = 6;
 
 PROOF_OF_POSSESSION message
 -----------------
@@ -75,3 +77,8 @@ DENY_LIST_BLOB_DELETED_MSG_TYPE
 
 The body is the blob_id : u256 (32 bytes) of a blob. f+1 nodes have added the blob id to
 their deny lists, and the blob should be deleted.
+
+PROTOCOL_VERSION_MSG_TYPE
+---------------
+
+The body is the start_epoch : u32 (4 bytes) and protocol_version : u64 (8 bytes).
