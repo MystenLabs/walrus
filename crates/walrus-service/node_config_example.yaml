@@ -79,6 +79,7 @@ rest_server:
   http2_initial_connection_window_size: null
   http2_max_pending_accept_reset_streams: 4294967295
   http2_adaptive_window: true
+  experimental_max_active_recovery_symbols_requests: null
 rest_graceful_shutdown_period_secs: 60
 sui:
   rpc: https://fullnode.testnet.sui.io:443
