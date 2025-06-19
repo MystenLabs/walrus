@@ -44,7 +44,7 @@ use crate::{
         PostStoreAction,
         auth::{Claim, PublisherAuthError},
     },
-    common::api::{Binary, BlobIdString, RestApiError},
+    common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
 
 /// The status endpoint, which always returns a 200 status when it is available.
@@ -57,6 +57,10 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to get blobs from quilt by IDs.
+pub const QUILT_BLOBS_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
+/// Custom header for quilt patch identifier.
+const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
 /// Retrieve a Walrus blob.
 ///
@@ -82,29 +86,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
-            headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-            // Insert headers that help caches distribute Walrus blobs.
-            //
-            // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
-            // check if the content has changed. This allows invalidated blobs to be removed from
-            // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
-            // the browser tries to validate it (async revalidation).
-            headers.insert(
-                CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
-            );
-            // The `ETag` is the blob ID itself.
-            headers.insert(
-                ETAG,
-                HeaderValue::from_str(&blob_id.to_string())
-                    .expect("the blob ID string only contains visible ASCII characters"),
-            );
-            // Mirror the content type.
-            if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
-                tracing::debug!(?content_type, "mirroring the request's content type");
-                headers.insert(CONTENT_TYPE, content_type.clone());
-            }
+            populate_common_response_headers(&request_headers, &blob_id.to_string(), headers);
             response
         }
         Err(error) => {
@@ -123,13 +105,48 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     }
 }
 
+fn populate_common_response_headers(
+    request_headers: &HeaderMap,
+    etag: &str,
+    headers: &mut HeaderMap,
+) {
+    // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    // Insert headers that help caches distribute Walrus blobs.
+    //
+    // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+    // check if the content has changed. This allows invalidated blobs to be removed from
+    // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
+    // the browser tries to validate it (async revalidation).
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
+    );
+    // The `ETag` is the blob ID itself.
+    headers.insert(
+        ETAG,
+        HeaderValue::from_str(etag)
+            .expect("the blob ID string only contains visible ASCII characters"),
+    );
+    // Mirror the content type.
+    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+        tracing::debug!(?content_type, "mirroring the request's content type");
+        headers.insert(CONTENT_TYPE, content_type.clone());
+    } // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+}
+
 fn populate_response_headers(
     headers: &mut HeaderMap,
     attribute: &BlobAttribute,
     allowed_headers: &HashSet<String>,
 ) {
     for (key, value) in attribute.iter() {
-        if allowed_headers.contains(key) {
+        tracing::info!(
+            attribute_key = key,
+            attribute_value = value,
+            "quilt blob attribute"
+        );
+        if !key.is_empty() && allowed_headers.contains(key) {
             if let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
             {
@@ -371,6 +388,112 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
         .allow_methods(Any)
         .max_age(Duration::from_secs(86400))
         .allow_headers(Any)
+}
+
+/// Retrieve a blob from quilt by its QuiltPatchId.
+///
+/// Takes a quilt blob ID and returns the corresponding blob from the quilt.
+/// The blob content is returned as raw bytes in the response body, while metadata
+/// such as the blob identifier is returned in response headers.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-patch-id/\
+/// DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+/// ```
+///
+/// Response:
+/// ```text
+/// HTTP/1.1 200 OK
+/// Content-Type: application/octet-stream
+/// X-Quilt-Patch-Identifier: my-file.txt
+/// ETag: "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+///
+/// [raw blob bytes]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_BLOBS_GET_ENDPOINT,
+    params(
+        (
+            "quilt_patch_id" = String, Path,
+            description = "The QuiltPatchId encoded as URL-safe base64",
+            example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
+                        the identifier and other attributes are returned as headers.",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Get blob from quilt",
+    description = "Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the \
+                raw blob bytes, the identifier and other attributes are returned as headers.",
+)]
+pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
+    request_headers: HeaderMap,
+    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
+) -> Response {
+    let quilt_patch_id_str = quilt_patch_id.to_string();
+    tracing::info!("starting to read quilt blob: {}", quilt_patch_id_str);
+
+    match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
+        Ok(mut blobs) => {
+            if let Some(blob) = blobs.pop() {
+                let identifier = blob.identifier().to_string();
+                tracing::info!(
+                    identifier_header = X_QUILT_PATCH_IDENTIFIER,
+                    identifier = identifier,
+                    "successfully retrieved blob"
+                );
+                let blob_attribute: BlobAttribute = blob.tags().clone().into();
+                let blob_data = blob.into_data();
+                let mut response = (StatusCode::OK, blob_data).into_response();
+                populate_common_response_headers(
+                    &request_headers,
+                    &quilt_patch_id_str,
+                    response.headers_mut(),
+                );
+                populate_response_headers(
+                    response.headers_mut(),
+                    &blob_attribute,
+                    &allowed_headers,
+                );
+                if let (Ok(header_name), Ok(header_value)) = (
+                    HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
+                    HeaderValue::from_str(&identifier),
+                ) {
+                    response.headers_mut().insert(header_name, header_value);
+                }
+                response
+            } else {
+                tracing::info!("no blob returned for the requested quilt blob ID");
+                let error = GetBlobError::BlobNotFound;
+                error.to_response()
+            }
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::info!("requested quilt blob ID does not exist")
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::info!(?error, "error retrieving quilt blob")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]

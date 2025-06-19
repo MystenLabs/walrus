@@ -160,6 +160,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/blobs/by-quilt-patch-id/{quilt_patch_id}:
+    get:
+      tags:
+      - routes
+      summary: Get blob from quilt
+      description: Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+      operationId: get_blob_by_quilt_patch_id
+      parameters:
+      - name: quilt_patch_id
+        in: path
+        description: The QuiltPatchId encoded as URL-safe base64
+        required: true
+        schema:
+          type: string
+        example: DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw
+      responses:
+        '200':
+          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '404':
+          description: ' The requested blob has not yet been stored on Walrus.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: ' The blob cannot be returned as has been blocked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/{blob_id}:
     get:
       tags:

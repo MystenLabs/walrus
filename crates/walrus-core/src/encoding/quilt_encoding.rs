@@ -497,6 +497,11 @@ impl<'a> QuiltStoreBlob<'a> {
         &self.blob
     }
 
+    /// Returns the blob data by moving it out, consuming the QuiltStoreBlob.
+    pub fn into_data(self) -> Vec<u8> {
+        self.blob.into_owned()
+    }
+
     /// Returns a reference to the identifier.
     pub fn identifier(&self) -> &str {
         &self.identifier
