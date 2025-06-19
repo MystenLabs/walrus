@@ -258,11 +258,11 @@ pub enum CliCommands {
         /// in the quilt, recursively.
         /// If a path is a file, the file will be included in the quilt.
         /// The filenames are used as the identifiers of the quilt patches.
+        /// Note duplicate filenames are not allowed.
         /// Custom identifiers and tags are NOT supported for quilt patches.
         /// Use `--blob` to specify custom identifiers and tags.
-        #[arg(value_name = "PATH")]
+        #[arg(long)]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
-        #[arg(long = "path", action = clap::ArgAction::Append)]
         paths: Vec<PathBuf>,
         /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
@@ -272,6 +272,7 @@ pub enum CliCommands {
         ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
         ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
         ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
+        /// Note duplicate identifiers are not allowed.
         #[arg(value_name = "BLOB")]
         #[arg(long = "blob", action = clap::ArgAction::Append)]
         #[serde(default)]

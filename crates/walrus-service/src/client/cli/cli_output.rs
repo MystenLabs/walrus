@@ -311,19 +311,12 @@ impl CliOutput for DryRunOutput {
 }
 
 /// Get the stored quilt patches from a quilt index.
-fn get_stored_quilt_patches(
-    quilt_index: &QuiltIndex,
-    quilt_blob_id: BlobId,
-) -> Vec<StoredQuiltPatch> {
+fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<StoredQuiltPatch> {
     quilt_index
         .patches()
         .iter()
         .map(|patch| {
-            StoredQuiltPatch::new(
-                quilt_blob_id,
-                &patch.identifier,
-                patch.quilt_patch_internal_id(),
-            )
+            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
         })
         .collect()
 }

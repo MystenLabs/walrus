@@ -424,7 +424,7 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
     })
 }
 
-/// Parses a quilt blob ID from a string.
+/// Parses a [`QuiltPatchId`] from a string.
 pub fn parse_quilt_patch_id(input: &str) -> Result<QuiltPatchId, QuiltError> {
     if let Ok(quilt_id) = QuiltPatchId::from_str(input) {
         return Ok(quilt_id);
