@@ -220,7 +220,11 @@ impl ClientCommandRunner {
                 detail,
                 sort,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_selection, detail, sort).await,
+                concurrent_requests,
+            } => {
+                self.health(rpc_url, node_selection, detail, sort, concurrent_requests)
+                    .await
+            }
 
             CliCommands::BlobId {
                 file,
@@ -731,6 +735,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
@@ -749,12 +754,13 @@ impl ClientCommandRunner {
             None,
         )?;
 
-        ServiceHealthInfoOutput::new_for_nodes(
+        ServiceHealthInfoOutput::get_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
             latest_seq,
             detail,
             sort,
+            concurrent_requests,
         )
         .await?
         .print_output(self.json)

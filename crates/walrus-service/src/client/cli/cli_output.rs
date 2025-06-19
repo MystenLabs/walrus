@@ -874,7 +874,8 @@ impl NodeHealthOutput {
         };
         match &self.health_info {
             Err(error) => {
-                println!("Error: {}", error);
+                // Print detailed (debug) error message.
+                println!("Error: {error:?}");
             }
             Ok(health_info) => {
                 let EventProgress {
@@ -1104,12 +1105,10 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
         }
         Err(error) => {
             // Truncate error message to 20 chars and add ellipsis if needed
-            let error_msg = error.to_string();
-            let truncated_error = if error_msg.len() > 40 {
-                format!("{}...", &error_msg[..37])
-            } else {
-                error_msg
-            };
+            let mut error_msg = error.to_string();
+            if error_msg.len() > 40 {
+                error_msg = format!("{}...", &error_msg[..37]);
+            }
 
             table.add_row(row![
                 r->node_idx,
@@ -1117,7 +1116,7 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 node.node_id,
                 node.node_url,
                 c->"N/A",
-                Fr->truncated_error,
+                Fr->error_msg,
             ]);
         }
     }
