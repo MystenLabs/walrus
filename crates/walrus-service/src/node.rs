@@ -875,9 +875,6 @@ impl StorageNode {
             return default_result().await;
         };
 
-        self.inner
-            .latest_event_epoch
-            .store(init_state.epoch, Ordering::SeqCst);
         let first_available_event_index = init_state.event_cursor.element_index;
         if first_available_event_index <= lowest_needed_event_index {
             return default_result().await;
