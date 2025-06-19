@@ -50,7 +50,7 @@ use walrus_sdk::{
     },
     config::load_configuration,
     error::ClientErrorKind,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     sui::{
         client::{
             BlobPersistence,
@@ -217,7 +217,10 @@ impl ClientCommandRunner {
                     files,
                     epoch_arg,
                     common_options.dry_run,
-                    StoreWhen::from_flags(common_options.force, common_options.ignore_resources),
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        common_options.force,
+                        common_options.ignore_resources,
+                    ),
                     BlobPersistence::from_deletable(common_options.deletable),
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
@@ -236,7 +239,10 @@ impl ClientCommandRunner {
                     blobs,
                     epoch_arg,
                     common_options.dry_run,
-                    StoreWhen::from_flags(common_options.force, common_options.ignore_resources),
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        common_options.force,
+                        common_options.ignore_resources,
+                    ),
                     BlobPersistence::from_deletable(common_options.deletable),
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
@@ -264,7 +270,11 @@ impl ClientCommandRunner {
                 detail,
                 sort,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_selection, detail, sort).await,
+                concurrent_requests,
+            } => {
+                self.health(rpc_url, node_selection, detail, sort, concurrent_requests)
+                    .await
+            }
 
             CliCommands::BlobId {
                 file,
@@ -623,7 +633,7 @@ impl ClientCommandRunner {
         files: Vec<PathBuf>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -663,7 +673,7 @@ impl ClientCommandRunner {
                 &blobs,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -740,7 +750,7 @@ impl ClientCommandRunner {
         blobs: Vec<QuiltBlobInput>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -786,7 +796,7 @@ impl ClientCommandRunner {
                 &quilt,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -996,6 +1006,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
@@ -1014,12 +1025,13 @@ impl ClientCommandRunner {
             None,
         )?;
 
-        ServiceHealthInfoOutput::new_for_nodes(
+        ServiceHealthInfoOutput::get_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
             latest_seq,
             detail,
             sort,
+            concurrent_requests,
         )
         .await?
         .print_output(self.json)

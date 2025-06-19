@@ -377,6 +377,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<HealthSortBy>,
+        /// Number of concurrent requests to send to the storage nodes.
+        #[arg(long, default_value_t = default::concurrent_requests_for_health())]
+        #[serde(default = "default::concurrent_requests_for_health")]
+        concurrent_requests: usize,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -1636,6 +1640,10 @@ pub(crate) mod default {
             "content-location".to_string(),
             "link".to_string(),
         ]
+    }
+
+    pub(crate) fn concurrent_requests_for_health() -> usize {
+        60
     }
 }
 
