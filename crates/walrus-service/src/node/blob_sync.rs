@@ -177,6 +177,55 @@ impl BlobSyncHandler {
         Ok(())
     }
 
+    /// Cancels all blob syncs using the provided closure and returns the number of cancelled syncs.
+    ///
+    /// If `should_mark_events_complete` is `true`, the corresponding events are marked as complete.
+    #[tracing::instrument(skip(self, filter_map_closure))]
+    async fn cancel_syncs<F>(
+        &self,
+        filter_map_closure: F,
+        should_mark_events_complete: bool,
+    ) -> anyhow::Result<usize>
+    where
+        F: Fn((&BlobId, &mut InProgressSyncHandle)) -> Option<SyncJoinHandle> + Sync + Send,
+    {
+        tracing::info!("cancelling matching blob syncs");
+
+        let join_handles: Vec<_> = {
+            let mut in_progress_guard = self
+                .blob_syncs_in_progress
+                .lock()
+                .expect("should be able to acquire lock");
+            tracing::info!("acquired lock on the in-progress blob recoveries");
+
+            if cfg!(not(msim)) {
+                in_progress_guard
+                    .par_iter_mut()
+                    .filter_map(filter_map_closure)
+                    .collect()
+            } else {
+                in_progress_guard
+                    .iter_mut()
+                    .filter_map(filter_map_closure)
+                    .collect()
+            }
+        };
+        tracing::info!("released lock on the in-progress blob recoveries");
+
+        let count = join_handles.len();
+
+        let event_handles = try_join_all(join_handles).await?;
+
+        if should_mark_events_complete {
+            event_handles
+                .into_iter()
+                .for_each(CompletableHandle::mark_as_complete);
+        }
+
+        tracing::info!("cancelled {count} blob syncs");
+        Ok(count)
+    }
+
     /// Cancels all existing blob syncs for blobs that are already expired in the `current_epoch`
     /// and marks the corresponding events as completed.
     ///
@@ -191,78 +240,31 @@ impl BlobSyncHandler {
     ) -> anyhow::Result<usize> {
         tracing::info!("cancelling all blob syncs for expired blobs");
 
-        let join_handles: Vec<_> = {
-            let mut in_progress_guard = self
-                .blob_syncs_in_progress
-                .lock()
-                .expect("should be able to acquire lock");
-            tracing::info!("acquired lock on the in-progress blob recoveries");
-
-            let closure = |(blob_id, sync): (&BlobId, &mut InProgressSyncHandle)| {
-                self.node
-                    .is_blob_certified(blob_id)
-                    .is_ok_and(Not::not)
-                    .then(|| sync.cancel())
-                    .flatten()
-            };
-
-            if cfg!(not(msim)) {
-                in_progress_guard
-                    .par_iter_mut()
-                    .filter_map(closure)
-                    .collect()
-            } else {
-                in_progress_guard.iter_mut().filter_map(closure).collect()
-            }
+        let closure = |(blob_id, sync): (&BlobId, &mut InProgressSyncHandle)| {
+            self.node
+                .is_blob_certified(blob_id)
+                .is_ok_and(Not::not)
+                .then(|| sync.cancel())
+                .flatten()
         };
-        tracing::info!("released lock on the in-progress blob recoveries");
 
-        let count = join_handles.len();
-
-        try_join_all(join_handles)
-            .await?
-            .into_iter()
-            .for_each(CompletableHandle::mark_as_complete);
-
-        tracing::info!("cancelled {count} blob syncs for now expired blobs");
-        Ok(count)
+        self.cancel_syncs(closure, true).await
     }
 
-    /// Similar to `cancel_all_expired_syncs_and_mark_events_completed`, but for all blob syncs.
+    /// Similar to [`Self::cancel_all_expired_syncs_and_mark_events_completed`], but for all blob
+    /// syncs.
     #[tracing::instrument(skip(self))]
     pub async fn cancel_all_syncs_and_mark_events_completed(&self) -> anyhow::Result<usize> {
         tracing::info!("cancelling all blob syncs");
 
-        let join_handles: Vec<_> = {
-            let mut in_progress_guard = self
-                .blob_syncs_in_progress
-                .lock()
-                .expect("should be able to acquire lock");
-            tracing::info!("acquired lock on the in-progress blob recoveries");
+        self.cancel_syncs(|(_, sync)| sync.cancel(), true).await
+    }
 
-            if cfg!(not(msim)) {
-                in_progress_guard
-                    .par_iter_mut()
-                    .filter_map(|(_, sync)| sync.cancel())
-                    .collect()
-            } else {
-                in_progress_guard
-                    .iter_mut()
-                    .filter_map(|(_, sync)| sync.cancel())
-                    .collect()
-            }
-        };
-        tracing::info!("released lock on the in-progress blob recoveries");
-
-        let count = join_handles.len();
-
-        try_join_all(join_handles)
-            .await?
-            .into_iter()
-            .for_each(CompletableHandle::mark_as_complete);
-
-        tracing::info!("cancelled {count} blob syncs");
-        Ok(count)
+    /// Cancels all blob syncs and returns the number of cancelled syncs. Does not mark the
+    /// corresponding events as complete.
+    #[tracing::instrument(skip_all)]
+    pub async fn cancel_all(&self) -> anyhow::Result<usize> {
+        self.cancel_syncs(|(_, sync)| sync.cancel(), false).await
     }
 
     async fn remove_sync_handle(&self, blob_id: &BlobId) {
@@ -420,23 +422,6 @@ impl BlobSyncHandler {
             .observe(start.elapsed().as_secs_f64());
 
         event_handle
-    }
-
-    /// Cancels all blob syncs and returns the number of cancelled syncs.
-    #[tracing::instrument(skip_all)]
-    pub async fn cancel_all(&self) -> anyhow::Result<usize> {
-        let join_handles: Vec<_> = self
-            .blob_syncs_in_progress
-            .lock()
-            .expect("should be able to acquire lock")
-            .iter_mut()
-            .filter_map(|(_, sync)| sync.cancel())
-            .collect();
-        let count = join_handles.len();
-
-        try_join_all(join_handles).await?.into_iter().for_each(drop);
-
-        Ok(count)
     }
 
     /// Returns the list of blob ids that are currently being synced.
