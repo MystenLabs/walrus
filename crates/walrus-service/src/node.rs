@@ -883,14 +883,17 @@ impl StorageNode {
         // If we reach this point, we have to reposition at least one of the event cursors.
         // Important: We need to make sure we start the event stream from the correct cursor.
 
-        // Reposition the node event cursor if it is behind the first available event.
-        let new_event_cursor = self
-            .reposition_event_cursor_if_starting_with_incomplete_history(
-                storage_node_cursor.element_index,
-                init_state.clone(),
-            )?
-            .unwrap_or(event_cursor);
+        // Use the event cursor from the init state, as it is the earliest event that we can
+        // process.
+        let new_event_cursor = init_state.event_cursor;
+        assert!(new_event_cursor > event_cursor);
         let new_starting_index = new_event_cursor.element_index;
+
+        // Reposition the node event cursor if it is behind the first available event.
+        self.reposition_event_cursor_if_starting_with_incomplete_history(
+            storage_node_cursor.element_index,
+            init_state.clone(),
+        )?;
 
         // Reposition the event blob writer if it is behind the first available event.
         if let Some(writer) = event_blob_writer {
@@ -900,7 +903,7 @@ impl StorageNode {
                     writer_starting_index,
                     first_available_event_index
                 );
-                writer.update(init_state.clone()).await?;
+                writer.update(init_state).await?;
             }
         }
 
@@ -932,11 +935,11 @@ impl StorageNode {
         &self,
         next_event_index: u64,
         init_state: InitState,
-    ) -> anyhow::Result<Option<EventStreamCursor>> {
+    ) -> anyhow::Result<()> {
         let first_available_event_index = init_state.event_cursor.element_index;
         if next_event_index >= first_available_event_index {
             // Standard case: the node is not behind the first available event.
-            return Ok(None);
+            return Ok(());
         }
         if next_event_index != 0 {
             // TODO(WAL-894): Implement recovery with incomplete event history for nodes that are
@@ -998,7 +1001,7 @@ impl StorageNode {
         // in that case.
         self.inner.storage.clear_blob_info_table()?;
 
-        Ok(Some(init_state.event_cursor))
+        Ok(())
     }
 
     async fn get_event_blob_downloader_from_config(
