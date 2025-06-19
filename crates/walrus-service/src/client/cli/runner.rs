@@ -622,9 +622,6 @@ impl ClientCommandRunner {
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
-        if !self.json {
-            println!("\nQuilt Metadata for Quilt ID: {}", quilt_id);
-        }
         quilt_metadata.print_output(self.json)?;
 
         Ok(())
@@ -776,7 +773,7 @@ impl ClientCommandRunner {
         let epochs_ahead =
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
-        let quilt_store_blobs = Self::read_blobs(&paths, blobs).await?;
+        let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
 
         if dry_run {
             return Self::store_quilt_dry_run(
@@ -814,7 +811,7 @@ impl ClientCommandRunner {
         result.print_output(self.json)
     }
 
-    async fn read_blobs(
+    async fn load_blobs_for_quilt(
         paths: &[PathBuf],
         blob_inputs: Vec<QuiltBlobInput>,
     ) -> Result<Vec<QuiltStoreBlob<'static>>> {
@@ -852,7 +849,7 @@ impl ClientCommandRunner {
         }
     }
 
-    /// Performs a dry run of quilt storage
+    /// Performs a dry run of storing a quilt.
     async fn store_quilt_dry_run(
         client: Client<SuiContractClient>,
         blobs: &[QuiltStoreBlob<'static>],

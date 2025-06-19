@@ -136,7 +136,7 @@ pub(crate) struct DryRunOutput {
     pub encoding_type: EncodingType,
 }
 
-/// The output of the `construct-quilt` command.
+/// The output of the `store-quilt --dry-run` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -767,14 +767,14 @@ impl NodeHealthOutput {
     }
 }
 
-/// Read quilt output.
+/// The output of the `read-quilt` command.
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadQuiltOutput {
     /// The output directory path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub out: Option<PathBuf>,
-    /// The structure of the quilt.
+    /// The retrieved blobs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub retrieved_blobs: Vec<QuiltStoreBlob<'static>>,
 }
