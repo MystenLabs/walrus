@@ -6,9 +6,15 @@
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
 pub struct StoreOptimizations {
-    /// Check the status of the blob before storing it, and store it only if it is not already.
+    /// Check the status of the blob before storing it; store it only if it is not already stored as
+    /// a permanent blob on Walrus for a sufficient number of epochs.
     pub check_status: bool,
-    /// Reuse matching resources owned by the wallet if there are any.
+    /// Reuse matching `Storage` resources and already registered `Blob` objects owned by the wallet
+    /// if there are any.
+    ///
+    /// Specifically, check if there is an appropriate storage resource (with sufficient space and
+    /// for a sufficient duration) that can be used to register the blob or if there is an already
+    /// registered blob object that matches the blob ID and duration.
     pub reuse_resources: bool,
 }
 
