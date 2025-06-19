@@ -1487,6 +1487,17 @@ impl<T> Client<T> {
         self
     }
 
+    /// Creates a blocklist from a path with metrics support.
+    ///
+    /// This is a convenience method for creating a blocklist with metrics when the client
+    /// has access to a metrics registry.
+    pub fn create_blocklist_with_metrics(
+        path: &Option<PathBuf>,
+        metrics_registry: Option<&Registry>,
+    ) -> anyhow::Result<Blocklist> {
+        Blocklist::new_with_metrics(path, metrics_registry)
+    }
+
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.
     pub fn quilt_client(&self, config: QuiltClientConfig) -> QuiltClient<'_, T> {
         QuiltClient::new(self, config)

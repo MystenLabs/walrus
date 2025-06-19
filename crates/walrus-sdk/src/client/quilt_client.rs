@@ -249,7 +249,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         &self,
         quilt_id: &BlobId,
         identifiers: &[&str],
-    ) -> ClientResult<Vec<QuiltStoreBlobOwned>> {
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
         let metadata = self.get_quilt_metadata(quilt_id).await?;
 
         let blobs = match metadata {
@@ -272,7 +272,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         metadata: &VerifiedBlobMetadataWithId,
         index: &QuiltIndex,
         identifiers: &[&str],
-    ) -> ClientResult<Vec<QuiltStoreBlobOwned>>
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>>
     where
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {

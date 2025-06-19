@@ -10,11 +10,13 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use prometheus::{IntGauge, register_int_gauge_with_registry};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use walrus_core::BlobId;
+use walrus_utils::metrics::Registry;
 
 /// Internal blocklist struct to deserialize from YAML.
 #[serde_as]
@@ -29,6 +31,8 @@ pub struct Blocklist {
     blocked_blobs: Arc<RwLock<HashSet<BlobId>>>,
     deny_list_path: PathBuf,
     shutdown: CancellationToken,
+    /// Metric to track the number of blocklisted blobs.
+    blocklist_size_metric: Option<IntGauge>,
 }
 
 impl Blocklist {
@@ -38,14 +42,49 @@ impl Blocklist {
     ///
     /// Returns an error if the file is not found or parsing fails.
     pub fn new(path: &Option<PathBuf>) -> Result<Self> {
+        Self::new_with_metrics(path, None)
+    }
+
+    /// Reads a blocklist of blob IDs in YAML format from the provided path with metrics support.
+    ///
+    /// If no path is provided, the returned blocklist is empty.
+    /// If metrics_registry is provided, will expose a gauge metric for the number
+    /// of blocklisted blobs.
+    ///
+    /// Returns an error if the file is not found or parsing fails.
+    pub fn new_with_metrics(
+        path: &Option<PathBuf>,
+        metrics_registry: Option<&Registry>,
+    ) -> Result<Self> {
+        let blocklist_size_metric = metrics_registry.map(|registry| {
+            register_int_gauge_with_registry!(
+                "walrus_blocklist_size",
+                "Number of blob IDs in the blocklist",
+                registry,
+            )
+            .expect("this is a valid metrics registration")
+        });
+
         let Some(path) = path else {
-            return Ok(Self::default());
+            let blocklist = Self {
+                blocked_blobs: Arc::new(RwLock::new(HashSet::new())),
+                deny_list_path: PathBuf::new(),
+                shutdown: CancellationToken::new(),
+                blocklist_size_metric,
+            };
+
+            if let Some(ref metric) = blocklist.blocklist_size_metric {
+                metric.set(0);
+            }
+
+            return Ok(blocklist);
         };
 
         let blocklist = Self {
             blocked_blobs: Arc::new(RwLock::new(HashSet::new())),
             deny_list_path: path.clone(),
             shutdown: CancellationToken::new(),
+            blocklist_size_metric,
         };
 
         blocklist.load()?;
@@ -93,7 +132,12 @@ impl Blocklist {
             .blocked_blobs
             .write()
             .expect("mutex should not be poisoned");
-        guard.insert(blob_id);
+        let was_inserted = guard.insert(blob_id);
+
+        if let Some(ref metric) = self.blocklist_size_metric {
+            metric.set(guard.len().try_into()?);
+        }
+
         // Update yaml file to add this blob id
         let blobs = BlocklistInner(guard.iter().cloned().collect::<Vec<_>>());
         let mut file = std::fs::OpenOptions::new()
@@ -102,7 +146,7 @@ impl Blocklist {
             .create(true)
             .open(&self.deny_list_path)?;
         serde_yaml::to_writer(&mut file, &blobs)?;
-        Ok(true)
+        Ok(was_inserted)
     }
 
     /// Removes a blob ID from the blocklist.
@@ -114,7 +158,12 @@ impl Blocklist {
             .blocked_blobs
             .write()
             .expect("mutex should not be poisoned");
-        guard.remove(blob_id);
+        let was_removed = guard.remove(blob_id);
+
+        if let Some(ref metric) = self.blocklist_size_metric {
+            metric.set(guard.len().try_into()?);
+        }
+
         let blobs = BlocklistInner(guard.iter().cloned().collect::<Vec<_>>());
 
         if !self.deny_list_path.exists() {
@@ -126,7 +175,7 @@ impl Blocklist {
             .truncate(true)
             .open(&self.deny_list_path)?;
         serde_yaml::to_writer(&mut file, &blobs)?;
-        Ok(true)
+        Ok(was_removed)
     }
 
     /// Loads the blocklist from the file at the given path.
@@ -167,6 +216,11 @@ impl Blocklist {
         });
 
         *guard = blocklist.0.into_iter().collect();
+
+        if let Some(ref metric) = self.blocklist_size_metric {
+            metric.set(guard.len().try_into()?);
+        }
+
         Ok(())
     }
 }

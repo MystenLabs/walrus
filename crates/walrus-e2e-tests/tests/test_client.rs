@@ -35,7 +35,7 @@ use walrus_core::{
     encoding::{
         EncodingConfigTrait as _,
         Primary,
-        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltStoreBlobOwned, QuiltVersionV1},
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     merkle::Node,
     messages::BlobPersistenceType,
@@ -1043,7 +1043,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     tracing::info!(groups = ?groups, "test retrieving quilts by groups");
 
     for group in groups {
-        let retrieved_quilt_blobs: Vec<QuiltStoreBlobOwned> = quilt_client
+        let retrieved_quilt_blobs: Vec<QuiltStoreBlob> = quilt_client
             .get_blobs_by_identifiers(&blob_id, &group)
             .await?;
 
