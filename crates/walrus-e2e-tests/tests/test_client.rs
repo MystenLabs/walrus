@@ -919,12 +919,7 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
         .expect("blob id should be present after store");
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(
-        client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-            .await?,
-        blob
-    );
+    assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
     client.delete_owned_blob(&blob_id).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1094,7 +1089,7 @@ async fn test_blocklist() -> TestResult {
 
     assert_eq!(
         client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
             .await?,
         blob
     );
