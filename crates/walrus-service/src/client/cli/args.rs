@@ -1174,13 +1174,15 @@ pub struct QuiltPatchQuery {
     #[serde(default)]
     pub identifiers: Vec<String>,
 
-    /// The tag key.
-    #[arg(long)]
-    pub tag: Option<String>,
-
-    /// The tag value.
-    #[arg(long)]
-    pub value: Option<String>,
+    /// The tag key-value pairs to match.
+    /// Example: --tag "color" "red"
+    #[arg(
+        long = "tag",
+        value_names = &["KEY", "VALUE"],
+        num_args = 2,
+    )]
+    #[serde(default)]
+    pub tags: Vec<String>,
 
     /// The quilt patch IDs.
     #[serde_as(as = "Vec<DisplayFromStr>")]
@@ -1199,7 +1201,7 @@ impl QuiltPatchQuery {
         anyhow!(
             "Exactly one query type must be specified. Valid query types are:\n\
             - --quilt-id <ID> --identifier <NAME>...\n\
-            - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
+            - --quilt-id <ID> --tag <KEY> <VALUE>\n\
             - --quilt-patch-id <ID>..."
         )
     }
@@ -1207,10 +1209,7 @@ impl QuiltPatchQuery {
     /// Get the selector for execution.
     pub fn get_selector(&self) -> Result<QuiltPatchSelector> {
         if !self.identifiers.is_empty() {
-            if self.quilt_id.is_none()
-                || self.tag.is_some()
-                || self.value.is_some()
-                || !self.quilt_patch_ids.is_empty()
+            if self.quilt_id.is_none() || !self.tags.is_empty() || !self.quilt_patch_ids.is_empty()
             {
                 return Err(self.get_error());
             }
@@ -1219,28 +1218,32 @@ impl QuiltPatchQuery {
                 quilt_id,
                 identifiers: self.identifiers.clone(),
             }))
-        } else if self.tag.is_some() {
-            if self.value.is_none()
-                || self.quilt_id.is_none()
+        } else if !self.tags.is_empty() {
+            if self.quilt_id.is_none()
                 || !self.identifiers.is_empty()
                 || !self.quilt_patch_ids.is_empty()
             {
                 return Err(self.get_error());
             }
+
+            // Validate that exactly one tag key-value pair is specified.
+            // TODO(WAL-899): Support multiple tag pairs.
+            if self.tags.len() != 2 {
+                return Err(anyhow!("exactly one tag key-value pair must be specified"));
+            }
+
             let quilt_id = self.quilt_id.expect("quilt_id should be present");
-            let tag = self.tag.clone().expect("tag should be present");
-            let value = self.value.clone().expect("value should be present");
+
+            let tag = self.tags.first().cloned().expect("tag should be present");
+            let value = self.tags.last().cloned().expect("value should be present");
+
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id,
                 tag,
                 value,
             }))
         } else if !self.quilt_patch_ids.is_empty() {
-            if self.quilt_id.is_some()
-                || !self.identifiers.is_empty()
-                || self.tag.is_some()
-                || self.value.is_some()
-            {
+            if self.quilt_id.is_some() || !self.identifiers.is_empty() || !self.tags.is_empty() {
                 return Err(self.get_error());
             }
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
