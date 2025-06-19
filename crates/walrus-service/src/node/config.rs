@@ -1002,6 +1002,12 @@ pub struct RestServerConfig {
     /// Configuration for incoming HTTP/2 connections.
     #[serde(flatten, skip_serializing_if = "defaults::is_default")]
     pub http2_config: Http2Config,
+
+    /// The maximum number of active requests that will be served on the recovery symbols endpoint.
+    ///
+    /// An unset value means it is unlimited.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub experimental_max_active_recovery_symbols_requests: Option<usize>,
 }
 
 /// Configuration of the HTTP/2 connections established by the REST API.

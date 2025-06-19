@@ -18,7 +18,7 @@ use futures::{FutureExt, future::Either};
 use openapi::RestApiDoc;
 use p256::{SecretKey, elliptic_curve::pkcs8::EncodePrivateKey as _};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -70,6 +70,9 @@ pub struct RestApiConfig {
 
     /// Configuration of HTTP/2 connections.
     pub http2_config: Http2Config,
+
+    /// Limit on the number of active recovery symbol requests.
+    pub max_active_recovery_symbols_requests: Option<usize>,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -108,6 +111,9 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             tls_certificate,
             graceful_shutdown_period,
             http2_config: config.rest_server.http2_config.clone(),
+            max_active_recovery_symbols_requests: config
+                .rest_server
+                .experimental_max_active_recovery_symbols_requests,
         }
     }
 }
@@ -144,11 +150,39 @@ pub enum TlsCertificateSource {
     },
 }
 
+#[derive(Debug)]
+pub(crate) struct RestApiState<S> {
+    service: Arc<S>,
+    config: Arc<RestApiConfig>,
+    recovery_symbols_limit: Option<Arc<Semaphore>>,
+}
+
+impl<S> RestApiState<S> {
+    fn new(service: Arc<S>, config: Arc<RestApiConfig>) -> Self {
+        Self {
+            service,
+            recovery_symbols_limit: config
+                .max_active_recovery_symbols_requests
+                .map(|limit| Arc::new(Semaphore::new(limit))),
+            config,
+        }
+    }
+}
+
+impl<S> Clone for RestApiState<S> {
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            config: self.config.clone(),
+            recovery_symbols_limit: self.recovery_symbols_limit.clone(),
+        }
+    }
+}
+
 /// Represents a server for the Walrus REST API.
 #[derive(Debug)]
 pub struct RestApiServer<S> {
-    state: Arc<S>,
-    config: RestApiConfig,
+    state: RestApiState<S>,
     metrics: MetricsMiddlewareState,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
@@ -160,17 +194,16 @@ where
 {
     /// Creates a new REST API server.
     pub fn new(
-        state: Arc<S>,
+        service: Arc<S>,
         cancel_token: CancellationToken,
         config: RestApiConfig,
         registry: &Registry,
     ) -> Self {
         Self {
-            state,
+            state: RestApiState::new(service, Arc::new(config)),
             metrics: MetricsMiddlewareState::new(registry),
             cancel_token,
             handle: Default::default(),
-            config,
         }
     }
 
@@ -206,11 +239,11 @@ where
         let handle = self.init_handle().await;
 
         let server = if let Some(tls_config) = self.configure_tls().await? {
-            let server = axum_server::bind_rustls(self.config.bind_address, tls_config)
+            let server = axum_server::bind_rustls(self.config().bind_address, tls_config)
                 .handle(handle.clone());
             Either::Left(self.configure_server(server).serve(app))
         } else {
-            let server = axum_server::bind(self.config.bind_address).handle(handle.clone());
+            let server = axum_server::bind(self.config().bind_address).handle(handle.clone());
             Either::Right(self.configure_server(server).serve(app))
         };
 
@@ -218,7 +251,7 @@ where
             Self::handle_shutdown_signal(
                 handle,
                 self.cancel_token.clone(),
-                self.config.graceful_shutdown_period,
+                self.config().graceful_shutdown_period,
             )
             .in_current_span(),
         );
@@ -230,7 +263,7 @@ where
     }
 
     fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
-        let config = &self.config.http2_config;
+        let config = &self.config().http2_config;
         let mut http2_builder = server.http_builder().http2();
         http2_builder
             .max_concurrent_streams(config.http2_max_concurrent_streams)
@@ -274,7 +307,7 @@ where
     }
 
     async fn configure_tls(&self) -> Result<Option<RustlsConfig>, anyhow::Error> {
-        let Some(ref tls_certificate) = self.config.tls_certificate else {
+        let Some(ref tls_certificate) = self.config().tls_certificate else {
             return Ok(None);
         };
 
@@ -331,7 +364,7 @@ where
             .await;
     }
 
-    fn define_routes(&self) -> Router<Arc<S>> {
+    fn define_routes(&self) -> Router<RestApiState<S>> {
         Router::new()
             .merge(Redoc::with_url(
                 routes::API_DOCS_ENDPOINT,
@@ -350,7 +383,7 @@ where
                 put(routes::put_sliver)
                     .route_layer(DefaultBodyLimit::max(
                         usize::try_from(encoding::max_sliver_size_for_n_shards(
-                            self.state.n_shards(),
+                            self.state.service.n_shards(),
                         ))
                         .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
@@ -399,6 +432,10 @@ where
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
+    }
+
+    fn config(&self) -> &RestApiConfig {
+        &self.state.config
     }
 }
 
@@ -482,6 +519,7 @@ mod tests {
             ServiceHealthInfo,
             ShardStatusSummary,
             StoredOnNodeStatus,
+            errors::StatusCode as ApiStatusCode,
         },
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -1301,6 +1339,29 @@ mod tests {
             .await
             .expect("request should succeed");
         assert!(symbols.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn limit_recovery_symbols() {
+        let mut config = test_utils::storage_node_config();
+        config
+            .as_mut()
+            .rest_server
+            .experimental_max_active_recovery_symbols_requests = Some(0);
+        let _handle = start_rest_api_with_config(config.as_ref()).await;
+
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let error = client
+            .list_recovery_symbols(
+                &blob_id,
+                &RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary),
+            )
+            .await
+            .expect_err("request should fail due to the limit");
+        let error_status = error.status().expect("there should be a structured error");
+        assert_eq!(error_status.code(), ApiStatusCode::Unavailable)
     }
 
     #[tokio::test]
