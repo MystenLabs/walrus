@@ -261,7 +261,7 @@ pub enum CliCommands {
         /// Note duplicate filenames are not allowed.
         /// Custom identifiers and tags are NOT supported for quilt patches.
         /// Use `--blob` to specify custom identifiers and tags.
-        #[arg(long)]
+        #[arg(long, num_args = 0..)]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         paths: Vec<PathBuf>,
         /// Blobs to include in the quilt, each blob is specified as a JSON string.
@@ -272,9 +272,9 @@ pub enum CliCommands {
         ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
         ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
         ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
-        /// Note duplicate identifiers are not allowed.
-        #[arg(value_name = "BLOB")]
-        #[arg(long = "blob", action = clap::ArgAction::Append)]
+        /// Note if identifier is not specified, the filename will be used as the identifier,
+        /// and duplicate identifiers are not allowed.
+        #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
         /// The epoch argument to specify either the number of epochs to store the quilt, or the
