@@ -43,7 +43,7 @@ use super::{
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
 };
-use crate::common::utils::FutureHelpers as _;
+use crate::{common::utils::FutureHelpers as _, node::NodeStatus};
 
 #[derive(Debug, Clone)]
 struct Permits {
@@ -228,6 +228,43 @@ impl BlobSyncHandler {
         Ok(count)
     }
 
+    /// Similar to `cancel_all_expired_syncs_and_mark_events_completed`, but for all blob syncs.
+    #[tracing::instrument(skip(self))]
+    pub async fn cancel_all_syncs_and_mark_events_completed(&self) -> anyhow::Result<usize> {
+        tracing::info!("cancelling all blob syncs");
+
+        let join_handles: Vec<_> = {
+            let mut in_progress_guard = self
+                .blob_syncs_in_progress
+                .lock()
+                .expect("should be able to acquire lock");
+            tracing::info!("acquired lock on the in-progress blob recoveries");
+
+            if cfg!(not(msim)) {
+                in_progress_guard
+                    .par_iter_mut()
+                    .filter_map(|(_, sync)| sync.cancel())
+                    .collect()
+            } else {
+                in_progress_guard
+                    .iter_mut()
+                    .filter_map(|(_, sync)| sync.cancel())
+                    .collect()
+            }
+        };
+        tracing::info!("released lock on the in-progress blob recoveries");
+
+        let count = join_handles.len();
+
+        try_join_all(join_handles)
+            .await?
+            .into_iter()
+            .for_each(CompletableHandle::mark_as_complete);
+
+        tracing::info!("cancelled {count} blob syncs");
+        Ok(count)
+    }
+
     async fn remove_sync_handle(&self, blob_id: &BlobId) {
         self.blob_syncs_in_progress
             .lock()
@@ -308,7 +345,7 @@ impl BlobSyncHandler {
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn sync_blob_for_all_shards(
+    async fn sync_blob_for_all_shards(
         self,
         synchronizer: BlobSynchronizer,
         permits: Permits,
@@ -323,33 +360,56 @@ impl BlobSyncHandler {
             walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
 
         let cancel_token = synchronizer.cancel_token.clone();
-        let (label, _guard) = tokio::select! {
-            biased;
 
-            _ = cancel_token.cancelled() => {
-                tracing::debug!("cancelled blob sync");
-                (metrics::STATUS_CANCELLED, None)
-            },
-
-            guard = async {
-                // Await claiming the permit inside this async closure, to enable cancellation to
-                // also cancel waiting for the permit.
-                let _permit = permits
-                    .blob
-                    .acquire_owned()
-                    .count_in_flight(&queued_gauge)
-                    .await
-                    .expect("semaphore should not be dropped");
-
-                let decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
-
-                synchronizer.run(permits.sliver_pairs).await;
-
-                decrement_guard
-            } => {
+        // Before running the blob sync, check if the node is in recovery catch up, since the node
+        // status may have changed since the blob sync was started.
+        // Note that if the node status is not in recovery catch up, it is safe to start the sync
+        // without further status checking since node entering recovery catch up will cancel all
+        // the blob syncs, including this one.
+        let (label, _guard) = match synchronizer
+            .node
+            .storage
+            .node_status()
+            .expect("node status should be set")
+        {
+            NodeStatus::RecoveryCatchUp => {
+                tracing::debug!(
+                    "about to start blob sync, but node is in recovery catch up, skipping blob sync"
+                );
                 event_handle.mark_as_complete();
                 event_handle = None;
-                (metrics::STATUS_SUCCESS, Some(guard))
+                (metrics::STATUS_SKIPPED, None)
+            }
+            _ => {
+                tokio::select! {
+                    biased;
+
+                    _ = cancel_token.cancelled() => {
+                        tracing::debug!("cancelled blob sync");
+                        (metrics::STATUS_CANCELLED, None)
+                    },
+
+                    guard = async {
+                        // Await claiming the permit inside this async closure, to enable
+                        // cancellation to also cancel waiting for the permit.
+                        let _permit = permits
+                            .blob
+                            .acquire_owned()
+                            .count_in_flight(&queued_gauge)
+                            .await
+                            .expect("semaphore should not be dropped");
+
+                        let decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
+
+                        synchronizer.run(permits.sliver_pairs).await;
+
+                        decrement_guard
+                    } => {
+                        event_handle.mark_as_complete();
+                        event_handle = None;
+                        (metrics::STATUS_SUCCESS, Some(guard))
+                    }
+                }
             }
         };
 
@@ -489,6 +549,10 @@ impl BlobSynchronizer {
             .node
             .owned_shards_at_epoch(this.node.current_event_epoch())
             .unwrap_or_else(|_| {
+                tracing::error!(
+                    "shard assignment must be found at the certified epoch {}",
+                    this.node.current_event_epoch()
+                );
                 panic!(
                     "shard assignment must be found at the certified epoch {}",
                     this.node.current_event_epoch()
