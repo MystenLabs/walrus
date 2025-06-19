@@ -254,33 +254,24 @@ pub enum CliCommands {
     StoreQuilt {
         /// A list of paths.
         ///
-        /// If the path is a directory, all the files in the directory will be included
-        /// in the quilt.
-        /// If the path is a file, the file will be included in the quilt.
+        /// If a path is a directory, all the files in the directory will be included
+        /// in the quilt, recursively.
+        /// If a path is a file, the file will be included in the quilt.
         /// The filenames are used as the identifiers of the quilt patches.
-        /// Custom identifiers and tags are not supported for quilt patches.
-        /// Use --blob to specify custom identifiers and tags.
+        /// Custom identifiers and tags are NOT supported for quilt patches.
+        /// Use `--blob` to specify custom identifiers and tags.
         #[arg(value_name = "PATHS", alias("path-list"))]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         #[arg(long = "path", action = clap::ArgAction::Append)]
         paths: Vec<PathBuf>,
         /// A blob to include in the quilt, specified as a JSON string.
-        /// Example:
         ///
-        /// ```bash
-        /// walrus store-quilt \
-        /// --blob '{ \
-        /// "path":"/path/to/food-locations.pdf", \
-        /// "identifier":"paper-v2", \
-        /// "tags":{"author":"Walrus", "project":"food", "status":"final-review"} \
-        /// }' \
-        /// --blob '{ \
-        /// "path":"/path/to/water-locations.pdf", \
-        /// "identifier":"water-v3", \
-        /// "tags":{"author":"Walrus", "project":"water", "status":"draft"} \
-        /// }' \
-        /// --epochs 10 \
-        /// ```
+        /// Example:
+        ///   walrus store-quilt --epochs 10
+        ///     --blob '{"path":"/path/to/food-locations.pdf","identifier":"paper-v2",\
+        ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
+        ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
+        ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
         #[arg(long = "blob", action = clap::ArgAction::Append)]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
