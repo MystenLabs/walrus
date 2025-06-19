@@ -140,10 +140,7 @@ impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
         identifiers: &[&str],
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         let decoder = self.get_decoder();
-        identifiers
-            .iter()
-            .map(|identifier| decoder.get_blob_by_identifier(identifier))
-            .collect::<Result<Vec<_>, _>>()
+        decoder.get_blobs_by_identifiers(identifiers)
     }
 
     pub fn get_blobs_by_tag(
@@ -257,14 +254,9 @@ where
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_identifiers(identifiers)
                 .map_err(ClientError::other),
-            QuiltCacheReader::FullQuilt(quilt) => identifiers
-                .iter()
-                .map(|identifier| {
-                    quilt
-                        .get_blob_by_identifier(identifier)
-                        .map_err(ClientError::other)
-                })
-                .collect::<Result<Vec<_>, _>>(),
+            QuiltCacheReader::FullQuilt(quilt) => quilt
+                .get_blobs_by_identifiers(identifiers)
+                .map_err(ClientError::other),
         }
     }
 
