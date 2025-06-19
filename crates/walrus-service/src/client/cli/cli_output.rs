@@ -310,24 +310,32 @@ impl CliOutput for DryRunOutput {
     }
 }
 
+/// Get the stored quilt patches from a quilt index.
+fn get_stored_quilt_patches(
+    quilt_index: &QuiltIndex,
+    quilt_blob_id: BlobId,
+) -> Vec<StoredQuiltPatch> {
+    quilt_index
+        .patches()
+        .iter()
+        .map(|patch| {
+            StoredQuiltPatch::new(
+                quilt_blob_id,
+                &patch.identifier,
+                patch.quilt_patch_internal_id(),
+            )
+        })
+        .collect()
+}
+
 impl CliOutput for StoreQuiltDryRunOutput {
     fn print_cli_output(&self) {
         self.quilt_blob_output.print_cli_output();
-        let stored_quilt_patches = self
-            .quilt_index
-            .patches()
-            .iter()
-            .map(|patch| {
-                StoredQuiltPatch::new(
-                    self.quilt_blob_output.blob_id,
-                    &patch.identifier,
-                    patch.quilt_patch_internal_id(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let table_output = construct_stored_quilt_patch_table(&stored_quilt_patches);
-        table_output.printstd();
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.quilt_index,
+            self.quilt_blob_output.blob_id,
+        ))
+        .printstd();
     }
 }
 
@@ -344,7 +352,7 @@ impl CliOutput for QuiltIndexV1 {
         println!(
             "{}",
             format!(
-                "Quilt patches in QuiltV1, total number of patches: {}",
+                "Quilt Index V1, total number of patches: {}",
                 self.quilt_patches.len()
             )
             .bold()
@@ -1248,25 +1256,17 @@ impl CliOutput for QuiltMetadata {
 
 impl CliOutput for QuiltMetadataV1 {
     fn print_cli_output(&self) {
-        println!("{}", "Quilt Metadata".bold().walrus_purple());
-        println!("Quilt Blob ID: {}", self.quilt_id);
+        println!(
+            "{}: {}",
+            "Quilt Metadata V1".bold().walrus_purple(),
+            self.quilt_id
+        );
 
-        // Create the quilt blobs table from index
-        let stored_quilt_patches = self
-            .index
-            .quilt_patches
-            .iter()
-            .map(|patch| {
-                StoredQuiltPatch::new(
-                    self.quilt_id,
-                    &patch.identifier,
-                    patch.quilt_patch_internal_id(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let table_output = construct_stored_quilt_patch_table(&stored_quilt_patches);
-        table_output.printstd();
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.index.clone().into(),
+            self.quilt_id,
+        ))
+        .printstd();
     }
 }
 
@@ -1282,7 +1282,7 @@ impl CliOutput for ReadQuiltOutput {
         }
 
         if !self.retrieved_blobs.is_empty() {
-            println!("{}", "Retrieved Quilt Blobs".bold().walrus_purple());
+            println!("{}", "Retrieved Blobs".bold().walrus_purple());
             for (i, blob) in self.retrieved_blobs.iter().enumerate() {
                 println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
                 if blob.tags().is_empty() {
@@ -1293,7 +1293,7 @@ impl CliOutput for ReadQuiltOutput {
                         println!("     {}: {}", key, value);
                     }
                 }
-                println!(); // Empty line for separation
+                println!();
             }
         }
     }

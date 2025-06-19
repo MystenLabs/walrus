@@ -252,7 +252,7 @@ pub enum CliCommands {
     /// Store files as a quilt.
     #[command(alias("write-quilt"))]
     StoreQuilt {
-        /// A list of paths.
+        /// Paths to files to include in the quilt.
         ///
         /// If a path is a directory, all the files in the directory will be included
         /// in the quilt, recursively.
@@ -260,11 +260,11 @@ pub enum CliCommands {
         /// The filenames are used as the identifiers of the quilt patches.
         /// Custom identifiers and tags are NOT supported for quilt patches.
         /// Use `--blob` to specify custom identifiers and tags.
-        #[arg(value_name = "PATHS", alias("path-list"))]
+        #[arg(value_name = "PATH")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         #[arg(long = "path", action = clap::ArgAction::Append)]
         paths: Vec<PathBuf>,
-        /// A blob to include in the quilt, specified as a JSON string.
+        /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
         /// Example:
         ///   walrus store-quilt --epochs 10
@@ -272,6 +272,7 @@ pub enum CliCommands {
         ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
         ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
         ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
+        #[arg(value_name = "BLOB")]
         #[arg(long = "blob", action = clap::ArgAction::Append)]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
@@ -1082,13 +1083,15 @@ impl FileOrBlobId {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltBlobInput {
-    /// The path to the quilt blob.
+    /// The path to the blob.
     #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub(crate) path: PathBuf,
-    /// The identifier of the quilt blob.
+    /// The identifier of the blob.
+    ///
+    /// If not provided, the file name will be used as the identifier.
     #[serde(default)]
     pub(crate) identifier: Option<String>,
-    /// The tags of the quilt blob.
+    /// The tags of the blob.
     #[serde(default)]
     pub(crate) tags: BTreeMap<String, String>,
 }
@@ -1139,9 +1142,9 @@ impl std::fmt::Display for BlobIdentity {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltPatchByIdentifier {
-    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    /// The quilt ID, which is the BlobID of the quilt.
     pub quilt_id: BlobId,
-    /// The identifiers to query from the quilt.
+    /// The identifiers to read from the quilt.
     pub identifiers: Vec<String>,
 }
 
@@ -1149,11 +1152,11 @@ pub struct QuiltPatchByIdentifier {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltPatchByTag {
-    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    /// The quilt ID, which is the BlobID of the quilt.
     pub quilt_id: BlobId,
-    /// The tag key to search for.
+    /// The tag key.
     pub tag: String,
-    /// The tag value to search for.
+    /// The tag value.
     pub value: String,
 }
 
@@ -1161,45 +1164,45 @@ pub struct QuiltPatchByTag {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltPatchByPatchId {
-    /// The quilt patch IDs to query.
+    /// The quilt patch IDs.
     pub quilt_patch_ids: Vec<QuiltPatchId>,
 }
 
 /// Selector for quilt patches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuiltPatchSelector {
-    /// Query for quilt patches by identifier.
+    /// Patches by quilt_id and identifier.
     ByIdentifier(QuiltPatchByIdentifier),
-    /// Query for quilt patches by tag.
+    /// Patches by quilt_id and tag.
     ByTag(QuiltPatchByTag),
-    /// Query for quilt patches by patch ID.
+    /// Patches by quilt_patch_id.
     ByPatchId(QuiltPatchByPatchId),
 }
 
-/// Query for quilt patches.
+/// Query parameters to read quilt patches.
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltPatchQuery {
-    /// The quilt ID, which is the BlobID of the quilt, required for identifier and tag queries.
+    /// The quilt ID, which is the BlobID of the quilt.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     pub quilt_id: Option<BlobId>,
 
-    /// The identifiers to query from the quilt (can be repeated).
+    /// The identifiers to read from the quilt.
     #[arg(long = "identifier", action = clap::ArgAction::Append)]
     #[serde(default)]
     pub identifiers: Vec<String>,
 
-    /// The tag key to search for.
+    /// The tag key.
     #[arg(long)]
     pub tag: Option<String>,
 
-    /// The tag value to search for.
+    /// The tag value.
     #[arg(long)]
     pub value: Option<String>,
 
-    /// The quilt patch IDs to query (can be repeated).
+    /// The quilt patch IDs.
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[arg(
         long = "quilt-patch-id",
@@ -1215,9 +1218,9 @@ impl QuiltPatchQuery {
     fn get_error(&self) -> anyhow::Error {
         anyhow!(
             "Exactly one query type must be specified. Valid query types are:\n\
-            - --quilt-id <ID> --identifier <NAME>... for identifier queries\n\
-            - --quilt-id <ID> --tag <KEY> --value <VALUE> for tag query\n\
-            - --quilt-patch-id <ID>... for patch ID queries"
+            - --quilt-id <ID> --identifier <NAME>...\n\
+            - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
+            - --quilt-patch-id <ID>..."
         )
     }
 
