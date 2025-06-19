@@ -620,9 +620,17 @@ impl<K, V> DBMap<K, V> {
 
     /// Get the column family
     pub fn cf(&self) -> Arc<rocksdb::BoundColumnFamily<'_>> {
-        self.rocksdb
-            .cf_handle(&self.cf)
-            .expect("Map-keying column family should have been checked at DB creation")
+        self.rocksdb.cf_handle(&self.cf).unwrap_or_else(|| {
+            // Force capture backtrace regardless of RUST_BACKTRACE env var
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            eprintln!("PANIC: Column family '{}' not found!", &self.cf);
+            eprintln!("Database path: {:?}", &self.rocksdb.db_path);
+            eprintln!("Full backtrace:\n{}", backtrace);
+            panic!(
+                "Map-keying column family {} should have been checked at DB creation",
+                &self.cf
+            )
+        })
     }
 
     /// Flush the column family
