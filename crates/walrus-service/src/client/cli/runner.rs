@@ -211,21 +211,16 @@ impl ClientCommandRunner {
             CliCommands::Store {
                 files,
                 epoch_arg,
-                dry_run,
-                force,
-                ignore_resources,
-                deletable,
-                share,
-                encoding_type,
+                common_options,
             } => {
                 self.store(
                     files,
                     epoch_arg,
-                    dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
-                    BlobPersistence::from_deletable(deletable),
-                    PostStoreAction::from_share(share),
-                    encoding_type,
+                    common_options.dry_run,
+                    StoreWhen::from_flags(common_options.force, common_options.ignore_resources),
+                    BlobPersistence::from_deletable(common_options.deletable),
+                    PostStoreAction::from_share(common_options.share),
+                    common_options.encoding_type,
                 )
                 .await
             }
@@ -234,22 +229,17 @@ impl ClientCommandRunner {
                 paths,
                 blobs,
                 epoch_arg,
-                dry_run,
-                force,
-                ignore_resources,
-                deletable,
-                share,
-                encoding_type,
+                common_options,
             } => {
                 self.store_quilt(
                     paths,
                     blobs,
                     epoch_arg,
-                    dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
-                    BlobPersistence::from_deletable(deletable),
-                    PostStoreAction::from_share(share),
-                    encoding_type,
+                    common_options.dry_run,
+                    StoreWhen::from_flags(common_options.force, common_options.ignore_resources),
+                    BlobPersistence::from_deletable(common_options.deletable),
+                    PostStoreAction::from_share(common_options.share),
+                    common_options.encoding_type,
                 )
                 .await
             }

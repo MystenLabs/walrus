@@ -214,40 +214,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
-        ///
-        /// This assumes `--force`; i.e., it does not check the current status of the blob.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the blob status before storing it.
-        ///
-        /// This will create a new blob even if the blob is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
-        #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the blob
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the blob as deletable.
-        ///
-        /// Deletable blobs can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the blob into a shared blob object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Store files as a quilt.
     #[command(alias("write-quilt"))]
@@ -282,40 +252,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
-        ///
-        /// This assumes `--force`; i.e., it does not check the current status of the quilt.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the quilt status before storing it.
-        ///
-        /// This will create a new quilt even if the quilt is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
-        #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the quilt
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the quilt as deletable.
-        ///
-        /// Deletable quilts can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the quilt into a shared quilt object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -1035,6 +975,45 @@ pub struct DaemonArgs {
     pub(crate) blocklist: Option<PathBuf>,
 }
 
+/// Common options shared between store and store-quilt commands.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+pub struct CommonStoreOptions {
+    /// Perform a dry-run of the store without performing any actions on chain.
+    ///
+    /// This assumes `--force`; i.e., it does not check the current status of the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Do not check for the blob/quilt status before storing it.
+    ///
+    /// This will create a new blob/quilt even if it is already certified for a sufficient
+    /// duration.
+    #[arg(long)]
+    #[serde(default)]
+    pub force: bool,
+    /// Ignore the storage resources owned by the wallet.
+    ///
+    /// The client will not check if it can reuse existing resources, and just check the blob/quilt
+    /// status on chain.
+    #[arg(long)]
+    #[serde(default)]
+    pub ignore_resources: bool,
+    /// Mark the blob/quilt as deletable.
+    ///
+    /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
+    #[arg(long)]
+    #[serde(default)]
+    pub deletable: bool,
+    /// Whether to put the blob/quilt into a shared object.
+    #[arg(long)]
+    #[serde(default)]
+    pub share: bool,
+    /// The encoding type to use for encoding the files.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1692,12 +1671,14 @@ mod tests {
                 earliest_expiry_time: None,
                 end_epoch: None,
             },
-            dry_run: false,
-            force: false,
-            ignore_resources: false,
-            deletable: false,
-            share: false,
-            encoding_type: Default::default(),
+            common_options: CommonStoreOptions {
+                dry_run: false,
+                force: false,
+                ignore_resources: false,
+                deletable: false,
+                share: false,
+                encoding_type: Default::default(),
+            },
         })
     }
 
