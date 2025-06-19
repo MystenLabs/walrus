@@ -26,7 +26,7 @@ use walrus_utils::read_blob_from_file;
 use crate::{
     client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 
 /// Reads all files recursively from a given path and returns them as path-content pairs.
@@ -408,7 +408,7 @@ impl QuiltClient<'_, SuiContractClient> {
         paths: &[P],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -420,7 +420,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &quilt,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -436,7 +436,7 @@ impl QuiltClient<'_, SuiContractClient> {
         quilt: &V::Quilt,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -446,7 +446,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &[quilt.data()],
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,

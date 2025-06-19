@@ -27,7 +27,7 @@ use super::{
 use crate::{
     client::WalrusStoreBlobApi,
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 
 /// Struct to compute the cost of operations with blob and storage resources.
@@ -245,7 +245,7 @@ impl<'a> ResourceManager<'a> {
         encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         let mut results: Vec<WalrusStoreBlob<'a, T>> =
             Vec::with_capacity(encoded_blobs_with_status.len());
@@ -253,7 +253,7 @@ impl<'a> ResourceManager<'a> {
         let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
-            let blob = if !store_when.is_ignore_status() && !persistence.is_deletable() {
+            let blob = if store_optimizations.should_check_status() && !persistence.is_deletable() {
                 blob.try_complete_if_certified_beyond_epoch(
                     self.write_committee_epoch + epochs_ahead,
                 )?
@@ -279,7 +279,12 @@ impl<'a> ResourceManager<'a> {
         );
 
         let registered_blobs = self
-            .register_or_reuse_resources(to_be_processed, epochs_ahead, persistence, store_when)
+            .register_or_reuse_resources(
+                to_be_processed,
+                epochs_ahead,
+                persistence,
+                store_optimizations,
+            )
             .await?;
         debug_assert_eq!(
             registered_blobs.len(),
@@ -295,23 +300,22 @@ impl<'a> ResourceManager<'a> {
 
     /// Returns a list of [`Blob`] registration objects for a list of specified metadata and number
     ///
-    /// Tries to reuse existing blob registrations or storage resources if possible.
-    /// Specifically:
+    /// Tries to reuse existing blob registrations or storage resources if possible. Specifically:
     /// - First, it checks if the blob is registered and returns the corresponding [`Blob`];
     /// - otherwise, it checks if there is an appropriate storage resource (with sufficient space
     ///   and for a sufficient duration) that can be used to register the blob; or
     /// - if the above fails, it purchases a new storage resource and registers the blob.
     ///
-    /// If we are forcing a store ([`StoreWhen::Always`]), the function filters out already
-    /// certified blobs owned by the wallet, such that we always create a new certification
-    /// (possibly reusing storage resources or uncertified but registered blobs).
+    /// If we are forcing a store ([`StoreOptimizations::check_status`] is `false`), the function
+    /// filters out already certified blobs owned by the wallet, such that we always create a new
+    /// certification (possibly reusing storage resources or uncertified but registered blobs).
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_existing_or_register(
         &self,
         metadata_list: &[&VerifiedBlobMetadataWithId],
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
         let encoded_lengths: Result<Vec<_>, _> =
             metadata_list
@@ -326,7 +330,16 @@ impl<'a> ResourceManager<'a> {
                 })
                 .collect();
 
-        if store_when.is_ignore_resources() {
+        if store_optimizations.should_check_existing_resources() {
+            self.get_existing_or_register_with_resources(
+                &encoded_lengths?,
+                epochs_ahead,
+                metadata_list,
+                persistence,
+                store_optimizations,
+            )
+            .await
+        } else {
             tracing::debug!(
                 "ignoring existing resources and creating a new registration from scratch"
             );
@@ -335,15 +348,6 @@ impl<'a> ResourceManager<'a> {
                 epochs_ahead,
                 metadata_list,
                 persistence,
-            )
-            .await
-        } else {
-            self.get_existing_or_register_with_resources(
-                &encoded_lengths?,
-                epochs_ahead,
-                metadata_list,
-                persistence,
-                store_when,
             )
             .await
         }
@@ -360,7 +364,7 @@ impl<'a> ResourceManager<'a> {
         blobs: Vec<WalrusStoreBlob<'b, T>>,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
     ) -> ClientResult<Vec<WalrusStoreBlob<'b, T>>> {
         blobs.iter().for_each(|b| {
             debug_assert!(b.is_with_status());
@@ -386,21 +390,21 @@ impl<'a> ResourceManager<'a> {
             })
             .collect();
 
-        let results = if store_when.is_ignore_resources() {
-            self.reserve_and_register_blob_op(
-                &encoded_lengths?,
-                epochs_ahead,
-                &metadata_list,
-                persistence,
-            )
-            .await?
-        } else {
+        let results = if store_optimizations.should_check_existing_resources() {
             self.get_existing_or_register_with_resources(
                 &encoded_lengths?,
                 epochs_ahead,
                 &metadata_list,
                 persistence,
-                store_when,
+                store_optimizations,
+            )
+            .await?
+        } else {
+            self.reserve_and_register_blob_op(
+                &encoded_lengths?,
+                epochs_ahead,
+                &metadata_list,
+                persistence,
             )
             .await?
         };
@@ -450,7 +454,7 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         metadata_list: &[&VerifiedBlobMetadataWithId],
         persistence: BlobPersistence,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
         let max_len = metadata_list.len();
         debug_assert!(
@@ -481,7 +485,7 @@ impl<'a> ResourceManager<'a> {
                 .find_blob_owned_by_wallet(
                     metadata.blob_id(),
                     persistence,
-                    !store_when.is_ignore_status(),
+                    store_optimizations.should_check_status(),
                     &owned_blobs,
                 )
                 .await?

@@ -61,7 +61,7 @@ use walrus_sdk::{
             NotEnoughSlivers,
         },
     },
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_service::test_utils::{
     DEFAULT_SUBSIDY_FUNDS,
@@ -172,7 +172,7 @@ where
             &blobs_with_paths,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -366,7 +366,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &[&metadata],
             1,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::none(),
         )
         .await?
         .into_iter()
@@ -494,7 +494,7 @@ async fn test_store_with_existing_blob_resource(
             &metatdatum.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
         )
         .await?
         .into_iter()
@@ -508,7 +508,7 @@ async fn test_store_with_existing_blob_resource(
             &blobs,
             encoding_type,
             epochs_ahead_required,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -561,7 +561,7 @@ async fn register_blob(
             &[&metadata],
             epochs_ahead,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
         )
         .await?
         .into_iter()
@@ -585,7 +585,7 @@ async fn store_blob(
             &[blob],
             encoding_type,
             epochs_ahead,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -627,7 +627,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
             &blobs_with_paths,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -691,7 +691,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
             &blobs,
             encoding_type,
             epochs_ahead,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -835,7 +835,7 @@ async fn test_store_with_existing_storage_resource(
             &blobs,
             encoding_type,
             epochs_ahead_required,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -878,7 +878,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
                 &blobs,
                 encoding_type,
                 idx,
-                StoreWhen::Always,
+                StoreOptimizations::none(),
                 BlobPersistence::Deletable,
                 PostStoreAction::Keep,
             )
@@ -892,7 +892,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
             &blobs,
             encoding_type,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -940,7 +940,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Deletable,
             PostStoreAction::Keep,
         )
@@ -1043,7 +1043,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
             &quilt,
             encoding_type,
             2,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1120,7 +1120,7 @@ async fn test_blocklist() -> TestResult {
             &[&blob],
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Deletable,
             PostStoreAction::Keep,
         )
@@ -1216,7 +1216,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1281,25 +1281,86 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     // `BlobStoreResult::AlreadyCertified`. Otherwise, it should return a
     // `BlobStoreResult::NewlyCreated`.
     let configurations = vec![
-        (1, StoreWhen::NotStored, BlobPersistence::Deletable, false),
-        (1, StoreWhen::Always, BlobPersistence::Deletable, false),
-        (2, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
-        (3, StoreWhen::Always, BlobPersistence::Deletable, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Permanent, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Permanent, true),
-        (1, StoreWhen::Always, BlobPersistence::Permanent, false),
-        (4, StoreWhen::NotStored, BlobPersistence::Permanent, true), // Extend lifetime
-        (2, StoreWhen::NotStored, BlobPersistence::Permanent, true),
-        (2, StoreWhen::Always, BlobPersistence::Permanent, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Deletable, true),
-        (5, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::none(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            2,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ), // Extend lifetime
+        (
+            3,
+            StoreOptimizations::none(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ),
+        (
+            1,
+            StoreOptimizations::none(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            4,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ), // Extend lifetime
+        (
+            2,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ),
+        (
+            2,
+            StoreOptimizations::none(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ),
+        (
+            5,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ), // Extend lifetime
     ];
 
-    for (epochs, store_when, persistence, is_already_certified) in configurations {
+    for (epochs, store_optimizations, persistence, is_already_certified) in configurations {
         tracing::debug!(
-            "testing: epochs={:?}, store_when={:?}, persistence={:?}, is_already_certified={:?}",
+            "testing: epochs={:?}, store_optimizations={:?}, persistence={:?}, \
+            is_already_certified={:?}",
             epochs,
-            store_when,
+            store_optimizations,
             persistence,
             is_already_certified
         );
@@ -1308,7 +1369,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 &blobs,
                 encoding_type,
                 epochs,
-                store_when,
+                store_optimizations,
                 persistence,
                 PostStoreAction::Keep,
             )
@@ -1444,7 +1505,7 @@ async fn test_burn_blobs() -> TestResult {
                 &[blob.as_slice()],
                 DEFAULT_ENCODING,
                 1,
-                StoreWhen::Always,
+                StoreOptimizations::none(),
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
@@ -1500,7 +1561,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             &[blob.as_slice()],
             encoding_type,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1533,7 +1594,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             &[blob.as_slice()],
             encoding_type,
             20,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1571,7 +1632,7 @@ async fn test_share_blobs() -> TestResult {
             &[blob.as_slice()],
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1673,7 +1734,7 @@ async fn test_post_store_action(
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             post_store,
             None,
@@ -1827,7 +1888,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
             None,
@@ -1969,7 +2030,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                     &blobs,
                     DEFAULT_ENCODING,
                     idx,
-                    StoreWhen::Always,
+                    StoreOptimizations::none(),
                     BlobPersistence::Permanent,
                     PostStoreAction::Keep,
                 )

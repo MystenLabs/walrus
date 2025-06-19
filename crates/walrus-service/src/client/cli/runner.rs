@@ -39,7 +39,7 @@ use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
     config::load_configuration,
     error::ClientErrorKind,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     sui::{
         client::{
             BlobPersistence,
@@ -192,7 +192,10 @@ impl ClientCommandRunner {
                     files,
                     epoch_arg,
                     dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        force,
+                        ignore_resources,
+                    ),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
                     encoding_type,
@@ -514,7 +517,7 @@ impl ClientCommandRunner {
         files: Vec<PathBuf>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -554,7 +557,7 @@ impl ClientCommandRunner {
                 &blobs,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )

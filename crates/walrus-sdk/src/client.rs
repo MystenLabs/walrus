@@ -78,7 +78,7 @@ use crate::{
     client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -723,7 +723,7 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
@@ -741,7 +741,7 @@ impl Client<SuiContractClient> {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
                     epochs_ahead,
-                    store_when,
+                    store_optimizations,
                     persistence,
                     post_store,
                     metrics,
@@ -769,7 +769,7 @@ impl Client<SuiContractClient> {
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
@@ -788,7 +788,7 @@ impl Client<SuiContractClient> {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
                     epochs_ahead,
-                    store_when,
+                    store_optimizations,
                     persistence,
                     post_store,
                     None,
@@ -827,7 +827,7 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
@@ -840,7 +840,7 @@ impl Client<SuiContractClient> {
             .reserve_and_store_encoded_blobs(
                 encoded_blobs,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,
@@ -1001,7 +1001,7 @@ impl Client<SuiContractClient> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
@@ -1041,7 +1041,7 @@ impl Client<SuiContractClient> {
                 encoded_blobs_with_status,
                 epochs_ahead,
                 persistence,
-                store_when,
+                store_optimizations,
             )
             .await?;
 
