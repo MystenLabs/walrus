@@ -592,7 +592,7 @@ pub struct CommitteeServiceConfig {
     pub metadata_request_timeout: Duration,
     /// The number of concurrent metadata requests
     pub max_concurrent_metadata_requests: NonZeroUsize,
-    /// The timeout when requesting slivers from a storage node.
+    /// The timeout when requesting recovery symbols for slivers from a storage node.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "sliver_request_timeout_secs")]
     pub sliver_request_timeout: Duration,
@@ -615,7 +615,7 @@ impl Default for CommitteeServiceConfig {
             retry_interval_min: Duration::from_secs(1),
             retry_interval_max: Duration::from_secs(3600),
             metadata_request_timeout: Duration::from_secs(5),
-            sliver_request_timeout: Duration::from_secs(300),
+            sliver_request_timeout: Duration::from_secs(45),
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
