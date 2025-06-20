@@ -598,10 +598,7 @@ impl ClientCommandRunner {
 
         let read_quilt_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
         if let Some(out) = out.as_ref() {
-            for blob in &read_quilt_output.retrieved_blobs {
-                let output_file_path = out.join(blob.identifier());
-                std::fs::write(output_file_path, blob.data())?;
-            }
+            Self::write_blobs_dedup(&read_quilt_output.retrieved_blobs, out).await?;
         }
 
         read_quilt_output.print_output(self.json)
@@ -1420,6 +1417,37 @@ impl ClientCommandRunner {
                 );
             }
         }
+        Ok(())
+    }
+
+    async fn write_blobs_dedup(blobs: &[QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
+        let mut filename_counters = std::collections::HashMap::new();
+
+        for blob in blobs {
+            let original_filename = blob.identifier();
+            let counter = filename_counters.entry(original_filename).or_insert(0);
+            *counter += 1;
+
+            let output_file_path = if *counter == 1 {
+                out_dir.join(original_filename)
+            } else {
+                let (stem, extension) = match original_filename.rsplit_once('.') {
+                    Some((s, e)) => (s, Some(e)),
+                    None => (original_filename, None),
+                };
+
+                let new_filename = if let Some(ext) = extension {
+                    format!("{}_{}.{}", stem, counter, ext)
+                } else {
+                    format!("{}_{}", stem, counter)
+                };
+
+                out_dir.join(new_filename)
+            };
+
+            std::fs::write(&output_file_path, blob.data())?;
+        }
+
         Ok(())
     }
 }
