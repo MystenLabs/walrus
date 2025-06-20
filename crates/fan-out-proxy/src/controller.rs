@@ -47,7 +47,7 @@ use walrus_sdk::{
 use crate::{
     error::FanOutError,
     metrics::FanOutProxyMetricSet,
-    params::{DigestSchema, Params, TransactionDigestSchema},
+    params::{DigestSchema, PaidTipParams, Params, TransactionDigestSchema},
     tip::{TipConfig, TipKind, check_response_tip, check_tx_freshness},
     utils::check_tx_auth_package,
 };
@@ -106,15 +106,23 @@ impl Controller {
         body: Bytes,
         params: Params,
     ) -> Result<ResponseType, FanOutError> {
-        // Check authentication pre-conditions for fan-out.
-        self.validate_auth_package(&params, body.as_ref()).await?;
+        if self.fan_out_config.tip_config.requires_payment() {
+            // Check authentication pre-conditions for fan-out, if the proxy requires a tip.
+            let paid_params = params.to_paid_params()?;
+            self.validate_auth_package(&paid_params, body.as_ref())
+                .await?;
+        }
 
         let encode_start_timer = Instant::now();
         // PERF: encoding should probably be done on a separate thread pool.
         let (sliver_pairs, metadata) = self
             .client
             .encoding_config()
-            .get_for_type(params.encoding_type_or_default())
+            .get_for_type(
+                params
+                    .encoding_type
+                    .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING),
+            )
             .encode_with_metadata(body.as_ref())?;
         let duration = encode_start_timer.elapsed();
 
@@ -164,7 +172,11 @@ impl Controller {
         })
     }
 
-    async fn validate_auth_package(&self, params: &Params, blob: &[u8]) -> Result<(), FanOutError> {
+    async fn validate_auth_package(
+        &self,
+        params: &PaidTipParams,
+        blob: &[u8],
+    ) -> Result<(), FanOutError> {
         // Get transaction inputs from tx_id.
         let tx = self
             .client
@@ -193,7 +205,9 @@ impl Controller {
             &tx,
             blob.len().try_into().expect("using 32 or 64 bit arch"),
             self.n_shards,
-            params.encoding_type_or_default(),
+            params
+                .encoding_type
+                .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING),
         )
         .inspect_err(|_| self.metric_set.tip_check_error.inc())?;
         check_tx_auth_package(blob, &params.nonce, tx).inspect_err(|_| {
@@ -332,8 +346,12 @@ pub(crate) async fn fan_out_blob_slivers(
     Query(params): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
-    tracing::debug!("starting to process a fan-out request");
-    let response = controller.fan_out(body, params).await?;
+    tracing::debug!(?params, "starting to process a fan-out request");
+    let response = controller
+        .fan_out(body, params)
+        .await
+        .inspect_err(|error| tracing::debug!(?error, "responding to request with error"))?;
+
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
