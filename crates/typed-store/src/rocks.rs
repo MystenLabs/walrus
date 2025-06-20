@@ -1777,7 +1777,7 @@ pub fn default_db_options() -> DBOptions {
     // Increase block size to 16KiB.
     // https://github.com/EighteenZi/rocksdb_wiki/blob/master/
     // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks
-    opt.set_block_based_table_factory(&get_block_options(128, 16 << 10));
+    opt.set_block_based_table_factory(&get_block_options(128 << 20, Some(16 << 10), Some(true)));
 
     // Set memtable bloomfilter.
     opt.set_memtable_prefix_bloom_ratio(0.02);
@@ -1788,22 +1788,32 @@ pub fn default_db_options() -> DBOptions {
     }
 }
 
-fn get_block_options(block_cache_size_mb: usize, block_size_bytes: usize) -> BlockBasedOptions {
-    // Set options mostly similar to those used in optimize_for_point_lookup(),
-    // except non-default binary and hash index, to hopefully reduce lookup latencies
-    // without causing any regression for scanning, with slightly more memory usages.
+/// Get the block options
+pub fn get_block_options(
+    block_cache_size_bytes: usize,
+    block_size_bytes: Option<usize>,
+    pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
+) -> BlockBasedOptions {
     // https://github.com/facebook/rocksdb/blob/
     // 11cb6af6e5009c51794641905ca40ce5beec7fee/options/options.cc#L611-L621
     let mut block_options = BlockBasedOptions::default();
     // Overrides block size.
-    block_options.set_block_size(block_size_bytes);
+    if let Some(block_size_bytes) = block_size_bytes {
+        block_options.set_block_size(block_size_bytes);
+    }
     // Configure a block cache.
-    block_options.set_block_cache(&Cache::new_lru_cache(block_cache_size_mb << 20));
+    block_options.set_block_cache(&Cache::new_lru_cache(block_cache_size_bytes));
     // Set a bloomfilter with 1% false positive rate.
     block_options.set_bloom_filter(10.0, false);
-    // From https://github.com/EighteenZi/rocksdb_wiki/blob/master/
-    // Block-Cache.md#caching-index-and-filter-blocks
-    block_options.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    if let Some(pin_l0_filter_and_index_blocks_in_block_cache) =
+        pin_l0_filter_and_index_blocks_in_block_cache
+    {
+        // From https://github.com/EighteenZi/rocksdb_wiki/blob/master/
+        // Block-Cache.md#caching-index-and-filter-blocks
+        block_options.set_pin_l0_filter_and_index_blocks_in_cache(
+            pin_l0_filter_and_index_blocks_in_block_cache,
+        );
+    }
     block_options
 }
 

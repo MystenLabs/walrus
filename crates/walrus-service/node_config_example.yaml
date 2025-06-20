@@ -21,6 +21,7 @@ db_config:
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
     block_cache_size: 268435456
+    block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
   optimized_for_blobs:
     enable_blob_files: true
@@ -34,7 +35,8 @@ db_config:
     write_buffer_size: 268435456
     target_file_size_base: 268435456
     max_bytes_for_level_base: 2147483648
-    block_cache_size: 268435456
+    block_cache_size: 1073741824
+    block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
   node_status: null
   metadata:
@@ -44,6 +46,7 @@ db_config:
     target_file_size_base: 536870912
     max_bytes_for_level_base: 5368709120
     block_cache_size: 536870912
+    block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
   blob_info:
