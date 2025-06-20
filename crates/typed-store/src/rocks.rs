@@ -1803,6 +1803,7 @@ pub fn get_block_options(
     }
     // Configure a block cache.
     block_options.set_block_cache(&Cache::new_lru_cache(block_cache_size_bytes));
+    block_options.set_cache_index_and_filter_blocks(true);
     // Set a bloomfilter with 1% false positive rate.
     block_options.set_bloom_filter(10.0, false);
     if let Some(pin_l0_filter_and_index_blocks_in_block_cache) =
