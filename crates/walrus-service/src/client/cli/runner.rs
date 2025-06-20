@@ -564,6 +564,7 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
+        let selector = query.get_selector()?;
         let config = self.config?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
@@ -571,7 +572,7 @@ impl ClientCommandRunner {
 
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
 
-        let retrieved_blobs = match query.get_selector()? {
+        let retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id,
                 identifiers,
