@@ -13,7 +13,7 @@ use walrus_sdk::{
     sui::ObjectIdSchema,
 };
 
-use crate::utils::compute_digest_sha256;
+use crate::{error::FanOutError, utils::compute_digest_sha256};
 
 pub(crate) const DIGEST_LEN: usize = 32;
 
@@ -50,30 +50,63 @@ pub(crate) struct Params {
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
     /// The Base58 transaction ID of the transaction that sends the tip to the proxy.
-    #[param(value_type = TransactionDigestSchema)]
-    pub tx_id: TransactionDigest,
+    ///
+    /// This field is _required_ in the case where the proxy requires a tip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[param(value_type = Option<TransactionDigestSchema>)]
+    pub tx_id: Option<TransactionDigest>,
     /// The nonce, the preimage of the hash added to the transaction inputs.
-    #[serde(with = "b64urlencode_bytes")]
-    #[param(value_type = DigestSchema)]
-    pub nonce: [u8; DIGEST_LEN],
+    ///
+    /// This field is _required_ in the case where the proxy requires a tip.
+    #[serde(
+        default,
+        with = "b64_option_digest",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[param(value_type = Option<DigestSchema>)]
+    pub nonce: Option<[u8; DIGEST_LEN]>,
     /// The object ID of the deletable blob to be stored.
     ///
     /// If the blob is to be stored as a permanent one, this parameter should not be specified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[param(value_type = Option<ObjectIdSchema>)]
     pub deletable_blob_object: Option<ObjectID>,
     /// The encoding type for the blob.
     ///
     /// If omitted, RS2 is used by default.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding_type: Option<EncodingType>,
 }
 
 impl Params {
-    pub(crate) fn encoding_type_or_default(&self) -> EncodingType {
-        self.encoding_type
-            .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING)
+    /// Checks that the `Params` contain the `tx_id` and the `nonce`, and returns an instance of
+    /// `PaidParams`.
+    pub(crate) fn to_paid_params(&self) -> Result<PaidTipParams, FanOutError> {
+        let Params {
+            tx_id,
+            nonce,
+            encoding_type,
+            ..
+        } = *self;
+
+        Ok(PaidTipParams {
+            tx_id: tx_id.ok_or(FanOutError::MissingTxIdOrNonce)?,
+            nonce: nonce.ok_or(FanOutError::MissingTxIdOrNonce)?,
+            encoding_type,
+        })
     }
+}
+
+/// The subset of query parameters of the fanout proxy, necessary to check the tip.
+///
+/// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
+/// `deletable_blob_object` are not necessary.
+#[derive(Debug, Clone)]
+pub(crate) struct PaidTipParams {
+    pub tx_id: TransactionDigest,
+    pub nonce: [u8; DIGEST_LEN],
+    pub encoding_type: Option<EncodingType>,
 }
 
 /// The tip authentication structure.
@@ -105,7 +138,7 @@ impl AuthPackage {
     pub(crate) fn new(blob: &[u8]) -> Result<Self> {
         let blob_digest = compute_digest_sha256(blob);
         let mut std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
-        let nonce: [u8; 32] = std_rng.r#gen();
+        let nonce: [u8; DIGEST_LEN] = std_rng.r#gen();
 
         Ok(Self {
             blob_digest: blob_digest.into(),
@@ -127,26 +160,39 @@ impl AuthPackage {
     }
 }
 
-pub(crate) mod b64urlencode_bytes {
+pub(crate) mod b64_option_digest {
     use anyhow::Result;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
     use super::DIGEST_LEN;
 
-    pub(crate) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        let b64 = URL_SAFE_NO_PAD.encode(bytes);
-        serializer.serialize_str(&b64)
+    pub(crate) fn serialize<S: Serializer>(
+        bytes: &Option<[u8; DIGEST_LEN]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if let Some(bytes) = bytes {
+            let b64 = URL_SAFE_NO_PAD.encode(bytes);
+            serializer.serialize_str(&b64)
+        } else {
+            serializer.serialize_none()
+        }
     }
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<[u8; DIGEST_LEN], D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<[u8; DIGEST_LEN]>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let b64 = String::deserialize(deserializer)?;
-        let data = URL_SAFE_NO_PAD.decode(b64).map_err(D::Error::custom)?;
-        data.try_into()
-            .map_err(|_| D::Error::custom("failed to fit deserialized vector into array"))
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        if let Some(b64) = opt {
+            let data = URL_SAFE_NO_PAD.decode(b64).map_err(D::Error::custom)?;
+            let digest = data
+                .try_into()
+                .map_err(|_| D::Error::custom("failed to fit deserialized vector into array"))?;
+            Ok(Some(digest))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -160,19 +206,22 @@ mod tests {
     use sui_types::digests::TransactionDigest;
     use walrus_sdk::{ObjectID, core::BlobId};
 
-    use crate::{client::fan_out_blob_url, params::Params};
+    use crate::{
+        client::fan_out_blob_url,
+        params::{DIGEST_LEN, Params},
+    };
 
     #[test]
     fn test_fanout_parse_query() {
         let blob_id =
             BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
-        let tx_id = TransactionDigest::new([13; 32]);
-        let nonce = [23; 32];
+        let tx_id = TransactionDigest::new([13; DIGEST_LEN]);
+        let nonce = [23; DIGEST_LEN];
         let params = Params {
             blob_id,
-            nonce,
+            nonce: Some(nonce),
             deletable_blob_object: Some(ObjectID::from_single_byte(42)),
-            tx_id,
+            tx_id: Some(tx_id),
             encoding_type: None,
         };
 

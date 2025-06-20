@@ -35,6 +35,14 @@ pub enum FanOutError {
     )]
     BlobLengthMismatch,
 
+    /// The query parameters are missing the transaction ID or the nonce, but the proxy requires
+    /// them to check the tip payment.
+    #[error(
+        "The query parameters are missing the transaction ID or the nonce, but the proxy requires \
+        them to check the tip payment."
+    )]
+    MissingTxIdOrNonce,
+
     /// BlobId was not registered in the given transaction.
     #[allow(unused)]
     #[error("blob_id {0} was not registered in the referenced transaction")]
@@ -84,6 +92,11 @@ impl IntoResponse for FanOutError {
             FanOutError::BlobIdMismatch => (
                 StatusCode::BAD_REQUEST,
                 FanOutError::BlobIdMismatch.to_string(),
+            )
+                .into_response(),
+            FanOutError::MissingTxIdOrNonce => (
+                StatusCode::BAD_REQUEST,
+                FanOutError::MissingTxIdOrNonce.to_string(),
             )
                 .into_response(),
             FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {

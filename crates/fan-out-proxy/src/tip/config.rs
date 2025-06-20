@@ -64,3 +64,10 @@ pub(crate) enum TipConfig {
         kind: TipKind,
     },
 }
+
+impl TipConfig {
+    /// Checks if the tip config requires payment; returns `false` if no tip is required.
+    pub(crate) fn requires_payment(&self) -> bool {
+        matches!(self, TipConfig::SendTip { .. })
+    }
+}

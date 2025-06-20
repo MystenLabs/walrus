@@ -75,15 +75,24 @@ pub(crate) async fn run_client(
     let auth_package = AuthPackage::new(&blob)?;
 
     // Transaction creation.
-    let (fanout, signed_tx) = fanout
-        .with_pt_builder()?
-        .add_pure_input(auth_package.to_hashed())?
-        .add_buy_and_register(&metadata, epochs, encoded_size)
-        .await?
-        .add_tip(encoded_size)
-        .await?
-        .finish_and_sign()
-        .await?;
+    let (fanout, signed_tx) = if fanout.tip_config.requires_payment() {
+        fanout
+            .with_pt_builder()?
+            .add_pure_input(auth_package.to_hashed())?
+            .add_buy_and_register(&metadata, epochs, encoded_size)
+            .await?
+            .add_tip(encoded_size)
+            .await?
+            .finish_and_sign()
+            .await?
+    } else {
+        fanout
+            .with_pt_builder()?
+            .add_buy_and_register(&metadata, epochs, encoded_size)
+            .await?
+            .finish_and_sign()
+            .await?
+    };
 
     let response = fanout
         .walrus_client
@@ -99,11 +108,18 @@ pub(crate) async fn run_client(
     let tx_id = response.digest;
     let blob_object_id = blob_registration_from_response(response, computed_blob_id)?.object_id;
 
+    // Only add the nonce and the tx_id to the URL if necessary.
+    let (nonce, tx_id) = if fanout.tip_config.requires_payment() {
+        (Some(auth_package.nonce), Some(tx_id))
+    } else {
+        (None, None)
+    };
+
     let params = Params {
         blob_id: computed_blob_id,
-        nonce: auth_package.nonce,
-        deletable_blob_object: None,
+        nonce,
         tx_id,
+        deletable_blob_object: None,
         encoding_type: None,
     };
 
@@ -443,16 +459,23 @@ impl FanOutClient<WalrusPtbBuilder> {
 
 pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url> {
     let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
+    {
+        let mut query_pairs = url.query_pairs_mut();
 
-    url.query_pairs_mut()
-        .append_pair("blob_id", &params.blob_id.to_string())
-        .append_pair("tx_id", &params.tx_id.to_string())
-        .append_pair("nonce", &URL_SAFE_NO_PAD.encode(params.nonce));
+        query_pairs.append_pair("blob_id", &params.blob_id.to_string());
 
-    if let Some(object_id) = params.deletable_blob_object {
-        url.query_pairs_mut()
-            .append_pair("deletable_blob_object", &object_id.to_string());
-    };
+        if let Some(object_id) = params.deletable_blob_object {
+            query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
+        };
+
+        if let Some(tx_id) = params.tx_id {
+            query_pairs.append_pair("tx_id", &tx_id.to_string());
+        }
+
+        if let Some(nonce) = params.nonce {
+            query_pairs.append_pair("nonce", &URL_SAFE_NO_PAD.encode(nonce));
+        }
+    }
 
     // TODO: add encoding type serialization.
 
