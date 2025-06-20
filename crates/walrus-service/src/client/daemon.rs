@@ -26,6 +26,8 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_BLOBS_GET_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -39,10 +41,17 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::Primary};
+use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    EpochCount,
+    QuiltPatchId,
+    encoding::{Primary, quilt_encoding::QuiltStoreBlob},
+};
 use walrus_sdk::{
-    client::{Client, responses::BlobStoreResult},
-    error::ClientResult,
+    client::{Client, quilt_client::QuiltClientConfig, responses::BlobStoreResult},
+    error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
@@ -79,6 +88,35 @@ pub trait WalrusReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
+
+    /// Retrieves blobs from quilt by their patch IDs.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blobs_by_quilt_patch_ids(
+        &self,
+        _quilt_patch_ids: &[QuiltPatchId],
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
+
+    /// Retrieves a blob from quilt by quilt ID and identifier.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        _quilt_id: &BlobId,
+        _identifier: &str,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -108,6 +146,33 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
         self.get_blob_by_object_id(blob_object_id).await
+    }
+
+    async fn get_blobs_by_quilt_patch_ids(
+        &self,
+        quilt_patch_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        self.quilt_client(QuiltClientConfig::default())
+            .get_blobs_by_ids(quilt_patch_ids)
+            .await
+    }
+
+    async fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        quilt_id: &BlobId,
+        identifier: &str,
+    ) -> ClientResult<QuiltStoreBlob<'static>> {
+        let blobs = self
+            .quilt_client(QuiltClientConfig::default())
+            .get_blobs_by_identifiers(quilt_id, &[identifier])
+            .await?;
+
+        blobs.into_iter().next().ok_or_else(|| {
+            use walrus_sdk::error::ClientErrorKind;
+            ClientError::from(ClientErrorKind::Other(
+                format!("blob with identifier '{}' not found in quilt", identifier).into(),
+            ))
+        })
     }
 }
 
@@ -198,6 +263,16 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_by_object_id)
+                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+            )
+            .route(
+                QUILT_BLOBS_GET_ENDPOINT,
+                get(routes::get_blob_by_quilt_patch_id)
+                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+            )
+            .route(
+                QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+                get(routes::get_blob_by_quilt_id_and_identifier)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
             );
         self
