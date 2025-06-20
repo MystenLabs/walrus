@@ -284,8 +284,11 @@ pub enum CliCommands {
         #[serde(flatten)]
         query: QuiltPatchQuery,
         /// The directory path where to write the quilt patches.
+        /// The blobs are written to the directory with the same name as the identifier.
         ///
         /// If unset, prints the quilt patches to stdout.
+        ///
+        /// TODO(WAL-900): Provide more flexible options to specify the file names.
         #[arg(long)]
         #[serde(
             default,
@@ -1161,6 +1164,8 @@ pub enum QuiltPatchSelector {
     ByTag(QuiltPatchByTag),
     /// Patches by quilt_patch_id.
     ByPatchId(QuiltPatchByPatchId),
+    /// Read 'em all.
+    All(BlobId),
 }
 
 /// Query parameters to read quilt patches.
@@ -1170,11 +1175,21 @@ pub enum QuiltPatchSelector {
 pub struct QuiltPatchQuery {
     /// The quilt ID, which is the BlobID of the quilt.
     #[serde_as(as = "Option<DisplayFromStr>")]
-    #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[arg(
+        long,
+        alias = "blob-id",
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        required_unless_present = "quilt-patch-id",
+    )]
     pub quilt_id: Option<BlobId>,
 
     /// The identifiers to read from the quilt.
-    #[arg(long = "identifier", action = clap::ArgAction::Append)]
+    #[arg(
+        long = "identifier",
+        conflicts_with = "tags",
+        conflicts_with = "quilt-patch-ids"
+    )]
     #[serde(default)]
     pub identifiers: Vec<String>,
 
@@ -1184,77 +1199,65 @@ pub struct QuiltPatchQuery {
         long = "tag",
         value_names = &["KEY", "VALUE"],
         num_args = 2,
+        conflicts_with = "identifiers",
+        conflicts_with = "quilt-patch-ids",
     )]
     #[serde(default)]
     pub tags: Vec<String>,
 
     /// The quilt patch IDs.
+    /// Important: in cli mode, this should be the last argument, to avoid parsing issues.
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[arg(
         long = "quilt-patch-id",
+        alias = "patch-id",
         allow_hyphen_values = true,
         value_parser = parse_quilt_patch_id,
-        action = clap::ArgAction::Append
+        action = clap::ArgAction::Append,
+        conflicts_with = "quilt-id",
+        conflicts_with = "identifiers",
+        conflicts_with = "tags",
     )]
     #[serde(default)]
     pub quilt_patch_ids: Vec<QuiltPatchId>,
 }
 
 impl QuiltPatchQuery {
-    fn get_error(&self) -> anyhow::Error {
-        anyhow!(
-            "Exactly one query type must be specified. Valid query types are:\n\
-            - --quilt-id <ID> --identifier <NAME>...\n\
-            - --quilt-id <ID> --tag <KEY> <VALUE>\n\
-            - --quilt-patch-id <ID>..."
-        )
-    }
-
     /// Get the selector for execution.
     pub fn get_selector(&self) -> Result<QuiltPatchSelector> {
         if !self.identifiers.is_empty() {
-            if self.quilt_id.is_none() || !self.tags.is_empty() || !self.quilt_patch_ids.is_empty()
-            {
-                return Err(self.get_error());
-            }
-            let quilt_id = self.quilt_id.expect("quilt_id should be present");
             Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
-                quilt_id,
+                quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 identifiers: self.identifiers.clone(),
             }))
         } else if !self.tags.is_empty() {
-            if self.quilt_id.is_none()
-                || !self.identifiers.is_empty()
-                || !self.quilt_patch_ids.is_empty()
-            {
-                return Err(self.get_error());
-            }
-
             // Validate that exactly one tag key-value pair is specified.
             // TODO(WAL-899): Support multiple tag pairs.
             if self.tags.len() != 2 {
                 return Err(anyhow!("exactly one tag key-value pair must be specified"));
             }
 
-            let quilt_id = self.quilt_id.expect("quilt_id should be present");
-
-            let tag = self.tags.first().cloned().expect("tag should be present");
-            let value = self.tags.last().cloned().expect("value should be present");
-
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
-                quilt_id,
-                tag,
-                value,
+                quilt_id: self.quilt_id.expect("quilt_id should be present"),
+                tag: self.tags.first().cloned().expect("tag should be present"),
+                value: self.tags.last().cloned().expect("value should be present"),
             }))
         } else if !self.quilt_patch_ids.is_empty() {
-            if self.quilt_id.is_some() || !self.identifiers.is_empty() || !self.tags.is_empty() {
-                return Err(self.get_error());
-            }
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
                 quilt_patch_ids: self.quilt_patch_ids.clone(),
             }))
+        } else if self.quilt_id.is_some() {
+            Ok(QuiltPatchSelector::All(
+                self.quilt_id.expect("quilt_id should be present"),
+            ))
         } else {
-            Err(self.get_error())
+            Err(anyhow!(
+                "Exactly one query type must be specified. Valid query types are:\n\
+                - --quilt-id <ID> --identifier <NAME>...\n\
+                - --quilt-id <ID> --tag <KEY> <VALUE>\n\
+                - --quilt-patch-id <ID>...\n\
+                - --quilt-id <ID>"
+            ))
         }
     }
 }

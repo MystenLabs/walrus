@@ -593,6 +593,7 @@ impl ClientCommandRunner {
             QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId { quilt_patch_ids }) => {
                 quilt_read_client.get_blobs_by_ids(&quilt_patch_ids).await?
             }
+            QuiltPatchSelector::All(quilt_id) => quilt_read_client.get_all_blobs(&quilt_id).await?,
         };
 
         let quilt_read_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
