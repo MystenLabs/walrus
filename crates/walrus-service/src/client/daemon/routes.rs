@@ -59,8 +59,13 @@ pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 /// The path to get blobs from quilt by IDs.
 pub const QUILT_BLOBS_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
+/// The path to get blob from quilt by quilt ID and identifier.
+pub const QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT: &str =
+    "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
+/// Whether allow tags to be returned in the response headers.
+const ALLOW_TAGS_IN_RESPONSE_HEADERS: bool = true;
 
 /// Retrieve a Walrus blob.
 ///
@@ -135,10 +140,10 @@ fn populate_common_response_headers(
     } // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
 }
 
-fn populate_response_headers(
+fn populate_response_headers_from_attributes(
     headers: &mut HeaderMap,
     attribute: &BlobAttribute,
-    allowed_headers: &HashSet<String>,
+    allowed_headers: Option<&HashSet<String>>,
 ) {
     for (key, value) in attribute.iter() {
         tracing::info!(
@@ -146,7 +151,7 @@ fn populate_response_headers(
             attribute_value = value,
             "quilt blob attribute"
         );
-        if !key.is_empty() && allowed_headers.contains(key) {
+        if !key.is_empty() && allowed_headers.is_none_or(|headers| headers.contains(key)) {
             if let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
             {
@@ -196,7 +201,11 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
             // If the response was successful, add our additional metadata headers
             if response.status() == StatusCode::OK {
                 if let Some(attribute) = attribute {
-                    populate_response_headers(response.headers_mut(), &attribute, &allowed_headers);
+                    populate_response_headers_from_attributes(
+                        response.headers_mut(),
+                        &attribute,
+                        Some(&allowed_headers),
+                    );
                 }
             }
 
@@ -447,11 +456,6 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
                 let identifier = blob.identifier().to_string();
-                tracing::info!(
-                    identifier_header = X_QUILT_PATCH_IDENTIFIER,
-                    identifier = identifier,
-                    "successfully retrieved blob"
-                );
                 let blob_attribute: BlobAttribute = blob.tags().clone().into();
                 let blob_data = blob.into_data();
                 let mut response = (StatusCode::OK, blob_data).into_response();
@@ -460,10 +464,14 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
                     &quilt_patch_id_str,
                     response.headers_mut(),
                 );
-                populate_response_headers(
+                populate_response_headers_from_attributes(
                     response.headers_mut(),
                     &blob_attribute,
-                    &allowed_headers,
+                    if ALLOW_TAGS_IN_RESPONSE_HEADERS {
+                        None
+                    } else {
+                        Some(&allowed_headers)
+                    },
                 );
                 if let (Ok(header_name), Ok(header_value)) = (
                     HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
@@ -487,6 +495,130 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
                 }
                 GetBlobError::Internal(error) => {
                     tracing::info!(?error, "error retrieving quilt blob")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Retrieve a blob from quilt by quilt ID and identifier.
+///
+/// Takes a quilt ID and an identifier and returns the corresponding blob from the quilt.
+/// The blob content is returned as raw bytes in the response body, while metadata
+/// such as the blob identifier is returned in response headers.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-id/\
+/// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU/my-file.txt"
+/// ```
+///
+/// Response:
+/// ```text
+/// HTTP/1.1 200 OK
+/// Content-Type: application/octet-stream
+/// X-Quilt-Patch-Identifier: my-file.txt
+/// ETag: "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+///
+/// [raw blob bytes]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+    params(
+        (
+            "quilt_id" = String, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        ),
+        (
+            "identifier" = String, Path,
+            description = "The identifier of the blob within the quilt",
+            example = "my-file.txt"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
+                        the identifier and other attributes are returned as headers.",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Get blob from quilt by ID and identifier",
+    description = "Retrieve a specific blob from a quilt using its quilt ID and identifier. \
+                Returns the raw blob bytes, the identifier and other attributes are returned as \
+                headers. If the identifier is not found, the response is 404.",
+)]
+pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
+    request_headers: HeaderMap,
+    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    Path((quilt_id_str, identifier)): Path<(String, String)>,
+) -> Response {
+    tracing::info!(
+        "starting to read quilt blob by ID and identifier: {} / {}",
+        quilt_id_str,
+        identifier
+    );
+
+    // Parse the quilt_id from the path parameter
+    let quilt_id = match BlobId::from_str(&quilt_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::error!("invalid quilt ID format: {}", quilt_id_str);
+            return GetBlobError::BlobNotFound.to_response();
+        }
+    };
+
+    match client
+        .get_blob_by_quilt_id_and_identifier(&quilt_id, &identifier)
+        .await
+    {
+        Ok(blob) => {
+            let blob_identifier = blob.identifier().to_string();
+            let blob_attribute: BlobAttribute = blob.tags().clone().into();
+            let blob_data = blob.into_data();
+            let mut response = (StatusCode::OK, blob_data).into_response();
+            populate_common_response_headers(
+                &request_headers,
+                &quilt_id_str,
+                response.headers_mut(),
+            );
+            populate_response_headers_from_attributes(
+                response.headers_mut(),
+                &blob_attribute,
+                if ALLOW_TAGS_IN_RESPONSE_HEADERS {
+                    None
+                } else {
+                    Some(&allowed_headers)
+                },
+            );
+            if let (Ok(header_name), Ok(header_value)) = (
+                HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
+                HeaderValue::from_str(&blob_identifier),
+            ) {
+                response.headers_mut().insert(header_name, header_value);
+            }
+            response
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::info!(
+                        "requested quilt blob with ID {} and identifier {} does not exist",
+                        quilt_id_str,
+                        identifier
+                    )
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::info!(?error, "error retrieving quilt blob by ID and identifier")
                 }
                 _ => (),
             }

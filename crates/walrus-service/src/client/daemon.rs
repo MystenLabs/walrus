@@ -26,6 +26,7 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
     QUILT_BLOBS_GET_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
@@ -101,6 +102,21 @@ pub trait WalrusReadClient {
             )))
         }
     }
+
+    /// Retrieves a blob from quilt by quilt ID and identifier.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        _quilt_id: &BlobId,
+        _identifier: &str,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -139,6 +155,24 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         self.quilt_client(QuiltClientConfig::default())
             .get_blobs_by_ids(quilt_patch_ids)
             .await
+    }
+
+    async fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        quilt_id: &BlobId,
+        identifier: &str,
+    ) -> ClientResult<QuiltStoreBlob<'static>> {
+        let blobs = self
+            .quilt_client(QuiltClientConfig::default())
+            .get_blobs_by_identifiers(quilt_id, &[identifier])
+            .await?;
+
+        blobs.into_iter().next().ok_or_else(|| {
+            use walrus_sdk::error::ClientErrorKind;
+            ClientError::from(ClientErrorKind::Other(
+                format!("blob with identifier '{}' not found in quilt", identifier).into(),
+            ))
+        })
     }
 }
 
@@ -223,7 +257,6 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
         self.with_allowed_headers(allowed_headers);
         tracing::info!("Aggregator allowed headers: {:?}", self.allowed_headers);
-        tracing::info!("Aggregator with quilt: {:?}", QUILT_BLOBS_GET_ENDPOINT);
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
@@ -235,6 +268,11 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             .route(
                 QUILT_BLOBS_GET_ENDPOINT,
                 get(routes::get_blob_by_quilt_patch_id)
+                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+            )
+            .route(
+                QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+                get(routes::get_blob_by_quilt_id_and_identifier)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
             );
         self
