@@ -596,18 +596,15 @@ impl ClientCommandRunner {
             QuiltPatchSelector::All(quilt_id) => quilt_read_client.get_all_blobs(&quilt_id).await?,
         };
 
-        let quilt_read_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
+        let read_quilt_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
         if let Some(out) = out.as_ref() {
-            for blob in &quilt_read_output.retrieved_blobs {
+            for blob in &read_quilt_output.retrieved_blobs {
                 let output_file_path = out.join(blob.identifier());
                 std::fs::write(output_file_path, blob.data())?;
             }
-        } else if !self.json {
-            for blob in &quilt_read_output.retrieved_blobs {
-                std::io::stdout().write_all(blob.data())?;
-            }
         }
-        quilt_read_output.print_output(self.json)
+
+        read_quilt_output.print_output(self.json)
     }
 
     pub(crate) async fn list_patches_in_quilt(

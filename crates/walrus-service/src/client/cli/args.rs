@@ -285,8 +285,11 @@ pub enum CliCommands {
         query: QuiltPatchQuery,
         /// The directory path where to write the quilt patches.
         /// The blobs are written to the directory with the same name as the identifier.
+        /// The metadata of the quilt patches, including identifiers and tags are printed to the
+        /// stdout.
         ///
-        /// If unset, prints the quilt patches to stdout.
+        /// If unset, prints the quilt patches raw data to stdout, while the metadata of the quilt
+        /// patches are ignored.
         ///
         /// TODO(WAL-900): Provide more flexible options to specify the file names.
         #[arg(long)]
@@ -1193,17 +1196,25 @@ pub struct QuiltPatchQuery {
     #[serde(default)]
     pub identifiers: Vec<String>,
 
-    /// The tag key-value pairs to match.
-    /// Example: --tag "color" "red"
+    /// The tag key.
     #[arg(
-        long = "tag",
-        value_names = &["KEY", "VALUE"],
-        num_args = 2,
+        long,
+        requires = "value",
         conflicts_with = "identifiers",
-        conflicts_with = "quilt-patch-ids",
+        conflicts_with = "quilt-patch-ids"
     )]
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub tag: Option<String>,
+
+    /// The tag value to match.
+    #[arg(
+        long,
+        requires = "tag",
+        conflicts_with = "identifiers",
+        conflicts_with = "quilt-patch-ids"
+    )]
+    #[serde(default)]
+    pub value: Option<String>,
 
     /// The quilt patch IDs.
     /// Important: in cli mode, this should be the last argument, to avoid parsing issues.
@@ -1230,17 +1241,21 @@ impl QuiltPatchQuery {
                 quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 identifiers: self.identifiers.clone(),
             }))
-        } else if !self.tags.is_empty() {
+        } else if self.tag.is_some() && self.value.is_some() {
             // Validate that exactly one tag key-value pair is specified.
             // TODO(WAL-899): Support multiple tag pairs.
-            if self.tags.len() != 2 {
+            if self.tag.is_none() || self.value.is_none() {
                 return Err(anyhow!("exactly one tag key-value pair must be specified"));
             }
 
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id: self.quilt_id.expect("quilt_id should be present"),
-                tag: self.tags.first().cloned().expect("tag should be present"),
-                value: self.tags.last().cloned().expect("value should be present"),
+                tag: self.tag.as_ref().expect("tag should be present").clone(),
+                value: self
+                    .value
+                    .as_ref()
+                    .expect("value should be present")
+                    .clone(),
             }))
         } else if !self.quilt_patch_ids.is_empty() {
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
