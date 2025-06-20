@@ -129,6 +129,9 @@ pub trait QuiltApi<V: QuiltVersion> {
         target_value: &str,
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
+    /// Returns all the blobs in the quilt.
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
+
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
 
@@ -442,6 +445,13 @@ impl QuiltEnum {
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
         match self {
             QuiltEnum::V1(quilt_v1) => quilt_v1.get_blobs_by_tag(target_tag, target_value),
+        }
+    }
+
+    /// Returns all the blobs in the quilt.
+    pub fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_all_blobs(),
         }
     }
 
@@ -894,6 +904,14 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 let start_col = usize::from(patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
             })
+            .collect()
+    }
+
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        self.quilt_index()?
+            .patches()
+            .iter()
+            .map(|patch| QuiltVersionV1::decode_blob(self, usize::from(patch.start_index)))
             .collect()
     }
 

@@ -28,7 +28,7 @@ use walrus_utils::read_blob_from_file;
 use crate::{
     client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 
 /// Generate identifier from path.
@@ -300,6 +300,30 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>(),
         }
+    }
+
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &mut self,
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized | QuiltCacheReader::Decoder(_) => {
+                let quilt = self
+                    .client
+                    .get_full_quilt(metadata, certified_epoch)
+                    .await?;
+                self.reader = QuiltCacheReader::FullQuilt(quilt);
+            }
+            QuiltCacheReader::FullQuilt(_) => {}
+        }
+
+        let quilt = match &self.reader {
+            QuiltCacheReader::FullQuilt(quilt) => quilt,
+            _ => unreachable!(),
+        };
+        quilt.get_all_blobs().map_err(ClientError::other)
     }
 }
 
@@ -632,6 +656,28 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await
     }
 
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &self,
+        quilt_id: &BlobId,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let (certified_epoch, _) = self
+            .client
+            .get_blob_status_and_certified_epoch(quilt_id, None)
+            .await?;
+        let metadata = self
+            .client
+            .retrieve_metadata(certified_epoch, quilt_id)
+            .await?;
+
+        let mut quilt_reader =
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+        quilt_reader
+            .get_all_blobs(&metadata, certified_epoch)
+            .await
+            .map_err(ClientError::other)
+    }
+
     /// Retrieves the quilt from Walrus.
     async fn get_full_quilt(
         &self,
@@ -699,7 +745,7 @@ impl QuiltClient<'_, SuiContractClient> {
         paths: &[P],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -711,7 +757,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &quilt,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -727,7 +773,7 @@ impl QuiltClient<'_, SuiContractClient> {
         quilt: &V::Quilt,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -737,7 +783,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &[quilt.data()],
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,

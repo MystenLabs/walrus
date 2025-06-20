@@ -28,7 +28,7 @@ use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
     error::{ClientError, ClientErrorKind},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
@@ -290,7 +290,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             &blob[..],
             query.encoding_type,
             query.epochs,
-            query.store_when(),
+            query.optimizations(),
             query.blob_persistence(),
             query.post_store_action(client.default_post_store_action()),
         )
@@ -565,15 +565,11 @@ impl Default for PublisherQuery {
 }
 
 impl PublisherQuery {
-    /// Returns the [`StoreWhen`] value based on the query parameters.
+    /// Returns the [`StoreOptimizations`] value based on the query parameters.
     ///
     /// The publisher always ignores existing resources.
-    fn store_when(&self) -> StoreWhen {
-        if self.force {
-            StoreWhen::AlwaysIgnoreResources
-        } else {
-            StoreWhen::NotStoredIgnoreResources
-        }
+    fn optimizations(&self) -> StoreOptimizations {
+        StoreOptimizations::none().with_check_status(!self.force)
     }
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.

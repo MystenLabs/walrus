@@ -214,40 +214,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
-        ///
-        /// This assumes `--force`; i.e., it does not check the current status of the blob.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the blob status before storing it.
-        ///
-        /// This will create a new blob even if the blob is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
-        #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the blob
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the blob as deletable.
-        ///
-        /// Deletable blobs can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the blob into a shared blob object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Store files as a quilt.
     #[command(alias("write-quilt"))]
@@ -258,11 +228,11 @@ pub enum CliCommands {
         /// in the quilt, recursively.
         /// If a path is a file, the file will be included in the quilt.
         /// The filenames are used as the identifiers of the quilt patches.
+        /// Note duplicate filenames are not allowed.
         /// Custom identifiers and tags are NOT supported for quilt patches.
         /// Use `--blob` to specify custom identifiers and tags.
-        #[arg(value_name = "PATH")]
+        #[arg(long, num_args = 0..)]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
-        #[arg(long = "path", action = clap::ArgAction::Append)]
         paths: Vec<PathBuf>,
         /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
@@ -272,8 +242,9 @@ pub enum CliCommands {
         ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
         ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
         ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
-        #[arg(value_name = "BLOB")]
-        #[arg(long = "blob", action = clap::ArgAction::Append)]
+        /// Note if identifier is not specified, the filename will be used as the identifier,
+        /// and duplicate identifiers are not allowed.
+        #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
         /// The epoch argument to specify either the number of epochs to store the quilt, or the
@@ -281,40 +252,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
-        ///
-        /// This assumes `--force`; i.e., it does not check the current status of the quilt.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the quilt status before storing it.
-        ///
-        /// This will create a new quilt even if the quilt is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
-        #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the quilt
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the quilt as deletable.
-        ///
-        /// Deletable quilts can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the quilt into a shared quilt object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -343,8 +284,14 @@ pub enum CliCommands {
         #[serde(flatten)]
         query: QuiltPatchQuery,
         /// The directory path where to write the quilt patches.
+        /// The blobs are written to the directory with the same name as the identifier.
+        /// The metadata of the quilt patches, including identifiers and tags are printed to the
+        /// stdout.
         ///
-        /// If unset, prints the quilt patches to stdout.
+        /// If unset, prints the quilt patches raw data to stdout, while the metadata of the quilt
+        /// patches are ignored.
+        ///
+        /// TODO(WAL-900): Provide more flexible options to specify the file names.
         #[arg(long)]
         #[serde(
             default,
@@ -436,6 +383,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<HealthSortBy>,
+        /// Number of concurrent requests to send to the storage nodes.
+        #[arg(long, default_value_t = default::concurrent_requests_for_health())]
+        #[serde(default = "default::concurrent_requests_for_health")]
+        concurrent_requests: usize,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -1034,6 +985,45 @@ pub struct DaemonArgs {
     pub(crate) blocklist: Option<PathBuf>,
 }
 
+/// Common options shared between store and store-quilt commands.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+pub struct CommonStoreOptions {
+    /// Perform a dry-run of the store without performing any actions on chain.
+    ///
+    /// This assumes `--force`; i.e., it does not check the current status of the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Do not check for the blob/quilt status before storing it.
+    ///
+    /// This will create a new blob/quilt even if it is already certified for a sufficient
+    /// duration.
+    #[arg(long)]
+    #[serde(default)]
+    pub force: bool,
+    /// Ignore the storage resources owned by the wallet.
+    ///
+    /// The client will not check if it can reuse existing resources, and just check the blob/quilt
+    /// status on chain.
+    #[arg(long)]
+    #[serde(default)]
+    pub ignore_resources: bool,
+    /// Mark the blob/quilt as deletable.
+    ///
+    /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
+    #[arg(long)]
+    #[serde(default)]
+    pub deletable: bool,
+    /// Whether to put the blob/quilt into a shared object.
+    #[arg(long)]
+    #[serde(default)]
+    pub share: bool,
+    /// The encoding type to use for encoding the files.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1177,6 +1167,8 @@ pub enum QuiltPatchSelector {
     ByTag(QuiltPatchByTag),
     /// Patches by quilt_patch_id.
     ByPatchId(QuiltPatchByPatchId),
+    /// Read 'em all.
+    All(BlobId),
 }
 
 /// Query parameters to read quilt patches.
@@ -1186,88 +1178,101 @@ pub enum QuiltPatchSelector {
 pub struct QuiltPatchQuery {
     /// The quilt ID, which is the BlobID of the quilt.
     #[serde_as(as = "Option<DisplayFromStr>")]
-    #[arg(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[arg(
+        long,
+        alias = "blob-id",
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        required_unless_present = "quilt-patch-id",
+    )]
     pub quilt_id: Option<BlobId>,
 
     /// The identifiers to read from the quilt.
-    #[arg(long = "identifier", action = clap::ArgAction::Append)]
+    #[arg(
+        long = "identifier",
+        conflicts_with = "tags",
+        conflicts_with = "quilt-patch-ids"
+    )]
     #[serde(default)]
     pub identifiers: Vec<String>,
 
     /// The tag key.
-    #[arg(long)]
+    #[arg(
+        long,
+        requires = "value",
+        conflicts_with = "identifiers",
+        conflicts_with = "quilt-patch-ids"
+    )]
+    #[serde(default)]
     pub tag: Option<String>,
 
-    /// The tag value.
-    #[arg(long)]
+    /// The tag value to match.
+    #[arg(
+        long,
+        requires = "tag",
+        conflicts_with = "identifiers",
+        conflicts_with = "quilt-patch-ids"
+    )]
+    #[serde(default)]
     pub value: Option<String>,
 
     /// The quilt patch IDs.
+    /// Important: in cli mode, this should be the last argument, to avoid parsing issues.
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[arg(
         long = "quilt-patch-id",
+        alias = "patch-id",
         allow_hyphen_values = true,
         value_parser = parse_quilt_patch_id,
-        action = clap::ArgAction::Append
+        action = clap::ArgAction::Append,
+        conflicts_with = "quilt-id",
+        conflicts_with = "identifiers",
+        conflicts_with = "tags",
     )]
     #[serde(default)]
     pub quilt_patch_ids: Vec<QuiltPatchId>,
 }
 
 impl QuiltPatchQuery {
-    fn get_error(&self) -> anyhow::Error {
-        anyhow!(
-            "Exactly one query type must be specified. Valid query types are:\n\
-            - --quilt-id <ID> --identifier <NAME>...\n\
-            - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
-            - --quilt-patch-id <ID>..."
-        )
-    }
-
     /// Get the selector for execution.
     pub fn get_selector(&self) -> Result<QuiltPatchSelector> {
         if !self.identifiers.is_empty() {
-            if self.quilt_id.is_none()
-                || self.tag.is_some()
-                || self.value.is_some()
-                || !self.quilt_patch_ids.is_empty()
-            {
-                return Err(self.get_error());
-            }
-            let quilt_id = self.quilt_id.expect("quilt_id should be present");
             Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
-                quilt_id,
+                quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 identifiers: self.identifiers.clone(),
             }))
-        } else if self.tag.is_some() {
-            if self.value.is_none()
-                || self.quilt_id.is_none()
-                || !self.identifiers.is_empty()
-                || !self.quilt_patch_ids.is_empty()
-            {
-                return Err(self.get_error());
+        } else if self.tag.is_some() && self.value.is_some() {
+            // Validate that exactly one tag key-value pair is specified.
+            // TODO(WAL-899): Support multiple tag pairs.
+            if self.tag.is_none() || self.value.is_none() {
+                return Err(anyhow!("exactly one tag key-value pair must be specified"));
             }
-            let quilt_id = self.quilt_id.expect("quilt_id should be present");
-            let tag = self.tag.clone().expect("tag should be present");
-            let value = self.value.clone().expect("value should be present");
+
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
-                quilt_id,
-                tag,
-                value,
+                quilt_id: self.quilt_id.expect("quilt_id should be present"),
+                tag: self.tag.as_ref().expect("tag should be present").clone(),
+                value: self
+                    .value
+                    .as_ref()
+                    .expect("value should be present")
+                    .clone(),
             }))
         } else if !self.quilt_patch_ids.is_empty() {
-            if self.quilt_id.is_some()
-                || !self.identifiers.is_empty()
-                || self.tag.is_some()
-                || self.value.is_some()
-            {
-                return Err(self.get_error());
-            }
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
                 quilt_patch_ids: self.quilt_patch_ids.clone(),
             }))
+        } else if self.quilt_id.is_some() {
+            Ok(QuiltPatchSelector::All(
+                self.quilt_id.expect("quilt_id should be present"),
+            ))
         } else {
-            Err(self.get_error())
+            Err(anyhow!(
+                "Exactly one query type must be specified. Valid query types are:\n\
+                - --quilt-id <ID> --identifier <NAME>...\n\
+                - --quilt-id <ID> --tag <KEY> <VALUE>\n\
+                - --quilt-patch-id <ID>...\n\
+                - --quilt-id <ID>"
+            ))
         }
     }
 }
@@ -1654,6 +1659,10 @@ pub(crate) mod default {
             "link".to_string(),
         ]
     }
+
+    pub(crate) fn concurrent_requests_for_health() -> usize {
+        60
+    }
 }
 
 #[cfg(test)]
@@ -1691,12 +1700,14 @@ mod tests {
                 earliest_expiry_time: None,
                 end_epoch: None,
             },
-            dry_run: false,
-            force: false,
-            ignore_resources: false,
-            deletable: false,
-            share: false,
-            encoding_type: Default::default(),
+            common_options: CommonStoreOptions {
+                dry_run: false,
+                force: false,
+                ignore_resources: false,
+                deletable: false,
+                share: false,
+                encoding_type: Default::default(),
+            },
         })
     }
 

@@ -50,7 +50,7 @@ use walrus_sdk::{
     },
     config::load_configuration,
     error::ClientErrorKind,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     sui::{
         client::{
             BlobPersistence,
@@ -211,21 +211,19 @@ impl ClientCommandRunner {
             CliCommands::Store {
                 files,
                 epoch_arg,
-                dry_run,
-                force,
-                ignore_resources,
-                deletable,
-                share,
-                encoding_type,
+                common_options,
             } => {
                 self.store(
                     files,
                     epoch_arg,
-                    dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
-                    BlobPersistence::from_deletable(deletable),
-                    PostStoreAction::from_share(share),
-                    encoding_type,
+                    common_options.dry_run,
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        common_options.force,
+                        common_options.ignore_resources,
+                    ),
+                    BlobPersistence::from_deletable(common_options.deletable),
+                    PostStoreAction::from_share(common_options.share),
+                    common_options.encoding_type,
                 )
                 .await
             }
@@ -234,22 +232,20 @@ impl ClientCommandRunner {
                 paths,
                 blobs,
                 epoch_arg,
-                dry_run,
-                force,
-                ignore_resources,
-                deletable,
-                share,
-                encoding_type,
+                common_options,
             } => {
                 self.store_quilt(
                     paths,
                     blobs,
                     epoch_arg,
-                    dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
-                    BlobPersistence::from_deletable(deletable),
-                    PostStoreAction::from_share(share),
-                    encoding_type,
+                    common_options.dry_run,
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        common_options.force,
+                        common_options.ignore_resources,
+                    ),
+                    BlobPersistence::from_deletable(common_options.deletable),
+                    PostStoreAction::from_share(common_options.share),
+                    common_options.encoding_type,
                 )
                 .await
             }
@@ -274,7 +270,11 @@ impl ClientCommandRunner {
                 detail,
                 sort,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_selection, detail, sort).await,
+                concurrent_requests,
+            } => {
+                self.health(rpc_url, node_selection, detail, sort, concurrent_requests)
+                    .await
+            }
 
             CliCommands::BlobId {
                 file,
@@ -564,6 +564,7 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
+        let selector = query.get_selector()?;
         let config = self.config?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
@@ -571,7 +572,7 @@ impl ClientCommandRunner {
 
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
 
-        let retrieved_blobs = match query.get_selector()? {
+        let retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id,
                 identifiers,
@@ -593,20 +594,15 @@ impl ClientCommandRunner {
             QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId { quilt_patch_ids }) => {
                 quilt_read_client.get_blobs_by_ids(&quilt_patch_ids).await?
             }
+            QuiltPatchSelector::All(quilt_id) => quilt_read_client.get_all_blobs(&quilt_id).await?,
         };
 
-        let quilt_read_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
+        let read_quilt_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
         if let Some(out) = out.as_ref() {
-            for blob in &quilt_read_output.retrieved_blobs {
-                let output_file_path = out.join(blob.identifier());
-                std::fs::write(output_file_path, blob.data())?;
-            }
-        } else if !self.json {
-            for blob in &quilt_read_output.retrieved_blobs {
-                std::io::stdout().write_all(blob.data())?;
-            }
+            Self::write_blobs_dedup(&read_quilt_output.retrieved_blobs, out).await?;
         }
-        quilt_read_output.print_output(self.json)
+
+        read_quilt_output.print_output(self.json)
     }
 
     pub(crate) async fn list_patches_in_quilt(
@@ -633,7 +629,7 @@ impl ClientCommandRunner {
         files: Vec<PathBuf>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -673,7 +669,7 @@ impl ClientCommandRunner {
                 &blobs,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -750,7 +746,7 @@ impl ClientCommandRunner {
         blobs: Vec<QuiltBlobInput>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -796,7 +792,7 @@ impl ClientCommandRunner {
                 &quilt,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -1006,6 +1002,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
@@ -1024,12 +1021,13 @@ impl ClientCommandRunner {
             None,
         )?;
 
-        ServiceHealthInfoOutput::new_for_nodes(
+        ServiceHealthInfoOutput::get_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
             latest_seq,
             detail,
             sort,
+            concurrent_requests,
         )
         .await?
         .print_output(self.json)
@@ -1420,6 +1418,37 @@ impl ClientCommandRunner {
                 );
             }
         }
+        Ok(())
+    }
+
+    async fn write_blobs_dedup(blobs: &[QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
+        let mut filename_counters = std::collections::HashMap::new();
+
+        for blob in blobs {
+            let original_filename = blob.identifier();
+            let counter = filename_counters.entry(original_filename).or_insert(0);
+            *counter += 1;
+
+            let output_file_path = if *counter == 1 {
+                out_dir.join(original_filename)
+            } else {
+                let (stem, extension) = match original_filename.rsplit_once('.') {
+                    Some((s, e)) => (s, Some(e)),
+                    None => (original_filename, None),
+                };
+
+                let new_filename = if let Some(ext) = extension {
+                    format!("{}_{}.{}", stem, counter, ext)
+                } else {
+                    format!("{}_{}", stem, counter)
+                };
+
+                out_dir.join(new_filename)
+            };
+
+            std::fs::write(&output_file_path, blob.data())?;
+        }
+
         Ok(())
     }
 }

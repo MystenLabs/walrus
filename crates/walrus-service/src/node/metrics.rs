@@ -184,6 +184,14 @@ fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.03125, 2.0, 14).expect("count, start, and factor are valid")
 }
 
+fn with_zero_bucket(mut buckets: Vec<f64>) -> Vec<f64> {
+    if let Some(&front) = buckets.first() {
+        assert!(front > 0.0);
+    }
+    buckets.insert(0, 0.0);
+    buckets
+}
+
 walrus_utils::metrics::define_metric_set! {
     #[namespace = "walrus"]
     /// Metrics exported by the default committee service.
@@ -200,12 +208,14 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of times a recovery futures entered exponential backoff before
         completing."]
         recovery_future_backoffs: Histogram {
-            buckets: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+            buckets: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
         },
 
         #[help = "The number of failed recovery symbol requests before completion"]
         recovery_future_failed_requests: Histogram {
-            buckets: prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+            buckets: with_zero_bucket(
+                prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+            ),
         },
 
         #[help = "The number of recovery futures in a given recovery state."]

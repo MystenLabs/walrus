@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::stdout, num::NonZeroU16, path::PathBuf};
+use std::{
+    io::{Write, stdout},
+    num::NonZeroU16,
+    path::PathBuf,
+};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -12,8 +16,8 @@ use serde::Serialize;
 use walrus_core::{
     BlobId,
     ShardIndex,
-    encoding::quilt_encoding::{QuiltIndexApi, QuiltPatchApi},
-    metadata::{QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1},
+    encoding::quilt_encoding::QuiltPatchApi,
+    metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
     client::{
@@ -311,19 +315,12 @@ impl CliOutput for DryRunOutput {
 }
 
 /// Get the stored quilt patches from a quilt index.
-fn get_stored_quilt_patches(
-    quilt_index: &QuiltIndex,
-    quilt_blob_id: BlobId,
-) -> Vec<StoredQuiltPatch> {
+fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<StoredQuiltPatch> {
     quilt_index
         .patches()
         .iter()
         .map(|patch| {
-            StoredQuiltPatch::new(
-                quilt_blob_id,
-                &patch.identifier,
-                patch.quilt_patch_internal_id(),
-            )
+            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
         })
         .collect()
 }
@@ -336,46 +333,6 @@ impl CliOutput for StoreQuiltDryRunOutput {
             self.quilt_blob_output.blob_id,
         ))
         .printstd();
-    }
-}
-
-impl CliOutput for QuiltIndex {
-    fn print_cli_output(&self) {
-        match self {
-            QuiltIndex::V1(indexv1) => indexv1.print_cli_output(),
-        }
-    }
-}
-
-impl CliOutput for QuiltIndexV1 {
-    fn print_cli_output(&self) {
-        println!(
-            "{}",
-            format!(
-                "Quilt Index V1, total number of patches: {}",
-                self.quilt_patches.len()
-            )
-            .bold()
-            .walrus_purple()
-        );
-
-        let mut table = Table::new();
-        table.set_format(default_table_format());
-        table.set_titles(row![
-            b->"Index",
-            b->"Index Range",
-            b->"Identifier"
-        ]);
-
-        for (i, quilt_patch) in self.patches().iter().enumerate() {
-            table.add_row(row![
-                bFc->format!("{i}"),
-                format!("{}..{}", quilt_patch.start_index, quilt_patch.end_index),
-                quilt_patch.identifier
-            ]);
-        }
-
-        table.printstd();
     }
 }
 
@@ -984,7 +941,8 @@ impl NodeHealthOutput {
         };
         match &self.health_info {
             Err(error) => {
-                println!("Error: {}", error);
+                // Print detailed (debug) error message.
+                println!("Error: {error:?}");
             }
             Ok(health_info) => {
                 let EventProgress {
@@ -1214,12 +1172,10 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
         }
         Err(error) => {
             // Truncate error message to 20 chars and add ellipsis if needed
-            let error_msg = error.to_string();
-            let truncated_error = if error_msg.len() > 40 {
-                format!("{}...", &error_msg[..37])
-            } else {
-                error_msg
-            };
+            let mut error_msg = error.to_string();
+            if error_msg.len() > 40 {
+                error_msg = format!("{}...", &error_msg[..37]);
+            }
 
             table.add_row(row![
                 r->node_idx,
@@ -1227,7 +1183,7 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 node.node_id,
                 node.node_url,
                 c->"N/A",
-                Fr->truncated_error,
+                Fr->error_msg,
             ]);
         }
     }
@@ -1274,15 +1230,14 @@ impl CliOutput for ReadQuiltOutput {
     fn print_cli_output(&self) {
         if let Some(out) = &self.out {
             println!(
-                "{} Retrieved {} blobs and saved to directory: {}",
-                success(),
-                self.retrieved_blobs.len(),
-                out.display()
+                "Retrieved {} Blobs and saved to directory: {}",
+                self.retrieved_blobs
+                    .len()
+                    .to_string()
+                    .bold()
+                    .walrus_purple(),
+                out.display().to_string().bold().walrus_purple()
             );
-        }
-
-        if !self.retrieved_blobs.is_empty() {
-            println!("{}", "Retrieved Blobs".bold().walrus_purple());
             for (i, blob) in self.retrieved_blobs.iter().enumerate() {
                 println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
                 if blob.tags().is_empty() {
@@ -1294,6 +1249,12 @@ impl CliOutput for ReadQuiltOutput {
                     }
                 }
                 println!();
+            }
+        } else {
+            for blob in &self.retrieved_blobs {
+                if let Err(e) = std::io::stdout().write_all(blob.data()) {
+                    eprintln!("Error writing {} to stdout: {e}", blob.identifier());
+                }
             }
         }
     }

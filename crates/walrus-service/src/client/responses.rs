@@ -51,7 +51,11 @@ use walrus_sdk::{
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
 };
-use walrus_storage_node_client::api::{BlobStatus, ServiceHealthInfo};
+use walrus_storage_node_client::{
+    ClientBuildError,
+    NodeError,
+    api::{BlobStatus, ServiceHealthInfo},
+};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -665,22 +669,38 @@ pub(crate) struct NodeHealthOutput {
     pub node_url: String,
     pub node_name: String,
     pub network_public_key: NetworkPublicKey,
-    pub health_info: Result<ServiceHealthInfo, String>,
+    pub health_info: Result<ServiceHealthInfo, HealthInfoError>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HealthInfoError {
+    #[error(transparent)]
+    FailedToBuildClient(#[from] ClientBuildError),
+    #[error(transparent)]
+    FailedToGetHealthInfo(#[from] NodeError),
+}
+
+impl Serialize for HealthInfoError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl NodeHealthOutput {
-    pub async fn new(
+    pub async fn get_for_node(
         node: StorageNode,
         detail: bool,
         node_communication_factory: &NodeCommunicationFactory,
     ) -> Self {
-        let client = node_communication_factory.create_client(&node);
-        let health_info = match client {
+        let health_info = match node_communication_factory.create_client(&node) {
             Ok(client) => client
                 .get_server_health_info(detail)
                 .await
-                .map_err(|err| format!("failed to get health info: {:?}", err)),
-            Err(err) => Err(format!("failed to build client: {:?}", err)),
+                .map_err(HealthInfoError::from),
+            Err(err) => Err(err.into()),
         };
 
         Self {
@@ -703,16 +723,17 @@ pub(crate) struct ServiceHealthInfoOutput {
 
 impl ServiceHealthInfoOutput {
     /// Collects the health information of the storage nodes by querying their health endpoints.
-    pub async fn new_for_nodes(
+    pub async fn get_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         communication_factory: &NodeCommunicationFactory,
         latest_seq: Option<u64>,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> anyhow::Result<Self> {
         let mut health_info = stream::iter(nodes)
-            .map(|node| NodeHealthOutput::new(node, detail, communication_factory))
-            .buffer_unordered(10)
+            .map(|node| NodeHealthOutput::get_for_node(node, detail, communication_factory))
+            .buffer_unordered(concurrent_requests)
             .collect::<Vec<_>>()
             .await;
 
@@ -760,7 +781,10 @@ impl NodeHealthOutput {
                 .to_lowercase()
                 .cmp(&info_b.node_status.to_lowercase())
                 .then_with(|| self.cmp_by_name(other)),
-            (Err(err_a), Err(err_b)) => err_a.cmp(err_b).then_with(|| self.cmp_by_name(other)),
+            (Err(err_a), Err(err_b)) => err_a
+                .to_string()
+                .cmp(&err_b.to_string())
+                .then_with(|| self.cmp_by_name(other)),
             (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
             (Ok(_), Err(_)) => std::cmp::Ordering::Less,
         }
