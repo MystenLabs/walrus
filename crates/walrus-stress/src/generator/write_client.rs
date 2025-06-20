@@ -7,19 +7,29 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::{SeedableRng, rngs::StdRng, thread_rng};
+use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use sui_sdk::types::base_types::SuiAddress;
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
     EpochCount,
     SliverPairIndex,
-    encoding::EncodingConfigTrait as _,
+    encoding::{
+        EncodingConfigTrait as _,
+        quilt_encoding::{QuiltStoreBlob, QuiltVersionV1},
+    },
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
+    test_utils::generate_random_quilt_store_blobs,
 };
 use walrus_sdk::{
-    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{
+        Client,
+        metrics::ClientMetrics,
+        quilt_client::QuiltClientConfig,
+        refresh::CommitteesRefresherHandle,
+        responses::QuiltStoreResult,
+    },
     error::ClientError,
     store_optimizations::StoreOptimizations,
 };
@@ -38,13 +48,14 @@ use walrus_sui::{
 };
 use walrus_test_utils::WithTempDir;
 
-use super::blob::{BlobData, WriteBlobConfig};
+use super::blob::{BlobData, QuiltData, QuiltStoreBlobConfig, WriteBlobConfig};
 
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
     blob: BlobData,
+    quilt_pool: QuiltData,
     metrics: Arc<ClientMetrics>,
 }
 
@@ -57,26 +68,234 @@ impl WriteClient {
         network: &SuiNetwork,
         gas_budget: Option<u64>,
         blob_config: WriteBlobConfig,
+        quilt_config: QuiltStoreBlobConfig,
         refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
-        let blob = BlobData::random(
-            StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
-            blob_config,
-        )
-        .await;
+        let blob = BlobData::random(StdRng::from_entropy(), blob_config.clone()).await;
         let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self {
             client,
             blob,
+            quilt_pool: QuiltData::new(quilt_config, blob_config),
             metrics,
         })
+    }
+
+    async fn handle_read_result(
+        &self,
+        selected_blobs: &[&QuiltStoreBlob<'_>],
+        quilt_blobs: &[QuiltStoreBlob<'static>],
+        quilt_store_result: &QuiltStoreResult,
+    ) -> Result<(), ClientError> {
+        for read_blob in quilt_blobs.iter() {
+            if let Some(original_blob) = selected_blobs
+                .iter()
+                .find(|b| b.identifier() == read_blob.identifier())
+            {
+                if read_blob.data() != original_blob.data() {
+                    self.dump_mismatch_data(selected_blobs, quilt_blobs, quilt_store_result)
+                        .await;
+                }
+            } else {
+                self.dump_mismatch_data(selected_blobs, quilt_blobs, quilt_store_result)
+                    .await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn read_random_quilt_by_identifier(
+        &self,
+        quilt_store_result: &QuiltStoreResult,
+        quilt_store_blobs: &[QuiltStoreBlob<'_>],
+        metrics: &ClientMetrics,
+    ) -> Result<(), ClientError> {
+        let quilt_client = self
+            .client
+            .as_ref()
+            .quilt_client(QuiltClientConfig::default());
+
+        let mut rng = StdRng::from_entropy();
+        let num_to_read = rng.gen_range(1..=3);
+
+        let quilt_id = quilt_store_result
+            .blob_store_result
+            .blob_id()
+            .expect("blob id should be present");
+        let selected_blobs = quilt_store_blobs
+            .choose_multiple(&mut rng, num_to_read)
+            .collect::<Vec<&QuiltStoreBlob<'_>>>();
+        let start = Instant::now();
+        let read_result = quilt_client
+            .get_blobs_by_identifiers(
+                &quilt_id,
+                &selected_blobs
+                    .iter()
+                    .map(|blob| blob.identifier())
+                    .collect::<Vec<_>>(),
+            )
+            .await;
+        let duration = start.elapsed();
+        metrics.observe_quilt_read_latency(duration, num_to_read, read_result.is_ok());
+
+        if let Ok(quilt_blobs) = read_result {
+            self.handle_read_result(&selected_blobs, &quilt_blobs, quilt_store_result)
+                .await?;
+        }
+
+        Ok(())
     }
 
     /// Returns the active address of the client.
     pub fn address(&mut self) -> SuiAddress {
         self.client.as_mut().sui_client_mut().address()
+    }
+
+    pub async fn write_fresh_quilt(
+        &mut self,
+        metrics: &ClientMetrics,
+    ) -> Result<(BlobId, Duration), ClientError> {
+        let now = Instant::now();
+        let quilt_data = self.quilt_pool.get_random_batch();
+
+        let max_string_length = 100;
+        let include_tags = rand::thread_rng().gen_bool(0.5);
+        let max_num_tags = rand::thread_rng().gen_range(1..5);
+        let quilt_store_blobs = generate_random_quilt_store_blobs(
+            &quilt_data,
+            max_string_length,
+            include_tags,
+            max_num_tags,
+        );
+
+        // Calculate total size.
+        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
+        let num_blobs = quilt_store_blobs.len();
+
+        let result = self.write_quilt(&quilt_store_blobs).await?;
+        let duration = now.elapsed();
+
+        // Record the metric.
+        metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
+
+        // Select random quilt patch IDs and read them back.
+        if !result.stored_quilt_blobs.is_empty() {
+            self.read_random_quilt_by_identifier(&result, &quilt_store_blobs, metrics)
+                .await?;
+        }
+
+        Ok((
+            result
+                .blob_store_result
+                .blob_id()
+                .expect("blob id should be present"),
+            duration,
+        ))
+    }
+
+    pub async fn write_quilt(
+        &self,
+        quilt_store_blobs: &[QuiltStoreBlob<'_>],
+    ) -> Result<QuiltStoreResult, ClientError> {
+        let quilt_client = self
+            .client
+            .as_ref()
+            .quilt_client(QuiltClientConfig::default());
+        let quilt = quilt_client
+            .construct_quilt::<QuiltVersionV1>(quilt_store_blobs, DEFAULT_ENCODING)
+            .await?;
+        let result = self
+            .client
+            .as_ref()
+            .quilt_client(QuiltClientConfig::default())
+            .reserve_and_store_quilt::<QuiltVersionV1>(
+                &quilt,
+                DEFAULT_ENCODING,
+                self.blob.epochs_to_store(),
+                StoreOptimizations::none(),
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+            )
+            .await?;
+
+        tracing::info!(
+            blob_id = ?result.blob_store_result.blob_id(),
+            num_blobs = quilt_store_blobs.len(),
+            "stored quilt successfully"
+        );
+
+        Ok(result)
+    }
+
+    /// Dumps mismatch data to files for debugging.
+    async fn dump_mismatch_data(
+        &self,
+        original_blobs: &[&QuiltStoreBlob<'_>],
+        read_blobs: &[QuiltStoreBlob<'static>],
+        result: &QuiltStoreResult,
+    ) {
+        use std::fs;
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("should be able to get duration since UNIX_EPOCH")
+            .as_secs();
+
+        let dump_dir = format!("quilt_mismatch_{}", timestamp);
+        if let Err(e) = fs::create_dir_all(&dump_dir) {
+            tracing::error!("Failed to create dump directory: {}", e);
+            return;
+        }
+
+        // Dump original quilt store blobs
+        for original_blob in original_blobs.iter() {
+            let file_path = format!("{}/original_{}.bin", dump_dir, original_blob.identifier());
+            if let Err(e) = fs::write(&file_path, original_blob.data()) {
+                tracing::error!(
+                    "Failed to write original blob '{}': {}",
+                    original_blob.identifier(),
+                    e
+                );
+            }
+        }
+
+        // Dump read blobs
+        for read_blob in read_blobs.iter() {
+            let file_path = format!("{}/read_{}.bin", dump_dir, read_blob.identifier());
+            if let Err(e) = fs::write(&file_path, read_blob.data()) {
+                tracing::error!(
+                    "Failed to write read blob '{}': {}",
+                    read_blob.identifier(),
+                    e
+                );
+            }
+        }
+
+        // Dump metadata
+        let mut metadata_content = String::new();
+        metadata_content.push_str(&format!(
+            "Quilt Blob ID: {:?}\n",
+            result.blob_store_result.blob_id()
+        ));
+        metadata_content.push_str(&format!("Original Blob Count: {}\n", original_blobs.len()));
+        metadata_content.push_str(&format!("Read Blob Count: {}\n", read_blobs.len()));
+        metadata_content.push_str("Stored Quilt Blobs:\n");
+
+        for stored_blob in result.stored_quilt_blobs.iter() {
+            metadata_content.push_str(&format!(
+                "  identifier='{}', quilt_patch_id={}\n",
+                stored_blob.identifier, stored_blob.quilt_patch_id
+            ));
+        }
+
+        let metadata_path = format!("{}/metadata.txt", dump_dir);
+        if let Err(e) = fs::write(&metadata_path, metadata_content) {
+            tracing::error!("Failed to write metadata: {}", e);
+        }
+
+        tracing::error!("Quilt mismatch data dumped to directory: {}", dump_dir);
     }
 
     /// Stores a fresh consistent blob and returns the blob id and elapsed time.
@@ -205,7 +424,7 @@ impl WriteClient {
                 &[&metadata],
                 epochs_to_store,
                 BlobPersistence::Permanent,
-                StoreOptimizations::all(),
+                StoreOptimizations::none(),
             )
             .await?
             .into_iter()

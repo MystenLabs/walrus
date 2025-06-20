@@ -6,11 +6,12 @@
 
 //! Utility functions for tests.
 
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use core::num::NonZeroU16;
+use std::collections::HashSet;
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::{
     BlobId,
@@ -26,6 +27,7 @@ use crate::{
         PrimaryRecoverySymbol,
         PrimarySliver,
         SecondarySliver,
+        quilt_encoding::QuiltStoreBlob,
     },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
@@ -211,4 +213,61 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
         target_sliver_index,
         recovery_symbols,
     ))
+}
+
+/// Generates random quilt store blobs from the input raw blobs.
+///
+/// A random unique identifier is generated for each blob.
+/// If `include_tags` is true, random numbers of random tags are generated for each blob.
+pub fn generate_random_quilt_store_blobs<'a>(
+    blob_data: &'a [&'a [u8]],
+    max_string_length: usize,
+    include_tags: bool,
+    max_num_tags: usize,
+) -> Vec<QuiltStoreBlob<'a>> {
+    let mut rng = rand::thread_rng();
+    let num_tags = if include_tags {
+        rng.gen_range(1..=max_num_tags)
+    } else {
+        0
+    };
+
+    let mut res = Vec::with_capacity(blob_data.len());
+    let mut identifiers = HashSet::with_capacity(blob_data.len());
+    while identifiers.len() < blob_data.len() {
+        identifiers.insert(hex::encode(walrus_test_utils::random_data(
+            rng.gen_range(1..max_string_length),
+        )));
+    }
+
+    let raw_tag_values =
+        walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
+    let raw_tag_keys = walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
+    let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
+    let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
+
+    for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
+        let mut tags = BTreeMap::new();
+        let num_keys_for_blob = include_tags.then(|| rng.gen_range(0..=num_tags)).unwrap_or(0);
+
+        if num_keys_for_blob > 0 {
+            let selected_keys: Vec<_> = tag_keys
+                .as_slice()
+                .choose_multiple(&mut rng, num_keys_for_blob)
+                .collect();
+
+            for key in selected_keys {
+                let value = tag_values.choose(&mut rng).expect("Should choose a value");
+                tags.insert(key.clone(), value.clone());
+            }
+        }
+
+        let mut blob = QuiltStoreBlob::new(data, identifier);
+        if !tags.is_empty() {
+            blob = blob.with_tags(tags);
+        }
+        res.push(blob);
+    }
+
+    res
 }

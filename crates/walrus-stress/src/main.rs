@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use generator::blob::WriteBlobConfig;
+use generator::blob::{QuiltStoreBlobConfig, WriteBlobConfig};
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::metrics::ClientMetrics;
@@ -104,6 +104,15 @@ struct StressArgs {
     /// The binary logarithm of the maximum blob size to use for the load generation.
     #[arg(long, default_value = "20")]
     max_size_log2: u8,
+    /// The minimum number of blobs to store in a quilt.
+    #[arg(long, default_value = "10")]
+    min_num_blobs_in_quilt: u16,
+    /// The maximum number of blobs to store in a quilt.
+    #[arg(long, default_value = "200")]
+    max_num_blobs_in_quilt: u16,
+    /// The fraction of writes that write quilts.
+    #[arg(long, default_value = "0.5")]
+    quilt_write_rate: f64,
     /// The period in milliseconds to check if gas needs to be refilled.
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled
@@ -182,9 +191,15 @@ async fn run_stress(
         args.min_epochs_to_store,
         args.max_epochs_to_store,
     );
+    let quilt_config = QuiltStoreBlobConfig::new(
+        args.min_num_blobs_in_quilt,
+        args.max_num_blobs_in_quilt,
+        args.quilt_write_rate,
+    );
     let mut load_generator = LoadGenerator::new(
         n_clients,
         blob_config,
+        quilt_config,
         client_config,
         sui_network,
         gas_refill_period,
@@ -246,16 +261,13 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
                     // Allocate half the WAL to various nodes. This is a linear walk over all of the
                     // WAL which we're going to stake, just to simplify the algorithm. Each "stake"
                     // below is one unit of MIN_STAKING_THRESHOLD.
-                    let available_stakes = usize::try_from(
-                        (wal_balance / MIN_STAKING_THRESHOLD) / 2,
-                    )
-                    .expect("this is at most 2.5B, which fits into a usize on 32-bit platforms");
+                    let available_stakes = (wal_balance / MIN_STAKING_THRESHOLD) / 2;
                     let mut node_allocations = HashMap::<ObjectID, u64>::new();
                     for i in 0..available_stakes {
                         // Loop through the nodes in shuffled order until we've allocated all our
                         // stake.
                         node_allocations
-                            .entry(nodes[i % nodes.len()].node_id)
+                            .entry(nodes[i as usize % nodes.len()].node_id)
                             .and_modify(|x| *x += MIN_STAKING_THRESHOLD)
                             .or_insert(MIN_STAKING_THRESHOLD);
                     }

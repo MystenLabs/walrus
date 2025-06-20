@@ -31,10 +31,8 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
-/// Minimum burst duration in milliseconds.
-const MIN_BURST_DURATION_MS: u64 = 100;
 /// Minimum burst duration.
-const MIN_BURST_DURATION: Duration = Duration::from_millis(MIN_BURST_DURATION_MS);
+const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
 /// Number of seconds per load period.
 const SECS_PER_LOAD_PERIOD: u64 = 60;
 
@@ -44,6 +42,8 @@ mod write_client;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoffConfig};
 use write_client::WriteClient;
 
+use crate::generator::blob::QuiltStoreBlobConfig;
+
 /// A load generator for Walrus writes.
 #[derive(Debug)]
 pub struct LoadGenerator {
@@ -52,6 +52,7 @@ pub struct LoadGenerator {
     read_client_pool: Receiver<Client<SuiReadClient>>,
     read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
+    quilt_percentage: f64,
     _refill_handles: RefillHandles,
 }
 
@@ -60,6 +61,7 @@ impl LoadGenerator {
     pub async fn new(
         n_clients: usize,
         blob_config: WriteBlobConfig,
+        quilt_config: QuiltStoreBlobConfig,
         client_config: ClientConfig,
         network: SuiNetwork,
         gas_refill_period: Duration,
@@ -108,6 +110,7 @@ impl LoadGenerator {
                     &network,
                     None,
                     blob_config.clone(),
+                    quilt_config.clone(),
                     refresher_handle.clone(),
                     refiller.clone(),
                     metrics.clone(),
@@ -141,6 +144,7 @@ impl LoadGenerator {
             read_client_pool,
             read_client_pool_tx,
             metrics,
+            quilt_percentage: quilt_config.percentage_of_quilts,
             _refill_handles,
         })
     }
@@ -158,9 +162,14 @@ impl LoadGenerator {
         };
         let sender = self.write_client_pool_tx.clone();
         let metrics = self.metrics.clone();
+        let quilt_percentage = self.quilt_percentage;
+        let is_inconsistent = thread_rng().gen_bool(inconsistent_blob_rate);
+        let is_quilt = thread_rng().gen_bool(quilt_percentage);
         tokio::spawn(async move {
-            let result = if thread_rng().gen_bool(inconsistent_blob_rate) {
+            let result = if is_inconsistent {
                 client.write_fresh_inconsistent_blob().await
+            } else if is_quilt {
+                client.write_fresh_quilt(&metrics).await
             } else {
                 client.write_fresh_blob().await
             };
@@ -293,7 +302,7 @@ impl LoadGenerator {
             );
             read_blob_id
         } else {
-            BlobId([0; 32])
+            BlobId::ZERO
         };
         tokio::pin!(read_interval);
 
@@ -390,7 +399,7 @@ fn burst_load(load: u64) -> (u64, Interval) {
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
     let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
         (
-            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION_MS),
+            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION.as_millis() as u64),
             MIN_BURST_DURATION,
         )
     } else {

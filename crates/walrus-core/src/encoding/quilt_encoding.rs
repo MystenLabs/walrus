@@ -1809,11 +1809,15 @@ mod tests {
     use core::num::NonZeroU16;
     use std::collections::HashSet;
 
-    use rand::{Rng, seq::SliceRandom};
+    use rand::Rng;
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::{encoding::ReedSolomonEncodingConfig, metadata::BlobMetadataApi as _};
+    use crate::{
+        encoding::ReedSolomonEncodingConfig,
+        metadata::BlobMetadataApi as _,
+        test_utils::generate_random_quilt_store_blobs,
+    };
 
     /// Get the minimum required columns.
     fn min_required_columns(blobs: &[usize], length: usize) -> usize {
@@ -2104,8 +2108,12 @@ mod tests {
 
         let blobs =
             walrus_test_utils::generate_random_data(num_blobs, min_blob_size, max_blob_size);
-        let blobs_refs = blobs.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
-        let quilt_store_blobs = populate_identifiers_and_tags(blobs_refs);
+        let blobs_refs: Vec<&[u8]> = blobs.iter().map(|blob| blob.as_slice()).collect();
+        let mut rng = rand::thread_rng();
+        let include_tags = rng.gen_bool(0.5);
+        let max_num_tags = rng.gen_range(1..5);
+        let quilt_store_blobs =
+            generate_random_quilt_store_blobs(&blobs_refs, 100, include_tags, max_num_tags);
 
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
@@ -2114,51 +2122,6 @@ mod tests {
             &quilt_store_blobs,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
         );
-    }
-
-    fn populate_identifiers_and_tags<'a>(blob_data: Vec<&'a [u8]>) -> Vec<QuiltStoreBlob<'a>> {
-        let mut rng = rand::thread_rng();
-        let num_tags = if rng.gen_bool(0.3) {
-            0
-        } else {
-            rng.gen_range(1..=blob_data.len())
-        };
-
-        const NUM_TAG_VALUES: usize = 3;
-        let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, 100);
-        let raw_tag_keys = walrus_test_utils::generate_random_data(NUM_TAG_VALUES, 1, 100);
-        let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
-        let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
-
-        let mut res = Vec::with_capacity(blob_data.len());
-        let mut identifiers = HashSet::with_capacity(blob_data.len());
-        while identifiers.len() < blob_data.len() {
-            identifiers.insert(hex::encode(walrus_test_utils::random_data(
-                rng.gen_range(1..100),
-            )));
-        }
-        for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
-            let mut tags = BTreeMap::new();
-            let num_keys_for_blob = rng.gen_range(0..=num_tags);
-            if num_keys_for_blob > 0 {
-                let selected_keys: Vec<_> = tag_keys
-                    .as_slice()
-                    .choose_multiple(&mut rng, num_keys_for_blob)
-                    .collect();
-
-                for key in selected_keys {
-                    let value = tag_values.choose(&mut rng).expect("Should choose a value");
-                    tags.insert(key.clone(), value.clone());
-                }
-            }
-            let mut blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier);
-            if !tags.is_empty() {
-                blob = blob.with_tags(tags);
-            }
-            res.push(blob);
-        }
-
-        res
     }
 
     #[allow(clippy::type_complexity)]
