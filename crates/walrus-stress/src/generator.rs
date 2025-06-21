@@ -31,8 +31,10 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
+/// Minimum burst duration in milliseconds.
+const MIN_BURST_DURATION_MS: u64 = 100;
 /// Minimum burst duration.
-const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
+const MIN_BURST_DURATION: Duration = Duration::from_millis(MIN_BURST_DURATION_MS);
 /// Number of seconds per load period.
 const SECS_PER_LOAD_PERIOD: u64 = 60;
 
@@ -399,7 +401,7 @@ fn burst_load(load: u64) -> (u64, Interval) {
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
     let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
         (
-            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION.as_millis() as u64),
+            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION_MS),
             MIN_BURST_DURATION,
         )
     } else {

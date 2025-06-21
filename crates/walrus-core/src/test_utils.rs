@@ -240,15 +240,18 @@ pub fn generate_random_quilt_store_blobs<'a>(
         )));
     }
 
-    let raw_tag_values =
-        walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
+    let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
     let raw_tag_keys = walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
     let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
     let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
 
     for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
         let mut tags = BTreeMap::new();
-        let num_keys_for_blob = include_tags.then(|| rng.gen_range(0..=num_tags)).unwrap_or(0);
+        let num_keys_for_blob = if include_tags {
+            rng.gen_range(0..=num_tags)
+        } else {
+            0
+        };
 
         if num_keys_for_blob > 0 {
             let selected_keys: Vec<_> = tag_keys

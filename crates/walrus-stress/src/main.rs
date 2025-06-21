@@ -261,13 +261,16 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
                     // Allocate half the WAL to various nodes. This is a linear walk over all of the
                     // WAL which we're going to stake, just to simplify the algorithm. Each "stake"
                     // below is one unit of MIN_STAKING_THRESHOLD.
-                    let available_stakes = (wal_balance / MIN_STAKING_THRESHOLD) / 2;
+                    let available_stakes = usize::try_from(
+                        (wal_balance / MIN_STAKING_THRESHOLD) / 2,
+                    )
+                    .expect("this is at most 2.5B, which fits into a usize on 32-bit platforms");
                     let mut node_allocations = HashMap::<ObjectID, u64>::new();
                     for i in 0..available_stakes {
                         // Loop through the nodes in shuffled order until we've allocated all our
                         // stake.
                         node_allocations
-                            .entry(nodes[i as usize % nodes.len()].node_id)
+                            .entry(nodes[i % nodes.len()].node_id)
                             .and_modify(|x| *x += MIN_STAKING_THRESHOLD)
                             .or_insert(MIN_STAKING_THRESHOLD);
                     }
