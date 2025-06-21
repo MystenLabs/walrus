@@ -217,7 +217,9 @@ async fn run_stress(
     )
     .await?;
 
-    write_client.write_quilts_periodically(Duration::from_secs(20), metrics).await;
+    if let Err(e) = write_client.write_quilts_periodically(Duration::from_secs(20), metrics.clone()).await {
+        tracing::error!("failed to write quilts: {:?}", e);
+    }
     Ok(())
 }
 

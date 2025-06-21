@@ -148,6 +148,8 @@ impl WriteClient {
                 self.handle_read_result(&blob_map, &quilt_blobs, quilt_store_result)
                     .await?;
                 tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
+            } else {
+                tracing::error!("failed to read quilt: {:?}", read_result.err());
             }
         }
 
@@ -189,6 +191,8 @@ impl WriteClient {
                 self.handle_read_result(&blob_map, &quilt_blobs, quilt_store_result)
                     .await?;
                 tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
+            } else {
+                tracing::error!("failed to read quilt: {:?}", read_result.err());
             }
         }
 
@@ -216,7 +220,7 @@ impl WriteClient {
         let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
         let num_blobs = quilt_store_blobs.len();
 
-        let result = self.write_quilt(&quilt_store_blobs).await?;
+        if let Ok(result) = self.write_quilt(&quilt_store_blobs).await {
         let duration = now.elapsed();
 
         // Record the metric.
@@ -237,6 +241,10 @@ impl WriteClient {
                 .expect("blob id should be present"),
             duration,
         ))
+    } else {
+        tracing::error!("failed to write quilt!");
+        Ok((BlobId::ZERO, Duration::from_secs(0)))
+    }
     }
 
     pub async fn write_quilt(
@@ -404,7 +412,7 @@ impl WriteClient {
         mut self,
         interval: Duration,
         metrics: Arc<ClientMetrics>,
-    ) {
+    ) -> anyhow::Result<()> {
         let mut interval_timer = tokio::time::interval(interval);
         interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -429,7 +437,6 @@ impl WriteClient {
             match result {
                 Ok((client_back, quilt_result)) => {
                     self = client_back; // Get the client back
-
                     match quilt_result {
                         Ok((blob_id, duration)) => {
                             tracing::info!(
@@ -445,9 +452,9 @@ impl WriteClient {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Quilt writing task panicked: {}", e);
+                    tracing::error!("Quilt writing failed: {}", e);
                     metrics.observe_error("quilt_write_task_panic");
-                    break; // Exit the loop if the task panics
+                    return Err(e.into());
                 }
             }
         }
