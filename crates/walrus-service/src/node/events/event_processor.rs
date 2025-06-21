@@ -156,6 +156,71 @@ pub struct EventProcessorStores {
     pub init_state: DBMap<u64, InitState>,
 }
 
+impl EventProcessorStores {
+    /// Opens the stores for the event processor.
+    pub fn open(database: &Arc<RocksDB>) -> Result<Self, anyhow::Error> {
+        let default_rw_opts = ReadWriteOptions::default();
+        tracing::info!(
+            "open checkpoint_store, walrus_package_store, \
+            committee_store with default_rw_opts: {:?}",
+            default_rw_opts
+        );
+        let checkpoint_store = DBMap::reopen(
+            database,
+            Some(constants::CHECKPOINT_STORE),
+            &default_rw_opts,
+            false,
+        )?;
+        let walrus_package_store = DBMap::reopen(
+            database,
+            Some(constants::WALRUS_PACKAGE_STORE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let committee_store = DBMap::reopen(
+            database,
+            Some(constants::COMMITTEE_STORE),
+            &default_rw_opts,
+            false,
+        )?;
+        let event_store_opts = ReadWriteOptions::default().set_ignore_range_deletions(true);
+        tracing::info!(
+            "open event_store and init_state with event_store_opts: {:?}",
+            event_store_opts
+        );
+        let event_store = DBMap::reopen(
+            database,
+            Some(constants::EVENT_STORE),
+            &event_store_opts,
+            false,
+        )?;
+        let init_state = DBMap::reopen(
+            database,
+            Some(constants::INIT_STATE),
+            &event_store_opts,
+            false,
+        )?;
+
+        let event_processor_stores = EventProcessorStores {
+            checkpoint_store,
+            walrus_package_store,
+            committee_store,
+            event_store,
+            init_state,
+        };
+
+        Ok(event_processor_stores)
+    }
+
+    /// Clears all stores by scheduling deletion of all entries.
+    fn clear(&self) -> Result<(), TypedStoreError> {
+        self.committee_store.schedule_delete_all()?;
+        self.event_store.schedule_delete_all()?;
+        self.walrus_package_store.schedule_delete_all()?;
+        Ok(())
+    }
+}
+
 /// Event processor for processing checkpoint and extract Walrus events from the full node.
 #[derive(Clone)]
 pub struct EventProcessor {
@@ -451,6 +516,12 @@ impl EventProcessor {
             bail!("No checkpoint found in the checkpoint store");
         };
         let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        tracing::info!(
+            next_event_index,
+            next_checkpoint,
+            "starting to tail checkpoints"
+        );
+
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
         let mut rx = self
@@ -587,14 +658,6 @@ impl EventProcessor {
         Ok(())
     }
 
-    /// Clears all stores by scheduling deletion of all entries.
-    fn clear_stores(&self) -> Result<(), TypedStoreError> {
-        self.stores.committee_store.schedule_delete_all()?;
-        self.stores.event_store.schedule_delete_all()?;
-        self.stores.walrus_package_store.schedule_delete_all()?;
-        Ok(())
-    }
-
     /// Creates a new checkpoint processor with the given configuration. The processor will use the
     /// given configuration to connect to the full node and the checkpoint store. If the checkpoint
     /// store is not found, it will be created. If the checkpoint store is found, the processor will
@@ -613,7 +676,10 @@ impl EventProcessor {
         )
         .await?;
         let database = Self::initialize_database(&runtime_config)?;
-        let stores = Self::open_stores(&database)?;
+        let stores = EventProcessorStores::open(&database)?;
+        if stores.checkpoint_store.is_empty() {
+            stores.clear()?;
+        }
         let package_store =
             LocalDBPackageStore::new(stores.walrus_package_store.clone(), retry_client.clone());
         let original_system_package_id = package_store
@@ -639,10 +705,6 @@ impl EventProcessor {
             package_store,
             latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         };
-
-        if event_processor.stores.checkpoint_store.is_empty() {
-            event_processor.clear_stores()?;
-        }
 
         let current_checkpoint = event_processor
             .stores
@@ -875,61 +937,6 @@ impl EventProcessor {
         Ok(database)
     }
 
-    /// Opens the stores for the event processor.
-    pub fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores, anyhow::Error> {
-        let default_rw_opts = ReadWriteOptions::default();
-        tracing::info!(
-            "open checkpoint_store, walrus_package_store, \
-            committee_store with default_rw_opts: {:?}",
-            default_rw_opts
-        );
-        let checkpoint_store = DBMap::reopen(
-            database,
-            Some(constants::CHECKPOINT_STORE),
-            &default_rw_opts,
-            false,
-        )?;
-        let walrus_package_store = DBMap::reopen(
-            database,
-            Some(constants::WALRUS_PACKAGE_STORE),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        let committee_store = DBMap::reopen(
-            database,
-            Some(constants::COMMITTEE_STORE),
-            &default_rw_opts,
-            false,
-        )?;
-        let event_store_opts = ReadWriteOptions::default().set_ignore_range_deletions(true);
-        tracing::info!(
-            "open event_store and init_state with event_store_opts: {:?}",
-            event_store_opts
-        );
-        let event_store = DBMap::reopen(
-            database,
-            Some(constants::EVENT_STORE),
-            &event_store_opts,
-            false,
-        )?;
-        let init_state = DBMap::reopen(
-            database,
-            Some(constants::INIT_STATE),
-            &event_store_opts,
-            false,
-        )?;
-
-        let event_processor_stores = EventProcessorStores {
-            checkpoint_store,
-            walrus_package_store,
-            committee_store,
-            event_store,
-            init_state,
-        };
-
-        Ok(event_processor_stores)
-    }
-
     /// Gets the initial committee and checkpoint information by:
     /// 1. Fetching the system package object
     /// 2. Getting its previous transaction
@@ -1013,6 +1020,8 @@ impl EventProcessor {
         metrics: Option<&EventProcessorMetrics>,
     ) -> Result<()> {
         tracing::info!("Starting event catchup using event blobs");
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_catchup_using_event_blobs_start");
         let next_checkpoint = stores
             .checkpoint_store
             .reversed_safe_iter_with_bounds(None, None)?
@@ -1156,10 +1165,11 @@ impl EventProcessor {
             fs::remove_file(blob_path)?;
             next_event_index = Some(last_event_index + 1);
             tracing::info!(
-                "processed event blob {} with {} events, last event index: {}",
-                blob_id,
+                %blob_id,
+                last_event_index,
+                last_checkpoint,
+                "processed event blob with {} events",
                 events.len(),
-                last_event_index
             );
         }
         tracing::info!("recovered {} events from event blobs", num_events_recovered);

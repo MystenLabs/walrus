@@ -8,11 +8,13 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufReader, BufWriter},
+    pin::Pin,
     time::Duration,
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checkpoint_downloader::AdaptiveDownloaderConfig;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
@@ -296,4 +298,14 @@ impl Ord for EventStreamCursor {
     fn cmp(&self, other: &Self) -> Ordering {
         self.element_index.cmp(&other.element_index)
     }
+}
+
+/// A stream of events with starting indices for event processing and the event-blob writer.
+pub(crate) struct EventStreamWithStartingIndices<'a> {
+    /// The event stream.
+    pub event_stream: Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'a>>,
+    /// The index of the first event in the stream.
+    pub processing_starting_index: u64,
+    /// The index of the first event in the writer's event stream.
+    pub writer_starting_index: u64,
 }
