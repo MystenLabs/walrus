@@ -32,9 +32,10 @@ use walrus_core::{
         max_blob_size_for_n_shards,
         max_sliver_size_for_n_secondary,
         metadata_length_for_n_shards,
+        quilt_encoding::QuiltStoreBlob,
         source_symbols_for_n_shards,
     },
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_sdk::{
     client::NodeCommunicationFactory,
@@ -137,6 +138,15 @@ pub(crate) struct DryRunOutput {
     pub storage_cost: u64,
     /// The encoding type used for the blob.
     pub encoding_type: EncodingType,
+}
+
+/// The output of the `store-quilt --dry-run` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoreQuiltDryRunOutput {
+    pub(crate) quilt_blob_output: DryRunOutput,
+    pub(crate) quilt_index: QuiltIndex,
 }
 
 /// The output of the `blob-status` command.
@@ -777,6 +787,28 @@ impl NodeHealthOutput {
                 .then_with(|| self.cmp_by_name(other)),
             (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
             (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+/// The output of the `read-quilt` command.
+#[derive(Serialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadQuiltOutput {
+    /// The output directory path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub out: Option<PathBuf>,
+    /// The retrieved blobs.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub retrieved_blobs: Vec<QuiltStoreBlob<'static>>,
+}
+
+impl ReadQuiltOutput {
+    /// Creates a new [`ReadQuiltOutput`] object.
+    pub fn new(out: Option<PathBuf>, retrieved_blobs: Vec<QuiltStoreBlob<'static>>) -> Self {
+        Self {
+            out,
+            retrieved_blobs,
         }
     }
 }
