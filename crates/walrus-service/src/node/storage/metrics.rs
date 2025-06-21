@@ -171,6 +171,8 @@ pub(super) fn typed_store_error_type<T>(result: Result<&T, &TypedStoreError>) ->
         TypedStoreError::CrossDBBatch => "TypedStoreError::CrossDBBatch",
         TypedStoreError::MetricsReporting => "TypedStoreError::MetricsReporting",
         TypedStoreError::RetryableTransactionError => "TypedStoreError::RetryableTransactionError",
+        TypedStoreError::IteratorNotInitialized => "TypedStoreError::IteratorNotInitialized",
+        TypedStoreError::TaskError(_) => "TypedStoreError::TaskError",
         _ => "unrecognized",
     }
 }

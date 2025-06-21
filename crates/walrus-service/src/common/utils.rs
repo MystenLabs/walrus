@@ -838,10 +838,18 @@ where
 
 /// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
 /// or resumes a panic if the function had panicked.
-pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::JoinError>>(
+    result: Result<Result<T, E>, JoinError>,
+) -> Result<T, E> {
     match result {
         Ok(value) => value,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic())
+            } else {
+                Err(error.into())
+            }
+        }
     }
 }
 
