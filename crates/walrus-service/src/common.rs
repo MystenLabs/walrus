@@ -5,7 +5,7 @@
 
 pub(crate) mod api;
 pub mod config;
-pub(crate) mod telemetry;
+pub mod telemetry;
 pub mod utils;
 
 #[cfg(feature = "client")]
