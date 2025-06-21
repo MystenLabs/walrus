@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
+use std::str::FromStr;
 
 use indicatif::MultiProgress;
 use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -13,6 +15,7 @@ use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
     EpochCount,
+    QuiltPatchId,
     SliverPairIndex,
     encoding::{
         EncodingConfigTrait as _,
@@ -47,13 +50,14 @@ use walrus_sui::{
     wallet::Wallet,
 };
 use walrus_test_utils::WithTempDir;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::blob::{BlobData, QuiltData, QuiltStoreBlobConfig, WriteBlobConfig};
 
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
-    client: WithTempDir<Client<SuiContractClient>>,
+    client: Client<SuiContractClient>,
     blob: BlobData,
     quilt_pool: QuiltData,
     metrics: Arc<ClientMetrics>,
@@ -64,17 +68,20 @@ impl WriteClient {
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn new(
-        config: &ClientConfig,
-        network: &SuiNetwork,
-        gas_budget: Option<u64>,
+        client_config: ClientConfig,
         blob_config: WriteBlobConfig,
         quilt_config: QuiltStoreBlobConfig,
         refresher_handle: CommitteesRefresherHandle,
-        refiller: Refiller,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
+        tracing::info!("initializing write clients...");
+
+        let sui_contract_client =
+            client_config.new_contract_client_with_wallet_in_config(None).await?;
+
+        let client = Client::new_contract_client(client_config, refresher_handle, sui_contract_client)
+            .await?;
         let blob = BlobData::random(StdRng::from_entropy(), blob_config.clone()).await;
-        let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self {
             client,
             blob,
@@ -85,21 +92,19 @@ impl WriteClient {
 
     async fn handle_read_result(
         &self,
-        selected_blobs: &[&QuiltStoreBlob<'_>],
+        blob_map: &HashMap<&str, &QuiltStoreBlob<'_>>,
         quilt_blobs: &[QuiltStoreBlob<'static>],
         quilt_store_result: &QuiltStoreResult,
     ) -> Result<(), ClientError> {
         for read_blob in quilt_blobs.iter() {
-            if let Some(original_blob) = selected_blobs
-                .iter()
-                .find(|b| b.identifier() == read_blob.identifier())
+            if let Some(original_blob) = blob_map.get(read_blob.identifier())
             {
                 if read_blob.data() != original_blob.data() {
-                    self.dump_mismatch_data(selected_blobs, quilt_blobs, quilt_store_result)
+                    self.dump_mismatch_data(blob_map, quilt_blobs, quilt_store_result)
                         .await;
                 }
             } else {
-                self.dump_mismatch_data(selected_blobs, quilt_blobs, quilt_store_result)
+                self.dump_mismatch_data(blob_map, quilt_blobs, quilt_store_result)
                     .await;
             }
         }
@@ -112,50 +117,86 @@ impl WriteClient {
         quilt_store_blobs: &[QuiltStoreBlob<'_>],
         metrics: &ClientMetrics,
     ) -> Result<(), ClientError> {
+        let blob_map = quilt_store_blobs
+            .iter()
+            .map(|blob| (blob.identifier(), blob))
+            .collect::<HashMap<_, _>>();
         let quilt_client = self
             .client
-            .as_ref()
             .quilt_client(QuiltClientConfig::default());
 
         let mut rng = StdRng::from_entropy();
-        let num_to_read = rng.gen_range(1..=3);
+        for _ in 0..10 {
+            let num_to_read = rng.gen_range(1..=3);
 
-        let quilt_id = quilt_store_result
-            .blob_store_result
-            .blob_id()
-            .expect("blob id should be present");
-        let selected_blobs = quilt_store_blobs
-            .choose_multiple(&mut rng, num_to_read)
-            .collect::<Vec<&QuiltStoreBlob<'_>>>();
-        let start = Instant::now();
-        let read_result = quilt_client
-            .get_blobs_by_identifiers(
-                &quilt_id,
-                &selected_blobs
-                    .iter()
-                    .map(|blob| blob.identifier())
-                    .collect::<Vec<_>>(),
-            )
-            .await;
-        let duration = start.elapsed();
-        metrics.observe_quilt_read_latency(duration, num_to_read, read_result.is_ok());
+            let quilt_id = quilt_store_result
+                .blob_store_result
+                .blob_id()
+                .expect("blob id should be present");
+            let selected_blobs = quilt_store_blobs
+                .choose_multiple(&mut rng, num_to_read)
+                .map(|blob| blob.identifier())
+                .collect::<Vec<_>>();
+            let start = Instant::now();
+            let read_result = quilt_client
+                .get_blobs_by_identifiers(&quilt_id, &selected_blobs)
+                .await;
+            let duration = start.elapsed();
+            metrics.observe_quilt_read_latency(duration, num_to_read, read_result.is_ok());
 
-        if let Ok(quilt_blobs) = read_result {
-            self.handle_read_result(&selected_blobs, &quilt_blobs, quilt_store_result)
-                .await?;
-            tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
+            if let Ok(quilt_blobs) = read_result {
+                self.handle_read_result(&blob_map, &quilt_blobs, quilt_store_result)
+                    .await?;
+                tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
+            }
         }
 
         Ok(())
     }
 
-    /// Returns the active address of the client.
-    pub fn address(&mut self) -> SuiAddress {
-        self.client.as_mut().sui_client_mut().address()
+    async fn read_random_quilt_by_ids(
+        &self,
+        quilt_store_result: &QuiltStoreResult,
+        quilt_store_blobs: &[QuiltStoreBlob<'_>],
+        metrics: &ClientMetrics,
+    ) -> Result<(), ClientError> {
+        let blob_map = quilt_store_blobs
+            .iter()
+            .map(|blob| (blob.identifier(), blob))
+            .collect::<HashMap<_, _>>();
+        let quilt_client = self
+            .client
+            .quilt_client(QuiltClientConfig::default());
+
+        let mut rng = StdRng::from_entropy();
+        for _ in 0..10 {
+            let num_to_read = rng.gen_range(1..=3);
+            let quilt_patch_ids = quilt_store_result
+                .stored_quilt_blobs
+                .choose_multiple(&mut rng, num_to_read)
+                .map(|blob| {
+                    QuiltPatchId::from_str(&blob.quilt_patch_id)
+                        .expect("invalid quilt patch id")
+                })
+                .collect::<Vec<_>>();
+
+            let start = Instant::now();
+            let read_result = quilt_client.get_blobs_by_ids(&quilt_patch_ids).await;
+            let duration = start.elapsed();
+            metrics.observe_quilt_read_latency(duration, num_to_read, read_result.is_ok());
+
+            if let Ok(quilt_blobs) = read_result {
+                self.handle_read_result(&blob_map, &quilt_blobs, quilt_store_result)
+                    .await?;
+                tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn write_fresh_quilt(
-        &mut self,
+        &self,
         metrics: &ClientMetrics,
     ) -> Result<(BlobId, Duration), ClientError> {
         let now = Instant::now();
@@ -185,6 +226,8 @@ impl WriteClient {
         if !result.stored_quilt_blobs.is_empty() {
             self.read_random_quilt_by_identifier(&result, &quilt_store_blobs, metrics)
                 .await?;
+            self.read_random_quilt_by_ids(&result, &quilt_store_blobs, metrics)
+                .await?;
         }
 
         Ok((
@@ -202,7 +245,6 @@ impl WriteClient {
     ) -> Result<QuiltStoreResult, ClientError> {
         let quilt_client = self
             .client
-            .as_ref()
             .quilt_client(QuiltClientConfig::default());
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(quilt_store_blobs, DEFAULT_ENCODING)
@@ -213,7 +255,6 @@ impl WriteClient {
         );
         let result = self
             .client
-            .as_ref()
             .quilt_client(QuiltClientConfig::default())
             .reserve_and_store_quilt::<QuiltVersionV1>(
                 &quilt,
@@ -242,7 +283,7 @@ impl WriteClient {
     /// Dumps mismatch data to files for debugging.
     async fn dump_mismatch_data(
         &self,
-        original_blobs: &[&QuiltStoreBlob<'_>],
+        original_blobs: &HashMap<&str, &QuiltStoreBlob<'_>>,
         read_blobs: &[QuiltStoreBlob<'static>],
         result: &QuiltStoreResult,
     ) {
@@ -260,12 +301,12 @@ impl WriteClient {
         }
 
         // Dump original quilt store blobs
-        for original_blob in original_blobs.iter() {
-            let file_path = format!("{}/original_{}.bin", dump_dir, original_blob.identifier());
+        for (identifier, original_blob) in original_blobs.iter() {
+            let file_path = format!("{}/original_{}.bin", dump_dir, identifier);
             if let Err(e) = fs::write(&file_path, original_blob.data()) {
                 tracing::error!(
                     "Failed to write original blob '{}': {}",
-                    original_blob.identifier(),
+                    identifier,
                     e
                 );
             }
@@ -330,7 +371,6 @@ impl WriteClient {
         let now = Instant::now();
         let blob_id = self
             .client
-            .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
@@ -356,114 +396,6 @@ impl WriteClient {
         Ok((blob_id, now.elapsed()))
     }
 
-    /// Stores a fresh blob that is inconsistent in primary sliver 0 and returns
-    /// the blob id and elapsed time.
-    pub async fn write_fresh_inconsistent_blob(
-        &mut self,
-    ) -> Result<(BlobId, Duration), ClientError> {
-        self.blob.refresh();
-        let blob = self.blob.random_size_slice();
-        let now = Instant::now();
-        let blob_id = self
-            .reserve_and_store_inconsistent_blob(blob, self.blob.epochs_to_store())
-            .await?;
-        Ok((blob_id, now.elapsed()))
-    }
-
-    /// Stores an inconsistent blob.
-    ///
-    /// If there are enough storage nodes to achieve a quorum even without two nodes, the blob
-    /// will be inconsistent in two slivers, s.t. each of them is held by a different storage
-    /// node, if the shards are distributed equally and assigned sequentially.
-    async fn reserve_and_store_inconsistent_blob(
-        &self,
-        blob: &[u8],
-        epochs_to_store: EpochCount,
-    ) -> Result<BlobId, ClientError> {
-        // Encode the blob with false metadata for one shard.
-        let (pairs, metadata) = self
-            .client
-            .as_ref()
-            .encoding_config()
-            .get_for_type(DEFAULT_ENCODING)
-            .encode_with_metadata(blob)
-            .map_err(ClientError::other)?;
-
-        let mut metadata = metadata.metadata().to_owned();
-        let n_members = self
-            .client
-            .as_ref()
-            .sui_client()
-            .read_client
-            .current_committee()
-            .await?
-            .n_members();
-        let n_shards = self.client.as_ref().encoding_config().n_shards();
-
-        // Make primary sliver 0 inconsistent.
-        metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
-
-        // Make second sliver inconsistent if enough committee members
-        if n_members >= 7 {
-            // Sliver `n_shards/2` will be held by a different node if the shards are assigned
-            // sequentially.
-            metadata.mut_inner().hashes[(n_shards.get() / 2) as usize].primary_hash =
-                Node::Digest([0; 32]);
-        }
-
-        let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-        let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
-
-        tracing::info!("writing inconsistent blob {blob_id} to store {epochs_to_store} epochs",);
-
-        // Output the shard index storing the inconsistent sliver.
-        tracing::debug!(
-            "Shard index for inconsistent sliver: {}",
-            SliverPairIndex::new(0)
-                .to_shard_index(self.client.as_ref().encoding_config().n_shards(), &blob_id)
-        );
-
-        // Register blob.
-        let committees = self.client.as_ref().get_committees().await?;
-        let (blob_sui_object, _operation) = self
-            .client
-            .as_ref()
-            .resource_manager(&committees)
-            .await
-            .get_existing_or_register(
-                &[&metadata],
-                epochs_to_store,
-                BlobPersistence::Permanent,
-                StoreOptimizations::none(),
-            )
-            .await?
-            .into_iter()
-            .next()
-            .expect("should register exactly one blob");
-
-        // Wait to ensure that the storage nodes received the registration event.
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let certificate = self
-            .client
-            .as_ref()
-            .send_blob_data_and_get_certificate(
-                &metadata,
-                &pairs,
-                &blob_sui_object.blob_persistence_type(),
-                &MultiProgress::new(),
-            )
-            .await?;
-
-        self.client
-            .as_ref()
-            .sui_client()
-            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
-            .await?;
-
-        Ok(blob_id)
-    }
-
     /// Periodically writes fresh quilts using a single writer with sequential blocking threads.
     ///
     /// Each write operation runs in a tokio blocking thread and is waited for completion
@@ -483,7 +415,7 @@ impl WriteClient {
 
             // Move the client into the blocking task and get it back
             let result = tokio::task::spawn_blocking({
-                let mut client = self;
+                let client = self;
                 move || {
                     let rt = tokio::runtime::Handle::current();
                     rt.block_on(async move {
@@ -524,38 +456,21 @@ impl WriteClient {
 
 /// Creates a new client with a separate wallet.
 async fn new_client(
-    config: &ClientConfig,
+    client_config: &ClientConfig,
     network: &SuiNetwork,
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
-    refiller: Refiller,
-) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
-    // Create the client with a separate wallet
-    let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
-    let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
-    let sui_client = RetriableSuiClient::new(
-        rpc_urls
-            .iter()
-            .map(|rpc_url| {
-                LazySuiClientBuilder::new(
-                    rpc_url,
-                    config.communication_config.sui_client_request_timeout,
-                )
-            })
-            .collect(),
-        Default::default(),
+) -> anyhow::Result<Client<SuiContractClient>> {
+    let sui_contract_client =
+        client_config.new_contract_client_with_wallet_in_config(gas_budget).await?;
+
+    let client = Client::new_contract_client(
+        client_config.clone(),
+        refresher_handle,
+        sui_contract_client,
     )
     .await?;
-    let sui_read_client = config.new_read_client(sui_client).await?;
-    let sui_contract_client = wallet.and_then(|wallet| {
-        SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
-    })?;
 
-    let client = sui_contract_client
-        .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
-        })
-        .await?;
     Ok(client)
 }
 

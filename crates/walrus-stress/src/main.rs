@@ -27,7 +27,7 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-use crate::generator::LoadGenerator;
+use crate::generator::{LoadGenerator, write_client::WriteClient};
 
 mod generator;
 
@@ -196,24 +196,28 @@ async fn run_stress(
         args.max_num_blobs_in_quilt,
         args.quilt_write_rate,
     );
-    let mut load_generator = LoadGenerator::new(
-        n_clients,
+    // Create refresher handle
+    let sui_client = walrus_sui::client::retry_client::RetriableSuiClient::new_for_rpc_urls(
+        &[sui_network.env().rpc.clone()],
+        walrus_utils::backoff::ExponentialBackoffConfig::default(),
+        client_config.communication_config.sui_client_request_timeout,
+    ).await?;
+    let sui_read_client = client_config.new_read_client(sui_client).await?;
+    let refresher_handle = client_config
+        .refresh_config
+        .build_refresher_and_run(sui_read_client)
+        .await?;
+
+    let write_client = WriteClient::new(
+        client_config,
         blob_config,
         quilt_config,
-        client_config,
-        sui_network,
-        gas_refill_period,
-        metrics,
-        refiller,
+        refresher_handle,
+        metrics.clone(),
     )
     .await?;
 
-    load_generator
-        .write_quilts_periodically(Duration::from_secs(1))
-        .await;
-    // load_generator
-    //     .start(args.write_load, args.read_load, args.inconsistent_blob_rate)
-    //     .await?;
+    write_client.write_quilts_periodically(Duration::from_secs(20), metrics).await;
     Ok(())
 }
 
