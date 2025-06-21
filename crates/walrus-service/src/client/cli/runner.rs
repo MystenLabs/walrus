@@ -787,6 +787,7 @@ impl ClientCommandRunner {
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
+        tracing::info!("quilt constructed, size: {}", quilt.data().len());
         let result = quilt_write_client
             .reserve_and_store_quilt::<QuiltVersionV1>(
                 &quilt,

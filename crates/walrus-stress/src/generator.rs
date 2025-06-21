@@ -129,7 +129,10 @@ impl LoadGenerator {
             write_client_pool_tx.send(write_client).await?;
         }
 
-        tracing::info!("finished initializing clients and blobs");
+        tracing::info!(
+            "finished initializing clients and blobs, quilt percentage: {}",
+            quilt_config.percentage_of_quilts
+        );
 
         tracing::info!("spawning gas refill task...");
 
@@ -173,7 +176,7 @@ impl LoadGenerator {
             } else if is_quilt {
                 client.write_fresh_quilt(&metrics).await
             } else {
-                client.write_fresh_blob().await
+                client.write_fresh_quilt(&metrics).await
             };
             match result {
                 Ok((_blob_id, elapsed)) => {
@@ -386,6 +389,52 @@ impl LoadGenerator {
                     }
                 }
             }
+        }
+    }
+
+    pub async fn write_quilts_periodically(mut self, interval: Duration) {
+        // Creates an interval timer
+        let mut interval_timer = tokio::time::interval(interval);
+        interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval_timer.tick().await; // Wait for the next interval
+            let mut write_client = self
+                .write_client_pool
+                .recv()
+                .await
+                .expect("write client should be available");
+            let metrics = self.metrics.clone();
+
+            // Move the client into a blocking thread
+            let result = tokio::task::spawn_blocking({
+                move || {
+                    // Use the current runtime handle to run async code in blocking context
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(async move {
+                        let result = write_client.write_fresh_quilt(&metrics).await;
+                        (write_client, result) // Return both client and result
+                    })
+                }
+            })
+            .await; // Wait for the blocking task to complete
+
+            // Get the client back and handle the result
+            match result {
+                Ok((client_back, quilt_result)) => {
+                    self.write_client_pool_tx
+                        .send(client_back)
+                        .await
+                        .expect("channel should not be closed");
+                    // Handle success/failure and log appropriately
+                }
+                Err(e) => {
+                    // Handle task panic and exit
+                    break;
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
         }
     }
 }

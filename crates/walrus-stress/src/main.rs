@@ -80,17 +80,17 @@ struct StressArgs {
     /// The target write load to submit to the system (writes/minute).
     /// The actual load may be limited by the number of clients.
     /// If the write load is 0, a single write will be performed to enable reads.
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 3)]
     write_load: u64,
     /// The minimum duration of epoch (inclusive) to store the blob for.
     #[arg(long, default_value_t = 1)]
     min_epochs_to_store: u32,
     /// The maximum duration of epoch (inclusive) to store the blob for.
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 2)]
     max_epochs_to_store: u32,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 1)]
     read_load: u64,
     /// The number of clients to use for the load generation for reads and writes.
     #[arg(long, default_value = "10")]
@@ -99,16 +99,16 @@ struct StressArgs {
     ///
     /// Blobs sizes are uniformly distributed across the powers of two between
     /// this and the maximum blob size.
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "9")]
     min_size_log2: u8,
     /// The binary logarithm of the maximum blob size to use for the load generation.
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "17")]
     max_size_log2: u8,
     /// The minimum number of blobs to store in a quilt.
     #[arg(long, default_value = "10")]
     min_num_blobs_in_quilt: u16,
     /// The maximum number of blobs to store in a quilt.
-    #[arg(long, default_value = "200")]
+    #[arg(long, default_value = "100")]
     max_num_blobs_in_quilt: u16,
     /// The fraction of writes that write quilts.
     #[arg(long, default_value = "0.5")]
@@ -117,7 +117,7 @@ struct StressArgs {
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled
     /// periodically.
-    #[arg(long, default_value = "1000")]
+    #[arg(long, default_value = "1000000")]
     gas_refill_period_millis: NonZeroU64,
     /// The fraction of writes that write inconsistent blobs.
     #[arg(long, default_value_t = 0.0)]
@@ -209,8 +209,11 @@ async fn run_stress(
     .await?;
 
     load_generator
-        .start(args.write_load, args.read_load, args.inconsistent_blob_rate)
-        .await?;
+        .write_quilts_periodically(Duration::from_secs(1))
+        .await;
+    // load_generator
+    //     .start(args.write_load, args.read_load, args.inconsistent_blob_rate)
+    //     .await?;
     Ok(())
 }
 

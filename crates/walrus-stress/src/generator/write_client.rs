@@ -16,7 +16,7 @@ use walrus_core::{
     SliverPairIndex,
     encoding::{
         EncodingConfigTrait as _,
-        quilt_encoding::{QuiltStoreBlob, QuiltVersionV1},
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
@@ -143,6 +143,7 @@ impl WriteClient {
         if let Ok(quilt_blobs) = read_result {
             self.handle_read_result(&selected_blobs, &quilt_blobs, quilt_store_result)
                 .await?;
+            tracing::info!("read quilt successfully: {:?}", quilt_blobs.len());
         }
 
         Ok(())
@@ -206,6 +207,10 @@ impl WriteClient {
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(quilt_store_blobs, DEFAULT_ENCODING)
             .await?;
+        tracing::info!(
+            "finished constructing quilt, quilt size: {:?}",
+            quilt.data().len()
+        );
         let result = self
             .client
             .as_ref()
@@ -218,15 +223,20 @@ impl WriteClient {
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
-            .await?;
+            .await;
 
-        tracing::info!(
-            blob_id = ?result.blob_store_result.blob_id(),
-            num_blobs = quilt_store_blobs.len(),
-            "stored quilt successfully"
-        );
+        tracing::info!("write quilt result: {:?}", result);
 
-        Ok(result)
+        if let Ok(result) = result {
+            tracing::info!(
+                blob_id = ?result.blob_store_result.blob_id(),
+                num_blobs = quilt_store_blobs.len(),
+                "stored quilt successfully"
+            );
+            Ok(result)
+        } else {
+            Err(result.unwrap_err())
+        }
     }
 
     /// Dumps mismatch data to files for debugging.
@@ -452,6 +462,63 @@ impl WriteClient {
             .await?;
 
         Ok(blob_id)
+    }
+
+    /// Periodically writes fresh quilts using a single writer with sequential blocking threads.
+    ///
+    /// Each write operation runs in a tokio blocking thread and is waited for completion
+    /// before starting the next one.
+    pub async fn write_quilts_periodically(
+        mut self,
+        interval: Duration,
+        metrics: Arc<ClientMetrics>,
+    ) {
+        let mut interval_timer = tokio::time::interval(interval);
+        interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval_timer.tick().await;
+
+            let metrics_clone = metrics.clone();
+
+            // Move the client into the blocking task and get it back
+            let result = tokio::task::spawn_blocking({
+                let mut client = self;
+                move || {
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(async move {
+                        let result = client.write_fresh_quilt(&metrics_clone).await;
+                        (client, result)
+                    })
+                }
+            })
+            .await;
+
+            match result {
+                Ok((client_back, quilt_result)) => {
+                    self = client_back; // Get the client back
+
+                    match quilt_result {
+                        Ok((blob_id, duration)) => {
+                            tracing::info!(
+                                ?blob_id,
+                                duration_ms = duration.as_millis(),
+                                "Successfully wrote fresh quilt"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to write fresh quilt: {}", e);
+                            metrics.observe_error("quilt_write_failed");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Quilt writing task panicked: {}", e);
+                    metrics.observe_error("quilt_write_task_panic");
+                    break; // Exit the loop if the task panics
+                }
+            }
+        }
     }
 }
 
