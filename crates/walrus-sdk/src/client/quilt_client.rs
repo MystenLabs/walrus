@@ -233,6 +233,7 @@ where
             ));
             Ok(())
         } else {
+            tracing::warn!("failed to retrieve slivers, trying to get full quilt");
             let quilt = self
                 .client
                 .get_full_quilt(metadata, certified_epoch)

@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use generator::blob::WriteBlobConfig;
+use generator::blob::{QuiltStoreBlobConfig, WriteBlobConfig};
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::metrics::ClientMetrics;
@@ -27,7 +27,7 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-use crate::generator::LoadGenerator;
+use crate::generator::{LoadGenerator, write_client::WriteClient};
 
 mod generator;
 
@@ -80,17 +80,17 @@ struct StressArgs {
     /// The target write load to submit to the system (writes/minute).
     /// The actual load may be limited by the number of clients.
     /// If the write load is 0, a single write will be performed to enable reads.
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 3)]
     write_load: u64,
     /// The minimum duration of epoch (inclusive) to store the blob for.
     #[arg(long, default_value_t = 1)]
     min_epochs_to_store: u32,
     /// The maximum duration of epoch (inclusive) to store the blob for.
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 2)]
     max_epochs_to_store: u32,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 1)]
     read_load: u64,
     /// The number of clients to use for the load generation for reads and writes.
     #[arg(long, default_value = "10")]
@@ -99,16 +99,25 @@ struct StressArgs {
     ///
     /// Blobs sizes are uniformly distributed across the powers of two between
     /// this and the maximum blob size.
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "9")]
     min_size_log2: u8,
     /// The binary logarithm of the maximum blob size to use for the load generation.
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "17")]
     max_size_log2: u8,
+    /// The minimum number of blobs to store in a quilt.
+    #[arg(long, default_value = "10")]
+    min_num_blobs_in_quilt: u16,
+    /// The maximum number of blobs to store in a quilt.
+    #[arg(long, default_value = "100")]
+    max_num_blobs_in_quilt: u16,
+    /// The fraction of writes that write quilts.
+    #[arg(long, default_value = "0.5")]
+    quilt_write_rate: f64,
     /// The period in milliseconds to check if gas needs to be refilled.
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled
     /// periodically.
-    #[arg(long, default_value = "1000")]
+    #[arg(long, default_value = "1000000")]
     gas_refill_period_millis: NonZeroU64,
     /// The fraction of writes that write inconsistent blobs.
     #[arg(long, default_value_t = 0.0)]
@@ -182,20 +191,35 @@ async fn run_stress(
         args.min_epochs_to_store,
         args.max_epochs_to_store,
     );
-    let mut load_generator = LoadGenerator::new(
-        n_clients,
-        blob_config,
+    let quilt_config = QuiltStoreBlobConfig::new(
+        args.min_num_blobs_in_quilt,
+        args.max_num_blobs_in_quilt,
+        args.quilt_write_rate,
+    );
+    // Create refresher handle
+    let sui_client = walrus_sui::client::retry_client::RetriableSuiClient::new_for_rpc_urls(
+        &[sui_network.env().rpc.clone()],
+        walrus_utils::backoff::ExponentialBackoffConfig::default(),
+        client_config.communication_config.sui_client_request_timeout,
+    ).await?;
+    let sui_read_client = client_config.new_read_client(sui_client).await?;
+    let refresher_handle = client_config
+        .refresh_config
+        .build_refresher_and_run(sui_read_client)
+        .await?;
+
+    let write_client = WriteClient::new(
         client_config,
-        sui_network,
-        gas_refill_period,
-        metrics,
-        refiller,
+        blob_config,
+        quilt_config,
+        refresher_handle,
+        metrics.clone(),
     )
     .await?;
 
-    load_generator
-        .start(args.write_load, args.read_load, args.inconsistent_blob_rate)
-        .await?;
+    if let Err(e) = write_client.write_quilts_periodically(Duration::from_secs(20), metrics.clone()).await {
+        tracing::error!("failed to write quilts: {:?}", e);
+    }
     Ok(())
 }
 
