@@ -195,6 +195,8 @@ async fn run_stress(
         args.min_num_blobs_in_quilt,
         args.max_num_blobs_in_quilt,
         args.quilt_write_rate,
+        2_usize.pow(args.min_size_log2 as u32),
+        2_usize.pow(args.max_size_log2 as u32),
     );
     // Create refresher handle
     let sui_client = walrus_sui::client::retry_client::RetriableSuiClient::new_for_rpc_urls(
@@ -211,13 +213,13 @@ async fn run_stress(
     let write_client = WriteClient::new(
         client_config,
         blob_config,
-        quilt_config,
+        quilt_config.clone(),
         refresher_handle,
         metrics.clone(),
     )
     .await?;
 
-    if let Err(e) = write_client.write_quilts_periodically(Duration::from_secs(20), metrics.clone()).await {
+    if let Err(e) = write_client.write_quilts_periodically(quilt_config, metrics.clone()).await {
         tracing::error!("failed to write quilts: {:?}", e);
     }
     Ok(())

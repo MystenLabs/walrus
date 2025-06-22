@@ -202,9 +202,19 @@ impl WriteClient {
     pub async fn write_fresh_quilt(
         &self,
         metrics: &ClientMetrics,
+        quilt_config: QuiltStoreBlobConfig,
     ) -> Result<(BlobId, Duration), ClientError> {
         let now = Instant::now();
-        let quilt_data = self.quilt_pool.get_random_batch();
+        let num_blobs = rand::thread_rng().gen_range(
+            quilt_config.min_num_blobs_per_quilt as usize
+                ..quilt_config.max_num_blobs_per_quilt as usize,
+        );
+        let quilt_data = walrus_test_utils::generate_random_data(
+            num_blobs,
+            quilt_config.min_blob_size,
+            quilt_config.max_blob_size,
+        );
+        let quilt_data = quilt_data.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
 
         let max_string_length = 100;
         let include_tags = rand::thread_rng().gen_bool(0.5);
@@ -410,11 +420,12 @@ impl WriteClient {
     /// before starting the next one.
     pub async fn write_quilts_periodically(
         mut self,
-        interval: Duration,
+        quilt_config: QuiltStoreBlobConfig,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<()> {
         loop {
             let metrics_clone = metrics.clone();
+            let quilt_config_clone = quilt_config.clone();
 
             // Move the client into the blocking task and get it back
             let result = tokio::task::spawn_blocking({
@@ -422,7 +433,7 @@ impl WriteClient {
                 move || {
                     let rt = tokio::runtime::Handle::current();
                     rt.block_on(async move {
-                        let result = client.write_fresh_quilt(&metrics_clone).await;
+                        let result = client.write_fresh_quilt(&metrics_clone, quilt_config_clone).await;
                         (client, result)
                     })
                 }

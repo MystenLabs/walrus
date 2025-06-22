@@ -104,6 +104,8 @@ pub struct QuiltStoreBlobConfig {
     pub min_num_blobs_per_quilt: u16,
     pub max_num_blobs_per_quilt: u16,
     pub percentage_of_quilts: f64,
+    pub min_blob_size: usize,
+    pub max_blob_size: usize,
 }
 
 impl QuiltStoreBlobConfig {
@@ -111,11 +113,15 @@ impl QuiltStoreBlobConfig {
         min_num_blobs_per_quilt: u16,
         max_num_blobs_per_quilt: u16,
         percentage_of_quilts: f64,
+        min_blob_size: usize,
+        max_blob_size: usize,
     ) -> Self {
         Self {
             min_num_blobs_per_quilt: min_num_blobs_per_quilt.min(max_num_blobs_per_quilt),
             max_num_blobs_per_quilt,
             percentage_of_quilts,
+            min_blob_size,
+            max_blob_size,
         }
     }
 
