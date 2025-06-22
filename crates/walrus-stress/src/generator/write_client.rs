@@ -413,12 +413,7 @@ impl WriteClient {
         interval: Duration,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<()> {
-        let mut interval_timer = tokio::time::interval(interval);
-        interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
         loop {
-            interval_timer.tick().await;
-
             let metrics_clone = metrics.clone();
 
             // Move the client into the blocking task and get it back
