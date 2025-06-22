@@ -99,7 +99,7 @@ impl WriteClient {
         for read_blob in quilt_blobs.iter() {
             if let Some(original_blob) = blob_map.get(read_blob.identifier())
             {
-                if read_blob.data() != original_blob.data() {
+                if read_blob != *original_blob {
                     self.dump_mismatch_data(blob_map, quilt_blobs, quilt_store_result)
                         .await;
                 }
