@@ -105,7 +105,7 @@ blob_recovery:
   retry_interval_max_secs: 3600
   metadata_request_timeout_secs: 5
   max_concurrent_metadata_requests: 1
-  sliver_request_timeout_secs: 300
+  sliver_request_timeout_secs: 45
   invalidity_sync_timeout_secs: 300
   node_connect_timeout_secs: 1
   experimental_sliver_recovery_additional_symbols: 0

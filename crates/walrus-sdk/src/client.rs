@@ -791,10 +791,10 @@ impl Client<SuiContractClient> {
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
         if let Some(metrics) = metrics {
             metrics.observe_encoding_latency(start.elapsed());
         }
@@ -841,10 +841,10 @@ impl Client<SuiContractClient> {
             .iter()
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
@@ -894,10 +894,10 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         let mut results = self
             .reserve_and_store_encoded_blobs(
@@ -930,10 +930,10 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         debug_assert_eq!(
             encoded_blobs.len(),
@@ -973,15 +973,15 @@ impl Client<SuiContractClient> {
     /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
     pub fn encode_blobs<'a, T: Debug + Clone + Send + Sync>(
         &self,
-        quilt_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
+        walrus_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        if quilt_store_blobs.is_empty() {
+        if walrus_store_blobs.is_empty() {
             return Ok(Vec::new());
         }
 
-        if quilt_store_blobs.len() > 1 {
-            let total_blob_size = quilt_store_blobs
+        if walrus_store_blobs.len() > 1 {
+            let total_blob_size = walrus_store_blobs
                 .iter()
                 .map(|blob| blob.unencoded_length())
                 .sum::<usize>();
@@ -1000,7 +1000,7 @@ impl Client<SuiContractClient> {
         let multi_pb = Arc::new(MultiProgress::new());
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        let results = quilt_store_blobs
+        let results = walrus_store_blobs
             .into_par_iter()
             .map(|blob| {
                 let multi_pb_clone = multi_pb.clone();
