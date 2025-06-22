@@ -202,8 +202,11 @@ async fn run_stress(
     let sui_client = walrus_sui::client::retry_client::RetriableSuiClient::new_for_rpc_urls(
         &[sui_network.env().rpc.clone()],
         walrus_utils::backoff::ExponentialBackoffConfig::default(),
-        client_config.communication_config.sui_client_request_timeout,
-    ).await?;
+        client_config
+            .communication_config
+            .sui_client_request_timeout,
+    )
+    .await?;
     let sui_read_client = client_config.new_read_client(sui_client).await?;
     let refresher_handle = client_config
         .refresh_config
@@ -219,7 +222,10 @@ async fn run_stress(
     )
     .await?;
 
-    if let Err(e) = write_client.write_quilts_periodically(quilt_config, metrics.clone()).await {
+    if let Err(e) = write_client
+        .write_quilts_periodically(quilt_config, metrics.clone())
+        .await
+    {
         tracing::error!("failed to write quilts: {:?}", e);
     }
     Ok(())

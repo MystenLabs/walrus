@@ -8,6 +8,7 @@ use std::{
     fs,
     marker::PhantomData,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -26,7 +27,12 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContra
 use walrus_utils::read_blob_from_file;
 
 use crate::{
-    client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
+    client::{
+        Client,
+        client_types::StoredQuiltPatch,
+        metrics::ClientMetrics,
+        responses::QuiltStoreResult,
+    },
     error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,
 };
@@ -761,6 +767,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 store_optimizations,
                 persistence,
                 post_store,
+                None,
             )
             .await?;
 
@@ -777,6 +784,7 @@ impl QuiltClient<'_, SuiContractClient> {
         store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<QuiltStoreResult> {
         let result = self
             .client
@@ -787,7 +795,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 store_optimizations,
                 persistence,
                 post_store,
-                None,
+                metrics,
             )
             .await?;
 

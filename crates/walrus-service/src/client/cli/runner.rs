@@ -796,6 +796,7 @@ impl ClientCommandRunner {
                 store_optimizations,
                 persistence,
                 post_store,
+                None,
             )
             .await?;
 

@@ -3,10 +3,10 @@
 
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
-use std::str::FromStr;
 
 use indicatif::MultiProgress;
 use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -76,11 +76,13 @@ impl WriteClient {
     ) -> anyhow::Result<Self> {
         tracing::info!("initializing write clients...");
 
-        let sui_contract_client =
-            client_config.new_contract_client_with_wallet_in_config(None).await?;
-
-        let client = Client::new_contract_client(client_config, refresher_handle, sui_contract_client)
+        let sui_contract_client = client_config
+            .new_contract_client_with_wallet_in_config(None)
             .await?;
+
+        let client =
+            Client::new_contract_client(client_config, refresher_handle, sui_contract_client)
+                .await?;
         let blob = BlobData::random(StdRng::from_entropy(), blob_config.clone()).await;
         Ok(Self {
             client,
@@ -97,8 +99,7 @@ impl WriteClient {
         quilt_store_result: &QuiltStoreResult,
     ) -> Result<(), ClientError> {
         for read_blob in quilt_blobs.iter() {
-            if let Some(original_blob) = blob_map.get(read_blob.identifier())
-            {
+            if let Some(original_blob) = blob_map.get(read_blob.identifier()) {
                 if read_blob != *original_blob {
                     self.dump_mismatch_data(blob_map, quilt_blobs, quilt_store_result)
                         .await;
@@ -115,15 +116,13 @@ impl WriteClient {
         &self,
         quilt_store_result: &QuiltStoreResult,
         quilt_store_blobs: &[QuiltStoreBlob<'_>],
-        metrics: &ClientMetrics,
+        metrics: Arc<ClientMetrics>,
     ) -> Result<(), ClientError> {
         let blob_map = quilt_store_blobs
             .iter()
             .map(|blob| (blob.identifier(), blob))
             .collect::<HashMap<_, _>>();
-        let quilt_client = self
-            .client
-            .quilt_client(QuiltClientConfig::default());
+        let quilt_client = self.client.quilt_client(QuiltClientConfig::default());
 
         let mut rng = StdRng::from_entropy();
         for _ in 0..10 {
@@ -160,15 +159,13 @@ impl WriteClient {
         &self,
         quilt_store_result: &QuiltStoreResult,
         quilt_store_blobs: &[QuiltStoreBlob<'_>],
-        metrics: &ClientMetrics,
+        metrics: Arc<ClientMetrics>,
     ) -> Result<(), ClientError> {
         let blob_map = quilt_store_blobs
             .iter()
             .map(|blob| (blob.identifier(), blob))
             .collect::<HashMap<_, _>>();
-        let quilt_client = self
-            .client
-            .quilt_client(QuiltClientConfig::default());
+        let quilt_client = self.client.quilt_client(QuiltClientConfig::default());
 
         let mut rng = StdRng::from_entropy();
         for _ in 0..10 {
@@ -177,8 +174,7 @@ impl WriteClient {
                 .stored_quilt_blobs
                 .choose_multiple(&mut rng, num_to_read)
                 .map(|blob| {
-                    QuiltPatchId::from_str(&blob.quilt_patch_id)
-                        .expect("invalid quilt patch id")
+                    QuiltPatchId::from_str(&blob.quilt_patch_id).expect("invalid quilt patch id")
                 })
                 .collect::<Vec<_>>();
 
@@ -201,7 +197,7 @@ impl WriteClient {
 
     pub async fn write_fresh_quilt(
         &self,
-        metrics: &ClientMetrics,
+        metrics: Arc<ClientMetrics>,
         quilt_config: QuiltStoreBlobConfig,
     ) -> Result<(BlobId, Duration), ClientError> {
         let now = Instant::now();
@@ -214,7 +210,10 @@ impl WriteClient {
             quilt_config.min_blob_size,
             quilt_config.max_blob_size,
         );
-        let quilt_data = quilt_data.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
+        let quilt_data = quilt_data
+            .iter()
+            .map(|blob| blob.as_slice())
+            .collect::<Vec<_>>();
 
         let max_string_length = 100;
         let include_tags = rand::thread_rng().gen_bool(0.5);
@@ -230,40 +229,39 @@ impl WriteClient {
         let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
         let num_blobs = quilt_store_blobs.len();
 
-        if let Ok(result) = self.write_quilt(&quilt_store_blobs).await {
-        let duration = now.elapsed();
+        if let Ok(result) = self.write_quilt(&quilt_store_blobs, metrics.clone()).await {
+            let duration = now.elapsed();
 
-        // Record the metric.
-        metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
+            // Record the metric.
+            metrics.observe_quilt_upload_latency(duration, num_blobs, total_size);
 
-        // Select random quilt patch IDs and read them back.
-        if !result.stored_quilt_blobs.is_empty() {
-            self.read_random_quilt_by_identifier(&result, &quilt_store_blobs, metrics)
-                .await?;
-            self.read_random_quilt_by_ids(&result, &quilt_store_blobs, metrics)
-                .await?;
+            // Select random quilt patch IDs and read them back.
+            if !result.stored_quilt_blobs.is_empty() {
+                self.read_random_quilt_by_identifier(&result, &quilt_store_blobs, metrics.clone())
+                    .await?;
+                self.read_random_quilt_by_ids(&result, &quilt_store_blobs, metrics.clone())
+                    .await?;
+            }
+
+            Ok((
+                result
+                    .blob_store_result
+                    .blob_id()
+                    .expect("blob id should be present"),
+                duration,
+            ))
+        } else {
+            tracing::error!("failed to write quilt!");
+            Ok((BlobId::ZERO, Duration::from_secs(0)))
         }
-
-        Ok((
-            result
-                .blob_store_result
-                .blob_id()
-                .expect("blob id should be present"),
-            duration,
-        ))
-    } else {
-        tracing::error!("failed to write quilt!");
-        Ok((BlobId::ZERO, Duration::from_secs(0)))
-    }
     }
 
     pub async fn write_quilt(
         &self,
         quilt_store_blobs: &[QuiltStoreBlob<'_>],
+        metrics: Arc<ClientMetrics>,
     ) -> Result<QuiltStoreResult, ClientError> {
-        let quilt_client = self
-            .client
-            .quilt_client(QuiltClientConfig::default());
+        let quilt_client = self.client.quilt_client(QuiltClientConfig::default());
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(quilt_store_blobs, DEFAULT_ENCODING)
             .await?;
@@ -281,6 +279,7 @@ impl WriteClient {
                 StoreOptimizations::none(),
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
+                Some(&metrics),
             )
             .await;
 
@@ -322,11 +321,7 @@ impl WriteClient {
         for (identifier, original_blob) in original_blobs.iter() {
             let file_path = format!("{}/original_{}.bin", dump_dir, identifier);
             if let Err(e) = fs::write(&file_path, original_blob.data()) {
-                tracing::error!(
-                    "Failed to write original blob '{}': {}",
-                    identifier,
-                    e
-                );
+                tracing::error!("Failed to write original blob '{}': {}", identifier, e);
             }
         }
 
@@ -433,7 +428,9 @@ impl WriteClient {
                 move || {
                     let rt = tokio::runtime::Handle::current();
                     rt.block_on(async move {
-                        let result = client.write_fresh_quilt(&metrics_clone, quilt_config_clone).await;
+                        let result = client
+                            .write_fresh_quilt(metrics_clone, quilt_config_clone)
+                            .await;
                         (client, result)
                     })
                 }
@@ -474,15 +471,13 @@ async fn new_client(
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
 ) -> anyhow::Result<Client<SuiContractClient>> {
-    let sui_contract_client =
-        client_config.new_contract_client_with_wallet_in_config(gas_budget).await?;
+    let sui_contract_client = client_config
+        .new_contract_client_with_wallet_in_config(gas_budget)
+        .await?;
 
-    let client = Client::new_contract_client(
-        client_config.clone(),
-        refresher_handle,
-        sui_contract_client,
-    )
-    .await?;
+    let client =
+        Client::new_contract_client(client_config.clone(), refresher_handle, sui_contract_client)
+            .await?;
 
     Ok(client)
 }
