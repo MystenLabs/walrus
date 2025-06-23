@@ -153,7 +153,7 @@
       },
       "https://walrus-mainnet-aggregator.imperator.co": {
         "operator": "Imperator.co",
-        "cache": true
+        "cache": false
       },
       "https://walrus-mainnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs"
@@ -248,7 +248,7 @@
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.walrus-01.tududes.com": {
         "operator": "TuDudes",
@@ -332,7 +332,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -340,7 +340,7 @@
       },
       "https://walrus-testnet-aggregator-1.zkv.xyz": {
         "operator": "ZKV",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.brightlystake.com": {
         "operator": "Brightlystake",
@@ -416,7 +416,7 @@
       },
       "https://walrus-testnet-aggregator.stakingdefenseleague.com.": {
         "operator": "Staking Defense League",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.starduststaking.com": {
         "operator": "Stardust Staking",
