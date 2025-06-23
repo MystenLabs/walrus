@@ -61,6 +61,7 @@ pub enum VerificationError {
 
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltPatchV1 {
     /// The start sliver index of the blob.
     #[serde(skip)]
@@ -147,6 +148,7 @@ impl QuiltPatchV1 {
 
 /// A enum wrapper around the quilt index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QuiltIndex {
     /// QuiltIndexV1.
     V1(QuiltIndexV1),
@@ -256,6 +258,7 @@ impl QuiltPatchInternalIdV1 {
 /// mapped to a contiguous index range.
 // INV: The patches are sorted by their end indices.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
     pub quilt_patches: Vec<QuiltPatchV1>,
