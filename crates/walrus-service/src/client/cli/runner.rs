@@ -761,7 +761,6 @@ impl ClientCommandRunner {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
-        tracing::info!("storing files in {:?} as a quilt on Walrus", paths);
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 

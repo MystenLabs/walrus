@@ -238,9 +238,9 @@ pub enum CliCommands {
         ///
         /// Example:
         ///   walrus store-quilt --epochs 10
-        ///     --blob '{"path":"/path/to/food-locations.pdf","identifier":"paper-v2",\
-        ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}'
-        ///     --blob '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
+        ///     --blobs '{"path":"/path/to/food-locations.pdf","identifier":"paper-v2",\
+        ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}' \
+        ///     '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
         ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
         /// Note if identifier is not specified, the filename will be used as the identifier,
         /// and duplicate identifiers are not allowed.
