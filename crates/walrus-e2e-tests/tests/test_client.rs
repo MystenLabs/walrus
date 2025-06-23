@@ -897,7 +897,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
+async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -916,24 +916,19 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         )
         .await?;
     let store_result = results.first().expect("should have one blob store result");
-    let blob_id = store_result.blob_id();
+    let blob_id = store_result
+        .blob_id()
+        .expect("blob id should be present after store");
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(
-        client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
-            .await?,
-        blob
-    );
+    assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
-    client
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
-        .await?;
+    client.delete_owned_blob(&blob_id).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
         .get_verified_blob_status(
-            &blob_id.expect("blob id should be present"),
+            &blob_id,
             client.sui_client().read_client(),
             Duration::from_secs(1),
         )
@@ -944,9 +939,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         status_result
     );
 
-    let read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-        .await;
+    let read_result = client.read_blob::<Primary>(&blob_id).await;
     assert!(matches!(
         read_result.unwrap_err().kind(),
         ClientErrorKind::BlobIdDoesNotExist,
@@ -1136,7 +1129,7 @@ async fn test_blocklist() -> TestResult {
 
     assert_eq!(
         client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
             .await?,
         blob
     );
@@ -1622,6 +1615,8 @@ async fn test_extend_owned_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_share_blobs() -> TestResult {
+    const EXTEND_EPOCHS: EpochCount = 10;
+    const INITIAL_FUNDS: u64 = 1000000000;
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
@@ -1668,7 +1663,7 @@ async fn test_share_blobs() -> TestResult {
     client
         .as_ref()
         .sui_client()
-        .fund_shared_blob(shared_blob_object_id, 1000000000)
+        .fund_shared_blob(shared_blob_object_id, INITIAL_FUNDS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1676,13 +1671,13 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.funds, 1000000000);
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS);
 
     // Extend the shared blob.
     client
         .as_ref()
         .sui_client()
-        .extend_shared_blob(shared_blob_object_id, 100)
+        .extend_shared_blob(shared_blob_object_id, EXTEND_EPOCHS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1690,8 +1685,11 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
-    assert_eq!(shared_blob.funds, 999999500);
+    assert_eq!(
+        shared_blob.blob.storage.end_epoch,
+        end_epoch + EXTEND_EPOCHS
+    );
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS - 50);
 
     // Read the blob object with attributes from the shared blob object id
     let _blob_with_attribute = client

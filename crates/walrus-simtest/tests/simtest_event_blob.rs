@@ -386,7 +386,8 @@ mod tests {
                 ));
             }
 
-            let node_health_infos = simtest_utils::get_nodes_health_info(&nodes_to_check).await;
+            let node_health_infos =
+                simtest_utils::get_nodes_health_info(nodes_to_check.clone()).await;
 
             let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
                 .iter()
@@ -458,7 +459,8 @@ mod tests {
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| checkpoints_per_event_blob).await;
 
         // Wait for the cluster to process some events.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, None);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.
@@ -478,7 +480,7 @@ mod tests {
 
         // Get the highest processed event and checkpoint for each storage node.
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_infos = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_infos = simtest_utils::get_nodes_health_info(node_refs.clone()).await;
 
         tracing::info!("Node health infos: {:?}", node_health_infos);
 
