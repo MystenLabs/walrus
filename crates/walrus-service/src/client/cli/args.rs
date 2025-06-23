@@ -987,6 +987,7 @@ pub struct DaemonArgs {
 
 /// Common options shared between store and store-quilt commands.
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CommonStoreOptions {
     /// Perform a dry-run of the store without performing any actions on chain.
     ///
