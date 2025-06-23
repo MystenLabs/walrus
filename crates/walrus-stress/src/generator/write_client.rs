@@ -79,10 +79,12 @@ impl WriteClient {
         let sui_contract_client = client_config
             .new_contract_client_with_wallet_in_config(None)
             .await?;
+        tracing::info!("initializing client...");
 
         let client =
             Client::new_contract_client(client_config, refresher_handle, sui_contract_client)
                 .await?;
+        tracing::info!("initializing BlobData...");
         let blob = BlobData::random(StdRng::from_entropy(), blob_config.clone()).await;
         Ok(Self {
             client,
@@ -200,6 +202,7 @@ impl WriteClient {
         metrics: Arc<ClientMetrics>,
         quilt_config: QuiltStoreBlobConfig,
     ) -> Result<(BlobId, Duration), ClientError> {
+        tracing::debug!("start writing fresh quilt...");
         let now = Instant::now();
         let num_blobs = rand::thread_rng().gen_range(
             quilt_config.min_num_blobs_per_quilt as usize
@@ -214,6 +217,7 @@ impl WriteClient {
             .iter()
             .map(|blob| blob.as_slice())
             .collect::<Vec<_>>();
+        tracing::debug!("generated {} blobs", num_blobs);
 
         let max_string_length = 100;
         let include_tags = rand::thread_rng().gen_bool(0.5);
@@ -224,6 +228,7 @@ impl WriteClient {
             include_tags,
             max_num_tags,
         );
+        tracing::debug!("generated {} quilt store blobs", quilt_store_blobs.len());
 
         // Calculate total size.
         let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
@@ -418,6 +423,7 @@ impl WriteClient {
         quilt_config: QuiltStoreBlobConfig,
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<()> {
+        tracing::info!("starting to write quilts periodically...");
         loop {
             let metrics_clone = metrics.clone();
             let quilt_config_clone = quilt_config.clone();

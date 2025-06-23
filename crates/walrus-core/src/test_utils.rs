@@ -225,6 +225,7 @@ pub fn generate_random_quilt_store_blobs<'a>(
     include_tags: bool,
     max_num_tags: usize,
 ) -> Vec<QuiltStoreBlob<'a>> {
+    tracing::debug!("generating random quilt store blobs...");
     let mut rng = rand::thread_rng();
     let num_tags = if include_tags {
         rng.gen_range(1..=max_num_tags)
@@ -232,14 +233,14 @@ pub fn generate_random_quilt_store_blobs<'a>(
         0
     };
 
+    tracing::debug!("generating identifiers...");
     let mut res = Vec::with_capacity(blob_data.len());
     let mut identifiers = HashSet::with_capacity(blob_data.len());
-    while identifiers.len() < blob_data.len() {
-        identifiers.insert(hex::encode(walrus_test_utils::random_data(
-            rng.gen_range(1..max_string_length),
-        )));
+    for i in 1..=blob_data.len() {
+        identifiers.insert(hex::encode(walrus_test_utils::random_data( i as usize))); 
     }
 
+    tracing::debug!("generating tag values and keys...");
     let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
     let raw_tag_keys = walrus_test_utils::generate_random_data(num_tags, 1, max_string_length);
     let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
