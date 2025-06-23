@@ -105,10 +105,10 @@ struct StressArgs {
     #[arg(long, default_value = "17")]
     max_size_log2: u8,
     /// The minimum number of blobs to store in a quilt.
-    #[arg(long, default_value = "100")]
+    #[arg(long, default_value = "300")]
     min_num_blobs_in_quilt: u16,
     /// The maximum number of blobs to store in a quilt.
-    #[arg(long, default_value = "300")]
+    #[arg(long, default_value = "600")]
     max_num_blobs_in_quilt: u16,
     /// The fraction of writes that write quilts.
     #[arg(long, default_value = "0.5")]
