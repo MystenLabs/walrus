@@ -1180,18 +1180,17 @@ pub struct QuiltPatchQuery {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[arg(
         long,
-        alias = "blob-id",
         allow_hyphen_values = true,
         value_parser = parse_blob_id,
-        required_unless_present = "quilt-patch-id",
+        required_unless_present = "quilt_patch_ids",
     )]
     pub quilt_id: Option<BlobId>,
 
     /// The identifiers to read from the quilt.
     #[arg(
         long = "identifier",
-        conflicts_with = "tags",
-        conflicts_with = "quilt-patch-ids"
+        conflicts_with = "tag",
+        conflicts_with = "quilt_patch_ids"
     )]
     #[serde(default)]
     pub identifiers: Vec<String>,
@@ -1201,7 +1200,7 @@ pub struct QuiltPatchQuery {
         long,
         requires = "value",
         conflicts_with = "identifiers",
-        conflicts_with = "quilt-patch-ids"
+        conflicts_with = "quilt_patch_ids"
     )]
     #[serde(default)]
     pub tag: Option<String>,
@@ -1211,13 +1210,12 @@ pub struct QuiltPatchQuery {
         long,
         requires = "tag",
         conflicts_with = "identifiers",
-        conflicts_with = "quilt-patch-ids"
+        conflicts_with = "quilt_patch_ids"
     )]
     #[serde(default)]
     pub value: Option<String>,
 
     /// The quilt patch IDs.
-    /// Important: in cli mode, this should be the last argument, to avoid parsing issues.
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[arg(
         long = "quilt-patch-id",
@@ -1225,9 +1223,9 @@ pub struct QuiltPatchQuery {
         allow_hyphen_values = true,
         value_parser = parse_quilt_patch_id,
         action = clap::ArgAction::Append,
-        conflicts_with = "quilt-id",
+        conflicts_with = "quilt_id",
         conflicts_with = "identifiers",
-        conflicts_with = "tags",
+        conflicts_with = "tag",
     )]
     #[serde(default)]
     pub quilt_patch_ids: Vec<QuiltPatchId>,
@@ -1242,12 +1240,6 @@ impl QuiltPatchQuery {
                 identifiers: self.identifiers.clone(),
             }))
         } else if self.tag.is_some() && self.value.is_some() {
-            // Validate that exactly one tag key-value pair is specified.
-            // TODO(WAL-899): Support multiple tag pairs.
-            if self.tag.is_none() || self.value.is_none() {
-                return Err(anyhow!("exactly one tag key-value pair must be specified"));
-            }
-
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 tag: self.tag.as_ref().expect("tag should be present").clone(),
