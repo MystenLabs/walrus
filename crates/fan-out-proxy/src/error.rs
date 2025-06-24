@@ -52,6 +52,18 @@ pub enum FanOutError {
     #[error("the provided nonce hash in the ptb is invalid")]
     InvalidNonceHash,
 
+    /// The auth package is missing from the first input slot of the PTB.
+    #[error("the auth package is missing from the first input slot of the PTB")]
+    MissingAuthPackage,
+
+    /// The auth package is missing from the first input slot of the PTB.
+    #[error("the auth package was found but could not be read")]
+    InvalidAuthPackage,
+
+    /// The auth package is missing from the first input slot of the PTB.
+    #[error("the tip transaction is not a ptb or could not be read")]
+    InvalidTipTransaction,
+
     /// A Walrus client error occurred.
     #[error(transparent)]
     ClientError(#[from] ClientError),
@@ -89,31 +101,19 @@ impl FanOutError {
 impl IntoResponse for FanOutError {
     fn into_response(self) -> Response {
         match self {
-            FanOutError::BlobIdMismatch => (
-                StatusCode::BAD_REQUEST,
-                FanOutError::BlobIdMismatch.to_string(),
-            )
-                .into_response(),
-            FanOutError::MissingTxIdOrNonce => (
-                StatusCode::BAD_REQUEST,
-                FanOutError::MissingTxIdOrNonce.to_string(),
-            )
-                .into_response(),
-            FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {
-                tracing::error!(error = ?self, "client error during fan out");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
-            }
-            FanOutError::DataTooLargeError(error) => {
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
-            }
-            FanOutError::BlobIdParseError(error) => {
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
-            }
             FanOutError::TipError(
                 error @ (TipError::NoTipSent | TipError::InsufficientTip { .. }),
             ) => (StatusCode::PAYMENT_REQUIRED, error.to_string()).into_response(),
-            FanOutError::TipError(error) => {
-                (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+            FanOutError::TipError(_)
+            | FanOutError::MissingTxIdOrNonce
+            | FanOutError::BlobIdMismatch
+            | FanOutError::DataTooLargeError(_)
+            | FanOutError::BlobIdParseError(_) => {
+                (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+            }
+            FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {
+                tracing::error!(error = ?self, "client error during fan out");
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
             }
             FanOutError::Other(error) => {
                 tracing::error!(?error, "unknown error during fan out");
@@ -122,7 +122,10 @@ impl IntoResponse for FanOutError {
             FanOutError::BlobDigestMismatch
             | FanOutError::BlobLengthMismatch
             | FanOutError::BlobIdNotRegistered(_)
-            | FanOutError::InvalidNonceHash => {
+            | FanOutError::InvalidNonceHash
+            | FanOutError::InvalidAuthPackage
+            | FanOutError::InvalidTipTransaction
+            | FanOutError::MissingAuthPackage => {
                 tracing::error!(error = ?self, "failure relating to authentication of payload");
                 (StatusCode::UNAUTHORIZED, self.to_string()).into_response()
             }

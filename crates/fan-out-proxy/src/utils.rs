@@ -113,13 +113,12 @@ pub(crate) fn extract_hashed_auth_package(
         ..
     }) = orig_tx.transaction_data()
     else {
-        return Err(FanOutError::other("invalid transaction data"));
+        return Err(FanOutError::InvalidTipTransaction);
     };
     let Some(CallArg::Pure(tx_auth_package_bytes)) = ptb.inputs.first() else {
-        return Err(FanOutError::other("invalid transaction input construction"));
+        return Err(FanOutError::MissingAuthPackage);
     };
-    bcs::from_bytes(tx_auth_package_bytes)
-        .map_err(|_| FanOutError::other("cannot decode the bytes of input 0"))
+    bcs::from_bytes(tx_auth_package_bytes).map_err(|_| FanOutError::InvalidAuthPackage)
 }
 
 #[cfg(test)]
