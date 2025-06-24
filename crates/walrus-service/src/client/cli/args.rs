@@ -208,12 +208,6 @@ pub enum CliCommands {
         #[arg(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
-        /// The epoch argument to specify either the number of epochs to store the blob, or the
-        /// end epoch, or the earliest expiry time in rfc3339 format.
-        ///
-        #[command(flatten)]
-        #[serde(flatten)]
-        epoch_arg: EpochArg,
         /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]
@@ -230,7 +224,7 @@ pub enum CliCommands {
         /// The filenames are used as the identifiers of the quilt patches.
         /// Note duplicate filenames are not allowed.
         /// Custom identifiers and tags are NOT supported for quilt patches.
-        /// Use `--blob` to specify custom identifiers and tags.
+        /// Use `--blobs` to specify custom identifiers and tags.
         #[arg(long, num_args = 0..)]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         paths: Vec<PathBuf>,
@@ -247,11 +241,6 @@ pub enum CliCommands {
         #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
         blobs: Vec<QuiltBlobInput>,
-        /// The epoch argument to specify either the number of epochs to store the quilt, or the
-        /// end epoch, or the earliest expiry time in rfc3339 format.
-        #[command(flatten)]
-        #[serde(flatten)]
-        epoch_arg: EpochArg,
         /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]
@@ -989,6 +978,11 @@ pub struct DaemonArgs {
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommonStoreOptions {
+    /// The epoch argument to specify either the number of epochs to store the blob, or the
+    /// end epoch, or the earliest expiry time in rfc3339 format.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub epoch_arg: EpochArg,
     /// Perform a dry-run of the store without performing any actions on chain.
     ///
     /// This assumes `--force`; i.e., it does not check the current status of the blob/quilt.
@@ -1688,12 +1682,12 @@ mod tests {
     fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epoch_arg: EpochArg {
-                epochs: Some(epochs),
-                earliest_expiry_time: None,
-                end_epoch: None,
-            },
             common_options: CommonStoreOptions {
+                epoch_arg: EpochArg {
+                    epochs: Some(epochs),
+                    earliest_expiry_time: None,
+                    end_epoch: None,
+                },
                 dry_run: false,
                 force: false,
                 ignore_resources: false,

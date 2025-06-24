@@ -210,12 +210,11 @@ impl ClientCommandRunner {
 
             CliCommands::Store {
                 files,
-                epoch_arg,
                 common_options,
             } => {
                 self.store(
                     files,
-                    epoch_arg,
+                    common_options.epoch_arg,
                     common_options.dry_run,
                     StoreOptimizations::from_force_and_ignore_resources_flags(
                         common_options.force,
@@ -231,13 +230,12 @@ impl ClientCommandRunner {
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
-                epoch_arg,
                 common_options,
             } => {
                 self.store_quilt(
                     paths,
                     blobs,
-                    epoch_arg,
+                    common_options.epoch_arg,
                     common_options.dry_run,
                     StoreOptimizations::from_force_and_ignore_resources_flags(
                         common_options.force,
