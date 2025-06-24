@@ -174,7 +174,7 @@ Shared blobs may be extended by anyone, but owned blobs may only be extended by 
 extending a shared blob, you will need to supply the `--shared` flag to inform the command that the
 blob is shared.
 
-Note that the blob's _object ID_ will be needed in order to extend it. The blob ID is not needed.
+Note that the blob's *object ID* will be needed in order to extend it. The blob ID is not needed.
 See `walrus extend --help` for more information on blob extension.
 
 ## Reclaiming space via deletable blobs
