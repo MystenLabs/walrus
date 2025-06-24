@@ -40,7 +40,6 @@ pub use args::{
     QuiltPatchByIdentifier,
     QuiltPatchByPatchId,
     QuiltPatchByTag,
-    QuiltPatchQuery,
     QuiltPatchSelector,
     SortBy,
 };
