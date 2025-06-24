@@ -51,7 +51,7 @@ use uuid::Uuid;
 use walrus_core::{BlobId, PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
-    client::{SuiReadClient, retry_client::RetriableSuiClient},
+    client::{SuiReadClient, contract_config::ContractConfig, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
@@ -219,7 +219,8 @@ pub struct MetricsAndLoggingRuntime {
     /// The Prometheus registry.
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
-    _tracing_handle: TracingHandle,
+    /// The tracing handle.
+    pub tracing_handle: Arc<TracingHandle>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Option<Runtime>,
@@ -260,7 +261,7 @@ impl MetricsAndLoggingRuntime {
             runtime,
             registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
+            tracing_handle: Arc::new(tracing_handle),
         })
     }
 }
@@ -729,10 +730,8 @@ pub async fn collect_event_blobs_for_catchup(
 
     let contract_config = ContractConfig::new(system_object_id, staking_object_id);
     let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-
     let walrus_client =
-        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
+        create_walrus_client_with_refresher(contract_config.clone(), sui_read_client.clone())
             .await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
@@ -840,11 +839,31 @@ where
 
 /// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
 /// or resumes a panic if the function had panicked.
-pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::JoinError>>(
+    result: Result<Result<T, E>, JoinError>,
+) -> Result<T, E> {
     match result {
         Ok(value) => value,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic())
+            } else {
+                Err(error.into())
+            }
+        }
     }
+}
+
+/// Creates a new Walrus client with a refresher using the provided configuration
+/// and Sui read client.
+pub async fn create_walrus_client_with_refresher(
+    contract_config: ContractConfig,
+    sui_read_client: walrus_sui::client::SuiReadClient,
+) -> anyhow::Result<walrus_sdk::client::Client<walrus_sui::client::SuiReadClient>> {
+    let client_config = crate::client::ClientConfig::new_from_contract_config(contract_config);
+    walrus_sdk::client::Client::new_read_client_with_refresher(client_config, sui_read_client)
+        .await
+        .map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]

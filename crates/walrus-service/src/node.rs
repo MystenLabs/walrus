@@ -158,7 +158,11 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{config::SuiConfig, utils::should_reposition_cursor},
+    common::{
+        config::SuiConfig,
+        event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
+        utils::should_reposition_cursor,
+    },
     utils::ShardDiffCalculator,
 };
 
@@ -616,7 +620,10 @@ impl StorageNode {
             .max_concurrent(config.thread_pool.max_concurrent_tasks)
             .metrics_registry(registry.clone())
             .build_bounded();
-        let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new_with_metrics(
+            &config.blocklist_path,
+            Some(registry),
+        )?);
         let checkpoint_manager = match DbCheckpointManager::new(
             storage.get_db(),
             config.checkpoint_config.clone(),
@@ -701,18 +708,37 @@ impl StorageNode {
             "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
         );
-
-        let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
+        let event_blob_downloader = Self::get_event_blob_downloader_from_config(config).await?;
+        let mut last_certified_event_blob = None;
+        if let Some(downloader) = event_blob_downloader {
+            last_certified_event_blob = downloader
+                .get_last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlobWithMetadata);
+        }
+        if last_certified_event_blob.is_none() {
+            last_certified_event_blob = contract_service
+                .last_certified_event_blob()
+                .await
+                .ok()
+                .flatten()
+                .map(LastCertifiedEventBlob::EventBlob);
+        }
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
-            Some(EventBlobWriterFactory::new(
-                &config.storage_path,
-                &config.db_config,
-                inner.clone(),
-                registry,
-                node_params.num_checkpoints_per_blob,
-                last_certified_event_blob,
-                config.num_uncertified_blob_threshold,
-            )?)
+            Some(
+                EventBlobWriterFactory::new(
+                    &config.storage_path,
+                    &config.db_config,
+                    inner.clone(),
+                    registry,
+                    node_params.num_checkpoints_per_blob,
+                    last_certified_event_blob,
+                    config.num_uncertified_blob_threshold,
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -881,6 +907,25 @@ impl StorageNode {
         }
 
         Ok((Pin::from(event_stream), actual_event_index))
+    }
+
+    async fn get_event_blob_downloader_from_config(
+        config: &StorageNodeConfig,
+    ) -> anyhow::Result<Option<EventBlobDownloader>> {
+        let sui_config: Option<SuiConfig> = config.sui.as_ref().cloned();
+        let Some(sui_config) = sui_config else {
+            return Ok(None);
+        };
+        let sui_read_client = sui_config.new_read_client().await?;
+        let walrus_client = crate::common::utils::create_walrus_client_with_refresher(
+            sui_config.contract_config.clone(),
+            sui_read_client.clone(),
+        )
+        .await?;
+        Ok(Some(EventBlobDownloader::new(
+            walrus_client,
+            sui_read_client,
+        )))
     }
 
     async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
@@ -1344,6 +1389,17 @@ impl StorageNode {
                     tracing::info!("storage node entering recovery mode during epoch change start");
                     sui_macros::fail_point!("fail-point-enter-recovery-mode");
                     self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+                    // Now the node is entering recovery mode, we need to cancel all the blob syncs
+                    // that are in progress, since the node is lagging behind, and we don't have
+                    // any information about the shards that the node should own.
+                    //
+                    // The node now will try to only process blob info upon receiving a blob event
+                    // and blob recovery will be triggered when the node is in the lasted epoch.
+                    self.blob_sync_handler
+                        .cancel_all_syncs_and_mark_events_completed()
+                        .await?;
+
                     self.execute_epoch_change_while_catching_up(
                         event_handle,
                         event,
@@ -2825,7 +2881,7 @@ mod tests {
         DEFAULT_ENCODING,
         encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
-        test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_storage_node_client::{StorageNodeClient, api::errors::STORAGE_NODE_ERROR_DOMAIN};
@@ -3870,6 +3926,49 @@ mod tests {
         // Node 0 should also finish all events as blob syncs of expired blobs are cancelled on
         // epoch change.
         wait_until_events_processed(&cluster.nodes[0], 4).await?;
+
+        Ok(())
+    }
+
+    // Tests that a blob sync is not started for a node in recovery catch up.
+    #[tokio::test]
+    async fn does_not_start_blob_sync_for_node_in_recovery_catch_up() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+
+        // Create a cluster at epoch 1 without any blobs.
+        let (cluster, _events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+        // Set node 0 status to recovery catch up.
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+        // Start a sync for a random blob id. Since this blob does not exist, the sync will be
+        // running indefinitely if not cancelled.
+        let random_blob_id = random_blob_id();
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(random_blob_id, 1, None)
+            .await
+            .unwrap();
+
+        // Wait for the sync to be cancelled.
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            let blob_sync_in_progress = cluster.nodes[0]
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .len();
+            if blob_sync_in_progress == 0 {
+                Ok(())
+            } else {
+                Err(anyhow!("{} blob syncs in progress", blob_sync_in_progress))
+            }
+        })
+        .await?;
 
         Ok(())
     }
@@ -5419,7 +5518,9 @@ mod tests {
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
-            assert!(shard_storage_dst.status().unwrap() == ShardStatus::None);
+            assert!(
+                shard_storage_dst.status().expect("should succeed in test") == ShardStatus::None
+            );
 
             if fail_before_start_fetching {
                 clear_fail_point("fail_point_shard_sync_recovery_metadata_error_before_fetch");

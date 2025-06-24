@@ -11,8 +11,7 @@ pub use basic_encoding::{Decoder, ReedSolomonDecoder, ReedSolomonEncoder};
 mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
-mod quilt_encoding;
-pub use quilt_encoding::{QuiltDecoderV1, QuiltEncoderV1, QuiltV1};
+pub mod quilt_encoding;
 
 mod common;
 pub use common::{EncodingAxis, Primary, Secondary};

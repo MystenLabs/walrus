@@ -1,8 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::Path;
+use std::{fs, path::Path};
 
+use anyhow::Context;
 use serde::de::DeserializeOwned;
 
 #[cfg(feature = "backoff")]
@@ -38,8 +39,6 @@ pub mod tests {
 
 /// Load the config from a YAML file located at the provided path.
 pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::Result<T> {
-    use anyhow::Context;
-
     let path = path.as_ref();
     tracing::debug!(path = %path.display(), "[load_from_yaml] reading from file");
 
@@ -51,6 +50,14 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
     })?;
 
     Ok(serde_yaml::from_reader(reader)?)
+}
+
+/// Reads a blob from the filesystem or returns a helpful error message.
+pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
+    fs::read(&path).context(format!(
+        "unable to read blob from '{}'",
+        path.as_ref().display()
+    ))
 }
 
 /// A macro to print a crumb of information to the console. This is useful for debugging.

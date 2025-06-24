@@ -82,6 +82,7 @@ bcs.workspace = true
 bincode = { workspace = true, optional = true }
 byteorder.workspace = true
 bytes = { workspace = true, optional = true }
+bytesize.workspace = true
 checkpoint-downloader = { workspace = true, optional = true }
 chrono.workspace = true
 clap.workspace = true

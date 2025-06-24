@@ -204,29 +204,25 @@ pub(crate) async fn publish_package(
         .select_coins(sender, None, u128::from(gas_budget), vec![])
         .await?
         .into_iter()
-        .map(|coin| coin.coin_object_id)
+        .map(|coin| coin.object_ref())
         .collect::<Vec<_>>();
 
-    // TODO: WAL-778 support `tx_data` with failover mechanics.
+    // TODO: WAL-778 support `gas_price` with failover mechanics.
     #[allow(deprecated)]
-    let transaction = retry_client
-        .get_current_client()
-        .await
-        .transaction_builder()
-        .tx_data(
-            sender,
-            transaction_kind,
-            gas_budget,
-            wallet.get_reference_gas_price().await?,
-            gas_coins,
-            None,
-        )
-        .await?;
+    let gas_price = wallet.get_reference_gas_price().await?;
 
-    let signed_transaction = wallet.sign_transaction(&transaction);
+    let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
+        transaction_kind,
+        sender,
+        gas_coins,
+        gas_budget,
+        gas_price,
+        sender,
+    );
+
     #[allow(deprecated)]
     let response = wallet
-        .execute_transaction_may_fail(signed_transaction)
+        .execute_transaction_may_fail(wallet.sign_transaction(&tx_data))
         .await?;
 
     // Update the lock file with the new package ID.

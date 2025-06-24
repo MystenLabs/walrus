@@ -3,12 +3,13 @@
 
 //! Walrus Storage Node entry point.
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fmt::Display,
     fs,
     io::{self, Write},
     net::SocketAddr,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -21,9 +22,10 @@ use config::PathOrInPlace;
 use fs::File;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::{ObjectID, SuiAddress};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
     runtime::{self, Runtime},
     sync::oneshot,
     task::JoinHandle,
@@ -36,7 +38,7 @@ use walrus_core::{
 use walrus_service::{
     DbCheckpointManager,
     SyncNodeConfigError,
-    common::config::SuiConfig,
+    common::{config::SuiConfig, telemetry::WalrusTracingHandle},
     node::{
         ConfigLoader,
         StorageNode,
@@ -82,6 +84,8 @@ struct AdminArgs {
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     /// Admin socket path.
     admin_socket_path: Option<PathBuf>,
+    /// Tracing handle.
+    tracing_handle: WalrusTracingHandle,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -187,6 +191,15 @@ enum AdminCommands {
         #[command(subcommand)]
         command: CheckpointCommands,
     },
+    /// Log level management.
+    /// It also supports log directive like `walrus-service=debug`
+    /// to set the log level for a specific component. Use it like this:
+    /// `walrus-node local-admin --socket-path admin log-level --level "walrus_service=debug"`
+    LogLevel {
+        /// The log level to set.
+        #[arg(long)]
+        level: String,
+    },
 }
 
 /// Standard response format for admin commands.
@@ -217,7 +230,13 @@ enum CheckpointCommands {
     },
 
     /// List existing checkpoints.
-    List,
+    List {
+        /// The path to the checkpoint directory. If not provided, the directory configured in
+        /// [`StorageNodeConfig::checkpoint_config`] will be used. If none of these are provided an
+        /// error will be returned.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 
     /// Cancel an ongoing checkpoint creation.
     Cancel,
@@ -1192,6 +1211,7 @@ mod commands {
 
     /// Handle local admin commands.
     #[tokio::main]
+    #[cfg(unix)]
     pub(crate) async fn handle_admin_command(
         command: AdminCommands,
         socket_path: PathBuf,
@@ -1230,6 +1250,14 @@ mod commands {
         }
 
         Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn handle_admin_command(
+        _command: AdminCommands,
+        _socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Admin commands via Unix domain sockets are not supported on Windows")
     }
 }
 
@@ -1270,7 +1298,7 @@ impl StorageNodeRuntime {
             .build()
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
-
+        let tracing_handle = WalrusTracingHandle(metrics_runtime.tracing_handle.clone());
         let walrus_node = Arc::new(
             runtime.block_on(
                 StorageNode::builder()
@@ -1325,6 +1353,7 @@ impl StorageNodeRuntime {
             AdminArgs {
                 checkpoint_manager,
                 admin_socket_path: node_config.admin_socket_path.clone(),
+                tracing_handle,
             },
             admin_cancel_token,
         )?;
@@ -1355,6 +1384,7 @@ impl StorageNodeRuntime {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn start_admin_socket(
         admin_args: AdminArgs,
         cancel_token: CancellationToken,
@@ -1404,6 +1434,29 @@ impl StorageNodeRuntime {
 
         Ok(Some(handle))
     }
+
+    #[cfg(windows)]
+    fn start_admin_socket(
+        _admin_args: AdminArgs,
+        _cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        tracing::warn!("Unix domain sockets are not supported on Windows");
+        Ok(None)
+    }
+}
+
+/// Handle log level commands from admin socket.
+async fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminCommandResponse {
+    match args.tracing_handle.update_log(level.as_str()) {
+        Ok(_) => AdminCommandResponse {
+            success: true,
+            message: format!("Log level updated successfully to: {}", level),
+        },
+        Err(e) => AdminCommandResponse {
+            success: false,
+            message: format!("Failed to update log level: {}", e),
+        },
+    }
 }
 
 /// Handle checkpoint commands from admin socket.
@@ -1436,11 +1489,24 @@ async fn handle_checkpoint_command(
                 },
             }
         }
-        CheckpointCommands::List => {
-            // List operation not yet implemented.
-            AdminCommandResponse {
-                success: true,
-                message: "Checkpoint listing not implemented yet".to_string(),
+        CheckpointCommands::List { path } => {
+            let result = manager.list_db_checkpoints(path.as_deref());
+            match result {
+                Ok(db_checkpoints) => AdminCommandResponse {
+                    success: true,
+                    message: format!(
+                        "Backups:\n{}",
+                        db_checkpoints
+                            .iter()
+                            .map(|b| format!("  {}", b))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to list db checkpoints: {}", e),
+                },
             }
         }
         CheckpointCommands::Cancel => {
@@ -1464,6 +1530,7 @@ async fn handle_checkpoint_command(
 }
 
 /// Handles a connection to the admin socket.
+#[cfg(unix)]
 async fn handle_connection(stream: UnixStream, args: AdminArgs) {
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
@@ -1474,6 +1541,7 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
             Ok(AdminCommands::Checkpoint { command }) => {
                 handle_checkpoint_command(command, &args).await
             }
+            Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
             Err(e) => AdminCommandResponse {
                 success: false,
                 message: format!("Failed to parse command: {}", e),

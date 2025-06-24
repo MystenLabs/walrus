@@ -582,6 +582,27 @@ public(package) fun add_subsidy(
     self.future_accounting.ring_lookup_mut(0).rewards_balance().join(subsidy_balance);
 }
 
+/// Adds rewards to the system for future epochs, where `subsidies[i]` is added to the rewards
+/// of epoch `system.epoch() + i`.
+public(package) fun add_per_epoch_subsidies(
+    self: &mut SystemStateInnerV1,
+    subsidies: vector<Balance<WAL>>,
+) {
+    assert!(
+        subsidies.length() <= self.future_accounting.max_epochs_ahead() as u64,
+        EInvalidEpochsAhead,
+    );
+    let mut epochs_in_future = 0;
+    subsidies.do!(|per_epoch_subsidy| {
+        self
+            .future_accounting
+            .ring_lookup_mut(epochs_in_future)
+            .rewards_balance()
+            .join(per_epoch_subsidy);
+        epochs_in_future = epochs_in_future + 1;
+    })
+}
+
 // === Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
@@ -602,6 +623,11 @@ public(package) fun used_capacity_size(self: &SystemStateInnerV1): u64 {
 /// An accessor for the current committee.
 public(package) fun committee(self: &SystemStateInnerV1): &BlsCommittee {
     &self.committee
+}
+
+/// Read-only access to the accounting ring buffer.
+public(package) fun future_accounting(self: &SystemStateInnerV1): &FutureAccountingRingBuffer {
+    &self.future_accounting
 }
 
 #[test_only]

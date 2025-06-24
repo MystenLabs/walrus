@@ -19,8 +19,9 @@ use sui_types::{
     messages_checkpoint::CheckpointSequenceNumber,
 };
 use walrus_core::{BlobId, Epoch};
+use walrus_sui::types::{ContractEvent, EpochChangeEvent};
 
-use crate::node::events::IndexedStreamEvent;
+use crate::node::events::{EventStreamElement, IndexedStreamEvent};
 
 /// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -331,6 +332,21 @@ impl<'a> EventBlob<'a> {
     /// Epoch of the blob.
     pub fn epoch(&self) -> Epoch {
         self.epoch
+    }
+
+    /// Ending epoch of the blob.
+    pub fn ending_epoch(&self) -> Result<Epoch> {
+        let temp_blob = EventBlob::new(self.reader.get_ref().get_ref())?;
+        let mut ending_epoch = self.epoch;
+        for event in temp_blob {
+            if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(epoch_change),
+            )) = event.element.element
+            {
+                ending_epoch = epoch_change.epoch;
+            }
+        }
+        Ok(ending_epoch)
     }
 
     /// Checkpoint sequence number of first event in the blob.
