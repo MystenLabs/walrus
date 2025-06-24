@@ -1501,6 +1501,17 @@ The existence of this event certifies the availability of the blob.</p>
 <p>By default the blob data is written to the standard output. The <code>--out &lt;OUT&gt;</code> CLI option
 can be used to specify an output file name. The <code>--rpc-url &lt;URL&gt;</code> may be used to specify
 a Sui RPC node to use instead of the one set in the wallet configuration or the default one.</p>
+<h2 id="extending-the-lifetime-of-a-blob"><a class="header" href="#extending-the-lifetime-of-a-blob">Extending the lifetime of a blob</a></h2>
+<p>Recall that when you stored your blob, it was necessary to specify its <a href="usage/client-cli.html#storing-blobs">end epoch</a>.
+By specifying the end epoch you ensured that the blob would be available via <code>walrus read</code> (or other
+SDK access to Walrus) until that end epoch is reached.</p>
+<p>Walrus blob lifetimes can be extended using the <code>walrus extend --blob-obj-id &lt;blob object id&gt; ...</code>
+command. Both regular single-address owned blobs and <a href="usage/client-cli.html#shared-blobs">shared blobs</a> may be extended.
+Shared blobs may be extended by anyone, but owned blobs may only be extended by their owner. When
+extending a shared blob, you will need to supply the <code>--shared</code> flag to inform the command that the
+blob is shared.</p>
+<p>Note that the blob's <em>object ID</em> will be needed in order to extend it. The blob ID is not needed.
+See <code>walrus extend --help</code> for more information on blob extension.</p>
 <h2 id="reclaiming-space-via-deletable-blobs"><a class="header" href="#reclaiming-space-via-deletable-blobs">Reclaiming space via deletable blobs</a></h2>
 <p>By default <code>walrus store</code> uploads a permanent blob available until after its expiry
 epoch. Not even the uploader may delete it beforehand. However, optionally, the store command
@@ -1549,8 +1560,8 @@ for further details.</p>
 <p>The resulting shared blob can be directly funded by adding an <code>--amount</code>, or you can fund an
 existing shared blob with the <code>walrus fund-shared-blob</code> command. Additionally, you can immediately
 share a newly created blob by adding the <code>--share</code> option to the <code>walrus store</code> command.</p>
-<p>You can use the <code>walrus extend</code> command to extend the lifetime of a shared blob object. Shared blobs
-can only contain permanent blobs and cannot be deleted before their expiry.</p>
+<p>Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.</p>
+<p>See <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">this section</a> for more on blob extension.</p>
 <h2 id="blob-object-and-blob-id-utilities"><a class="header" href="#blob-object-and-blob-id-utilities">Blob object and blob ID utilities</a></h2>
 <p>The command <code>walrus blob-id &lt;FILE&gt;</code> may be used to derive the blob ID of any file. The blob ID is a
 commitment to the file, and any blob with the same ID will decode to the same content. The blob
