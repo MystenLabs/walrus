@@ -162,6 +162,21 @@ By default the blob data is written to the standard output. The `--out <OUT>` CL
 can be used to specify an output file name. The `--rpc-url <URL>` may be used to specify
 a Sui RPC node to use instead of the one set in the wallet configuration or the default one.
 
+## Extending the lifetime of a blob
+
+Recall that when you stored your blob, it was necessary to specify its [end epoch](#storing-blobs).
+By specifying the end epoch you ensured that the blob would be available via `walrus read` (or other
+SDK access to Walrus) until that end epoch is reached.
+
+Walrus blob lifetimes can be extended using the `walrus extend --blob-obj-id <blob object id> ...`
+command. Both regular single-address owned blobs and [shared blobs](#shared-blobs) may be extended.
+Shared blobs may be extended by anyone, but owned blobs may only be extended by their owner. When
+extending a shared blob, you will need to supply the `--shared` flag to inform the command that the
+blob is shared.
+
+Note that the blob's _object ID_ will be needed in order to extend it. The blob ID is not needed.
+See `walrus extend --help` for more information on blob extension.
+
 ## Reclaiming space via deletable blobs
 
 By default `walrus store` uploads a permanent blob available until after its expiry
@@ -218,8 +233,9 @@ The resulting shared blob can be directly funded by adding an `--amount`, or you
 existing shared blob with the `walrus fund-shared-blob` command. Additionally, you can immediately
 share a newly created blob by adding the `--share` option to the `walrus store` command.
 
-You can use the `walrus extend` command to extend the lifetime of a shared blob object. Shared blobs
-can only contain permanent blobs and cannot be deleted before their expiry.
+Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.
+
+See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
 
 ## Blob object and blob ID utilities
 
