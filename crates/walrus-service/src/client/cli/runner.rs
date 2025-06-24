@@ -101,7 +101,6 @@ use crate::{
             QuiltPatchByIdentifier,
             QuiltPatchByPatchId,
             QuiltPatchByTag,
-            QuiltPatchQuery,
             QuiltPatchSelector,
             get_contract_client,
             get_read_client,
@@ -198,10 +197,27 @@ impl ClientCommandRunner {
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::ReadQuilt {
-                query,
+                quilt_id,
+                identifiers,
+                tag,
+                value,
+                quilt_patch_ids,
                 out,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.read_quilt(query, out, rpc_url).await,
+            } => {
+                self.read_quilt(
+                    QuiltPatchSelector::get_selector_from_args(
+                        quilt_id,
+                        identifiers,
+                        tag,
+                        value,
+                        quilt_patch_ids,
+                    )?,
+                    out,
+                    rpc_url,
+                )
+                .await
+            }
 
             CliCommands::ListPatchesInQuilt {
                 quilt_id,
@@ -210,12 +226,11 @@ impl ClientCommandRunner {
 
             CliCommands::Store {
                 files,
-                epoch_arg,
                 common_options,
             } => {
                 self.store(
                     files,
-                    epoch_arg,
+                    common_options.epoch_arg,
                     common_options.dry_run,
                     StoreOptimizations::from_force_and_ignore_resources_flags(
                         common_options.force,
@@ -231,13 +246,12 @@ impl ClientCommandRunner {
             CliCommands::StoreQuilt {
                 paths,
                 blobs,
-                epoch_arg,
                 common_options,
             } => {
                 self.store_quilt(
                     paths,
                     blobs,
-                    epoch_arg,
+                    common_options.epoch_arg,
                     common_options.dry_run,
                     StoreOptimizations::from_force_and_ignore_resources_flags(
                         common_options.force,
@@ -558,13 +572,13 @@ impl ClientCommandRunner {
         ReadOutput::new(out, blob_id, blob).print_output(self.json)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn read_quilt(
         self,
-        query: QuiltPatchQuery,
+        selector: QuiltPatchSelector,
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let selector = query.get_selector()?;
         let config = self.config?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
