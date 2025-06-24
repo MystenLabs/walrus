@@ -267,6 +267,16 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// Read quilt patches (blobs) from Walrus.
+    ///
+    /// Exactly one query pattern must be specified. Valid queries are:
+    ///
+    /// - --quilt-id `<ID>` --identifier `<IDENTIFIER>`...
+    ///
+    /// - --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
+    ///
+    /// - --quilt-patch-id `<PATCH_ID>`...
+    ///
+    /// - --quilt-id `<ID>`
     ReadQuilt {
         /// The query parameters to specify the quilt patches to read.
         #[command(flatten)]
@@ -1255,9 +1265,9 @@ impl QuiltPatchQuery {
         } else {
             Err(anyhow!(
                 "Exactly one query type must be specified. Valid query types are:\n\
-                - --quilt-id <ID> --identifier <NAME>...\n\
-                - --quilt-id <ID> --tag <KEY> <VALUE>\n\
-                - --quilt-patch-id <ID>...\n\
+                - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
+                - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
+                - --quilt-patch-id <PATCH_ID>...\n\
                 - --quilt-id <ID>"
             ))
         }
