@@ -23,7 +23,12 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount, encoding::QuiltError};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    EpochCount,
+    encoding::{QuiltError, quilt_encoding::QuiltStoreBlob},
+};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
@@ -461,34 +466,15 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
     match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
-                let identifier = blob.identifier().to_string();
-                let blob_attribute: BlobAttribute = blob.tags().clone().into();
-                let blob_data = blob.into_data();
-                let mut response = (StatusCode::OK, blob_data).into_response();
-                populate_response_headers_from_request(
+                build_quilt_patch_response(
+                    blob,
                     &request_headers,
                     &quilt_patch_id_str,
-                    response.headers_mut(),
-                );
-                populate_response_headers_from_attributes(
-                    response.headers_mut(),
-                    &blob_attribute,
-                    if response_header_config.allow_quilt_patch_tags_in_response {
-                        None
-                    } else {
-                        Some(&response_header_config.allowed_headers)
-                    },
-                );
-                if let (Ok(header_name), Ok(header_value)) = (
-                    HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
-                    HeaderValue::from_str(&identifier),
-                ) {
-                    response.headers_mut().insert(header_name, header_value);
-                }
-                response
+                    &response_header_config,
+                )
             } else {
                 tracing::info!("no blob returned for the requested quilt blob ID");
-                let error = GetBlobError::BlobNotFound;
+                let error = GetBlobError::QuiltPatchNotFound;
                 error.to_response()
             }
         }
@@ -508,6 +494,36 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
             error.to_response()
         }
     }
+}
+
+/// Builds a response for a quilt patch.
+fn build_quilt_patch_response(
+    blob: QuiltStoreBlob<'static>,
+    request_headers: &HeaderMap,
+    etag: &str,
+    response_header_config: &AggregatorResponseHeaderConfig,
+) -> Response {
+    let identifier = blob.identifier().to_string();
+    let blob_attribute: BlobAttribute = blob.tags().clone().into();
+    let blob_data = blob.into_data();
+    let mut response = (StatusCode::OK, blob_data).into_response();
+    populate_response_headers_from_request(request_headers, etag, response.headers_mut());
+    populate_response_headers_from_attributes(
+        response.headers_mut(),
+        &blob_attribute,
+        if response_header_config.allow_quilt_patch_tags_in_response {
+            None
+        } else {
+            Some(&response_header_config.allowed_headers)
+        },
+    );
+    if let (Ok(header_name), Ok(header_value)) = (
+        HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
+        HeaderValue::from_str(&identifier),
+    ) {
+        response.headers_mut().insert(header_name, header_value);
+    }
+    response
 }
 
 /// Retrieve a blob by quilt ID and identifier.
@@ -572,7 +588,6 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
         identifier
     );
 
-    // Parse the quilt_id from the path parameter
     let quilt_id = match BlobId::from_str(&quilt_id_str) {
         Ok(id) => id,
         Err(_) => {
@@ -585,33 +600,12 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
         .get_blob_by_quilt_id_and_identifier(&quilt_id, &identifier)
         .await
     {
-        Ok(blob) => {
-            let blob_identifier = blob.identifier().to_string();
-            let blob_attribute: BlobAttribute = blob.tags().clone().into();
-            let blob_data = blob.into_data();
-            let mut response = (StatusCode::OK, blob_data).into_response();
-            populate_response_headers_from_request(
-                &request_headers,
-                &quilt_id_str,
-                response.headers_mut(),
-            );
-            populate_response_headers_from_attributes(
-                response.headers_mut(),
-                &blob_attribute,
-                if response_header_config.allow_quilt_patch_tags_in_response {
-                    None
-                } else {
-                    Some(&response_header_config.allowed_headers)
-                },
-            );
-            if let (Ok(header_name), Ok(header_value)) = (
-                HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
-                HeaderValue::from_str(&blob_identifier),
-            ) {
-                response.headers_mut().insert(header_name, header_value);
-            }
-            response
-        }
+        Ok(blob) => build_quilt_patch_response(
+            blob,
+            &request_headers,
+            &quilt_id_str,
+            &response_header_config,
+        ),
         Err(error) => {
             let error = GetBlobError::from(error);
 
