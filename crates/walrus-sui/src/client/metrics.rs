@@ -29,7 +29,7 @@ walrus_utils::metrics::define_metric_set! {
         rpc_latency: HistogramVec["method", "endpoint", "status"],
 
         #[help = "The source of a checkpoint download"]
-        checkpoint_download_source: IntCounterVec["source"],
+        checkpoint_download_source: IntCounterVec["download_source"],
     }
 }
 

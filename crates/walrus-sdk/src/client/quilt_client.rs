@@ -4,8 +4,9 @@
 //! Client for storing and retrieving quilts.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
+    marker::PhantomData,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -15,6 +16,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    QuiltPatchId,
     Sliver,
     SliverIndex,
     encoding::{Primary, QuiltError, Secondary, SliverData, quilt_encoding::*},
@@ -26,17 +28,45 @@ use walrus_utils::read_blob_from_file;
 use crate::{
     client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
+
+/// Generate identifier from path.
+pub fn generate_identifier_from_path(path: &Path, index: usize) -> String {
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .map(String::from)
+        .unwrap_or_else(|| format!("unnamed-blob-{}", index))
+}
+
+/// Converts a list of blobs with paths to a list of [`QuiltStoreBlob`]s.
+///
+/// The on-disk file names are used as identifiers for the quilt patches.
+/// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-index".
+//
+// TODO(WAL-887): Use relative paths to deduplicate the identifiers.
+pub fn assign_identifiers_with_paths(
+    blobs_with_paths: impl IntoIterator<Item = (PathBuf, Vec<u8>)>,
+) -> Vec<QuiltStoreBlob<'static>> {
+    blobs_with_paths
+        .into_iter()
+        .enumerate()
+        .map(|(i, (path, blob))| {
+            QuiltStoreBlob::new_owned(blob, generate_identifier_from_path(&path, i))
+        })
+        .collect()
+}
 
 /// Reads all files recursively from a given path and returns them as path-content pairs.
 ///
 /// If the path is a file, it's read directly.
 /// If the path is a directory, its files are read recursively.
 /// Returns error if path doesn't exist or is not accessible.
-pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(PathBuf, Vec<u8>)>> {
+pub fn read_blobs_from_paths<P: AsRef<Path>>(
+    paths: &[P],
+) -> ClientResult<HashMap<PathBuf, Vec<u8>>> {
     if paths.is_empty() {
-        return Ok(Vec::new());
+        return Ok(HashMap::new());
     }
 
     let mut collected_files: HashSet<PathBuf> = HashSet::new();
@@ -53,11 +83,11 @@ pub fn read_blobs_from_paths<P: AsRef<Path>>(paths: &[P]) -> ClientResult<Vec<(P
         collected_files.extend(get_all_files_from_path(path)?);
     }
 
-    let mut collected_files_with_content = Vec::with_capacity(collected_files.len());
+    let mut collected_files_with_content = HashMap::with_capacity(collected_files.len());
     for file_path in collected_files {
         let content = read_blob_from_file(&file_path)
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.to_string().into())))?;
-        collected_files_with_content.push((file_path, content));
+        collected_files_with_content.insert(file_path, content);
     }
 
     Ok(collected_files_with_content)
@@ -78,6 +108,199 @@ fn get_all_files_from_path<P: AsRef<Path>>(path: P) -> ClientResult<HashSet<Path
     }
 
     Ok(collected_files)
+}
+
+/// A wrapper around QuiltDecoder, slivers and quilt index.
+///
+/// This is used to cache the slivers and quilt index for a given quilt.
+struct DecoderBasedCacheReader<V: QuiltVersion> {
+    pub slivers: Vec<SliverData<V::SliverAxis>>,
+    pub quilt_index: Option<QuiltIndex>,
+}
+
+impl<V: QuiltVersion> DecoderBasedCacheReader<V> {
+    pub fn new(slivers: Vec<SliverData<V::SliverAxis>>, quilt_index: Option<QuiltIndex>) -> Self {
+        Self {
+            slivers,
+            quilt_index,
+        }
+    }
+
+    fn get_decoder(&self) -> V::QuiltDecoder<'_> {
+        match &self.quilt_index {
+            Some(quilt_index) => {
+                V::QuiltConfig::get_decoder_with_quilt_index(&self.slivers, quilt_index)
+            }
+            None => V::QuiltConfig::get_decoder(&self.slivers),
+        }
+    }
+
+    pub fn get_blobs_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        let decoder = self.get_decoder();
+        decoder.get_blobs_by_identifiers(identifiers)
+    }
+
+    pub fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        let decoder = self.get_decoder();
+        decoder.get_blobs_by_tag(target_tag, target_value)
+    }
+
+    pub fn get_blobs_by_patch_internal_ids(
+        &self,
+        patch_internal_ids: &[&[u8]],
+    ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        let decoder = V::QuiltConfig::get_decoder(&self.slivers);
+        patch_internal_ids
+            .iter()
+            .map(|patch_internal_id| decoder.get_blob_by_patch_internal_id(patch_internal_id))
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+/// An enum to represent either a cache of slivers and quilt index or a full quilt.
+///
+/// It is an candidate for the future quilt cache.
+enum QuiltCacheReader<V: QuiltVersion> {
+    Uninitialized,
+    Decoder(DecoderBasedCacheReader<V>),
+    FullQuilt(QuiltEnum),
+}
+
+/// A wrapper round different types of cached quilt readers.
+///
+/// This hides the details of the source of the data required to read the quilt patches.
+struct QuiltReader<'a, V: QuiltVersion, T: ReadClient> {
+    pub reader: QuiltCacheReader<V>,
+    pub client: &'a QuiltClient<'a, T>,
+    pub config: QuiltClientConfig,
+    pub quilt_index: Option<QuiltIndex>,
+    phantom: PhantomData<V>,
+}
+
+impl<'a, V: QuiltVersion, T: ReadClient> QuiltReader<'a, V, T>
+where
+    SliverData<V::SliverAxis>: TryFrom<Sliver>,
+{
+    /// Creates a new QuiltReader.
+    pub async fn new(
+        client: &'a QuiltClient<'a, T>,
+        config: QuiltClientConfig,
+        quilt_index: Option<QuiltIndex>,
+    ) -> Self {
+        Self {
+            reader: QuiltCacheReader::Uninitialized,
+            client,
+            config,
+            quilt_index,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Retrieves blobs from quilt by identifiers.
+    pub async fn download_data(
+        &mut self,
+        sliver_indices: &[SliverIndex],
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<()> {
+        if matches!(self.reader, QuiltCacheReader::FullQuilt(_)) {
+            return Ok(());
+        }
+
+        let retrieved_slivers = self
+            .client
+            .client
+            .retrieve_slivers_retry_committees::<V::SliverAxis>(
+                metadata,
+                sliver_indices,
+                certified_epoch,
+                self.config.max_retrieve_slivers_attempts,
+                self.config.timeout_duration,
+            )
+            .await;
+
+        if let Ok(slivers) = retrieved_slivers {
+            self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(
+                slivers,
+                self.quilt_index.clone(),
+            ));
+            Ok(())
+        } else {
+            let quilt = self
+                .client
+                .get_full_quilt(metadata, certified_epoch)
+                .await?;
+            self.reader = QuiltCacheReader::FullQuilt(quilt);
+            Ok(())
+        }
+    }
+
+    /// Retrieves a blob from the quilt by identifier.
+    pub async fn get_blobs_by_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized => Err(ClientError::from(ClientErrorKind::Other(
+                "Reader not initialized".into(),
+            ))),
+            QuiltCacheReader::Decoder(cache) => cache
+                .get_blobs_by_identifiers(identifiers)
+                .map_err(ClientError::other),
+            QuiltCacheReader::FullQuilt(quilt) => quilt
+                .get_blobs_by_identifiers(identifiers)
+                .map_err(ClientError::other),
+        }
+    }
+
+    /// Retrieves blobs from the quilt matching the given tag.
+    pub async fn get_blobs_by_tag(
+        &self,
+        target_tag: &str,
+        target_value: &str,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized => Err(ClientError::from(ClientErrorKind::Other(
+                "Reader not initialized".into(),
+            ))),
+            QuiltCacheReader::Decoder(cache) => cache
+                .get_blobs_by_tag(target_tag, target_value)
+                .map_err(ClientError::other),
+            QuiltCacheReader::FullQuilt(quilt) => quilt
+                .get_blobs_by_tag(target_tag, target_value)
+                .map_err(ClientError::other),
+        }
+    }
+
+    /// Retrieves blobs from the quilt matching the given patch internal ids.
+    pub async fn get_blobs_by_patch_internal_ids(
+        &self,
+        patch_internal_ids: &[&[u8]],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized => Err(ClientError::from(ClientErrorKind::Other(
+                "Reader not initialized".into(),
+            ))),
+            QuiltCacheReader::Decoder(cache) => cache
+                .get_blobs_by_patch_internal_ids(patch_internal_ids)
+                .map_err(ClientError::other),
+            QuiltCacheReader::FullQuilt(quilt) => patch_internal_ids
+                .iter()
+                .map(|patch_internal_id| {
+                    quilt
+                        .get_blob_by_patch_internal_id(patch_internal_id)
+                        .map_err(ClientError::other)
+                })
+                .collect::<Result<Vec<_>, _>>(),
+        }
+    }
 }
 
 /// Configuration for the QuiltClient.
@@ -180,7 +403,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         // For now since we only support QuiltV1, we use the first secondary sliver.
         let slivers = self
             .client
-            .retrieve_slivers_with_retry::<Secondary>(
+            .retrieve_slivers_retry_committees::<Secondary>(
                 metadata,
                 &[SliverIndex::new(0)],
                 certified_epoch,
@@ -216,16 +439,14 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         SliverData<V::SliverAxis>: TryFrom<Sliver>,
     {
         let mut all_slivers = Vec::new();
-        let mut refs = vec![first_sliver];
-        let first_sliver_refs = [first_sliver].to_vec();
-        let mut decoder = V::QuiltConfig::get_decoder(&first_sliver_refs);
+        let mut decoder = V::QuiltConfig::get_decoder(std::iter::once(first_sliver));
 
         let quilt_index = match decoder.get_or_decode_quilt_index() {
             Ok(quilt_index) => quilt_index,
             Err(QuiltError::MissingSlivers(indices)) => {
                 all_slivers.extend(
                     self.client
-                        .retrieve_slivers_with_retry::<V::SliverAxis>(
+                        .retrieve_slivers_retry_committees::<V::SliverAxis>(
                             metadata,
                             &indices,
                             certified_epoch,
@@ -234,8 +455,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         )
                         .await?,
                 );
-                refs.extend(all_slivers.iter());
-                decoder.add_slivers(&refs);
+                decoder.add_slivers(&all_slivers);
                 decoder.get_or_decode_quilt_index()?
             }
             Err(e) => return Err(e.into()),
@@ -244,7 +464,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         Ok(quilt_index)
     }
 
-    /// Retrieves the quilt patches of the given identifiers from the quilt.
+    /// Retrieves blobs from the quilt matching the given identifiers.
     pub async fn get_blobs_by_identifiers(
         &self,
         quilt_id: &BlobId,
@@ -252,69 +472,164 @@ impl<T: ReadClient> QuiltClient<'_, T> {
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
         let metadata = self.get_quilt_metadata(quilt_id).await?;
 
-        let blobs = match metadata {
+        match metadata {
             QuiltMetadata::V1(metadata) => {
-                self.get_blobs_by_identifiers_impl::<QuiltVersionV1>(
-                    &metadata.get_verified_metadata(),
-                    &metadata.index.into(),
-                    identifiers,
+                // Retrieve slivers for the given identifiers.
+                let sliver_indices = metadata
+                    .index
+                    .get_sliver_indices_for_identifiers(identifiers)?;
+                let (certified_epoch, _) = self
+                    .client
+                    .get_blob_status_and_certified_epoch(quilt_id, None)
+                    .await?;
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                    self,
+                    self.config.clone(),
+                    Some(metadata.index.clone().into()),
                 )
-                .await?
+                .await;
+                quilt_reader
+                    .download_data(
+                        &sliver_indices,
+                        &metadata.get_verified_metadata(),
+                        certified_epoch,
+                    )
+                    .await?;
+                quilt_reader
+                    .get_blobs_by_identifiers(identifiers)
+                    .await
+                    .map_err(ClientError::other)
             }
-        };
-
-        Ok(blobs)
+        }
     }
 
-    /// Retrieves blobs from quilt by identifiers.
-    async fn get_blobs_by_identifiers_impl<V: QuiltVersion>(
+    /// Retrieves the blobs from the quilt matching the given tag.
+    pub async fn get_blobs_by_tag(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
-        index: &QuiltIndex,
-        identifiers: &[&str],
-    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>>
-    where
-        SliverData<V::SliverAxis>: TryFrom<Sliver>,
-    {
-        // Retrieve slivers for the given identifiers.
-        let sliver_indices = index.get_sliver_indices_for_identifiers(identifiers)?;
+        quilt_id: &BlobId,
+        target_tag: &str,
+        target_value: &str,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let metadata = self.get_quilt_metadata(quilt_id).await?;
+
+        match metadata {
+            QuiltMetadata::V1(metadata) => {
+                let sliver_indices = metadata
+                    .index
+                    .get_sliver_indices_for_tag(target_tag, target_value);
+                if sliver_indices.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let (certified_epoch, _) = self
+                    .client
+                    .get_blob_status_and_certified_epoch(quilt_id, None)
+                    .await?;
+                let mut quilt_reader = QuiltReader::<'_, QuiltVersionV1, T>::new(
+                    self,
+                    self.config.clone(),
+                    Some(metadata.index.clone().into()),
+                )
+                .await;
+                quilt_reader
+                    .download_data(
+                        &sliver_indices,
+                        &metadata.get_verified_metadata(),
+                        certified_epoch,
+                    )
+                    .await?;
+                quilt_reader
+                    .get_blobs_by_tag(target_tag, target_value)
+                    .await
+                    .map_err(ClientError::other)
+            }
+        }
+    }
+
+    /// Retrieves blobs from the quilt matching the given QuiltPatchIds.
+    pub async fn get_blobs_by_ids(
+        &self,
+        quilt_patch_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let mut grouped_quilt_patch_ids = HashMap::new();
+        for quilt_patch_id in quilt_patch_ids {
+            let quilt_id = quilt_patch_id.quilt_id;
+            grouped_quilt_patch_ids
+                .entry(quilt_id)
+                .or_insert_with(Vec::new)
+                .push(quilt_patch_id.clone());
+        }
+
+        let mut futures = Vec::new();
+        for quilt_patch_ids in grouped_quilt_patch_ids.values() {
+            futures.push(self.get_blobs_from_quilt_by_internal_ids(quilt_patch_ids));
+        }
+
+        let results = futures::future::try_join_all(futures).await?;
+
+        Ok(results.into_iter().flatten().collect())
+    }
+
+    async fn get_blobs_from_quilt_by_internal_ids(
+        &self,
+        quilt_patch_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        assert!(!quilt_patch_ids.is_empty());
+        let quilt_patch_id = quilt_patch_ids.first().expect("no quilt patch id provided");
+        let version_enum = quilt_patch_id.version_enum()?;
+        let quilt_id = quilt_patch_id.quilt_id;
+
+        debug_assert!(
+            quilt_patch_ids
+                .iter()
+                .all(|quilt_patch_id| quilt_patch_id.quilt_id == quilt_id)
+        );
+
         let (certified_epoch, _) = self
             .client
-            .get_blob_status_and_certified_epoch(metadata.blob_id(), None)
+            .get_blob_status_and_certified_epoch(&quilt_id, None)
             .await?;
-        let retrieved_slivers = self
+        let metadata = self
             .client
-            .retrieve_slivers_with_retry::<V::SliverAxis>(
-                metadata,
-                &sliver_indices,
-                certified_epoch,
-                self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
-            )
-            .await;
+            .retrieve_metadata(certified_epoch, &quilt_id)
+            .await?;
 
-        if let Ok(slivers) = retrieved_slivers {
-            let sliver_refs: Vec<_> = slivers.iter().collect();
-            let decoder = V::QuiltConfig::get_decoder_with_quilt_index(&sliver_refs, index);
-            identifiers
-                .iter()
-                .map(|identifier| {
-                    decoder
-                        .get_blob_by_identifier(identifier)
-                        .map_err(ClientError::other)
-                })
-                .collect::<Result<Vec<_>, _>>()
-        } else {
-            let quilt = self.get_full_quilt(metadata, certified_epoch).await?;
-            identifiers
-                .iter()
-                .map(|identifier| {
-                    quilt
-                        .get_blob_by_identifier(identifier)
-                        .map_err(ClientError::other)
-                })
-                .collect::<Result<Vec<_>, _>>()
+        match version_enum {
+            QuiltVersionEnum::V1 => {
+                self.get_blobs_from_quilt_by_internal_ids_impl::<QuiltVersionV1>(
+                    &metadata,
+                    certified_epoch,
+                    quilt_patch_ids,
+                )
+                .await
+            }
         }
+    }
+
+    async fn get_blobs_from_quilt_by_internal_ids_impl<V: QuiltVersion>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+        quilt_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let mut sliver_indices = Vec::new();
+        for quilt_id in quilt_ids {
+            let id = V::QuiltPatchInternalId::from_bytes(&quilt_id.patch_id_bytes)?;
+            sliver_indices.extend(id.sliver_indices());
+        }
+
+        let mut quilt_reader =
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+        quilt_reader
+            .download_data(&sliver_indices, metadata, certified_epoch)
+            .await?;
+        let internal_ids = quilt_ids
+            .iter()
+            .map(|quilt_id| quilt_id.patch_id_bytes.as_slice())
+            .collect::<Vec<_>>();
+        quilt_reader
+            .get_blobs_by_patch_internal_ids(&internal_ids)
+            .await
     }
 
     /// Retrieves the quilt from Walrus.
@@ -352,30 +667,6 @@ impl QuiltClient<'_, SuiContractClient> {
         encoder.construct_quilt().map_err(ClientError::other)
     }
 
-    /// Converts a list of blobs with paths to a list of [`QuiltStoreBlob`]s.
-    ///
-    /// The on-disk file names are used as identifiers for the quilt patches.
-    /// If the file name is not valid UTF-8, it will be replaced with "unnamed-blob-<index>".
-    //
-    // TODO(WAL-887): Use relative paths to deduplicate the identifiers.
-    fn assign_identifiers_with_paths(
-        blobs_with_paths: &[(PathBuf, Vec<u8>)],
-    ) -> Vec<QuiltStoreBlob> {
-        blobs_with_paths
-            .iter()
-            .enumerate()
-            .map(|(i, (path, blob))| {
-                QuiltStoreBlob::new(
-                    blob,
-                    path.file_name()
-                        .and_then(|file_name| file_name.to_str())
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("unnamed-blob-{}", i)),
-                )
-            })
-            .collect()
-    }
-
     /// Constructs a quilt from a list of paths.
     ///
     /// The paths can be files or directories; if they are directories, their files are read
@@ -395,7 +686,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = Self::assign_identifiers_with_paths(&blobs_with_paths);
+        let quilt_store_blobs: Vec<_> = assign_identifiers_with_paths(blobs_with_paths);
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
             .await
@@ -408,7 +699,7 @@ impl QuiltClient<'_, SuiContractClient> {
         paths: &[P],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -420,7 +711,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &quilt,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -436,7 +727,7 @@ impl QuiltClient<'_, SuiContractClient> {
         quilt: &V::Quilt,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
@@ -446,7 +737,7 @@ impl QuiltClient<'_, SuiContractClient> {
                 &[quilt.data()],
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,

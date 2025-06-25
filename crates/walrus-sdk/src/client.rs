@@ -78,7 +78,7 @@ use crate::{
     client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -329,6 +329,27 @@ impl<T: ReadClient> Client<T> {
         }
     }
 
+    /// If the status check fails with NoValidStatusReceived, continues with current epoch and
+    /// known status.
+    ///
+    /// Otherwise, propagates the error.
+    async fn continue_on_no_valid_status_received(
+        result: ClientResult<BlobStatus>,
+        committees: &ActiveCommittees,
+        known_status: Option<BlobStatus>,
+    ) -> ClientResult<(Option<Epoch>, Option<BlobStatus>)> {
+        match result {
+            Ok(status) => Ok((status.initial_certified_epoch(), Some(status))),
+            Err(e) if matches!(e.kind(), ClientErrorKind::NoValidStatusReceived) => {
+                tracing::debug!(
+                    "no valid status received; continuing with current epoch and known status"
+                );
+                Ok((Some(committees.epoch()), known_status))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     async fn get_blob_status_and_certified_epoch(
         &self,
         blob_id: &BlobId,
@@ -336,8 +357,12 @@ impl<T: ReadClient> Client<T> {
     ) -> ClientResult<(Epoch, Option<BlobStatus>)> {
         let committees = self.get_committees().await?;
         let (epoch_to_be_read, blob_status) = if committees.is_change_in_progress() {
-            let blob_status = self.try_get_blob_status(blob_id, known_status).await?;
-            (blob_status.initial_certified_epoch(), Some(blob_status))
+            Self::continue_on_no_valid_status_received(
+                self.try_get_blob_status(blob_id, known_status).await,
+                &committees,
+                known_status,
+            )
+            .await?
         } else {
             // We are not during epoch change, we can read from the current epoch directly if we do
             // not have a blob status.
@@ -349,19 +374,29 @@ impl<T: ReadClient> Client<T> {
             )
         };
 
-        // Return early if the blob is not certified, or if the committee is behind.
-        let Some(certified_epoch) = epoch_to_be_read else {
-            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
-        };
+        // Return an error if the blob is not registered.
+        if let Some(status) = blob_status {
+            if matches!(status, BlobStatus::Nonexistent | BlobStatus::Invalid { .. }) {
+                return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
+            }
+        }
+
+        // Read from the epoch of certification, or the current epoch if so far we have not been
+        // able to get the certified epoch. let current_epoch = committees.epoch();
         let current_epoch = committees.epoch();
-        if certified_epoch > current_epoch {
+        let epoch_to_be_read = epoch_to_be_read.unwrap_or(current_epoch);
+
+        // Return an error if the committee is behind.
+        if epoch_to_be_read > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
                 client_epoch: current_epoch,
-                certified_epoch,
+                // The epooch_to_be_read can be ahead of the current epoch only if it is a
+                // certified epoch.
+                certified_epoch: epoch_to_be_read,
             }));
         }
 
-        Ok((certified_epoch, blob_status))
+        Ok((epoch_to_be_read, blob_status))
     }
 
     /// Internal method to handle the common logic for reading blobs.
@@ -397,7 +432,12 @@ impl<T: ReadClient> Client<T> {
         .await
         {
             Either::Left((status_result, read_future)) => {
-                status_result?;
+                Self::continue_on_no_valid_status_received(
+                    status_result,
+                    self.get_committees().await?.as_ref(),
+                    blob_status,
+                )
+                .await?;
                 read_future.await
             }
             Either::Right((read_result, _status_future)) => read_result,
@@ -517,6 +557,29 @@ impl<T: ReadClient> Client<T> {
             },
             result = future => result,
         }
+    }
+
+    async fn retrieve_slivers_retry_committees<E: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        sliver_indices: &[SliverIndex],
+        certified_epoch: Epoch,
+        max_attempts: usize,
+        timeout_duration: Duration,
+    ) -> Result<Vec<SliverData<E>>, ClientError>
+    where
+        SliverData<E>: TryFrom<Sliver>,
+    {
+        self.retry_if_error_epoch_change(|| {
+            self.retrieve_slivers_with_retry(
+                metadata,
+                sliver_indices,
+                certified_epoch,
+                max_attempts,
+                timeout_duration,
+            )
+        })
+        .await
     }
 
     /// Retrieves slivers with retry logic, only requesting missing slivers in subsequent attempts.
@@ -723,15 +786,15 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
         if let Some(metrics) = metrics {
             metrics.observe_encoding_latency(start.elapsed());
         }
@@ -741,7 +804,7 @@ impl Client<SuiContractClient> {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
                     epochs_ahead,
-                    store_when,
+                    store_optimizations,
                     persistence,
                     post_store,
                     metrics,
@@ -769,7 +832,7 @@ impl Client<SuiContractClient> {
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
@@ -778,17 +841,17 @@ impl Client<SuiContractClient> {
             .iter()
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
                     epochs_ahead,
-                    store_when,
+                    store_optimizations,
                     persistence,
                     post_store,
                     None,
@@ -827,20 +890,20 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         let mut results = self
             .reserve_and_store_encoded_blobs(
                 encoded_blobs,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,
@@ -867,10 +930,10 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let quilt_store_blobs =
+        let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(quilt_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
 
         debug_assert_eq!(
             encoded_blobs.len(),
@@ -910,15 +973,15 @@ impl Client<SuiContractClient> {
     /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
     pub fn encode_blobs<'a, T: Debug + Clone + Send + Sync>(
         &self,
-        quilt_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
+        walrus_store_blobs: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        if quilt_store_blobs.is_empty() {
+        if walrus_store_blobs.is_empty() {
             return Ok(Vec::new());
         }
 
-        if quilt_store_blobs.len() > 1 {
-            let total_blob_size = quilt_store_blobs
+        if walrus_store_blobs.len() > 1 {
+            let total_blob_size = walrus_store_blobs
                 .iter()
                 .map(|blob| blob.unencoded_length())
                 .sum::<usize>();
@@ -937,7 +1000,7 @@ impl Client<SuiContractClient> {
         let multi_pb = Arc::new(MultiProgress::new());
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        let results = quilt_store_blobs
+        let results = walrus_store_blobs
             .into_par_iter()
             .map(|blob| {
                 let multi_pb_clone = multi_pb.clone();
@@ -1001,7 +1064,7 @@ impl Client<SuiContractClient> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         metrics: Option<&Arc<ClientMetrics>>,
@@ -1041,7 +1104,7 @@ impl Client<SuiContractClient> {
                 encoded_blobs_with_status,
                 epochs_ahead,
                 persistence,
-                store_when,
+                store_optimizations,
             )
             .await?;
 
@@ -1445,6 +1508,17 @@ impl<T> Client<T> {
     pub fn with_blocklist(mut self, blocklist: Blocklist) -> Self {
         self.blocklist = Some(blocklist);
         self
+    }
+
+    /// Creates a blocklist from a path with metrics support.
+    ///
+    /// This is a convenience method for creating a blocklist with metrics when the client
+    /// has access to a metrics registry.
+    pub fn create_blocklist_with_metrics(
+        path: &Option<PathBuf>,
+        metrics_registry: Option<&Registry>,
+    ) -> anyhow::Result<Blocklist> {
+        Blocklist::new_with_metrics(path, metrics_registry)
     }
 
     /// Returns a [`QuiltClient`] for storing and retrieving quilts.

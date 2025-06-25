@@ -15,7 +15,8 @@ use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
     path::PathBuf,
-    time::{Duration, Instant},
+    str::FromStr,
+    time::Duration,
 };
 
 use indicatif::MultiProgress;
@@ -30,6 +31,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     ShardIndex,
     SliverPairIndex,
     encoding::{
@@ -61,7 +63,7 @@ use walrus_sdk::{
             NotEnoughSlivers,
         },
     },
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_service::test_utils::{
     DEFAULT_SUBSIDY_FUNDS,
@@ -96,32 +98,6 @@ use walrus_sui::{
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_utils::backoff::ExponentialBackoffConfig;
-
-/// Read a blob with retries if the blob is registered but not certified.
-async fn read_blob_with_wait_for_certification(
-    client: &Client<SuiContractClient>,
-    blob_id: &BlobId,
-    timeout_duration: Duration,
-) -> TestResult<Vec<u8>> {
-    let start = Instant::now();
-
-    while start.elapsed() < timeout_duration {
-        match client.read_blob::<Primary>(blob_id).await {
-            Ok(data) => return Ok(data),
-            Err(err) => {
-                // Check if the error is BlobIdDoesNotExist.
-                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    continue;
-                }
-
-                return Err(err.into());
-            }
-        }
-    }
-
-    Err(anyhow::anyhow!("Timed out waiting for blob to be available").into())
-}
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -172,7 +148,7 @@ where
             &blobs_with_paths,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -199,12 +175,7 @@ where
 
     // Read back and verify all blobs.
     for (path, blob_id) in path_to_blob_id {
-        let read_data = read_blob_with_wait_for_certification(
-            client.as_ref(),
-            &blob_id,
-            Duration::from_secs(30),
-        )
-        .await?;
+        let read_data = client.as_ref().read_blob::<Primary>(&blob_id).await?;
 
         assert_eq!(
             read_data,
@@ -366,7 +337,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &[&metadata],
             1,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::none(),
         )
         .await?
         .into_iter()
@@ -494,7 +465,7 @@ async fn test_store_with_existing_blob_resource(
             &metatdatum.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
         )
         .await?
         .into_iter()
@@ -508,7 +479,7 @@ async fn test_store_with_existing_blob_resource(
             &blobs,
             encoding_type,
             epochs_ahead_required,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -561,7 +532,7 @@ async fn register_blob(
             &[&metadata],
             epochs_ahead,
             BlobPersistence::Permanent,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
         )
         .await?
         .into_iter()
@@ -585,7 +556,7 @@ async fn store_blob(
             &[blob],
             encoding_type,
             epochs_ahead,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -627,7 +598,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
             &blobs_with_paths,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -635,16 +606,15 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     let read_result =
         futures::future::join_all(store_result_with_path.iter().map(|result| async {
-            let blob = read_blob_with_wait_for_certification(
-                client,
-                &result
-                    .blob_store_result
-                    .blob_id()
-                    .expect("blob id should be present"),
-                Duration::from_secs(30),
-            )
-            .await
-            .expect("should be able to read blob");
+            let blob = client
+                .read_blob::<Primary>(
+                    &result
+                        .blob_store_result
+                        .blob_id()
+                        .expect("blob id should be present"),
+                )
+                .await
+                .expect("should be able to read blob");
             (result.blob_store_result.blob_id(), blob)
         }))
         .await;
@@ -691,7 +661,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
             &blobs,
             encoding_type,
             epochs_ahead,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -835,7 +805,7 @@ async fn test_store_with_existing_storage_resource(
             &blobs,
             encoding_type,
             epochs_ahead_required,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -878,7 +848,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
                 &blobs,
                 encoding_type,
                 idx,
-                StoreWhen::Always,
+                StoreOptimizations::none(),
                 BlobPersistence::Deletable,
                 PostStoreAction::Keep,
             )
@@ -892,7 +862,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
             &blobs,
             encoding_type,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -940,7 +910,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Deletable,
             PostStoreAction::Keep,
         )
@@ -950,12 +920,9 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        read_blob_with_wait_for_certification(
-            client,
-            &blob_id.expect("blob id should be present"),
-            Duration::from_secs(30),
-        )
-        .await?,
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .await?,
         blob
     );
 
@@ -1030,11 +997,17 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt_store_blobs = blobs
         .iter()
         .enumerate()
-        .map(|(i, blob)| QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1)))
+        .map(|(i, blob)| {
+            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1));
+            if i == 0 {
+                blob = blob.with_tags(vec![("tag1".to_string(), "value1".to_string())]);
+            }
+            blob
+        })
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_client = client.quilt_client(QuiltClientConfig::new(4, Duration::from_secs(30)));
+    let quilt_client = client.quilt_client(QuiltClientConfig::new(6, Duration::from_secs(60)));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -1043,7 +1016,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
             &quilt,
             encoding_type,
             2,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1096,6 +1069,38 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         }
     }
 
+    // Test retrieving blobs by patch IDs
+    let quilt_patch_ids: Vec<QuiltPatchId> = stored_quilt_blobs
+        .iter()
+        .map(|stored_blob| {
+            QuiltPatchId::from_str(&stored_blob.quilt_patch_id)
+                .expect("should be able to parse quilt patch id")
+        })
+        .collect();
+
+    let retrieved_blobs_by_ids = quilt_client.get_blobs_by_ids(&quilt_patch_ids).await?;
+
+    assert_eq!(
+        retrieved_blobs_by_ids.len(),
+        quilt_patch_ids.len(),
+        "Number of retrieved blobs should match number of patch IDs"
+    );
+
+    // Verify that retrieved blobs match the original blobs
+    for retrieved_blob in &retrieved_blobs_by_ids {
+        let original_blob = id_blob_map
+            .get(retrieved_blob.identifier())
+            .expect("identifier should be present");
+        assert_eq!(retrieved_blob, *original_blob);
+    }
+
+    // Test retrieving the blobs by tag.
+    let retrieved_blobs_by_tag = quilt_client
+        .get_blobs_by_tag(&blob_id, "tag1", "value1")
+        .await?;
+    assert_eq!(retrieved_blobs_by_tag.len(), 1);
+    assert_eq!(retrieved_blobs_by_tag[0].identifier(), "test-blob-1");
+
     Ok(())
 }
 
@@ -1120,7 +1125,7 @@ async fn test_blocklist() -> TestResult {
             &[&blob],
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Deletable,
             PostStoreAction::Keep,
         )
@@ -1130,12 +1135,9 @@ async fn test_blocklist() -> TestResult {
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
     assert_eq!(
-        read_blob_with_wait_for_certification(
-            client,
-            &blob_id.expect("blob id should be present"),
-            Duration::from_secs(30)
-        )
-        .await?,
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .await?,
         blob
     );
 
@@ -1216,7 +1218,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1281,25 +1283,86 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     // `BlobStoreResult::AlreadyCertified`. Otherwise, it should return a
     // `BlobStoreResult::NewlyCreated`.
     let configurations = vec![
-        (1, StoreWhen::NotStored, BlobPersistence::Deletable, false),
-        (1, StoreWhen::Always, BlobPersistence::Deletable, false),
-        (2, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
-        (3, StoreWhen::Always, BlobPersistence::Deletable, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Permanent, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Permanent, true),
-        (1, StoreWhen::Always, BlobPersistence::Permanent, false),
-        (4, StoreWhen::NotStored, BlobPersistence::Permanent, true), // Extend lifetime
-        (2, StoreWhen::NotStored, BlobPersistence::Permanent, true),
-        (2, StoreWhen::Always, BlobPersistence::Permanent, false),
-        (1, StoreWhen::NotStored, BlobPersistence::Deletable, true),
-        (5, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::none(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            2,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ), // Extend lifetime
+        (
+            3,
+            StoreOptimizations::none(),
+            BlobPersistence::Deletable,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ),
+        (
+            1,
+            StoreOptimizations::none(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            4,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ), // Extend lifetime
+        (
+            2,
+            StoreOptimizations::all(),
+            BlobPersistence::Permanent,
+            true,
+        ),
+        (
+            2,
+            StoreOptimizations::none(),
+            BlobPersistence::Permanent,
+            false,
+        ),
+        (
+            1,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ),
+        (
+            5,
+            StoreOptimizations::all(),
+            BlobPersistence::Deletable,
+            true,
+        ), // Extend lifetime
     ];
 
-    for (epochs, store_when, persistence, is_already_certified) in configurations {
+    for (epochs, store_optimizations, persistence, is_already_certified) in configurations {
         tracing::debug!(
-            "testing: epochs={:?}, store_when={:?}, persistence={:?}, is_already_certified={:?}",
+            "testing: epochs={:?}, store_optimizations={:?}, persistence={:?}, \
+            is_already_certified={:?}",
             epochs,
-            store_when,
+            store_optimizations,
             persistence,
             is_already_certified
         );
@@ -1308,7 +1371,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 &blobs,
                 encoding_type,
                 epochs,
-                store_when,
+                store_optimizations,
                 persistence,
                 PostStoreAction::Keep,
             )
@@ -1444,7 +1507,7 @@ async fn test_burn_blobs() -> TestResult {
                 &[blob.as_slice()],
                 DEFAULT_ENCODING,
                 1,
-                StoreWhen::Always,
+                StoreOptimizations::none(),
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
@@ -1500,7 +1563,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             &[blob.as_slice()],
             encoding_type,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1533,7 +1596,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             &[blob.as_slice()],
             encoding_type,
             20,
-            StoreWhen::NotStored,
+            StoreOptimizations::all(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1571,7 +1634,7 @@ async fn test_share_blobs() -> TestResult {
             &[blob.as_slice()],
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
@@ -1673,7 +1736,7 @@ async fn test_post_store_action(
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             post_store,
             None,
@@ -1827,7 +1890,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             &blobs,
             DEFAULT_ENCODING,
             1,
-            StoreWhen::Always,
+            StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
             None,
@@ -1969,7 +2032,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                     &blobs,
                     DEFAULT_ENCODING,
                     idx,
-                    StoreWhen::Always,
+                    StoreOptimizations::none(),
                     BlobPersistence::Permanent,
                     PostStoreAction::Keep,
                 )

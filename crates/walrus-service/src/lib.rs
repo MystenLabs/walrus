@@ -16,6 +16,9 @@ pub use node::StorageNodeConfigLoader;
 #[cfg(feature = "node")]
 pub use node::errors::SyncNodeConfigError;
 
+#[cfg(feature = "node")]
+pub mod event;
+
 #[cfg(feature = "deploy")]
 pub mod testbed;
 

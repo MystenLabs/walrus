@@ -13,7 +13,7 @@ site's resources (in other words, the file is not part of the resulting Walrus S
 served by the portal).
 
 If you don't want to use this default location, you can specify the path to the configuration file
-with the `--ws-resources` flag when running the `publish` or `update` commands.
+with the `--ws-resources` flag when running the `deploy`, `publish` or `update` commands.
 
 The file is JSON-formatted, and looks like the following:
 
@@ -37,12 +37,18 @@ The file is JSON-formatted, and looks like the following:
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
       "creator": "MystenLabs"
   },
+  "site_name": "My Walrus Site",
+  "object_id": "0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf",
   "ignore": ["/private/*", "/secret.txt", "/images/tmp/*"]
 }
 ```
 
-We now describe in detail four sections of the configuration file: `headers`, `routes`,
-`metadata`, and the `ignore` section.
+```admonish note
+The `ws-resources.json` file, expects the field names to be in `snake_case`
+```
+
+We now describe in detail six sections of the configuration file: `headers`, `routes`,
+`metadata`, `site_name`, `object_id` and the `ignore` section.
 
 ## Specifying HTTP response headers
 
@@ -159,6 +165,34 @@ example you can place a link to your sites favicon.
 - `description`: Add a brief description of your site.
 - `project_url`: If your site is open-source, add a link to your site's GitHub repository.
 - `creator`: Add the name of your company, group, or individual creator of your site.
+
+## Site Name (`site_name`)
+
+You can set a Name for your Walrus Site, via the optional `site_name` field in your
+`ws-resources.json` file.
+
+```admonish note
+In case you have also provided a Site Name via the `--site-name` cli flag, the cli flag
+will take priority over the `site_name` field in the `ws-resources.json`, which will be
+overwritten.
+```
+
+```admonish note
+If a Site Name is not provided at all (neither through the `--site-name` cli flag, nor
+through the `site_name` field in `ws-resources.json`), then a default name will be used.
+```
+
+## Site Object ID (`object_id`)
+
+The optional `object_id` field in your `ws-resources.json` file stores the Sui Object ID of your
+deployed Walrus Site.
+
+**Role in Deployment:**
+
+The `site-builder deploy` command primarily uses this field to identify an existing site for updates.
+If a valid `object_id` is present, `deploy` will target that site for modifications.
+If this field is missing (and no `--object-id` CLI flag is used), `deploy` will publish a new site.
+If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
 
 ## Ignoring files from being uploaded
 

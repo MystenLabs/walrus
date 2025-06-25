@@ -402,6 +402,11 @@ public fun frost_per_wal(): u64 {
     1_000_000_000
 }
 
+/// Convenience function to convert WAL to FROST.
+public fun wal_to_frost(amount: u64): u64 {
+    amount * frost_per_wal()
+}
+
 // === Unit Tests ===
 
 #[test]

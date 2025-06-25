@@ -225,6 +225,12 @@ impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
             end_index,
         })
     }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
+    }
 }
 
 impl QuiltPatchInternalIdV1 {
@@ -300,6 +306,7 @@ impl QuiltMetadata {
         }
     }
 }
+
 /// Metadata associated with a quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {

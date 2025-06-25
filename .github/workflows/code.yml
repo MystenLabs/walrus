@@ -76,9 +76,6 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
 
       - name: Check formatting with rustfmt
         run: >
@@ -102,9 +99,6 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -129,7 +123,6 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-          shared-key: v0-rust-test
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -171,6 +164,10 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+
       - run: ./scripts/simtest/install.sh
       - name: Run tests
         run: cargo simtest simtest --profile simtest

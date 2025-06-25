@@ -22,7 +22,7 @@ pub mod simtest_utils {
     };
     use walrus_sdk::{
         client::{Client, responses::BlobStoreResult},
-        store_when::StoreWhen,
+        store_optimizations::StoreOptimizations,
     };
     use walrus_service::test_utils::SimStorageNodeHandle;
     use walrus_storage_node_client::api::ServiceHealthInfo;
@@ -71,12 +71,8 @@ pub mod simtest_utils {
                 &[blob.as_slice()],
                 DEFAULT_ENCODING,
                 epoch_ahead,
-                StoreWhen::Always,
-                if deletable {
-                    BlobPersistence::Deletable
-                } else {
-                    BlobPersistence::Permanent
-                },
+                StoreOptimizations::none(),
+                BlobPersistence::from_deletable(deletable),
                 PostStoreAction::Keep,
                 None,
             )

@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
     system_state_inner::{Self, SystemStateInnerV1}
@@ -47,6 +48,20 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
 }
+
+/// Update epoch to next epoch, and update the committee, price and capacity.
+///
+/// Called by the epoch change function that connects `Staking` and `System`. Returns
+/// the balance of the rewards from the previous epoch.
+public(package) fun advance_epoch(
+    self: &mut System,
+    new_committee: BlsCommittee,
+    new_epoch_params: &EpochParams,
+): VecMap<ID, Balance<WAL>> {
+    self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+}
+
+/// === Public Functions ===
 
 /// Marks blob as invalid given an invalid blob certificate.
 public fun invalidate_blob_id(
@@ -181,6 +196,12 @@ public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u3
     system.inner_mut().add_subsidy(subsidy, epochs_ahead)
 }
 
+/// Adds rewards to the system for future epochs, where `subsidies[i]` is added to the rewards
+/// of epoch `system.epoch() + i`.
+public fun add_per_epoch_subsidies(system: &mut System, subsidies: vector<Balance<WAL>>) {
+    system.inner_mut().add_per_epoch_subsidies(subsidies)
+}
+
 // === Protocol Version ===
 
 /// Node collects signatures on the protocol version event and emits it.
@@ -249,16 +270,9 @@ public fun n_shards(self: &System): u16 {
     self.inner().n_shards()
 }
 
-/// Update epoch to next epoch, and update the committee, price and capacity.
-///
-/// Called by the epoch change function that connects `Staking` and `System`. Returns
-/// the balance of the rewards from the previous epoch.
-public(package) fun advance_epoch(
-    self: &mut System,
-    new_committee: BlsCommittee,
-    new_epoch_params: &EpochParams,
-): VecMap<ID, Balance<WAL>> {
-    self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+/// Read-only access to the accounting ring buffer.
+public fun future_accounting(self: &System): &FutureAccountingRingBuffer {
+    self.inner().future_accounting()
 }
 
 // === Accessors ===
