@@ -38,7 +38,7 @@ use walrus_sui::{
     types::move_structs::{BlobAttribute, BlobWithAttribute},
 };
 
-use super::{WalrusReadClient, WalrusWriteClient};
+use super::{AggregatorResponseHeaderConfig, WalrusReadClient, WalrusWriteClient};
 use crate::{
     client::daemon::{
         PostStoreAction,
@@ -58,14 +58,12 @@ pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 /// The path to get blobs from quilt by IDs.
-pub const QUILT_BLOBS_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
+pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
 /// The path to get blob from quilt by quilt ID and identifier.
-pub const QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT: &str =
+pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
-/// Whether allow tags to be returned in the response headers.
-const ALLOW_TAGS_IN_RESPONSE_HEADERS: bool = true;
 
 /// Retrieve a Walrus blob.
 ///
@@ -91,7 +89,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            populate_common_response_headers(&request_headers, &blob_id.to_string(), headers);
+            populate_response_headers_from_request(&request_headers, &blob_id.to_string(), headers);
             response
         }
         Err(error) => {
@@ -110,7 +108,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     }
 }
 
-fn populate_common_response_headers(
+fn populate_response_headers_from_request(
     request_headers: &HeaderMap,
     etag: &str,
     headers: &mut HeaderMap,
@@ -183,7 +181,7 @@ fn populate_response_headers_from_attributes(
     ),
 )]
 pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
-    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     request_headers: HeaderMap,
     Path(blob_object_id): Path<ObjectID>,
 ) -> Response {
@@ -204,7 +202,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
                     populate_response_headers_from_attributes(
                         response.headers_mut(),
                         &attribute,
-                        Some(&allowed_headers),
+                        Some(&response_header_config.allowed_headers),
                     );
                 }
             }
@@ -423,7 +421,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
     get,
-    path = QUILT_BLOBS_GET_ENDPOINT,
+    path = QUILT_PATCH_BY_ID_GET_ENDPOINT,
     params(
         (
             "quilt_patch_id" = String, Path,
@@ -446,7 +444,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
 )]
 pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
     request_headers: HeaderMap,
-    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
 ) -> Response {
     let quilt_patch_id_str = quilt_patch_id.to_string();
@@ -459,7 +457,7 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
                 let blob_attribute: BlobAttribute = blob.tags().clone().into();
                 let blob_data = blob.into_data();
                 let mut response = (StatusCode::OK, blob_data).into_response();
-                populate_common_response_headers(
+                populate_response_headers_from_request(
                     &request_headers,
                     &quilt_patch_id_str,
                     response.headers_mut(),
@@ -467,10 +465,10 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
                 populate_response_headers_from_attributes(
                     response.headers_mut(),
                     &blob_attribute,
-                    if ALLOW_TAGS_IN_RESPONSE_HEADERS {
+                    if response_header_config.allow_quilt_patch_tags_in_response {
                         None
                     } else {
-                        Some(&allowed_headers)
+                        Some(&response_header_config.allowed_headers)
                     },
                 );
                 if let (Ok(header_name), Ok(header_value)) = (
@@ -528,7 +526,7 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
     get,
-    path = QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+    path = QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
     params(
         (
             "quilt_id" = String, Path,
@@ -557,7 +555,7 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
 )]
 pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
     request_headers: HeaderMap,
-    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path((quilt_id_str, identifier)): Path<(String, String)>,
 ) -> Response {
     tracing::info!(
@@ -584,7 +582,7 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
             let blob_attribute: BlobAttribute = blob.tags().clone().into();
             let blob_data = blob.into_data();
             let mut response = (StatusCode::OK, blob_data).into_response();
-            populate_common_response_headers(
+            populate_response_headers_from_request(
                 &request_headers,
                 &quilt_id_str,
                 response.headers_mut(),
@@ -592,10 +590,10 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
             populate_response_headers_from_attributes(
                 response.headers_mut(),
                 &blob_attribute,
-                if ALLOW_TAGS_IN_RESPONSE_HEADERS {
+                if response_header_config.allow_quilt_patch_tags_in_response {
                     None
                 } else {
-                    Some(&allowed_headers)
+                    Some(&response_header_config.allowed_headers)
                 },
             );
             if let (Ok(header_name), Ok(header_value)) = (

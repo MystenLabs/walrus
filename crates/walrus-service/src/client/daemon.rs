@@ -26,8 +26,8 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
-    QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
-    QUILT_BLOBS_GET_ENDPOINT,
+    QUILT_PATCH_BY_ID_GET_ENDPOINT,
+    QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -211,6 +211,15 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     }
 }
 
+/// Configuration for the response headers of the aggregator.
+#[derive(Debug, Clone, Default)]
+pub struct AggregatorResponseHeaderConfig {
+    /// The headers that are allowed to be returned in the response.
+    pub allowed_headers: HashSet<String>,
+    /// If true, the tags of the quilt patch will be returned in the response headers.
+    pub allow_quilt_patch_tags_in_response: bool,
+}
+
 /// The client daemon.
 ///
 /// Exposes different HTTP endpoints depending on which function `ClientDaemon::new_*` it is
@@ -221,7 +230,7 @@ pub struct ClientDaemon<T> {
     network_address: SocketAddr,
     metrics: MetricsMiddlewareState,
     router: Router<Arc<T>>,
-    allowed_headers: Arc<HashSet<String>>,
+    response_header_config: Arc<AggregatorResponseHeaderConfig>,
 }
 
 impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
@@ -232,8 +241,12 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         registry: &Registry,
         allowed_headers: Vec<String>,
     ) -> Self {
-        Self::new::<AggregatorApiDoc>(client, network_address, registry)
-            .with_aggregator(allowed_headers)
+        Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator(
+            AggregatorResponseHeaderConfig {
+                allowed_headers: allowed_headers.into_iter().collect(),
+                allow_quilt_patch_tags_in_response: false,
+            },
+        )
     }
 
     /// Creates a new [`ClientDaemon`], which serves requests at the provided `network_address` and
@@ -249,31 +262,34 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),
-            allowed_headers: Arc::new(HashSet::new()),
+            response_header_config: Arc::new(AggregatorResponseHeaderConfig::default()),
         }
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
-        self.with_allowed_headers(allowed_headers);
-        tracing::info!("Aggregator allowed headers: {:?}", self.allowed_headers);
+    fn with_aggregator(mut self, response_header_config: AggregatorResponseHeaderConfig) -> Self {
+        self.response_header_config = Arc::new(response_header_config);
+        tracing::info!(
+            "Aggregator response header config: {:?}",
+            self.response_header_config
+        );
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_by_object_id)
-                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
             )
             .route(
-                QUILT_BLOBS_GET_ENDPOINT,
+                QUILT_PATCH_BY_ID_GET_ENDPOINT,
                 get(routes::get_blob_by_quilt_patch_id)
-                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
             )
             .route(
-                QUILT_BLOB_BY_IDENTIFIER_GET_ENDPOINT,
+                QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
                 get(routes::get_blob_by_quilt_id_and_identifier)
-                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
             );
         self
     }
@@ -334,7 +350,14 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         aggregator_args: &AggregatorArgs,
     ) -> Self {
         Self::new::<DaemonApiDoc>(client, publisher_args.daemon_args.bind_address, registry)
-            .with_aggregator(aggregator_args.allowed_headers.clone())
+            .with_aggregator(AggregatorResponseHeaderConfig {
+                allowed_headers: aggregator_args
+                    .allowed_headers
+                    .clone()
+                    .into_iter()
+                    .collect(),
+                allow_quilt_patch_tags_in_response: false,
+            })
             .with_publisher(
                 auth_config,
                 publisher_args.max_body_size_kib,
@@ -386,12 +409,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             );
         }
         self
-    }
-}
-
-impl<T> ClientDaemon<T> {
-    fn with_allowed_headers(&mut self, allowed_headers: Vec<String>) {
-        self.allowed_headers = Arc::new(allowed_headers.into_iter().collect());
     }
 }
 

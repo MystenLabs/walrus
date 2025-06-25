@@ -854,6 +854,12 @@ pub struct AggregatorArgs {
     #[arg(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
+    /// Whether to allow quilt patch tags to be returned in the response headers.
+    /// If true, the tags will be returned in the response headers, regardless of the allowed
+    /// headers.
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub allow_quilt_patch_tags_in_response: bool,
 }
 
 /// The arguments for the publisher service.
@@ -1756,6 +1762,7 @@ mod tests {
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
+                allow_quilt_patch_tags_in_response: false,
             },
         })
     }
