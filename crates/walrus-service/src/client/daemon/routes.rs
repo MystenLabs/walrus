@@ -412,9 +412,9 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
 
 /// Retrieve a blob from quilt by its QuiltPatchId.
 ///
-/// Takes a quilt blob ID and returns the corresponding blob from the quilt.
+/// Takes a quilt patch ID and returns the corresponding blob from the quilt.
 /// The blob content is returned as raw bytes in the response body, while metadata
-/// such as the blob identifier is returned in response headers.
+/// such as the patch identifier and tags are returned in response headers.
 ///
 /// # Example
 /// ```bash
@@ -461,7 +461,7 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
 ) -> Response {
     let quilt_patch_id_str = quilt_patch_id.to_string();
-    tracing::debug!("starting to read quilt blob: {}", quilt_patch_id_str);
+    tracing::debug!("starting to read quilt patch: {}", quilt_patch_id_str);
 
     match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
         Ok(mut blobs) => {
@@ -484,6 +484,12 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
             match &error {
                 GetBlobError::BlobNotFound => {
                     tracing::info!("requested quilt blob ID does not exist")
+                }
+                GetBlobError::QuiltPatchNotFound => {
+                    tracing::info!(
+                        "requested quilt patch {} does not exist",
+                        quilt_patch_id_str,
+                    )
                 }
                 GetBlobError::Internal(error) => {
                     tracing::info!(?error, "error retrieving quilt blob")
