@@ -53,6 +53,8 @@ const EIncorrectDenyListSequence: u64 = 9;
 const EIncorrectDenyListNode: u64 = 10;
 /// Trying to obtain a resource with an invalid size.
 const EInvalidResourceSize: u64 = 11;
+/// Trying to update the protocol version for an invalid start epoch.
+const EInvalidStartEpoch: u64 = 12;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -685,7 +687,9 @@ public(package) fun update_protocol_version(
 
     let epoch = certified_message.cert_epoch();
     let message = certified_message.protocol_version_message();
+    let start_epoch = message.start_epoch();
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
+    assert!(start_epoch >= self.epoch(), EInvalidStartEpoch);
 
     events::emit_protocol_version(
         epoch,
