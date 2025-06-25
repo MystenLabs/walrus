@@ -240,11 +240,12 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         network_address: SocketAddr,
         registry: &Registry,
         allowed_headers: Vec<String>,
+        allow_quilt_patch_tags_in_response: bool,
     ) -> Self {
         Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator(
             AggregatorResponseHeaderConfig {
                 allowed_headers: allowed_headers.into_iter().collect(),
-                allow_quilt_patch_tags_in_response: false,
+                allow_quilt_patch_tags_in_response,
             },
         )
     }
@@ -356,7 +357,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     .clone()
                     .into_iter()
                     .collect(),
-                allow_quilt_patch_tags_in_response: false,
+                allow_quilt_patch_tags_in_response: aggregator_args
+                    .allow_quilt_patch_tags_in_response,
             })
             .with_publisher(
                 auth_config,
