@@ -357,6 +357,7 @@ pub mod events {
     contract_ident!(struct events::DenyListBlobDeleted);
     contract_ident!(struct events::ContractUpgradeProposed);
     contract_ident!(struct events::ContractUpgradeQuorumReached);
+    contract_ident!(struct events::ProtocolVersionUpdated);
 }
 
 /// Module for tags corresponding to the Move module `auth`.

@@ -195,7 +195,7 @@ wrapped_uint! {
         /// Intent type for deny list blob deleted messages.
         pub const DENY_LIST_BLOB_DELETED_MSG: Self = Self(5);
         /// Intent type for protocol version messages.
-        pub const PROTOCOL_VERSION_MSG: Self = Self(6);
+        pub const PROTOCOL_VERSION_MSG: Self = Self(6); 
     }
 }
 
