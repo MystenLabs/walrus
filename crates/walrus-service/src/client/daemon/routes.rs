@@ -23,7 +23,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount, encoding::QuiltError};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
@@ -238,6 +238,11 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
     BlobNotFound,
 
+    /// The requested quilt patch does not exist on Walrus.
+    #[error("the requested quilt patch does not exist on Walrus")]
+    #[rest_api_error(reason = "QUILT_PATCH_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    QuiltPatchNotFound,
+
     /// The blob cannot be returned as has been blocked.
     #[error("the requested metadata is blocked")]
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
@@ -253,6 +258,9 @@ impl From<ClientError> for GetBlobError {
         match error.kind() {
             ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::QuiltError(QuiltError::BlobsNotFoundInQuilt(_)) => {
+                Self::QuiltPatchNotFound
+            }
             _ => anyhow::anyhow!(error).into(),
         }
     }
@@ -448,7 +456,7 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
 ) -> Response {
     let quilt_patch_id_str = quilt_patch_id.to_string();
-    tracing::info!("starting to read quilt blob: {}", quilt_patch_id_str);
+    tracing::debug!("starting to read quilt blob: {}", quilt_patch_id_str);
 
     match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
         Ok(mut blobs) => {
@@ -502,11 +510,11 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
     }
 }
 
-/// Retrieve a blob from quilt by quilt ID and identifier.
+/// Retrieve a blob by quilt ID and identifier.
 ///
 /// Takes a quilt ID and an identifier and returns the corresponding blob from the quilt.
 /// The blob content is returned as raw bytes in the response body, while metadata
-/// such as the blob identifier is returned in response headers.
+/// such as the blob identifier and tags are returned in response headers.
 ///
 /// # Example
 /// ```bash
@@ -549,16 +557,16 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
         GetBlobError,
     ),
     summary = "Get blob from quilt by ID and identifier",
-    description = "Retrieve a specific blob from a quilt using its quilt ID and identifier. \
+    description = "Retrieve a specific blob from a quilt using the quilt ID and its identifier. \
                 Returns the raw blob bytes, the identifier and other attributes are returned as \
-                headers. If the identifier is not found, the response is 404.",
+                headers. If the quilt ID or identifier is not found, the response is 404.",
 )]
 pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path((quilt_id_str, identifier)): Path<(String, String)>,
 ) -> Response {
-    tracing::info!(
+    tracing::debug!(
         "starting to read quilt blob by ID and identifier: {} / {}",
         quilt_id_str,
         identifier
@@ -610,9 +618,15 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
             match &error {
                 GetBlobError::BlobNotFound => {
                     tracing::info!(
-                        "requested quilt blob with ID {} and identifier {} does not exist",
+                        "requested quilt blob with ID {} does not exist",
                         quilt_id_str,
-                        identifier
+                    )
+                }
+                GetBlobError::QuiltPatchNotFound => {
+                    tracing::info!(
+                        "requested quilt patch {} does not exist in quilt {}",
+                        identifier,
+                        quilt_id_str,
                     )
                 }
                 GetBlobError::Internal(error) => {

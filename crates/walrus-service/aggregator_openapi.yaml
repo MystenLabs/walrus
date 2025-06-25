@@ -39,7 +39,7 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
@@ -61,7 +61,7 @@ paths:
       tags:
       - routes
       summary: Get blob from quilt by ID and identifier
-      description: Retrieve a specific blob from a quilt using its quilt ID and identifier. Returns the raw blob bytes, the identifier and other attributes are returned as headers. If the identifier is not found, the response is 404.
+      description: Retrieve a specific blob from a quilt using the quilt ID and its identifier. Returns the raw blob bytes, the identifier and other attributes are returned as headers. If the quilt ID or identifier is not found, the response is 404.
       operationId: get_blob_by_quilt_id_and_identifier
       parameters:
       - name: quilt_id
@@ -90,7 +90,7 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
@@ -134,7 +134,7 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
@@ -176,7 +176,7 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
