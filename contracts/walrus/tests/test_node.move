@@ -97,6 +97,25 @@ public fun update_deny_list_message(
     certified_message.flatten()
 }
 
+public fun protocol_version_updated_message(
+    _self: &TestStorageNode,
+    epoch: u32,
+    start_epoch: u32,
+    protocol_version: u64,
+): vector<u8> {
+    let certified_message = vector[
+        bcs::to_bytes(&6u8), // intent type for protocol version update
+        bcs::to_bytes(&0u8), // intent version
+        bcs::to_bytes(&3u8), // app ID
+        bcs::to_bytes(&epoch), // epoch
+        // protocol version update message
+        bcs::to_bytes(&start_epoch), // node ID
+        bcs::to_bytes(&protocol_version), // protocol version
+    ];
+
+    certified_message.flatten()
+}
+
 public fun destroy(self: TestStorageNode) {
     let TestStorageNode { storage_node_cap, .. } = self;
     storage_node_cap.destroy!(|cap| cap.destroy_cap_for_testing());

@@ -19,7 +19,7 @@ const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
 const EPOCH_ZERO_DURATION: u64 = 100000000;
 
 #[test]
-fun test_init_and_first_epoch_change() {
+fun init_and_first_epoch_change() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -122,7 +122,7 @@ fun test_init_and_first_epoch_change() {
 }
 
 #[test]
-fun test_stake_after_committee_selection() {
+fun stake_after_committee_selection() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -299,7 +299,7 @@ fun node_voting_parameters() {
 }
 
 #[test, expected_failure(abort_code = walrus::staking_inner::EWrongEpochState)]
-fun test_first_epoch_too_soon_fail() {
+fun first_epoch_too_soon_fail() {
     let mut nodes = test_node::test_nodes();
     let admin = @0xA11CE;
     let mut runner = e2e_runner::prepare(admin)
@@ -341,11 +341,11 @@ fun test_first_epoch_too_soon_fail() {
         staking.initiate_epoch_change(system, runner.clock());
     });
 
-    abort 0
+    abort
 }
 
 #[test]
-fun test_epoch_change_with_rewards_and_commission() {
+fun epoch_change_with_rewards_and_commission() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -568,7 +568,7 @@ fun node_update_metadata() {
 }
 
 #[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
-fun test_register_invalid_pop_epoch() {
+fun register_invalid_pop_epoch() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -598,11 +598,11 @@ fun test_register_invalid_pop_epoch() {
         node.set_storage_node_cap(cap);
     });
 
-    abort 0
+    abort
 }
 
 #[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
-fun test_register_invalid_pop_signer() {
+fun register_invalid_pop_signer() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -634,7 +634,80 @@ fun test_register_invalid_pop_signer() {
         node.set_storage_node_cap(cap);
     });
 
-    abort 0
+    abort
+}
+
+#[test]
+fun protocol_version_updated_event() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // === register candidates ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let cap = staking.register_candidate(
+                node.name(),
+                node.network_address(),
+                node.metadata(),
+                node.bls_pk(),
+                node.network_key(),
+                node.create_proof_of_possession(epoch),
+                100_00, // 100.00% commission
+                STORAGE_PRICE,
+                WRITE_PRICE,
+                NODE_CAPACITY,
+                ctx,
+            );
+            node.set_storage_node_cap(cap);
+        });
+    });
+
+    // === stake with each node ===
+
+    nodes.do_ref!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let coin = test_utils::mint_wal(1, ctx);
+            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
+            transfer::public_transfer(staked_wal, ctx.sender());
+        });
+    });
+
+    // === enter the first epoch ===
+
+    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
+    runner.tx!(admin, |staking, system, _| {
+        staking.voting_end(runner.clock());
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 1);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+    });
+
+    // === update protocol version ===
+
+    let certified_message = nodes[0].protocol_version_updated_message(
+        runner.epoch(),
+        runner.epoch() + 1,
+        1,
+    );
+    let (signature, members_bitmap) = nodes.sign(certified_message);
+    let node = &nodes[0];
+
+    runner.tx!(node.sui_address(), |_, system, _| {
+        system.update_protocol_version(node.cap(), signature, members_bitmap, certified_message);
+    });
+
+    assert_eq!(runner.last_tx_effects().num_user_events(), 1); // protocol version updated event emitted
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
 }
 
 #[test]
