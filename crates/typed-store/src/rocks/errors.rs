@@ -135,6 +135,9 @@ pub enum TypedStoreError {
     /// tokio tasks errors back to the caller.
     #[error("Task error: {0}")]
     TaskError(String),
+    /// The database is being deleted
+    #[error("The database is being deleted")]
+    DatabaseBeingDeleted,
 }
 
 /// The result type for the typed store

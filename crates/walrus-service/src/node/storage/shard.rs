@@ -17,6 +17,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use regex::Regex;
 use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
+use tokio::sync::{RwLock, RwLockReadGuard};
 use typed_store::{
     Map,
     TypedStoreError,
@@ -214,16 +215,22 @@ impl From<SecondarySliverData> for SecondarySliver {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ShardStorage {
     id: ShardIndex,
+    db: RwLock<ShardStorageDb>,
+    metrics: ShardMetrics,
+    cf_names: Arc<ShardColumnFamilyNames>,
+}
+
+#[derive(Debug)]
+struct ShardStorageDb {
     shard_status: DBMap<(), ShardStatus>,
     primary_slivers: DBMap<BlobId, PrimarySliverData>,
     secondary_slivers: DBMap<BlobId, SecondarySliverData>,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
-    metrics: ShardMetrics,
-    cf_names: Arc<ShardColumnFamilyNames>,
+    is_deleting: bool,
 }
 
 macro_rules! reopen_cf {
@@ -336,14 +343,25 @@ impl ShardStorage {
 
         Ok(Self {
             id,
-            shard_status,
-            primary_slivers,
-            secondary_slivers,
-            shard_sync_progress,
-            pending_recover_slivers,
+            db: RwLock::new(ShardStorageDb {
+                shard_status,
+                primary_slivers,
+                secondary_slivers,
+                shard_sync_progress,
+                pending_recover_slivers,
+                is_deleting: false,
+            }),
             metrics,
             cf_names: Arc::new(cf_names),
         })
+    }
+
+    async fn get_db_locked(&self) -> Result<RwLockReadGuard<ShardStorageDb>, TypedStoreError> {
+        let guard = self.db.read().await;
+        if guard.is_deleting {
+            return Err(TypedStoreError::DatabaseBeingDeleted);
+        }
+        Ok(guard)
     }
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
@@ -363,7 +381,8 @@ impl ShardStorage {
 
         let response = match sliver {
             Sliver::Primary(primary) => {
-                let table = self.primary_slivers.clone();
+                let guard = self.get_db_locked().await?;
+                let table = guard.primary_slivers.clone();
 
                 tokio::task::spawn_blocking(move || {
                     table.insert(&blob_id, &PrimarySliverData::from(primary))
@@ -371,7 +390,8 @@ impl ShardStorage {
                 .await
             }
             Sliver::Secondary(secondary) => {
-                let table = self.secondary_slivers.clone();
+                let guard = self.get_db_locked().await?;
+                let table = guard.secondary_slivers.clone();
 
                 tokio::task::spawn_blocking(move || {
                     table.insert(&blob_id, &SecondarySliverData::from(secondary))
@@ -393,7 +413,7 @@ impl ShardStorage {
 
     /// Returns the sliver of the specified type that is stored for that Blob ID, if any.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_sliver(
+    pub(crate) async fn get_sliver(
         &self,
         blob_id: &BlobId,
         sliver_type: SliverType,
@@ -401,16 +421,18 @@ impl ShardStorage {
         match sliver_type {
             SliverType::Primary => self
                 .get_primary_sliver(blob_id)
+                .await
                 .map(|s| s.map(Sliver::Primary)),
             SliverType::Secondary => self
                 .get_secondary_sliver(blob_id)
+                .await
                 .map(|s| s.map(Sliver::Secondary)),
         }
     }
 
     /// Retrieves the stored primary sliver for the given blob ID.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_primary_sliver(
+    pub(crate) async fn get_primary_sliver(
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
@@ -422,10 +444,13 @@ impl ShardStorage {
             ..Labels::default()
         };
 
-        let response = self
-            .primary_slivers
-            .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
+        let response = {
+            let guard = self.get_db_locked().await?;
+            guard
+                .primary_slivers
+                .get(blob_id)
+                .map(|s| s.map(|s| s.into()))
+        };
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
@@ -435,7 +460,7 @@ impl ShardStorage {
 
     /// Retrieves the stored secondary sliver for the given blob ID.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_secondary_sliver(
+    pub(crate) async fn get_secondary_sliver(
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
@@ -447,10 +472,13 @@ impl ShardStorage {
             ..Labels::default()
         };
 
-        let response = self
-            .secondary_slivers
-            .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
+        let response = {
+            let guard = self.get_db_locked().await?;
+            guard
+                .secondary_slivers
+                .get(blob_id)
+                .map(|s| s.map(|s| s.into()))
+        };
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
@@ -460,21 +488,24 @@ impl ShardStorage {
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        Ok(self.is_sliver_stored::<Primary>(blob_id)?
-            && self.is_sliver_stored::<Secondary>(blob_id)?)
-    }
-
-    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn is_sliver_stored<A: EncodingAxis>(
+    pub(crate) async fn is_sliver_pair_stored(
         &self,
         blob_id: &BlobId,
     ) -> Result<bool, TypedStoreError> {
-        self.is_sliver_type_stored(blob_id, A::sliver_type())
+        Ok(self.is_sliver_stored::<Primary>(blob_id).await?
+            && self.is_sliver_stored::<Secondary>(blob_id).await?)
     }
 
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn is_sliver_type_stored(
+    pub(crate) async fn is_sliver_stored<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<bool, TypedStoreError> {
+        self.is_sliver_type_stored(blob_id, A::sliver_type()).await
+    }
+
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
+    pub(crate) async fn is_sliver_type_stored(
         &self,
         blob_id: &BlobId,
         type_: SliverType,
@@ -488,8 +519,14 @@ impl ShardStorage {
         };
 
         let response = match type_ {
-            SliverType::Primary => self.primary_slivers.contains_key(blob_id),
-            SliverType::Secondary => self.secondary_slivers.contains_key(blob_id),
+            SliverType::Primary => {
+                let guard = self.get_db_locked().await?;
+                guard.primary_slivers.contains_key(blob_id)
+            }
+            SliverType::Secondary => {
+                let guard = self.get_db_locked().await?;
+                guard.secondary_slivers.contains_key(blob_id)
+            }
         };
 
         self.metrics
@@ -500,13 +537,14 @@ impl ShardStorage {
 
     /// Deletes the sliver pair for the given [`BlobId`].
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn delete_sliver_pair(
+    pub(crate) async fn delete_sliver_pair(
         &self,
         batch: &mut DBBatch,
         blob_id: &BlobId,
     ) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.primary_slivers, std::iter::once(blob_id))?;
-        batch.delete_batch(&self.secondary_slivers, std::iter::once(blob_id))?;
+        let guard = self.get_db_locked().await?;
+        batch.delete_batch(&guard.primary_slivers, std::iter::once(blob_id))?;
+        batch.delete_batch(&guard.secondary_slivers, std::iter::once(blob_id))?;
         Ok(())
     }
 
@@ -530,8 +568,10 @@ impl ShardStorage {
         )
     }
 
-    pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
-        self.shard_status
+    pub(crate) async fn status(&self) -> Result<ShardStatus, TypedStoreError> {
+        let guard = self.get_db_locked().await?;
+        guard
+            .shard_status
             .get(&())
             .map(|s| s.unwrap_or(ShardStatus::None))
     }
@@ -540,28 +580,35 @@ impl ShardStorage {
     ///
     /// This function will delete the existing sync progress for the shard and reset the shard
     /// sync from scratch.
-    pub(crate) fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
-        let mut batch = self.shard_status.batch();
-        batch.delete_batch(&self.shard_sync_progress, [()])?;
-        batch.insert_batch(&self.shard_status, [((), ShardStatus::ActiveSync)])?;
+    pub(crate) async fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
+        let guard = self.get_db_locked().await?;
+        let mut batch = guard.shard_status.batch();
+        batch.delete_batch(&guard.shard_sync_progress, [()])?;
+        batch.insert_batch(&guard.shard_status, [((), ShardStatus::ActiveSync)])?;
         batch.write()
     }
 
-    pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::Active)
+    pub(crate) async fn set_active_status(&self) -> Result<(), TypedStoreError> {
+        let guard = self.get_db_locked().await?;
+        guard.shard_status.insert(&(), &ShardStatus::Active)
     }
 
-    pub(crate) fn resume_active_shard_sync(&self) -> Result<ShardLastSyncStatus, TypedStoreError> {
+    pub(crate) async fn resume_active_shard_sync(
+        &self,
+    ) -> Result<ShardLastSyncStatus, TypedStoreError> {
         // Note that when active shard sync is stopped in the middle and shard recover starts,
         // the shard sync progress recorded in the db is not deleted, until the shard is completely
         // synced. By setting the shard status to active sync, the shard will resume the sync from
         // the last synced blob id.
-        self.shard_status.insert(&(), &ShardStatus::ActiveSync)?;
-        self.get_last_sync_status(&ShardStatus::ActiveSync)
+        {
+            let guard = self.get_db_locked().await?;
+            guard.shard_status.insert(&(), &ShardStatus::ActiveSync)?;
+        }
+        self.get_last_sync_status(&ShardStatus::ActiveSync).await
     }
 
     /// Fetches the slivers with `sliver_type` for the provided blob IDs.
-    pub(crate) fn fetch_slivers(
+    pub(crate) async fn fetch_slivers(
         &self,
         sliver_type: SliverType,
         slivers_to_fetch: &[BlobId],
@@ -584,13 +631,15 @@ impl ShardStorage {
             }
         }
 
+        let guard = self.get_db_locked().await?;
         let response = ByAxis::from(sliver_type)
             .map(
                 // TODO(#648): compare multi_get with scan for large value size.
-                |_| self.primary_slivers.multi_get(slivers_to_fetch),
-                |_| self.secondary_slivers.multi_get(slivers_to_fetch),
+                |_| guard.primary_slivers.multi_get(slivers_to_fetch),
+                |_| guard.secondary_slivers.multi_get(slivers_to_fetch),
             )
             .transpose();
+        drop(guard);
 
         self.metrics.observe_operation_duration(
             labels.with_response(response.as_ref().map(|_| &())),
@@ -631,13 +680,23 @@ impl ShardStorage {
         config: &ShardSyncConfig,
         directly_recover_shard: bool,
     ) -> (bool, Result<(), SyncShardClientError>) {
-        let start_sync_progress = self.shard_sync_progress.get(&()).ok().flatten();
+        let guard = match self.get_db_locked().await {
+            Ok(guard) => guard,
+            Err(e) => return (false, Err(e.into())),
+        };
+        let start_sync_progress = guard.shard_sync_progress.get(&()).ok().flatten();
+        drop(guard);
 
         let result = self
             .start_sync_shard_before_epoch_impl(epoch, node, config, directly_recover_shard)
             .await;
 
-        let finish_sync_progress = self.shard_sync_progress.get(&()).ok().flatten();
+        let guard = match self.get_db_locked().await {
+            Ok(guard) => guard,
+            Err(e) => return (false, Err(e.into())),
+        };
+        let finish_sync_progress = guard.shard_sync_progress.get(&()).ok().flatten();
+        drop(guard);
 
         let shard_sync_made_progress = match (start_sync_progress, finish_sync_progress) {
             (Some(start), Some(finish)) => start != finish,
@@ -676,17 +735,18 @@ impl ShardStorage {
             }
         }
 
-        if self.status()? == ShardStatus::None {
-            self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
+        if self.status().await? == ShardStatus::None {
+            let guard = self.get_db_locked().await?;
+            guard.shard_status.insert(&(), &ShardStatus::ActiveSync)?;
         }
 
-        let shard_status = self.status()?;
+        let shard_status = self.status().await?;
         assert!(
             shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover,
             "unexpected shard status at the beginning of a shard sync: {shard_status}"
         );
 
-        match self.get_last_sync_status(&shard_status)? {
+        match self.get_last_sync_status(&shard_status).await? {
             ShardLastSyncStatus::Primary {
                 last_synced_blob_id,
             } => {
@@ -728,16 +788,17 @@ impl ShardStorage {
         self.recovery_any_missing_slivers(node, config, epoch)
             .await?;
 
-        let mut batch = self.shard_status.batch();
-        batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
-        batch.delete_batch(&self.shard_sync_progress, [()])?;
+        let guard = self.get_db_locked().await?;
+        let mut batch = guard.shard_status.batch();
+        batch.insert_batch(&guard.shard_status, [((), ShardStatus::Active)])?;
+        batch.delete_batch(&guard.shard_sync_progress, [()])?;
         batch.write()?;
 
         Ok(())
     }
 
     /// Returns the last sync status for the shard.
-    fn get_last_sync_status(
+    async fn get_last_sync_status(
         &self,
         shard_status: &ShardStatus,
     ) -> Result<ShardLastSyncStatus, TypedStoreError> {
@@ -746,7 +807,8 @@ impl ShardStorage {
             // missing blobs.
             ShardLastSyncStatus::Recovery
         } else {
-            match self.shard_sync_progress.get(&())? {
+            let guard = self.get_db_locked().await?;
+            match guard.shard_sync_progress.get(&())? {
                 Some(ShardSyncProgress::V1(ShardSyncProgressV1 {
                     last_synced_blob_id,
                     sliver_type,
@@ -810,10 +872,12 @@ impl ShardStorage {
                     epoch,
                     next_starting_blob_id,
                 );
+                let guard = self.get_db_locked().await?;
                 let mut batch = match sliver_type {
-                    SliverType::Primary => self.primary_slivers.batch(),
-                    SliverType::Secondary => self.secondary_slivers.batch(),
+                    SliverType::Primary => guard.primary_slivers.batch(),
+                    SliverType::Secondary => guard.secondary_slivers.batch(),
                 };
+                drop(guard);
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
@@ -834,15 +898,17 @@ impl ShardStorage {
                     )
                     .await?;
 
-                next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
-                    epoch,
-                    &node,
-                    &fetched_slivers,
-                    sliver_type,
-                    next_blob_info,
-                    &mut blob_info_iter,
-                    &mut batch,
-                )?;
+                next_blob_info = self
+                    .batch_fetched_slivers_and_check_missing_blobs(
+                        epoch,
+                        &node,
+                        &fetched_slivers,
+                        sliver_type,
+                        next_blob_info,
+                        &mut blob_info_iter,
+                        &mut batch,
+                    )
+                    .await?;
 
                 #[cfg(msim)]
                 {
@@ -853,12 +919,16 @@ impl ShardStorage {
                 // Record sync progress.
                 last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
                 if let Some(last_synced_blob_id) = last_synced_blob_id {
+                    let guard = self.get_db_locked().await?;
                     batch.insert_batch(
-                        &self.shard_sync_progress,
+                        &guard.shard_sync_progress,
                         [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
                     )?;
                 }
+
+                let guard = self.get_db_locked().await?;
                 batch.write()?;
+                drop(guard);
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
@@ -877,15 +947,17 @@ impl ShardStorage {
             return Ok(());
         }
 
-        let mut batch = self.pending_recover_slivers.batch();
+        let guard = self.get_db_locked().await?;
+        let mut batch = guard.pending_recover_slivers.batch();
         while let Some((blob_id, _)) = next_blob_info {
             batch.insert_batch(
-                &self.pending_recover_slivers,
+                &guard.pending_recover_slivers,
                 [((sliver_type, blob_id), ())],
             )?;
             next_blob_info = blob_info_iter.next().transpose()?;
         }
         batch.write()?;
+        drop(guard);
 
         Ok(())
     }
@@ -894,16 +966,17 @@ impl ShardStorage {
     /// Advance `blob_info_iter`` to the next blob that is greater than the last fetched blob id,
     /// which is the next expected blob to fetch, and return the next expected blob.
     #[allow(clippy::too_many_arguments)]
-    fn batch_fetched_slivers_and_check_missing_blobs(
+    async fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
         epoch: Epoch,
         node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
-        blob_info_iter: &mut BlobInfoIterator,
+        blob_info_iter: &mut BlobInfoIterator<'_>,
         batch: &mut DBBatch,
     ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
+        let guard = self.get_db_locked().await?;
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
                 walrus.blob_id = %blob_id,
@@ -924,14 +997,14 @@ impl ShardStorage {
                 Sliver::Primary(primary) => {
                     assert_eq!(sliver_type, SliverType::Primary);
                     batch.insert_batch(
-                        &self.primary_slivers,
+                        &guard.primary_slivers,
                         [(blob_id, &PrimarySliverData::from(primary.clone()))],
                     )?;
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
                     batch.insert_batch(
-                        &self.secondary_slivers,
+                        &guard.secondary_slivers,
                         [(blob_id, &SecondarySliverData::from(secondary.clone()))],
                     )?;
                 }
@@ -943,6 +1016,7 @@ impl ShardStorage {
                 *blob_id,
                 sliver_type,
                 batch,
+                &guard,
             )?;
         }
         Ok(next_blob_info)
@@ -963,6 +1037,7 @@ impl ShardStorage {
         fetched_blob_id: BlobId,
         sliver_type: SliverType,
         db_batch: &mut DBBatch,
+        guard: &RwLockReadGuard<ShardStorageDb>,
     ) -> Result<Option<(BlobId, BlobInfo)>, TypedStoreError> {
         let Some((mut next_blob_id, _)) = next_blob_info else {
             // `next_blob_info is the last item read from `blob_info_iter`.
@@ -977,7 +1052,7 @@ impl ShardStorage {
 
         while to_rocks_db_key(&next_blob_id) < to_rocks_db_key(&fetched_blob_id) {
             db_batch.insert_batch(
-                &self.pending_recover_slivers,
+                &guard.pending_recover_slivers,
                 [((sliver_type, next_blob_id), ())],
             )?;
 
@@ -1003,15 +1078,23 @@ impl ShardStorage {
         config: &ShardSyncConfig,
         epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
-        if self.pending_recover_slivers.is_empty() {
-            return Ok(());
+        {
+            let guard = self.get_db_locked().await?;
+            if guard.pending_recover_slivers.is_empty() {
+                return Ok(());
+            }
         }
 
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_shard_sync_recovery");
 
         tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
-        self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+        {
+            let guard = self.get_db_locked().await?;
+            guard
+                .shard_status
+                .insert(&(), &ShardStatus::ActiveRecover)?;
+        }
 
         #[cfg(msim)]
         {
@@ -1028,9 +1111,12 @@ impl ShardStorage {
             self.recover_missing_blobs(node.clone(), config, epoch)
                 .await?;
 
-            if self.pending_recover_slivers.is_empty() {
-                // TODO: in test, check that we have recovered all the certified blobs.
-                break;
+            {
+                let guard = self.get_db_locked().await?;
+                if guard.pending_recover_slivers.is_empty() {
+                    // TODO: in test, check that we have recovered all the certified blobs.
+                    break;
+                }
             }
             tracing::warn!("recovering missing blobs still misses blobs. Retrying in 60 seconds.",);
             tokio::time::sleep(Duration::from_secs(60)).await;
@@ -1050,10 +1136,14 @@ impl ShardStorage {
 
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
-        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter().count();
+        let guard = self.get_db_locked().await?;
+        let mut total_blobs_pending_recovery = guard.pending_recover_slivers.safe_iter().count();
+        drop(guard);
+
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
-        for recover_blob in self.pending_recover_slivers.safe_iter() {
+        let guard = self.get_db_locked().await?;
+        for recover_blob in guard.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;
 
             #[allow(unused_mut)]
@@ -1066,14 +1156,14 @@ impl ShardStorage {
             // Given that node may redo shard transfer, there may be pending recover slivers that
             // are already stored in the shard. Check their existence before starting recovery.
             let sliver_is_stored = match sliver_type {
-                SliverType::Primary => self.is_sliver_stored::<Primary>(&blob_id)?,
-                SliverType::Secondary => self.is_sliver_stored::<Secondary>(&blob_id)?,
+                SliverType::Primary => self.is_sliver_stored::<Primary>(&blob_id).await?,
+                SliverType::Secondary => self.is_sliver_stored::<Secondary>(&blob_id).await?,
             };
 
             if sliver_is_stored {
-                self.skip_recover_blob(blob_id, sliver_type, &node, "already_stored")?;
+                self.skip_recover_blob(blob_id, sliver_type, &node, "already_stored", &guard)?;
             } else if !skip_certified_check_in_test && !node.is_blob_certified(&blob_id)? {
-                self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified")?;
+                self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified", &guard)?;
             } else {
                 futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
             }
@@ -1092,6 +1182,7 @@ impl ShardStorage {
                 }
             }
         }
+        drop(guard);
 
         while let Some(result) = futures.next().await {
             if let Err(error) = result {
@@ -1129,6 +1220,7 @@ impl ShardStorage {
         sliver_type: SliverType,
         node: &Arc<StorageNodeInner>,
         reason: &str,
+        guard: &RwLockReadGuard<ShardStorageDb>,
     ) -> Result<(), TypedStoreError> {
         tracing::debug!(
             %blob_id,
@@ -1143,7 +1235,8 @@ impl ShardStorage {
             reason
         )
         .inc();
-        self.pending_recover_slivers
+        guard
+            .pending_recover_slivers
             .remove(&(sliver_type, blob_id))?;
         Ok(())
     }
@@ -1174,10 +1267,11 @@ impl ShardStorage {
                 })
                 .await?;
 
+            let guard = self.get_db_locked().await?;
             match result {
                 ExecutionResultWithRetirementCheck::Executed(metadata) => metadata?,
                 ExecutionResultWithRetirementCheck::BlobRetired => {
-                    self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired")?;
+                    self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired", &guard)?;
                     return Ok(());
                 }
             }
@@ -1207,6 +1301,7 @@ impl ShardStorage {
             })
             .await?;
 
+        let guard = self.get_db_locked().await?;
         match execution_result {
             ExecutionResultWithRetirementCheck::Executed(result) => {
                 match result {
@@ -1219,11 +1314,12 @@ impl ShardStorage {
                             .await;
                     }
                 }
-                self.pending_recover_slivers
+                guard
+                    .pending_recover_slivers
                     .remove(&(sliver_type, blob_id))?;
             }
             ExecutionResultWithRetirementCheck::BlobRetired => {
-                self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired")?;
+                self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired", &guard)?;
             }
         };
 
@@ -1273,8 +1369,9 @@ impl ShardStorage {
     }
 
     /// Deletes the storage for the shard.
-    pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
-        let rocksdb = self.primary_slivers.rocksdb.clone();
+    pub async fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
+        let guard = self.db.write().await;
+        let rocksdb = guard.primary_slivers.rocksdb.clone();
 
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
         rocksdb
@@ -1296,18 +1393,23 @@ impl ShardStorage {
     }
 
     /// Locks the shard for moving to another node.
-    pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::LockedToMove)
+    pub(crate) async fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
+        let guard = self.get_db_locked().await?;
+        guard.shard_status.insert(&(), &ShardStatus::LockedToMove)
     }
 
     #[cfg(test)]
-    pub(crate) fn sliver_count(&self, sliver_type: SliverType) -> Result<usize, TypedStoreError> {
+    pub(crate) async fn sliver_count(
+        &self,
+        sliver_type: SliverType,
+    ) -> Result<usize, TypedStoreError> {
+        let guard = self.get_db_locked().await?;
         match sliver_type {
-            SliverType::Primary => self
+            SliverType::Primary => guard
                 .primary_slivers
                 .safe_iter()
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
-            SliverType::Secondary => self
+            SliverType::Secondary => guard
                 .secondary_slivers
                 .safe_iter()
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
@@ -1315,35 +1417,43 @@ impl ShardStorage {
     }
 
     #[cfg(test)]
-    pub(crate) fn update_status_in_test(&self, status: ShardStatus) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &status)
+    pub(crate) async fn update_status_in_test(
+        &self,
+        status: ShardStatus,
+    ) -> Result<(), TypedStoreError> {
+        let guard = self.get_db_locked().await?;
+        guard.shard_status.insert(&(), &status)
     }
 
     #[cfg(test)]
-    pub(crate) fn check_and_record_missing_blobs_in_test(
+    pub(crate) async fn check_and_record_missing_blobs_in_test(
         &self,
-        blob_info_iter: &mut BlobInfoIterator,
+        blob_info_iter: &mut BlobInfoIterator<'_>,
         next_blob_info: Option<(BlobId, BlobInfo)>,
         fetched_blob_id: BlobId,
         sliver_type: SliverType,
     ) -> Result<Option<(BlobId, BlobInfo)>, TypedStoreError> {
-        let mut db_batch = self.pending_recover_slivers.batch();
+        let guard = self.get_db_locked().await?;
+        let mut db_batch = guard.pending_recover_slivers.batch();
         let next_blob_info = self.check_and_record_missing_blobs(
             blob_info_iter,
             next_blob_info,
             fetched_blob_id,
             sliver_type,
             &mut db_batch,
+            &guard,
         )?;
         db_batch.write()?;
         Ok(next_blob_info)
     }
 
     #[cfg(test)]
-    pub(crate) fn all_pending_recover_slivers(
+    pub(crate) async fn all_pending_recover_slivers(
         &self,
     ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
-        self.pending_recover_slivers
+        let guard = self.get_db_locked().await?;
+        guard
+            .pending_recover_slivers
             .safe_iter()
             .map(|r| r.map(|(k, _)| k))
             .collect()
@@ -1467,7 +1577,7 @@ mod tests {
         let sliver = get_sliver(sliver_type, 1);
 
         shard.put_sliver(BLOB_ID, sliver.clone()).await?;
-        let retrieved = shard.get_sliver(&BLOB_ID, sliver_type)?;
+        let retrieved = shard.get_sliver(&BLOB_ID, sliver_type).await?;
 
         assert_eq!(retrieved, Some(sliver));
 
@@ -1489,8 +1599,8 @@ mod tests {
         shard.put_sliver(BLOB_ID, primary.clone()).await?;
         shard.put_sliver(BLOB_ID, secondary.clone()).await?;
 
-        let retrieved_primary = shard.get_sliver(&BLOB_ID, SliverType::Primary)?;
-        let retrieved_secondary = shard.get_sliver(&BLOB_ID, SliverType::Secondary)?;
+        let retrieved_primary = shard.get_sliver(&BLOB_ID, SliverType::Primary).await?;
+        let retrieved_secondary = shard.get_sliver(&BLOB_ID, SliverType::Secondary).await?;
 
         assert_eq!(retrieved_primary, Some(primary), "invalid primary sliver");
         assert_eq!(
@@ -1517,14 +1627,14 @@ mod tests {
         shard.put_sliver(BLOB_ID, primary.clone()).await?;
         shard.put_sliver(BLOB_ID, secondary.clone()).await?;
 
-        assert!(shard.is_sliver_pair_stored(&BLOB_ID)?);
+        assert!(shard.is_sliver_pair_stored(&BLOB_ID).await?);
 
         let mut batch = storage.inner.metadata.batch();
-        shard.delete_sliver_pair(&mut batch, &BLOB_ID)?;
+        shard.delete_sliver_pair(&mut batch, &BLOB_ID).await?;
         batch.write()?;
 
-        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
-        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID).await?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID).await?);
 
         Ok(())
     }
@@ -1538,12 +1648,13 @@ mod tests {
             .await
             .expect("shard should exist");
 
-        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
-        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID).await?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID).await?);
 
         let mut batch = storage.inner.metadata.batch();
         shard
             .delete_sliver_pair(&mut batch, &BLOB_ID)
+            .await
             .expect("delete should not error");
         batch.write()?;
         Ok(())
@@ -1583,8 +1694,8 @@ mod tests {
             .put_sliver(BLOB_ID, second_sliver.clone())
             .await?;
 
-        let first_retrieved = first_shard.get_sliver(&BLOB_ID, type_first)?;
-        let second_retrieved = second_shard.get_sliver(&BLOB_ID, type_second)?;
+        let first_retrieved = first_shard.get_sliver(&BLOB_ID, type_first).await?;
+        let second_retrieved = second_shard.get_sliver(&BLOB_ID, type_second).await?;
 
         assert_eq!(
             first_retrieved,
@@ -1632,7 +1743,7 @@ mod tests {
                 .await?;
         }
 
-        assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID)?, is_pair_stored);
+        assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID).await?, is_pair_stored);
 
         Ok(())
     }
@@ -1736,12 +1847,12 @@ mod tests {
             .await
             .expect("shard should exist");
         assert_eq!(
-            shard.fetch_slivers(sliver_type, &[blob_ids[0]])?,
+            shard.fetch_slivers(sliver_type, &[blob_ids[0]]).await?,
             vec![(blob_ids[0], data[&blob_ids[0]][&sliver_type].clone())]
         );
 
         assert_eq!(
-            shard.fetch_slivers(sliver_type, &[blob_ids[2]])?,
+            shard.fetch_slivers(sliver_type, &[blob_ids[2]]).await?,
             vec![(blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())]
         );
 
@@ -1767,7 +1878,9 @@ mod tests {
             .expect("shard should exist");
 
         assert_eq!(
-            shard.fetch_slivers(sliver_type, &[blob_ids[0], blob_ids[2]])?,
+            shard
+                .fetch_slivers(sliver_type, &[blob_ids[0], blob_ids[2]])
+                .await?,
             vec![
                 (blob_ids[0], data[&blob_ids[0]][&sliver_type].clone()),
                 (blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())
@@ -1793,7 +1906,12 @@ mod tests {
             .await
             .expect("shard should exist");
 
-        assert!(shard.fetch_slivers(sliver_type, &[blob_ids[1]])?.is_empty());
+        assert!(
+            shard
+                .fetch_slivers(sliver_type, &[blob_ids[1]])
+                .await?
+                .is_empty()
+        );
 
         Ok(())
     }
@@ -1819,7 +1937,7 @@ mod tests {
             .expect("shard should exist");
 
         assert_eq!(
-            shard.fetch_slivers(sliver_type, &blob_ids)?,
+            shard.fetch_slivers(sliver_type, &blob_ids).await?,
             vec![
                 (blob_ids[0], data[&blob_ids[0]][&sliver_type].clone()),
                 (blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())
@@ -1883,18 +2001,20 @@ mod tests {
                 new_epoch,
                 Excluded(sorted_blob_ids[next_blob_info_index]),
             );
-        let next_certified_blob_to_check = shard.check_and_record_missing_blobs_in_test(
-            &mut blob_info_iter,
-            Some((
-                sorted_blob_ids[next_blob_info_index],
-                blob_info
-                    .get(&sorted_blob_ids[next_blob_info_index])
-                    .unwrap()
-                    .unwrap(),
-            )),
-            sorted_blob_ids[fetched_blob_id_index],
-            SliverType::Primary,
-        )?;
+        let next_certified_blob_to_check = shard
+            .check_and_record_missing_blobs_in_test(
+                &mut blob_info_iter,
+                Some((
+                    sorted_blob_ids[next_blob_info_index],
+                    blob_info
+                        .get(&sorted_blob_ids[next_blob_info_index])
+                        .unwrap()
+                        .unwrap(),
+                )),
+                sorted_blob_ids[fetched_blob_id_index],
+                SliverType::Primary,
+            )
+            .await?;
 
         assert_eq!(
             next_certified_blob_to_check.map(|(blob_id, _)| blob_id),
@@ -1902,7 +2022,8 @@ mod tests {
         );
 
         let missing_blob_ids = shard
-            .all_pending_recover_slivers()?
+            .all_pending_recover_slivers()
+            .await?
             .iter()
             .map(|(sliver_type, id)| {
                 assert_eq!(sliver_type, &SliverType::Primary);

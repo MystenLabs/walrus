@@ -375,7 +375,7 @@ impl Storage {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
                 // Do not hold the `shards` lock when deleting column families.
-                shard_storage.delete_shard_storage()?;
+                shard_storage.delete_shard_storage().await?;
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,
@@ -412,10 +412,11 @@ impl Storage {
     pub async fn list_shard_status(&self) -> HashMap<ShardIndex, Option<ShardStatus>> {
         let shards = self.shards.read().await;
 
-        shards
-            .iter()
-            .map(|(shard, storage)| (*shard, storage.status().ok()))
-            .collect()
+        let mut result = HashMap::new();
+        for (shard, storage) in shards.iter() {
+            result.insert(*shard, storage.status().await.ok());
+        }
+        result
     }
 
     /// Store the verified metadata without updating blob info. This is only
@@ -611,7 +612,7 @@ impl Storage {
         blob_id: &BlobId,
     ) -> Result<(), TypedStoreError> {
         for shard in self.existing_shard_storages().await {
-            shard.delete_sliver_pair(batch, blob_id)?;
+            shard.delete_sliver_pair(batch, blob_id).await?;
         }
         Ok(())
     }
@@ -627,7 +628,8 @@ impl Storage {
             .shard_storage(shard)
             .await
             .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
-            .is_sliver_pair_stored(blob_id)?)
+            .is_sliver_pair_stored(blob_id)
+            .await?)
     }
 
     /// Returns a list of identifiers of the shards that store their
@@ -640,7 +642,7 @@ impl Storage {
         let mut shards_with_sliver_pairs = Vec::with_capacity(shard_map.len());
 
         for shard in shard_map.values() {
-            if shard.is_sliver_pair_stored(blob_id)? {
+            if shard.is_sliver_pair_stored(blob_id).await? {
                 shards_with_sliver_pairs.push(shard.id());
             }
         }
@@ -703,7 +705,9 @@ impl Storage {
             // Update last fetched ID for next iteration
             last_fetched_blob_id = blobs_to_fetch.last().cloned();
 
-            let mut slivers = shard.fetch_slivers(request.sliver_type(), &blobs_to_fetch)?;
+            let mut slivers = shard
+                .fetch_slivers(request.sliver_type(), &blobs_to_fetch)
+                .await?;
             fetched_blobs.append(&mut slivers);
         }
 
@@ -744,17 +748,18 @@ impl Storage {
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
-        self.shards
-            .read()
-            .await
-            .values()
-            .filter_map(|shard_storage| {
-                shard_storage
-                    .status()
-                    .is_ok_and(|status| status.is_owned_by_node())
-                    .then_some(shard_storage.id())
-            })
-            .collect::<Vec<_>>()
+        let shards = self.shards.read().await;
+        let mut result = Vec::new();
+        for shard_storage in shards.values() {
+            if shard_storage
+                .status()
+                .await
+                .is_ok_and(|status| status.is_owned_by_node())
+            {
+                result.push(shard_storage.id());
+            }
+        }
+        result
     }
 }
 
@@ -1185,6 +1190,7 @@ pub(crate) mod tests {
                 .await
                 .expect("shard should be created")
                 .lock_shard_for_epoch_change()
+                .await
                 .expect("shard should be sealed");
         }
         Ok(storage.temp_dir)
@@ -1217,6 +1223,7 @@ pub(crate) mod tests {
                 for sliver_type in [SliverType::Primary, SliverType::Secondary] {
                     let _ = shard
                         .get_sliver(&BLOB_ID, sliver_type)
+                        .await
                         .expect("sliver lookup should not err")
                         .expect("sliver should be present");
                 }
@@ -1255,6 +1262,7 @@ pub(crate) mod tests {
                     .await
                     .expect("shard should exist")
                     .status()
+                    .await
                     .expect("status should be present"),
                 ShardStatus::LockedToMove
             );
@@ -1265,6 +1273,7 @@ pub(crate) mod tests {
                     .await
                     .expect("shard should exist")
                     .status()
+                    .await
                     .expect("status should be present"),
                 ShardStatus::None
             );

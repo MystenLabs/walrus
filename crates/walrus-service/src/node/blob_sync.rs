@@ -701,7 +701,7 @@ impl BlobSynchronizer {
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));
 
-            if shard_storage.is_sliver_stored::<A>(&self.blob_id)? {
+            if shard_storage.is_sliver_stored::<A>(&self.blob_id).await? {
                 tracing::debug!("not syncing sliver: already stored");
                 return Ok(false);
             }

@@ -1567,7 +1567,8 @@ impl StorageNode {
                 .shard_storage(shard)
                 .await
                 .expect("we just create all storage, it must exist")
-                .set_active_status()?;
+                .set_active_status()
+                .await?;
         }
 
         // For shards that just moved out, we need to lock them to not store more data in them.
@@ -1575,6 +1576,7 @@ impl StorageNode {
             if let Some(shard_storage) = self.inner.storage.shard_storage(*shard).await {
                 shard_storage
                     .lock_shard_for_epoch_change()
+                    .await
                     .context("failed to lock shard")?;
             }
         }
@@ -1706,6 +1708,7 @@ impl StorageNode {
             tracing::info!(walrus.shard_index = %shard_id, "locking shard for epoch change");
             shard_storage
                 .lock_shard_for_epoch_change()
+                .await
                 .context("failed to lock shard")?;
         }
 
@@ -1984,18 +1987,18 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> anyhow::Result<bool> {
-        let shards = self
-            .storage
-            .existing_shard_storages()
-            .await
-            .iter()
-            .filter_map(|shard_storage| {
-                shard_storage
-                    .status()
-                    .is_ok_and(|status| status == ShardStatus::Active)
-                    .then_some(shard_storage.id())
-            })
-            .collect::<Vec<_>>();
+        let shard_storages = self.storage.existing_shard_storages().await;
+        let mut shards = Vec::new();
+
+        for shard_storage in shard_storages.iter() {
+            if shard_storage
+                .status()
+                .await
+                .is_ok_and(|status| status == ShardStatus::Active)
+            {
+                shards.push(shard_storage.id());
+            }
+        }
 
         self.is_stored_at_specific_shards(blob_id, &shards).await
     }
@@ -2151,6 +2154,7 @@ impl StorageNodeInner {
 
         let shard_status = shard_storage
             .status()
+            .await
             .context("Unable to retrieve shard status")?;
 
         if !shard_status.is_owned_by_node() {
@@ -2159,6 +2163,7 @@ impl StorageNodeInner {
 
         if shard_storage
             .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
+            .await
             .context("database error when checking sliver existence")?
         {
             return Ok(false);
@@ -2535,6 +2540,7 @@ impl ServiceState for StorageNodeInner {
 
         shard_storage
             .get_sliver(blob_id, sliver_type)
+            .await
             .context("unable to retrieve sliver")?
             .ok_or(RetrieveSliverError::Unavailable)
             .inspect(|sliver| {
@@ -2806,6 +2812,7 @@ impl ServiceState for StorageNodeInner {
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?
             .is_sliver_stored::<A>(blob_id)
+            .await
         {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
@@ -3878,6 +3885,7 @@ mod tests {
             .await
             .unwrap()
             .delete_shard_storage()
+            .await
             .unwrap();
 
         // Start a sync to trigger the blob sync task.
@@ -4290,6 +4298,7 @@ mod tests {
                     .await
                     .unwrap()
                     .get_primary_sliver(&blob_id)
+                    .await
                     .unwrap()
                     .unwrap()
             )
@@ -4440,6 +4449,7 @@ mod tests {
             .await
             .unwrap()
             .lock_shard_for_epoch_change()
+            .await
             .expect("Lock shard failed.");
 
         assert_eq!(
@@ -4476,6 +4486,7 @@ mod tests {
             .await
             .unwrap()
             .lock_shard_for_epoch_change()
+            .await
             .expect("Lock shard failed.");
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
@@ -4592,7 +4603,9 @@ mod tests {
         let shard_storage_set = Arc::new(shard_storage_set);
 
         for shard_storage in shard_storage_set.shard_storage.iter() {
-            shard_storage.update_status_in_test(ShardStatus::None)?;
+            shard_storage
+                .update_status_in_test(ShardStatus::None)
+                .await?;
         }
 
         Ok((
@@ -4605,74 +4618,74 @@ mod tests {
 
     // Checks that all primary and secondary slivers match the original encoding of the blobs.
     // Checks that blobs in the skip list are not synced.
-    fn check_all_blobs_are_synced(
+    async fn check_all_blobs_are_synced(
         blob_details: &[EncodedBlob],
         storage_dst: &Storage,
         shard_storage_dst: &ShardStorage,
         skip_blob_indices: &[usize],
     ) -> anyhow::Result<()> {
-        blob_details
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, details)| {
-                let blob_id = *details.blob_id();
+        for (i, details) in blob_details.iter().enumerate() {
+            let blob_id = *details.blob_id();
 
-                // If the blob is in the skip list, it should not be present in the destination
-                // shard storage.
-                if skip_blob_indices.contains(&i) {
-                    assert!(
-                        shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Primary)
-                            .unwrap()
-                            .is_none()
-                    );
-                    assert!(
-                        shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Secondary)
-                            .unwrap()
-                            .is_none()
-                    );
-                    return Ok(());
+            // If the blob is in the skip list, it should not be present in the destination
+            // shard storage.
+            if skip_blob_indices.contains(&i) {
+                assert!(
+                    shard_storage_dst
+                        .get_sliver(&blob_id, SliverType::Primary)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                assert!(
+                    shard_storage_dst
+                        .get_sliver(&blob_id, SliverType::Secondary)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                continue;
+            }
+
+            let Sliver::Primary(dst_primary) = shard_storage_dst
+                .get_sliver(&blob_id, SliverType::Primary)
+                .await
+                .unwrap()
+                .unwrap()
+            else {
+                panic!("Must get primary sliver");
+            };
+            let Sliver::Secondary(dst_secondary) = shard_storage_dst
+                .get_sliver(&blob_id, SliverType::Secondary)
+                .await
+                .unwrap()
+                .unwrap()
+            else {
+                panic!("Must get secondary sliver");
+            };
+
+            assert_eq!(
+                details.assigned_sliver_pair(ShardIndex(0)),
+                &SliverPair {
+                    primary: dst_primary,
+                    secondary: dst_secondary,
                 }
+            );
 
-                let Sliver::Primary(dst_primary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Primary)
-                    .unwrap()
-                    .unwrap()
-                else {
-                    panic!("Must get primary sliver");
-                };
-                let Sliver::Secondary(dst_secondary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Secondary)
-                    .unwrap()
-                    .unwrap()
-                else {
-                    panic!("Must get secondary sliver");
-                };
-
-                assert_eq!(
-                    details.assigned_sliver_pair(ShardIndex(0)),
-                    &SliverPair {
-                        primary: dst_primary,
-                        secondary: dst_secondary,
-                    }
-                );
-
-                // Check that metadata is synced.
-                assert_eq!(
-                    details.metadata,
-                    storage_dst.get_metadata(&blob_id).unwrap().unwrap(),
-                );
-
-                Ok(())
-            })
+            // Check that metadata is synced.
+            assert_eq!(
+                details.metadata,
+                storage_dst.get_metadata(&blob_id).unwrap().unwrap(),
+            );
+        }
+        Ok(())
     }
 
     async fn wait_for_shard_in_active_state(shard_storage: &ShardStorage) -> TestResult {
         // Waits for the shard to be synced.
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                let status = shard_storage.status().unwrap();
+                let status = shard_storage.status().await.unwrap();
                 if status == ShardStatus::Active {
                     break;
                 }
@@ -4692,6 +4705,7 @@ mod tests {
                 for shard_storage in &shard_storage_set.shard_storage {
                     let status = shard_storage
                         .status()
+                        .await
                         .expect("Shard status should be present");
                     if status != ShardStatus::Active {
                         all_active = false;
@@ -4745,13 +4759,22 @@ mod tests {
             .expect("shard storage should exist");
 
         assert_eq!(blob_details.len(), 23);
-        assert_eq!(shard_storage_src.sliver_count(SliverType::Primary), Ok(23));
         assert_eq!(
-            shard_storage_src.sliver_count(SliverType::Secondary),
+            shard_storage_src.sliver_count(SliverType::Primary).await,
             Ok(23)
         );
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(0));
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), Ok(0));
+        assert_eq!(
+            shard_storage_src.sliver_count(SliverType::Secondary).await,
+            Ok(23)
+        );
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Primary).await,
+            Ok(0)
+        );
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary).await,
+            Ok(0)
+        );
 
         let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
 
@@ -4765,16 +4788,19 @@ mod tests {
         // Waits for the shard to be synced.
         wait_for_shards_in_active_state(&shard_storage_set).await?;
 
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(23));
         assert_eq!(
-            shard_storage_dst.sliver_count(SliverType::Secondary),
+            shard_storage_dst.sliver_count(SliverType::Primary).await,
+            Ok(23)
+        );
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary).await,
             Ok(23)
         );
 
         assert_eq!(blob_details.len(), 23);
 
         // Checks that the shard is completely migrated.
-        check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+        check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[]).await?;
 
         Ok(())
     }
@@ -4865,7 +4891,9 @@ mod tests {
             .shard_storage(ShardIndex(0))
             .await
             .unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::None)
+            .await?;
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
@@ -4883,7 +4911,8 @@ mod tests {
             &node_inner.storage.clone(),
             shard_storage_dst.as_ref(),
             &[],
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -4934,7 +4963,9 @@ mod tests {
             .shard_storage(ShardIndex(0))
             .await
             .unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::None)
+            .await?;
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
@@ -4952,7 +4983,8 @@ mod tests {
             &node_inner.storage,
             shard_storage_dst.as_ref(),
             &[],
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -5051,10 +5083,10 @@ mod tests {
                 .await
                 .expect("shard storage should exist");
             assert!(
-                shard_storage_dst.sliver_count(SliverType::Primary)
-                    < shard_storage_src.sliver_count(SliverType::Primary)
-                    || shard_storage_dst.sliver_count(SliverType::Secondary)
-                        < shard_storage_src.sliver_count(SliverType::Secondary)
+                shard_storage_dst.sliver_count(SliverType::Primary).await
+                    < shard_storage_src.sliver_count(SliverType::Primary).await
+                    || shard_storage_dst.sliver_count(SliverType::Secondary).await
+                        < shard_storage_src.sliver_count(SliverType::Secondary).await
             );
 
             clear_fail_point("fail_point_fetch_sliver");
@@ -5070,7 +5102,8 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])
+                .await?;
 
             Ok(())
         }
@@ -5128,10 +5161,10 @@ mod tests {
                 .await
                 .expect("shard storage should exist");
             assert!(
-                shard_storage_dst.sliver_count(SliverType::Primary)
-                    < shard_storage_src.sliver_count(SliverType::Primary)
-                    || shard_storage_dst.sliver_count(SliverType::Secondary)
-                        < shard_storage_src.sliver_count(SliverType::Secondary)
+                shard_storage_dst.sliver_count(SliverType::Primary).await
+                    < shard_storage_src.sliver_count(SliverType::Primary).await
+                    || shard_storage_dst.sliver_count(SliverType::Secondary).await
+                        < shard_storage_src.sliver_count(SliverType::Secondary).await
             );
 
             // Register a fail point to check that the node will not enter recovery mode from this
@@ -5157,7 +5190,8 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])
+                .await?;
 
             clear_fail_point("fail_point_shard_sync_recover_blob");
             clear_fail_point("fail_point_after_start_recovery");
@@ -5227,7 +5261,8 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])
+                .await?;
 
             if must_use_recovery {
                 assert!(enter_recovery_mode.load(Ordering::SeqCst));
@@ -5268,7 +5303,8 @@ mod tests {
 
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
-            check_all_blobs_are_synced(&_blob_details, &storage_dst, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&_blob_details, &storage_dst, &shard_storage_dst, &[])
+                .await?;
 
             Ok(())
         }
@@ -5347,7 +5383,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             // Starts the shard syncing process in the new shard, which should only use happy path
             // shard sync to sync non-expired certified blobs.
@@ -5361,7 +5399,8 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // All blobs should be recovered in the new dst node.
-            check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])
+                .await?;
 
             // Checks that shard sync recovery is not triggered.
             assert!(!shard_sync_recovery_triggered.load(Ordering::SeqCst));
@@ -5422,7 +5461,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -5442,10 +5483,10 @@ mod tests {
                     .await
                     .expect("shard storage should exist");
                 assert!(
-                    shard_storage_dst.sliver_count(SliverType::Primary)
-                        < shard_storage_src.sliver_count(SliverType::Primary)
-                        || shard_storage_dst.sliver_count(SliverType::Secondary)
-                            < shard_storage_src.sliver_count(SliverType::Secondary)
+                    shard_storage_dst.sliver_count(SliverType::Primary).await
+                        < shard_storage_src.sliver_count(SliverType::Primary).await
+                        || shard_storage_dst.sliver_count(SliverType::Secondary).await
+                            < shard_storage_src.sliver_count(SliverType::Secondary).await
                 );
             }
 
@@ -5467,7 +5508,8 @@ mod tests {
                 &node_inner.storage,
                 shard_storage_dst.as_ref(),
                 &[],
-            )?;
+            )
+            .await?;
 
             Ok(())
         }
@@ -5519,7 +5561,11 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             assert!(
-                shard_storage_dst.status().expect("should succeed in test") == ShardStatus::None
+                shard_storage_dst
+                    .status()
+                    .await
+                    .expect("should succeed in test")
+                    == ShardStatus::None
             );
 
             if fail_before_start_fetching {
@@ -5539,7 +5585,8 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])
+                .await?;
 
             Ok(())
         }
@@ -5781,7 +5828,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -5796,7 +5845,8 @@ mod tests {
                 &node_inner.storage,
                 shard_storage_dst.as_ref(),
                 &[3, 9, 19],
-            )?;
+            )
+            .await?;
 
             clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
 
@@ -5843,7 +5893,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -6040,6 +6092,7 @@ mod tests {
                 .await
                 .expect("Shard storage should be created")
                 .status()
+                .await
                 .unwrap(),
             ShardStatus::Active
         );
@@ -6061,6 +6114,7 @@ mod tests {
                 .await
                 .expect("Shard storage should be created")
                 .status()
+                .await
                 .unwrap(),
             ShardStatus::Active
         );
