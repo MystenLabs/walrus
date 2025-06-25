@@ -31,6 +31,8 @@ pub use events::{
     InvalidBlobId,
     PackageEvent,
     RegisterDenyListUpdateEvent,
+    ProtocolEvent,
+    ProtocolVersionUpdatedEvent,
 };
 
 pub mod move_structs;

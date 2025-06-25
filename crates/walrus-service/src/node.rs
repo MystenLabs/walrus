@@ -1178,6 +1178,9 @@ impl StorageNode {
                 // TODO: Implement DenyListEvent handling (WAL-424)
                 event_handle.mark_as_complete();
             }
+            EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(_protocol_event)) => {
+                todo!("Handle protocol events");
+            }
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();
             }
