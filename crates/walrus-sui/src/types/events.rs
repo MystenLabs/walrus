@@ -800,7 +800,12 @@ impl TryFrom<SuiEvent> for DenyListUpdateEvent {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (
+            epoch,
+            root,
+            sequence_number,
+            node_id
+        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
