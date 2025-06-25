@@ -705,7 +705,7 @@ fun protocol_version_updated_event() {
         system.update_protocol_version(node.cap(), signature, members_bitmap, certified_message);
     });
 
-    assert_eq!(runner.last_tx_effects().num_user_events(), 1); // protocol version updated event emitted
+    assert_eq!(runner.last_tx_effects().num_user_events(), 1); // event emitted
     nodes.destroy!(|node| node.destroy());
     runner.destroy();
 }
