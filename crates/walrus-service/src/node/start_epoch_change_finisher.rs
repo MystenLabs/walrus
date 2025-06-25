@@ -132,6 +132,8 @@ impl StartEpochChangeFinisher {
     ) -> Result<(), TypedStoreError> {
         for shard_index in shards {
             tracing::info!(walrus.shard_index = %shard_index, "start removing shard from storage");
+            // TODO(WAL-902): we also need to cancel any ongoing shard syncs on these shards if
+            // there are any.
             self.node
                 .storage
                 .remove_storage_for_shards(&[*shard_index])

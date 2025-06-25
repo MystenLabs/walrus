@@ -136,8 +136,8 @@ pub enum TypedStoreError {
     #[error("Task error: {0}")]
     TaskError(String),
     /// The database is being deleted
-    #[error("The database is being deleted")]
-    DatabaseBeingDeleted,
+    #[error("The shard storage is being deleted")]
+    ShardBeingDeleted,
 }
 
 /// The result type for the typed store

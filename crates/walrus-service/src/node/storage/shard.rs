@@ -552,7 +552,7 @@ impl ShardStorage {
         // the shard sync progress recorded in the db is not deleted, until the shard is completely
         // synced. By setting the shard status to active sync, the shard will resume the sync from
         // the last synced blob id.
-        self.set_active_status().await?;
+        self.db.set_shard_status(ShardStatus::ActiveSync).await?;
         self.get_last_sync_status(&ShardStatus::ActiveSync).await
     }
 
@@ -623,7 +623,7 @@ impl ShardStorage {
     ) -> (bool, Result<(), SyncShardClientError>) {
         let start_sync_progress = match self.db.get_shard_sync_progress().await {
             Ok(progress) => progress,
-            Err(e) => return (true, Err(e.into())),
+            Err(e) => return (false, Err(e.into())),
         };
 
         let result = self
@@ -632,7 +632,7 @@ impl ShardStorage {
 
         let finish_sync_progress = match self.db.get_shard_sync_progress().await {
             Ok(progress) => progress,
-            Err(e) => return (true, Err(e.into())),
+            Err(e) => return (false, Err(e.into())),
         };
 
         let shard_sync_made_progress = match (start_sync_progress, finish_sync_progress) {
@@ -1050,47 +1050,61 @@ impl ShardStorage {
 
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
-        let guard = self.db.get_db_locked().await?;
-        for recover_blob in guard.pending_recover_slivers.safe_iter() {
-            let ((sliver_type, blob_id), _) = recover_blob?;
+        {
+            let guard = self.db.get_db_locked().await?;
+            for recover_blob in guard.pending_recover_slivers.safe_iter() {
+                let ((sliver_type, blob_id), _) = recover_blob?;
 
-            #[allow(unused_mut)]
-            let mut skip_certified_check_in_test = false;
-            sui_macros::fail_point_if!(
-                "shard_recovery_skip_initial_blob_certification_check",
-                || { skip_certified_check_in_test = true }
-            );
+                #[allow(unused_mut)]
+                let mut skip_certified_check_in_test = false;
+                sui_macros::fail_point_if!(
+                    "shard_recovery_skip_initial_blob_certification_check",
+                    || { skip_certified_check_in_test = true }
+                );
 
-            // Given that node may redo shard transfer, there may be pending recover slivers that
-            // are already stored in the shard. Check their existence before starting recovery.
-            let sliver_is_stored = match sliver_type {
-                SliverType::Primary => self.is_sliver_stored::<Primary>(&blob_id).await?,
-                SliverType::Secondary => self.is_sliver_stored::<Secondary>(&blob_id).await?,
-            };
+                // Given that node may redo shard transfer, there may be pending recover slivers
+                // that are already stored in the shard. Check their existence before starting
+                // recovery.
+                let sliver_is_stored = match sliver_type {
+                    SliverType::Primary => self.is_sliver_stored::<Primary>(&blob_id).await?,
+                    SliverType::Secondary => self.is_sliver_stored::<Secondary>(&blob_id).await?,
+                };
 
-            if sliver_is_stored {
-                self.skip_recover_blob(blob_id, sliver_type, &node, "already_stored", &guard)?;
-            } else if !skip_certified_check_in_test && !node.is_blob_certified(&blob_id)? {
-                self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified", &guard)?;
-            } else {
-                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
-            }
+                if sliver_is_stored {
+                    self.skip_recover_blob_locked(
+                        blob_id,
+                        sliver_type,
+                        &node,
+                        "already_stored",
+                        &guard,
+                    )?;
+                } else if !skip_certified_check_in_test && !node.is_blob_certified(&blob_id)? {
+                    self.skip_recover_blob_locked(
+                        blob_id,
+                        sliver_type,
+                        &node,
+                        "not_certified",
+                        &guard,
+                    )?;
+                } else {
+                    futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
+                }
 
-            total_blobs_pending_recovery -= 1;
-            self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
+                total_blobs_pending_recovery -= 1;
+                self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
-            // Wait for some futures to complete if we reach the concurrent blob recovery limit
-            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
-                if let Some(Err(error)) = futures.next().await {
-                    tracing::error!(
-                        ?error,
-                        "error recovering missing blob sliver. \
+                // Wait for some futures to complete if we reach the concurrent blob recovery limit
+                if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
+                    if let Some(Err(error)) = futures.next().await {
+                        tracing::error!(
+                            ?error,
+                            "error recovering missing blob sliver. \
                         blob is not removed from pending_recover_slivers"
-                    );
+                        );
+                    }
                 }
             }
         }
-        drop(guard);
 
         while let Some(result) = futures.next().await {
             if let Err(error) = result {
@@ -1122,7 +1136,8 @@ impl ShardStorage {
     }
 
     /// Skips recovering a blob that is no longer certified.
-    fn skip_recover_blob(
+    /// Calling this function requires passing the locked db guard to access the db.
+    fn skip_recover_blob_locked(
         &self,
         blob_id: BlobId,
         sliver_type: SliverType,
@@ -1179,7 +1194,13 @@ impl ShardStorage {
                 ExecutionResultWithRetirementCheck::Executed(metadata) => metadata?,
                 ExecutionResultWithRetirementCheck::BlobRetired => {
                     let guard = self.db.get_db_locked().await?;
-                    self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired", &guard)?;
+                    self.skip_recover_blob_locked(
+                        blob_id,
+                        sliver_type,
+                        &node,
+                        "blob_retired",
+                        &guard,
+                    )?;
                     return Ok(());
                 }
             }
@@ -1227,7 +1248,7 @@ impl ShardStorage {
             }
             ExecutionResultWithRetirementCheck::BlobRetired => {
                 let guard = self.db.get_db_locked().await?;
-                self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired", &guard)?;
+                self.skip_recover_blob_locked(blob_id, sliver_type, &node, "blob_retired", &guard)?;
             }
         };
 
@@ -1445,6 +1466,12 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), SyncSh
     injected_status
 }
 
+/// A wrapper around the inner shard storage db.
+/// This wrapper is used to provide a safe interface for the shard storage db.
+/// All access to the inner shard storage db except deleting the db requires read access, whereas
+/// deleting the db requires write access, and will set the is_deleting flag to true.
+/// This is used to prevent any new operations from being performed on the shard storage db after
+/// the shard storage db is being deleted.
 #[derive(Debug, Clone)]
 struct ShardStorageDb {
     inner: Arc<RwLock<ShardStorageDbInner>>,
@@ -1464,7 +1491,7 @@ impl ShardStorageDb {
     async fn get_db_locked(&self) -> Result<RwLockReadGuard<ShardStorageDbInner>, TypedStoreError> {
         let guard = self.inner.read().await;
         if guard.is_deleting {
-            return Err(TypedStoreError::DatabaseBeingDeleted);
+            return Err(TypedStoreError::ShardBeingDeleted);
         }
         Ok(guard)
     }
@@ -1559,6 +1586,7 @@ impl ShardStorageDb {
         let guard = self.get_db_locked().await?;
         ByAxis::from(sliver_type)
             .map(
+                // TODO(#648): compare multi_get with scan for large value size.
                 |_sliver_type| guard.primary_slivers.multi_get(slivers_to_fetch),
                 |_sliver_type| guard.secondary_slivers.multi_get(slivers_to_fetch),
             )
@@ -2168,6 +2196,24 @@ mod tests {
             }
         }
         assert_eq!(missing_blob_ids, expected_missing_blobs);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_shard_storage_db_deletion() -> TestResult {
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
+
+        shard.delete_shard_storage().await?;
+        assert_eq!(
+            shard.status().await.unwrap_err(),
+            TypedStoreError::ShardBeingDeleted
+        );
 
         Ok(())
     }
