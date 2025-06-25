@@ -660,7 +660,6 @@ impl TryFrom<SuiEvent> for ContractUpgradeQuorumReachedEvent {
     }
 }
 
-
 /// Sui event that a contract upgrade has received a quorum of votes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolVersionUpdatedEvent {
@@ -686,7 +685,8 @@ impl TryFrom<SuiEvent> for ProtocolVersionUpdatedEvent {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, node_id, start_epoch, protocol_version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, node_id, start_epoch, protocol_version) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             node_id,
@@ -800,12 +800,7 @@ impl TryFrom<SuiEvent> for DenyListUpdateEvent {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (
-            epoch,
-            root,
-            sequence_number,
-            node_id
-        ) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
