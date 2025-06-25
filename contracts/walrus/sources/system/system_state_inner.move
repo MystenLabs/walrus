@@ -693,7 +693,6 @@ public(package) fun update_protocol_version(
 
     events::emit_protocol_version(
         epoch,
-        cap.node_id(),
         message.start_epoch(),
         message.protocol_version(),
     );

@@ -123,7 +123,6 @@ public struct ContractUpgradeQuorumReached has copy, drop {
 /// Signals that the protocol version has been updated.
 public struct ProtocolVersionUpdated has copy, drop {
     epoch: u32,
-    node_id: ID,
     start_epoch: u32,
     protocol_version: u64,
 }
@@ -199,13 +198,8 @@ public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: 
     event::emit(ContractUpgraded { epoch, package_id, version })
 }
 
-public(package) fun emit_protocol_version(
-    epoch: u32,
-    node_id: ID,
-    start_epoch: u32,
-    protocol_version: u64,
-) {
-    event::emit(ProtocolVersionUpdated { epoch, node_id, start_epoch, protocol_version })
+public(package) fun emit_protocol_version(epoch: u32, start_epoch: u32, protocol_version: u64) {
+    event::emit(ProtocolVersionUpdated { epoch, start_epoch, protocol_version })
 }
 
 public(package) fun emit_register_deny_list_update(

@@ -639,57 +639,7 @@ fun register_invalid_pop_signer() {
 
 #[test]
 fun protocol_version_updated_event() {
-    let admin = @0xA11CE;
-    let mut nodes = test_node::test_nodes();
-    let mut runner = e2e_runner::prepare(admin)
-        .epoch_zero_duration(EPOCH_ZERO_DURATION)
-        .epoch_duration(EPOCH_DURATION)
-        .n_shards(N_SHARDS)
-        .build();
-
-    // === register candidates ===
-    let epoch = runner.epoch();
-    nodes.do_mut!(|node| {
-        runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let cap = staking.register_candidate(
-                node.name(),
-                node.network_address(),
-                node.metadata(),
-                node.bls_pk(),
-                node.network_key(),
-                node.create_proof_of_possession(epoch),
-                100_00, // 100.00% commission
-                STORAGE_PRICE,
-                WRITE_PRICE,
-                NODE_CAPACITY,
-                ctx,
-            );
-            node.set_storage_node_cap(cap);
-        });
-    });
-
-    // === stake with each node ===
-
-    nodes.do_ref!(|node| {
-        runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let coin = test_utils::mint_wal(1, ctx);
-            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
-            transfer::public_transfer(staked_wal, ctx.sender());
-        });
-    });
-
-    // === enter the first epoch ===
-
-    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx!(admin, |staking, system, _| {
-        staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
-
-        assert!(system.epoch() == 1);
-        assert!(system.committee().n_shards() == N_SHARDS);
-
-        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
-    });
+    let (mut runner, nodes) = e2e_runner::setup_committee_for_epoch_one();
 
     // === update protocol version ===
 
