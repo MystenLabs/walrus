@@ -20,11 +20,13 @@ use walrus_core::{
     metadata::{BlobMetadata, BlobMetadataApi},
 };
 
-use crate::node::{
-    DatabaseConfig,
-    events::{
-        InitState,
-        PositionedStreamEvent,
+use crate::{
+    event::{
+        event_processor::db::constants::{self as event_processor_constants},
+        events::{InitState, PositionedStreamEvent},
+    },
+    node::{
+        DatabaseConfig,
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -35,28 +37,27 @@ use crate::node::{
             failed_to_attest_cf_name,
             pending_cf_name,
         },
-        event_processor::constants::{self as event_processor_constants},
-    },
-    storage::{
-        PrimarySliverData,
-        SecondarySliverData,
-        blob_info::{
-            BlobInfo,
-            CertifiedBlobInfoApi,
-            PerObjectBlobInfo,
-            blob_info_cf_options,
-            per_object_blob_info_cf_options,
+        storage::{
+            PrimarySliverData,
+            SecondarySliverData,
+            blob_info::{
+                BlobInfo,
+                CertifiedBlobInfoApi,
+                PerObjectBlobInfo,
+                blob_info_cf_options,
+                per_object_blob_info_cf_options,
+            },
+            constants::{
+                aggregate_blob_info_cf_name,
+                metadata_cf_name,
+                per_object_blob_info_cf_name,
+                primary_slivers_column_family_name,
+                secondary_slivers_column_family_name,
+            },
+            metadata_options,
+            primary_slivers_column_family_options,
+            secondary_slivers_column_family_options,
         },
-        constants::{
-            aggregate_blob_info_cf_name,
-            metadata_cf_name,
-            per_object_blob_info_cf_name,
-            primary_slivers_column_family_name,
-            secondary_slivers_column_family_name,
-        },
-        metadata_options,
-        primary_slivers_column_family_options,
-        secondary_slivers_column_family_options,
     },
 };
 

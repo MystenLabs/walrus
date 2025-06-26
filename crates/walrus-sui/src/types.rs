@@ -30,6 +30,8 @@ pub use events::{
     EpochParametersSelected,
     InvalidBlobId,
     PackageEvent,
+    ProtocolEvent,
+    ProtocolVersionUpdatedEvent,
     RegisterDenyListUpdateEvent,
 };
 

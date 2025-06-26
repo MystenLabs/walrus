@@ -39,13 +39,13 @@ use walrus_service::{
     DbCheckpointManager,
     SyncNodeConfigError,
     common::{config::SuiConfig, telemetry::WalrusTracingHandle},
+    event::event_processor::runtime::EventProcessorRuntime,
     node::{
         ConfigLoader,
         StorageNode,
         StorageNodeConfigLoader,
         config::{self, StorageNodeConfig, defaults::REST_API_PORT},
         dbtool::DbToolCommands,
-        events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
     },
@@ -559,14 +559,11 @@ mod commands {
         keys::{SupportedKeyPair, TaggedKeyPair},
     };
     use walrus_service::{
-        node::{
-            DatabaseConfig,
-            config::TlsConfig,
-            events::{
-                EventProcessorConfig,
-                event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-            },
+        event::event_processor::{
+            config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
         },
+        node::{DatabaseConfig, config::TlsConfig},
         utils,
     };
     use walrus_sui::{

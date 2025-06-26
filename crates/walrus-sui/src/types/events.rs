@@ -660,6 +660,39 @@ impl TryFrom<SuiEvent> for ContractUpgradeQuorumReachedEvent {
     }
 }
 
+/// Sui event that a contract upgrade has received a quorum of votes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolVersionUpdatedEvent {
+    /// The epoch in which the contract upgrade was proposed.
+    pub epoch: Epoch,
+    /// The start epoch of the protocol version update.
+    pub start_epoch: Epoch,
+    /// The protocol version.
+    pub protocol_version: u64,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ProtocolVersionUpdatedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ProtocolVersionUpdated;
+}
+
+impl TryFrom<SuiEvent> for ProtocolVersionUpdatedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, start_epoch, protocol_version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            start_epoch,
+            protocol_version,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap package events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -810,6 +843,43 @@ impl DenyListEvent {
     }
 }
 
+/// Enum to wrap protocol events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProtocolEvent {
+    /// Protocol version updated.
+    ProtocolVersionUpdated(ProtocolVersionUpdatedEvent),
+}
+
+impl ProtocolEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(event) => event.event_id,
+        }
+    }
+
+    /// The epoch corresponding to the protocol event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(event) => event.epoch,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(_) => "ProtocolVersionUpdated",
+        }
+    }
+
+    /// The protocol version.
+    pub fn protocol_version(&self) -> u64 {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(event) => event.protocol_version,
+        }
+    }
+}
+
 /// Enum to wrap contract events used in event streaming.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractEvent {
@@ -821,6 +891,8 @@ pub enum ContractEvent {
     PackageEvent(PackageEvent),
     /// Events related to deny list.
     DenyListEvent(DenyListEvent),
+    /// Events related to protocol version.
+    ProtocolEvent(ProtocolEvent),
 }
 
 impl ContractEvent {
@@ -831,6 +903,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
             ContractEvent::PackageEvent(event) => event.event_id(),
             ContractEvent::DenyListEvent(event) => event.event_id(),
+            ContractEvent::ProtocolEvent(event) => event.event_id(),
         }
     }
 
@@ -841,6 +914,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(_) => None,
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
+            ContractEvent::ProtocolEvent(_) => None,
         }
     }
 
@@ -851,6 +925,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
             ContractEvent::PackageEvent(event) => event.event_epoch(),
             ContractEvent::DenyListEvent(event) => event.event_epoch(),
+            ContractEvent::ProtocolEvent(event) => event.event_epoch(),
         }
     }
 
@@ -861,6 +936,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(_) => false,
             ContractEvent::PackageEvent(_) => false,
             ContractEvent::DenyListEvent(_) => false,
+            ContractEvent::ProtocolEvent(_) => false,
         }
     }
 }
@@ -915,6 +991,9 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::DenyListBlobDeleted => Ok(ContractEvent::BlobEvent(
                 BlobEvent::DenyListBlobDeleted(value.try_into()?),
+            )),
+            contracts::events::ProtocolVersionUpdated => Ok(ContractEvent::ProtocolEvent(
+                ProtocolEvent::ProtocolVersionUpdated(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

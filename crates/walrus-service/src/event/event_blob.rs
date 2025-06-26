@@ -21,7 +21,7 @@ use sui_types::{
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{ContractEvent, EpochChangeEvent};
 
-use crate::node::events::{EventStreamElement, IndexedStreamEvent};
+use crate::event::events::{EventStreamElement, IndexedStreamEvent};
 
 /// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

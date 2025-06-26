@@ -20,7 +20,6 @@ use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::{CheckpointEventPosition, event_blob_writer::EventBlobWriter};
 use fastcrypto::traits::KeyPair;
 use futures::{
     FutureExt as _,
@@ -140,14 +139,7 @@ use self::{
         SyncNodeConfigError,
         SyncShardServiceError,
     },
-    events::{
-        EventProcessorConfig,
-        EventStreamCursor,
-        EventStreamElement,
-        PositionedStreamEvent,
-        event_blob_writer::EventBlobWriterFactory,
-        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-    },
+    event_blob_writer::EventBlobWriterFactory,
     metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
     shard_sync::ShardSyncHandler,
     storage::{
@@ -158,12 +150,22 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{
-        config::SuiConfig,
+    common::config::SuiConfig,
+    event::{
         event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
-        utils::should_reposition_cursor,
+        event_processor::{
+            config::{EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
+        },
+        events::{
+            CheckpointEventPosition,
+            EventStreamCursor,
+            EventStreamElement,
+            PositionedStreamEvent,
+        },
     },
-    utils::ShardDiffCalculator,
+    node::event_blob_writer::EventBlobWriter,
+    utils::{ShardDiffCalculator, should_reposition_cursor},
 };
 
 pub(crate) mod db_checkpoint;
@@ -173,7 +175,7 @@ pub mod config;
 pub(crate) mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
-pub mod events;
+pub mod event_blob_writer;
 pub mod server;
 pub mod system_events;
 
@@ -1175,6 +1177,12 @@ impl StorageNode {
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
                 // TODO: Implement DenyListEvent handling (WAL-424)
                 event_handle.mark_as_complete();
+            }
+            EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
+                panic!(
+                    "unexpected protocol version update: {:?}",
+                    event.protocol_version()
+                );
             }
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();

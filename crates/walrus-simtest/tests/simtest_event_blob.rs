@@ -21,7 +21,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
     use walrus_service::{
-        node::{DatabaseConfig, events::event_blob_writer::CertifiedEventBlobMetadata},
+        node::{DatabaseConfig, event_blob_writer::CertifiedEventBlobMetadata},
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
