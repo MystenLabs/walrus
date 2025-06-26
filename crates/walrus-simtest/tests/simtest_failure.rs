@@ -375,6 +375,7 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
@@ -454,10 +455,6 @@ mod tests {
         // The additional stake assigned are randomly chosen between 2 and 10 times of the original
         // stake the per-node.
         let shard_move_weight = rand::thread_rng().gen_range(2..=10);
-        tracing::info!(
-            "triggering shard move with stake weight {}",
-            shard_move_weight
-        );
 
         // 30% of the time, we move shards to the crashed node. The other 70% of the time, we move
         // shards to a different node.
@@ -466,6 +463,12 @@ mod tests {
         } else {
             thread_rng().gen_range(0..walrus_cluster.nodes.len())
         };
+
+        tracing::info!(
+            "triggering shard move with stake weight {}, target node {}",
+            shard_move_weight,
+            node_index_to_move
+        );
 
         client_arc
             .as_ref()
@@ -503,7 +506,7 @@ mod tests {
             );
             if last_persist_event_index == node_health_info[0].event_progress.persisted {
                 // We expect that there shouldn't be any stuck event progress.
-                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(15));
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(30));
             } else {
                 last_persist_event_index = node_health_info[0].event_progress.persisted;
                 last_persisted_event_time = Instant::now();

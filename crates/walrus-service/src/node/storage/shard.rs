@@ -681,8 +681,13 @@ impl ShardStorage {
         }
 
         let shard_status = self.status()?;
+        // (WAL-903): determine the correct behavior for shard status LockedToMove. This status
+        // indicates that the previous shard sync hasn't finished yet, but the shard is moving
+        // out. We continue to sync the shard in this case.
         assert!(
-            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover,
+            shard_status == ShardStatus::ActiveSync
+                || shard_status == ShardStatus::ActiveRecover
+                || shard_status == ShardStatus::LockedToMove,
             "unexpected shard status at the beginning of a shard sync: {shard_status}"
         );
 
@@ -897,7 +902,7 @@ impl ShardStorage {
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
         epoch: Epoch,
-        node: &Arc<StorageNodeInner>,
+        _node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
@@ -911,14 +916,11 @@ impl ShardStorage {
                 %sliver_type,
                 "synced blob",
             );
-            //TODO(#705): verify sliver validity.
+            //TODO(WAL-523): verify sliver validity.
             //  - blob is certified
+            //  - fetch metadata if missing (note that certified event may be processed after epoch
+            //    change, so we need to fetch metadata if missing)
             //  - metadata is correct
-
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                debug_assert!(node.storage.has_metadata(blob_id)?);
-            }
 
             match sliver {
                 Sliver::Primary(primary) => {

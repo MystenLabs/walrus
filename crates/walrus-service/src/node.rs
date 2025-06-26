@@ -3869,24 +3869,12 @@ mod tests {
                 .await
                 .unwrap();
 
-        // Delete shard data to force a panic in the blob sync task.
-        // Note that this only deletes the storage for the shard. Storage still has an entry for the
-        // shard, so it thinks it still owns the shard.
-        cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .shard_storage(test_shard)
-            .await
-            .unwrap()
-            .delete_shard_storage()
-            .unwrap();
-
         // Start a sync to trigger the blob sync task.
+        // Use a epoch number in the future will trigger a panic in reading the committee.
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 1, None)
+            .start_sync(*blob.blob_id(), 100, None)
             .await
             .unwrap();
 
