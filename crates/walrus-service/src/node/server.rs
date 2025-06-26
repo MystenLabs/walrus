@@ -30,6 +30,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding, keys::NetworkKeyPair};
 use walrus_utils::metrics::Registry;
+use x509_cert::{Certificate, der::Decode};
 
 use self::telemetry::MetricsMiddlewareState;
 use super::config::{Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig, defaults};
@@ -311,38 +312,26 @@ where
             return Ok(None);
         };
 
-        match tls_certificate {
+        let (tls_config, certificate) = match tls_certificate {
             TlsCertificateSource::Pem { certificate, key } => {
-                if let Some((certificate_path, key_path)) = certificate.path().zip(key.path()) {
-                    RustlsConfig::from_pem_file(certificate_path, key_path)
-                        .await
-                        .context("failed to load certificate and key from provided paths")
-                } else {
-                    RustlsConfig::from_pem(
-                        certificate.load_transient()?.clone(),
-                        key.load_transient()?.clone(),
-                    )
-                    .await
-                    .context("failed to load certificate and key from in-memory contents")
-                }
-                .map(Some)
+                configure_tls_from_pem(certificate, key).await?
             }
 
             TlsCertificateSource::GenerateSelfSigned {
                 server_name,
                 network_key_pair,
-            } => {
-                let certified_key_pair =
-                    create_self_signed_certificate(network_key_pair, server_name.to_string());
-                let tls_config = RustlsConfig::from_der(
-                    vec![Vec::from(certified_key_pair.cert.der().deref())],
-                    certified_key_pair.key_pair.serialize_der(),
-                )
-                .await
-                .expect("self signed certificate to result in valid config");
-                Ok(Some(tls_config))
-            }
-        }
+            } => configure_self_signed_tls(server_name, network_key_pair).await?,
+        };
+
+        self.metrics.set_tls_expiration_time(
+            certificate
+                .tbs_certificate
+                .validity
+                .not_after
+                .to_unix_duration(),
+        );
+
+        Ok(Some(tls_config))
     }
 
     #[cfg(test)]
@@ -437,6 +426,60 @@ where
     fn config(&self) -> &RestApiConfig {
         &self.state.config
     }
+}
+
+async fn configure_self_signed_tls(
+    server_name: &str,
+    network_key_pair: &NetworkKeyPair,
+) -> Result<(RustlsConfig, Certificate), anyhow::Error> {
+    let certified_key_pair =
+        create_self_signed_certificate(network_key_pair, server_name.to_string());
+    let certificate_der = Vec::from(certified_key_pair.cert.der().deref());
+
+    let tls_config = RustlsConfig::from_der(
+        vec![certificate_der.clone()],
+        certified_key_pair.key_pair.serialize_der(),
+    )
+    .await
+    .expect("self signed certificate to result in valid config");
+
+    let certificate = x509_cert::Certificate::from_der(&certificate_der)
+        .expect("self-signed certificate should be valid DER");
+
+    Ok((tls_config, certificate))
+}
+
+async fn configure_tls_from_pem(
+    certificate: &PathOrInPlace<Vec<u8>>,
+    key: &PathOrInPlace<Vec<u8>>,
+) -> Result<(RustlsConfig, Certificate), anyhow::Error> {
+    let (tls_config, certificate_pem) =
+        if let Some((certificate_path, key_path)) = certificate.path().zip(key.path()) {
+            let tls_config = RustlsConfig::from_pem_file(certificate_path, key_path)
+                .await
+                .context("failed to load certificate and key from provided paths")?;
+
+            let certificate_pem =
+                std::fs::read(certificate_path).context("failed to load certificate")?;
+
+            (tls_config, certificate_pem)
+        } else {
+            let certificate_pem = certificate.load_transient()?.clone();
+
+            let tls_config =
+                RustlsConfig::from_pem(certificate_pem.clone(), key.load_transient()?.clone())
+                    .await
+                    .context("failed to load certificate and key from in-memory contents")?;
+
+            (tls_config, certificate_pem)
+        };
+
+    let certificate = x509_cert::Certificate::load_pem_chain(&certificate_pem)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("there must be at least one certificate present"))?;
+
+    Ok((tls_config, certificate))
 }
 
 fn create_self_signed_certificate(

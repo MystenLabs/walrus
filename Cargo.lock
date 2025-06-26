@@ -12944,6 +12944,7 @@ dependencies = [
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
+ "x509-cert",
 ]
 
 [[package]]
