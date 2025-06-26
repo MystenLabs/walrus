@@ -23,7 +23,7 @@ use walrus_sdk::{
     },
     config::ClientConfig,
     error::ClientResult,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
     client::{
@@ -135,7 +135,7 @@ impl ClientMultiplexer {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
@@ -147,7 +147,7 @@ impl ClientMultiplexer {
                 blob,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -176,7 +176,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
@@ -184,7 +184,7 @@ impl WalrusWriteClient for ClientMultiplexer {
             blob,
             encoding_type,
             epochs_ahead,
-            store_when,
+            store_optimizations,
             persistence,
             post_store,
         )

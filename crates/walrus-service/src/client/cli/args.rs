@@ -29,8 +29,9 @@ use walrus_sui::{
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
+use walrus_utils::read_blob_from_file;
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -333,6 +334,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<HealthSortBy>,
+        /// Number of concurrent requests to send to the storage nodes.
+        #[arg(long, default_value_t = default::concurrent_requests_for_health())]
+        #[serde(default = "default::concurrent_requests_for_health")]
+        concurrent_requests: usize,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -1392,6 +1397,10 @@ pub(crate) mod default {
             "content-location".to_string(),
             "link".to_string(),
         ]
+    }
+
+    pub(crate) fn concurrent_requests_for_health() -> usize {
+        60
     }
 }
 

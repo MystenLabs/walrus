@@ -443,6 +443,12 @@ public(package) fun advance_epoch(
     pool.process_pending_stake(wctx);
 }
 
+/// Add `commission` directly to the pools commission. Returns the total value of the pool's
+/// commission after the operation.
+public(package) fun add_commission(pool: &mut StakingPool, commission: Balance<WAL>): u64 {
+    pool.commission.join(commission)
+}
+
 /// Process the pending stake and withdrawal requests for the pool. Called in the
 /// `advance_epoch` function in case the pool is in the committee and receives the
 /// rewards. And may be called in user-facing functions to update the pool state,

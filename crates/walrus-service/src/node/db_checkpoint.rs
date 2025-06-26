@@ -11,8 +11,47 @@ use std::{
 use chrono::Utc;
 use rocksdb::{
     Env,
-    backup::{BackupEngine, BackupEngineOptions, RestoreOptions},
+    backup::{BackupEngine, BackupEngineInfo, BackupEngineOptions, RestoreOptions},
 };
+
+/// A wrapper for BackupEngineInfo that provides human-readable display formatting.
+pub struct DisplayableDbCheckpointInfo {
+    pub inner: BackupEngineInfo,
+}
+
+impl std::fmt::Debug for DisplayableDbCheckpointInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl From<BackupEngineInfo> for DisplayableDbCheckpointInfo {
+    fn from(inner: BackupEngineInfo) -> Self {
+        Self { inner }
+    }
+}
+
+impl std::fmt::Display for DisplayableDbCheckpointInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let size_str = bytesize::ByteSize::b(self.inner.size).to_string();
+
+        let timestamp_str = if self.inner.timestamp > 0 {
+            use std::time::UNIX_EPOCH;
+            match UNIX_EPOCH.checked_add(StdDuration::from_secs(self.inner.timestamp as u64)) {
+                Some(system_time) => humantime::format_rfc3339(system_time).to_string(),
+                None => format!("{} (invalid timestamp)", self.inner.timestamp),
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        write!(
+            f,
+            "Backup ID: {}, Size: {}, Files: {}, Created: {}",
+            self.inner.backup_id, size_str, self.inner.num_files, timestamp_str
+        )
+    }
+}
 use serde::{Deserialize, Serialize};
 use tokio::{task::JoinHandle, time};
 use tokio_util::sync::CancellationToken;
@@ -355,6 +394,25 @@ impl DbCheckpointManager {
             .await
             .map_err(|e| DbCheckpointError::Other(e.into()))?;
         Ok(result)
+    }
+
+    /// List all db_checkpoints in the db_checkpoint directory.
+    ///
+    /// If no db_checkpoint_dir is provided, the directory configured in DbCheckpointConfig will be
+    /// used. If none of these are provided an error will be returned.
+    pub fn list_db_checkpoints(
+        &self,
+        db_checkpoint_dir: Option<&Path>,
+    ) -> Result<Vec<DisplayableDbCheckpointInfo>, DbCheckpointError> {
+        let db_checkpoint_dir = db_checkpoint_dir
+            .or(self.config.db_checkpoint_dir.as_deref())
+            .ok_or_else(|| {
+                DbCheckpointError::Other(anyhow::anyhow!("No db_checkpoint directory specified"))
+            })?;
+        let engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
+        let backup_info = engine.get_backup_info();
+
+        Ok(backup_info.into_iter().map(|info| info.into()).collect())
     }
 
     /// The background task that handles db_checkpoint requests.

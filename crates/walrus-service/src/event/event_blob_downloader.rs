@@ -6,15 +6,52 @@
 use std::path::Path;
 
 use anyhow::Result;
-use walrus_core::BlobId;
+use walrus_core::{BlobId, Epoch};
 use walrus_sdk::{client::Client as WalrusClient, error::ClientErrorKind};
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::client::{ReadClient, SuiReadClient};
-
-use crate::node::events::{
-    event_blob::EventBlob as LocalEventBlob,
-    event_processor::EventProcessorMetrics,
+use walrus_sui::{
+    client::{ReadClient, SuiReadClient},
+    types::move_structs::EventBlob,
 };
+
+use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
+
+/// A struct that contains the metadata of an event blob.
+#[derive(Debug, Clone)]
+pub struct EventBlobWithMetadata {
+    /// The ID of the event blob.
+    pub blob_id: BlobId,
+    /// The cursor of the event stream.
+    pub event_stream_cursor: EventStreamCursor,
+    /// The epoch of the event blob.
+    pub epoch: Epoch,
+    /// The ending checkpoint sequence number of the event blob.
+    pub ending_checkpoint_sequence_number: u64,
+}
+
+impl EventBlobWithMetadata {
+    /// Returns the ending checkpoint sequence number of the event blob.
+    pub fn end(&self) -> u64 {
+        self.event_stream_cursor.element_index
+    }
+
+    /// Returns a reference to the event blob.
+    pub fn blob(&self) -> EventBlob {
+        EventBlob {
+            blob_id: self.blob_id,
+            ending_checkpoint_sequence_number: self.ending_checkpoint_sequence_number,
+        }
+    }
+}
+
+/// This is used to store the last certified event blob in the event blob writer.
+#[derive(Debug, Clone)]
+pub enum LastCertifiedEventBlob {
+    /// A struct that contains the metadata of an event blob.
+    EventBlobWithMetadata(EventBlobWithMetadata),
+    /// A reference to an event blob.
+    EventBlob(EventBlob),
+}
 
 /// Responsible for downloading and managing event blobs
 #[derive(Debug)]
@@ -32,6 +69,34 @@ impl EventBlobDownloader {
         }
     }
 
+    /// Returns the metadata of the last certified event blob.
+    pub async fn get_last_certified_event_blob(&self) -> Result<Option<EventBlobWithMetadata>> {
+        let Some(blob) = self.sui_read_client.last_certified_event_blob().await? else {
+            return Ok(None);
+        };
+        let blob_id = blob.blob_id;
+        let result = self
+            .walrus_client
+            .read_blob::<walrus_core::encoding::Primary>(&blob_id)
+            .await?;
+        let blob = LocalEventBlob::new(&result)?;
+        let blob_epoch = blob.ending_epoch()?;
+        let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();
+        let blob_iter = blob.into_iter();
+        let blob_event = blob_iter
+            .last()
+            .ok_or(anyhow::anyhow!("No events in blob"))?;
+        Ok(Some(EventBlobWithMetadata {
+            blob_id,
+            event_stream_cursor: EventStreamCursor::new(
+                blob_event.element.element.event_id(),
+                blob_event.index + 1,
+            ),
+            epoch: blob_epoch,
+            ending_checkpoint_sequence_number: blob_ending_checkpoint_sequence_number,
+        }))
+    }
+
     /// Collects event blobs starting from the given blob ID and going backwards until reaching
     /// the specified checkpoint or an expired blob.
     ///
@@ -41,7 +106,6 @@ impl EventBlobDownloader {
         upto_checkpoint: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
-        metrics: Option<&EventProcessorMetrics>,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
         let mut prev_event_blob = match from_blob {
@@ -80,8 +144,8 @@ impl EventBlobDownloader {
             }
 
             let blob_path = path.join(prev_event_blob.to_string());
-            let (blob, blob_source) = if blob_path.exists() {
-                (std::fs::read(blob_path.as_path())?, "local")
+            let blob = if blob_path.exists() {
+                std::fs::read(blob_path.as_path())?
             } else {
                 match self
                     .walrus_client
@@ -91,23 +155,12 @@ impl EventBlobDownloader {
                     )
                     .await
                 {
-                    Ok(blob) => (blob, "network"),
+                    Ok(blob) => blob,
                     Err(err) => {
-                        metrics.inspect(|&m| {
-                            m.event_processor_event_blob_fetched
-                                .with_label_values(&["network"])
-                                .inc()
-                        });
                         return Err(err.into());
                     }
                 }
             };
-
-            metrics.inspect(|&m| {
-                m.event_processor_event_blob_fetched
-                    .with_label_values(&[blob_source])
-                    .inc()
-            });
 
             tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
 

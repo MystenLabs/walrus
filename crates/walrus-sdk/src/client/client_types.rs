@@ -6,11 +6,13 @@
 use std::{fmt::Debug, sync::Arc};
 
 use enum_dispatch::enum_dispatch;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use walrus_core::{
     BlobId,
-    encoding::SliverPair,
+    QuiltPatchId,
+    encoding::{SliverPair, quilt_encoding::QuiltPatchInternalIdApi},
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
@@ -26,6 +28,25 @@ use super::{
 
 /// The log level for all WalrusStoreBlob spans.
 pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
+
+/// Identifies a stored quilt patch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredQuiltPatch {
+    /// The identifier of the quilt patch.
+    pub identifier: String,
+    /// The quilt patch id.
+    pub quilt_patch_id: String,
+}
+
+impl StoredQuiltPatch {
+    /// Create a new stored quilt patch.
+    pub fn new<T: QuiltPatchInternalIdApi>(blob_id: BlobId, identifier: &str, patch_id: T) -> Self {
+        Self {
+            identifier: identifier.to_string(),
+            quilt_patch_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()).to_string(),
+        }
+    }
+}
 
 /// API for a blob that is being stored to Walrus.
 #[enum_dispatch]

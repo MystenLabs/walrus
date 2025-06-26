@@ -21,7 +21,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
     error::ClientError,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
@@ -107,7 +107,7 @@ impl WriteClient {
                 &[blob],
                 DEFAULT_ENCODING,
                 epochs_to_store,
-                StoreWhen::AlwaysIgnoreResources,
+                StoreOptimizations::none(),
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
                 Some(&self.metrics),
@@ -205,7 +205,7 @@ impl WriteClient {
                 &[&metadata],
                 epochs_to_store,
                 BlobPersistence::Permanent,
-                StoreWhen::NotStored,
+                StoreOptimizations::all(),
             )
             .await?
             .into_iter()

@@ -39,7 +39,7 @@ use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
     config::load_configuration,
     error::ClientErrorKind,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
     sui::{
         client::{
             BlobPersistence,
@@ -56,7 +56,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::wallet::Wallet;
-use walrus_utils::metrics::Registry;
+use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::args::{
     AggregatorArgs,
@@ -89,7 +89,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            read_blob_from_file,
             success,
             warning,
         },
@@ -193,7 +192,10 @@ impl ClientCommandRunner {
                     files,
                     epoch_arg,
                     dry_run,
-                    StoreWhen::from_flags(force, ignore_resources),
+                    StoreOptimizations::from_force_and_ignore_resources_flags(
+                        force,
+                        ignore_resources,
+                    ),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
                     encoding_type,
@@ -221,7 +223,11 @@ impl ClientCommandRunner {
                 detail,
                 sort,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_selection, detail, sort).await,
+                concurrent_requests,
+            } => {
+                self.health(rpc_url, node_selection, detail, sort, concurrent_requests)
+                    .await
+            }
 
             CliCommands::BlobId {
                 file,
@@ -511,7 +517,7 @@ impl ClientCommandRunner {
         files: Vec<PathBuf>,
         epoch_arg: EpochArg,
         dry_run: bool,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
@@ -551,7 +557,7 @@ impl ClientCommandRunner {
                 &blobs,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -732,6 +738,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
@@ -750,12 +757,13 @@ impl ClientCommandRunner {
             None,
         )?;
 
-        ServiceHealthInfoOutput::new_for_nodes(
+        ServiceHealthInfoOutput::get_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
             latest_seq,
             detail,
             sort,
+            concurrent_requests,
         )
         .await?
         .print_output(self.json)

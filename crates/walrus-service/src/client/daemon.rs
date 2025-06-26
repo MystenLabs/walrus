@@ -43,7 +43,7 @@ use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::
 use walrus_sdk::{
     client::{Client, responses::BlobStoreResult},
     error::ClientResult,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
@@ -89,7 +89,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
@@ -117,7 +117,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
@@ -128,7 +128,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
                 &[blob],
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
                 None,

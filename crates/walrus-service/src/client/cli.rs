@@ -5,8 +5,7 @@
 
 use std::{
     fmt::{self, Display},
-    fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
 
@@ -389,14 +388,6 @@ fn thousands_separator_float(num: f64, digits: u32) -> String {
     let decimal = (num.fract() * 10u64.pow(digits) as f64).round() as u64;
     let digits = digits as usize;
     format!("{}.{:0digits$}", thousands_separator(integer), decimal)
-}
-
-/// Reads a blob from the filesystem or returns a helpful error message.
-pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
-    fs::read(&path).context(format!(
-        "unable to read blob from '{}'",
-        path.as_ref().display()
-    ))
 }
 
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
