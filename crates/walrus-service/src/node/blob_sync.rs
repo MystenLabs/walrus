@@ -517,6 +517,24 @@ impl BlobSynchronizer {
             .await
             .expect("database operations should not fail");
 
+        while let Err(err) = Self::recover_slivers(
+            this.clone(),
+            sliver_permits.clone(),
+            shared_metadata.clone(),
+        )
+        .await
+        {
+            tracing::error!("error recovering slivers: {:?}, retrying...", err);
+        }
+    }
+
+    async fn recover_slivers(
+        this: Arc<BlobSynchronizer>,
+        sliver_permits: Arc<Semaphore>,
+        shared_metadata: Arc<VerifiedBlobMetadataWithId>,
+    ) -> Result<(), RecoverSliverError> {
+        let histograms = &this.metrics().recover_blob_part_duration_seconds;
+
         // Note that we only need to recover the slivers in the shards that are assigned to the
         // node at the time of the start of blob sync. Due to slow event processing, the contract
         // might have entered the new epoch with new shard assignment. Upon discovery of the new
@@ -589,7 +607,15 @@ impl BlobSynchronizer {
                             break;
                         }
                         Ok((Err(RecoverSliverError::Database(err)), _)) => {
-                            panic!("database operations should not fail: {:?}", err)
+                            match err {
+                                TypedStoreError::ShardBeingDeleted => {
+                                    tracing::info!("shard being deleted, skipping sliver recovery");
+                                    return Err(RecoverSliverError::Database(err));
+                                }
+                                _ => {
+                                    panic!("database operations should not fail: {:?}", err)
+                                }
+                            }
                         }
                         Ok(_) => (),
                         Err(join_err) => match join_err.try_into_panic() {
@@ -628,6 +654,8 @@ impl BlobSynchronizer {
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Drives the recovery and storage of the slivers associated with this blob, for one shard.
@@ -711,6 +739,8 @@ impl BlobSynchronizer {
                 .committee_service()
                 .recover_sliver(metadata, sliver_id, A::sliver_type(), self.certified_epoch)
                 .await;
+
+            tokio::time::sleep(Duration::from_secs(30)).await;
 
             match sliver_or_proof {
                 Ok(sliver) => {

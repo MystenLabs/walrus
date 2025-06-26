@@ -373,7 +373,6 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
@@ -417,35 +416,37 @@ mod tests {
         }
 
         let client_arc = Arc::new(client);
-        let client_clone = client_arc.clone();
+        // let client_clone = client_arc.clone();
 
-        // First, we inject some data into the cluster. Note that to control the test duration, we
-        // stopped the workload once started crashing the node.
-        let mut data_length = 64;
-        let workload_start_time = Instant::now();
-        let mut blobs_written = HashSet::new();
-        loop {
-            if workload_start_time.elapsed() > Duration::from_secs(20) {
-                tracing::info!("generated 60s of data; stopping workload");
-                break;
-            }
-            tracing::info!("writing data with size {data_length}");
+        // // First, we inject some data into the cluster. Note that to control the test duration, we
+        // // stopped the workload once started crashing the node.
+        // let mut data_length = 64;
+        // let workload_start_time = Instant::now();
+        // let mut blobs_written = HashSet::new();
+        // loop {
+        //     if workload_start_time.elapsed() > Duration::from_secs(20) {
+        //         tracing::info!("generated 60s of data; stopping workload");
+        //         break;
+        //     }
+        //     tracing::info!("writing data with size {data_length}");
 
-            // TODO(#995): use stress client for better coverage of the workload.
-            simtest_utils::write_read_and_check_random_blob(
-                client_clone.as_ref(),
-                data_length,
-                true,
-                false,
-                &mut blobs_written,
-            )
-            .await
-            .expect("workload should not fail");
+        //     // TODO(#995): use stress client for better coverage of the workload.
+        //     simtest_utils::write_read_and_check_random_blob(
+        //         client_clone.as_ref(),
+        //         data_length,
+        //         true,
+        //         false,
+        //         &mut blobs_written,
+        //     )
+        //     .await
+        //     .expect("workload should not fail");
 
-            tracing::info!("finished writing data with size {data_length}");
+        //     tracing::info!("finished writing data with size {data_length}");
 
-            data_length += 1;
-        }
+        //     data_length += 1;
+        // }
+
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true);
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
@@ -462,17 +463,26 @@ mod tests {
         // We probabilistically trigger a shard move to the crashed node to test the recovery.
         // The additional stake assigned are randomly chosen between 2 and 5 times of the original
         // stake the per-node.
-        let shard_move_weight = rand::thread_rng().gen_range(2..=5);
+        // let shard_move_weight = rand::thread_rng().gen_range(2..=5);
+        let shard_move_weight = rand::thread_rng().gen_range(7..=10);
         tracing::info!(
             "triggering shard move with stake weight {}",
             shard_move_weight
         );
 
+        // Half of the time, we move to the crashed node. The other half of the time, we move to a
+        // different node.
+        let node_index_to_move = if thread_rng().gen_bool(0.1) {
+            node_index_to_crash
+        } else {
+            thread_rng().gen_range(0..walrus_cluster.nodes.len())
+        };
+
         client_arc
             .as_ref()
             .as_ref()
             .stake_with_node_pool(
-                walrus_cluster.nodes[node_index_to_crash]
+                walrus_cluster.nodes[node_index_to_move]
                     .storage_node_capability
                     .as_ref()
                     .unwrap()
@@ -483,6 +493,8 @@ mod tests {
             .expect("stake with node pool should not fail");
 
         tokio::time::sleep(Duration::from_secs(3 * 60)).await;
+
+        workload_handle.abort();
 
         // Check the final state of storage node after a few crash and recovery.
         let mut last_persist_event_index = 0;
