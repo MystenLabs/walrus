@@ -1050,10 +1050,10 @@ impl ShardStorage {
 
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
-        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter().count();
+        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter()?.count();
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
-        for recover_blob in self.pending_recover_slivers.safe_iter() {
+        for recover_blob in self.pending_recover_slivers.safe_iter()? {
             let ((sliver_type, blob_id), _) = recover_blob?;
 
             #[allow(unused_mut)]
@@ -1305,11 +1305,11 @@ impl ShardStorage {
         match sliver_type {
             SliverType::Primary => self
                 .primary_slivers
-                .safe_iter()
+                .safe_iter()?
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
             SliverType::Secondary => self
                 .secondary_slivers
-                .safe_iter()
+                .safe_iter()?
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
         }
     }
@@ -1344,7 +1344,7 @@ impl ShardStorage {
         &self,
     ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
         self.pending_recover_slivers
-            .safe_iter()
+            .safe_iter()?
             .map(|r| r.map(|(k, _)| k))
             .collect()
     }

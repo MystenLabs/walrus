@@ -72,7 +72,7 @@ where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_iter())
+    TestIteratorWrapper::SafeIter(db.safe_iter().expect("failed to get iterator"))
 }
 
 fn get_reverse_iter<K, V>(
@@ -97,7 +97,10 @@ where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_iter_with_bounds(lower_bound, upper_bound))
+    TestIteratorWrapper::SafeIter(
+        db.safe_iter_with_bounds(lower_bound, upper_bound)
+            .expect("failed to get iterator"),
+    )
 }
 
 fn get_range_iter<K, V>(
@@ -108,7 +111,7 @@ where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_range_iter(range))
+    TestIteratorWrapper::SafeIter(db.safe_range_iter(range).expect("failed to get iterator"))
 }
 
 #[tokio::test]
@@ -489,17 +492,17 @@ async fn test_clear() {
     insert_batch.write().expect("Failed to execute batch");
 
     // Check we have multiple entries
-    assert!(db.safe_iter().count() > 1);
+    assert!(db.safe_iter().expect("failed to get iterator").count() > 1);
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     // Clear again to ensure safety when clearing empty map
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     // Clear with one item
     let _ = db.insert(&1, &"e".to_string());
-    assert_eq!(db.safe_iter().count(), 1);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 1);
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
 }
 
 #[tokio::test]
@@ -554,7 +557,9 @@ async fn test_iter_with_bounds() {
     );
 
     // Specify a bound outside of dataset.
-    let db_iter = db.safe_iter_with_bounds(Some(200), Some(300));
+    let db_iter = db
+        .safe_iter_with_bounds(Some(200), Some(300))
+        .expect("failed to get iterator");
     assert!(db_iter.collect::<Vec<_>>().is_empty());
 
     // Skip to first key in the bound (bound is [1, 50))
@@ -631,12 +636,12 @@ async fn test_is_empty() {
     insert_batch.write().expect("Failed to execute batch");
 
     // Check we have multiple entries and not empty
-    assert!(db.safe_iter().count() > 1);
+    assert!(db.safe_iter().expect("failed to get iterator").count() > 1);
     assert!(!db.is_empty());
 
     // Clear again to ensure empty works after clearing
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     assert!(db.is_empty());
 }
 
@@ -713,7 +718,10 @@ async fn test_multi_remove() {
     // Remove 50 items
     db.multi_remove(keys_vals.clone().map(|kv| kv.0).take(50))
         .expect("Failed to multi-remove");
-    assert_eq!(db.safe_iter().count(), 101 - 50);
+    assert_eq!(
+        db.safe_iter().expect("failed to get iterator").count(),
+        101 - 50
+    );
 
     // Check that the remaining are present
     for (k, v) in keys_vals.skip(50) {

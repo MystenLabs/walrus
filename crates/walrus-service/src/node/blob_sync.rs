@@ -503,7 +503,7 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
-    /// Runs the synchronizer and returns true if successful, false if cancelled.
+    /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
     async fn run(self, sliver_permits: Arc<Semaphore>) {
         let this = Arc::new(self);
@@ -517,116 +517,19 @@ impl BlobSynchronizer {
             .await
             .expect("database operations should not fail");
 
-        // Note that we only need to recover the slivers in the shards that are assigned to the
-        // node at the time of the start of blob sync. Due to slow event processing, the contract
-        // might have entered the new epoch with new shard assignment. Upon discovery of the new
-        // shard assignment, the node only needs to recover the slivers assigned in the epoch
-        // of the current event due to that:
-        //   - The node may not have created the new shards yet.
-        //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
-        //     hold, recover, and transfer the shard to the new owner.
-        //
-        // If the node is severally lagging behind and the certified_epoch is 2 epochs older,
-        // this function panics since no shard assignment info is found. Upon restarting the node,
-        // the node will enter recovery mode until catching up with all the events and start
-        // recovering all the missing blobs.
-        let futures_iter = this
-            .node
-            .owned_shards_at_epoch(this.node.current_event_epoch())
-            .unwrap_or_else(|_| {
-                tracing::error!(
-                    "shard assignment must be found at the certified epoch {}",
-                    this.node.current_event_epoch()
-                );
-                panic!(
-                    "shard assignment must be found at the certified epoch {}",
-                    this.node.current_event_epoch()
-                )
-            })
-            .into_iter()
-            .map(|shard| {
-                this.clone()
-                    .recover_slivers_for_shard(shared_metadata.clone(), shard)
-            });
-
-        let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
-            let permits = sliver_permits.clone();
-
-            // We use a future to get the permit. Only then is the future returned from the stream
-            // to be awaited.
-            #[allow(clippy::async_yields_async)]
-            async move {
-                let claimed_permit = permits
-                    .acquire_owned()
-                    .await
-                    .expect("semaphore should not been dropped");
-                // Attach the permit to the future, so that it is held until the future completes.
-                future.map(|result| (result, claimed_permit))
-            }
-        });
-        let mut futures_with_permits = std::pin::pin!(futures_with_permits);
-        // When stored in a JoinSet, tasks are aborted on drop.
-        let mut pending_tasks = JoinSet::new();
-
-        loop {
-            tokio::select! {
-                biased;
-
-                Some(future) = futures_with_permits.next() => {
-                    // Add the permit and the future to the list of pending futures
-                    pending_tasks.spawn(future);
-                }
-                Some(join_result) = pending_tasks.join_next() => {
-                    match join_result {
-                        Ok((Err(RecoverSliverError::Inconsistent(inconsistency_proof)), _permit)) =>
-                        {
-                            tracing::warn!("received an inconsistency proof");
-                            // No need to recover other slivers, sync the proof and return
-                            this.sync_inconsistency_proof(&inconsistency_proof)
-                                .observe_future(histograms.clone(),
-                                                labels_from_inconsistency_sync_result)
-                                .await;
-                            break;
-                        }
-                        Ok((Err(RecoverSliverError::Database(err)), _)) => {
-                            panic!("database operations should not fail: {:?}", err)
-                        }
-                        Ok(_) => (),
-                        Err(join_err) => match join_err.try_into_panic() {
-                            Ok(reason) => {
-                                // Cancel other tasks (as a precaution) and resume the panic on
-                                // the main task, which was the prior behaviour when we were
-                                // using futures instead of tasks.
-                                pending_tasks.abort_all();
-                                std::panic::resume_unwind(reason);
-                            }
-                            Err(join_err) => {
-                                assert!(join_err.is_cancelled());
-                                // We do not poll after cancelling the tasks, and as we have the
-                                // join handle in our JoinSet, no one else should be able to
-                                // abort the task, therefore should never happen.
-                                //
-                                // Returning from this function as if the task was cancelled
-                                // would leave a sliver unrecovered and block progress, since the
-                                // recovery was not cancelled.
-                                //
-                                // Treating it as success would be worse as we would progress
-                                // but not have the sliver stored. We therefore panic.
-                                tracing::error!(
-                                    error = ?join_err,
-                                    "a sliver recovery task cancelled unexpectedly"
-                                );
-                                panic!("a sliver recovery task cancelled unexpectedly");
-                            }
-                        }
-                    }
-                }
-                else => {
-                    // Both the pending futures and the waiting futures streams have completed,
-                    // we are therefore complete.
-                    break;
-                }
-            }
+        while let Err(error) = recover_blob_slivers(
+            this.clone(),
+            sliver_permits.clone(),
+            shared_metadata.clone(),
+        )
+        .await
+        {
+            tracing::warn!(
+                ?error,
+                "recovering sliver failed with error {:?}, retrying after 30 seconds",
+                error
+            );
+            tokio::time::sleep(Duration::from_secs(30)).await;
         }
     }
 
@@ -712,6 +615,8 @@ impl BlobSynchronizer {
                 .recover_sliver(metadata, sliver_id, A::sliver_type(), self.certified_epoch)
                 .await;
 
+            sui_macros::fail_point_async!("fail_point_recover_sliver_before_put_sliver");
+
             match sliver_or_proof {
                 Ok(sliver) => {
                     shard_storage.put_sliver(self.blob_id, sliver).await?;
@@ -741,6 +646,147 @@ impl BlobSynchronizer {
             .invalidate_blob_id(&invalid_blob_certificate)
             .await
     }
+}
+
+/// Starts the task that syncs all the missing slivers for a blob.
+async fn recover_blob_slivers(
+    blob_synchronizer: Arc<BlobSynchronizer>,
+    sliver_permits: Arc<Semaphore>,
+    shared_metadata: Arc<VerifiedBlobMetadataWithId>,
+) -> Result<(), RecoverSliverError> {
+    let histograms = &blob_synchronizer
+        .metrics()
+        .recover_blob_part_duration_seconds;
+
+    // Note that we only need to recover the slivers in the shards that are assigned to the
+    // node at the time of the start of blob sync. Due to slow event processing, the contract
+    // might have entered the new epoch with new shard assignment. Upon discovery of the new
+    // shard assignment, the node only needs to recover the slivers assigned in the epoch
+    // of the current event due to that:
+    //   - The node may not have created the new shards yet.
+    //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
+    //     hold, recover, and transfer the shard to the new owner.
+    //
+    // If the node is severally lagging behind and the certified_epoch is 2 epochs older,
+    // this function panics since no shard assignment info is found. Upon restarting the node,
+    // the node will enter recovery mode until catching up with all the events and start
+    // recovering all the missing blobs.
+    let futures_iter = blob_synchronizer
+        .node
+        .owned_shards_at_epoch(blob_synchronizer.node.current_event_epoch())
+        .unwrap_or_else(|_| {
+            tracing::error!(
+                "shard assignment must be found at the certified epoch {}",
+                blob_synchronizer.node.current_event_epoch()
+            );
+            panic!(
+                "shard assignment must be found at the certified epoch {}",
+                blob_synchronizer.node.current_event_epoch()
+            )
+        })
+        .into_iter()
+        .map(|shard| {
+            blob_synchronizer
+                .clone()
+                .recover_slivers_for_shard(shared_metadata.clone(), shard)
+        });
+
+    let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
+        let permits = sliver_permits.clone();
+
+        // We use a future to get the permit. Only then is the future returned from the stream
+        // to be awaited.
+        #[allow(clippy::async_yields_async)]
+        async move {
+            let claimed_permit = permits
+                .acquire_owned()
+                .await
+                .expect("semaphore should not been dropped");
+            // Attach the permit to the future, so that it is held until the future completes.
+            future.map(|result| (result, claimed_permit))
+        }
+    });
+    let mut futures_with_permits = std::pin::pin!(futures_with_permits);
+    // When stored in a JoinSet, tasks are aborted on drop.
+    let mut pending_tasks = JoinSet::new();
+
+    loop {
+        tokio::select! {
+            biased;
+
+            Some(future) = futures_with_permits.next() => {
+                // Add the permit and the future to the list of pending futures
+                pending_tasks.spawn(future);
+            }
+            Some(join_result) = pending_tasks.join_next() => {
+                match join_result {
+                    Ok((Err(RecoverSliverError::Inconsistent(inconsistency_proof)), _permit)) =>
+                    {
+                        tracing::warn!("received an inconsistency proof");
+                        // No need to recover other slivers, sync the proof and return
+                        blob_synchronizer.sync_inconsistency_proof(&inconsistency_proof)
+                            .observe_future(histograms.clone(),
+                                            labels_from_inconsistency_sync_result)
+                            .await;
+                        break;
+                    }
+                    Ok((Err(RecoverSliverError::Database(err)), _)) => {
+                        match err {
+                            TypedStoreError::UnregisteredColumn(ref column) => {
+                                // It is possible that when the blob recovery is running, a shard
+                                // is removed from the storage, and therefore encounter
+                                // UnregisteredColumn error. In this case, we should not panic
+                                // and instead return an error to retry the blob sync.
+                                tracing::error!(
+                                    "database error during sliver sync: unregistered column {:?}",
+                                    column
+                                );
+                                return Err(RecoverSliverError::Database(err));
+                            }
+                            _ => {
+                                panic!("database operations should not fail: {:?}", err)
+                            }
+                        }
+                    }
+                    Ok(_) => (),
+                    Err(join_err) => match join_err.try_into_panic() {
+                        Ok(reason) => {
+                            // Cancel other tasks (as a precaution) and resume the panic on
+                            // the main task, which was the prior behaviour when we were
+                            // using futures instead of tasks.
+                            pending_tasks.abort_all();
+                            std::panic::resume_unwind(reason);
+                        }
+                        Err(join_err) => {
+                            assert!(join_err.is_cancelled());
+                            // We do not poll after cancelling the tasks, and as we have the
+                            // join handle in our JoinSet, no one else should be able to
+                            // abort the task, therefore should never happen.
+                            //
+                            // Returning from this function as if the task was cancelled
+                            // would leave a sliver unrecovered and block progress, since the
+                            // recovery was not cancelled.
+                            //
+                            // Treating it as success would be worse as we would progress
+                            // but not have the sliver stored. We therefore panic.
+                            tracing::error!(
+                                error = ?join_err,
+                                "a sliver recovery task cancelled unexpectedly"
+                            );
+                            panic!("a sliver recovery task cancelled unexpectedly");
+                        }
+                    }
+                }
+            }
+            else => {
+                // Both the pending futures and the waiting futures streams have completed,
+                // we are therefore complete.
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn labels_from_metadata_result(

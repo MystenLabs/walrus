@@ -183,7 +183,8 @@ impl BlobInfoTable {
         BlobInfoIter::new(
             Box::new(
                 self.aggregate_blob_info
-                    .safe_range_iter((starting_blob_id_bound, Unbounded)),
+                    .safe_range_iter((starting_blob_id_bound, Unbounded))
+                    .expect("aggregate_blob_info cf must always exist in storage node"),
             ),
             before_epoch,
         )
@@ -200,7 +201,8 @@ impl BlobInfoTable {
         BlobInfoIter::new(
             Box::new(
                 self.per_object_blob_info
-                    .safe_range_iter((starting_object_id_bound, Unbounded)),
+                    .safe_range_iter((starting_object_id_bound, Unbounded))
+                    .expect("per_object_blob_info cf must always exist in storage node"),
             ),
             before_epoch,
         )
@@ -248,6 +250,7 @@ impl BlobInfoTable {
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
         self.aggregate_blob_info
             .safe_iter()
+            .expect("aggregate_blob_info cf must always exist in storage node")
             .map(|r| r.map(|(k, _)| k))
             .collect()
     }
