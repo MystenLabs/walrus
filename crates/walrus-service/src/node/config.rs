@@ -1025,6 +1025,7 @@ pub struct RestServerConfig {
 
 /// Configuration of the HTTP/2 connections established by the REST API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Http2Config {
     /// The maximum number of concurrent streams that a client can open
     /// over a connection to the server.
