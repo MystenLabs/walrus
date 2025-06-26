@@ -7,8 +7,8 @@ use std::{
 };
 
 use fastcrypto::hash::Blake2b256;
-use futures::{FutureExt as _, TryFutureExt, future::BoxFuture};
-use moka::future::Cache;
+use futures::{FutureExt as _, future::BoxFuture};
+use moka::sync::Cache;
 use prometheus::IntCounter;
 use tower::Service;
 use walrus_core::{
@@ -113,7 +113,7 @@ impl RecoverySymbolService {
         }
     }
 
-    async fn handle_request_and_cache(
+    fn handle_request_and_cache(
         &mut self,
         req: RecoverySymbolRequest,
     ) -> Result<GeneralRecoverySymbol, RecoverySymbolError> {
@@ -138,19 +138,13 @@ impl RecoverySymbolService {
 
         let miss_total = self.metrics.cache_miss_total.clone();
         let encoding_config = self.encoding_config.clone();
-        let thread_pool = &mut self.thread_pool;
         let merkle_tree = self
             .cache
-            .try_get_with::<_, RecoverySymbolError>(cache_key, async move {
+            .try_get_with::<_, RecoverySymbolError>(cache_key, move || {
                 miss_total.inc();
-
-                thread_pool
-                    .call(move || merkle_tree_for_request(req, encoding_config))
-                    .map(thread_pool::unwrap_or_resume_panic)
-                    .await
+                merkle_tree_for_request(req, encoding_config)
             })
-            .map_err(Arc::unwrap_or_clone)
-            .await?;
+            .map_err(Arc::unwrap_or_clone)?;
 
         let proof = merkle_tree
             .get_proof(target_sliver_index.as_usize())
@@ -186,8 +180,15 @@ impl Service<RecoverySymbolRequest> for RecoverySymbolService {
 
     fn call(&mut self, req: RecoverySymbolRequest) -> Self::Future {
         let mut this = utils::clone_ready_service(self);
+        let mut thread_pool = utils::clone_ready_service::<_, fn()>(&mut this.thread_pool);
 
-        async move { this.handle_request_and_cache(req).await }.boxed()
+        async move {
+            thread_pool
+                .call(move || this.handle_request_and_cache(req))
+                .map(thread_pool::unwrap_or_resume_panic)
+                .await
+        }
+        .boxed()
     }
 }
 
