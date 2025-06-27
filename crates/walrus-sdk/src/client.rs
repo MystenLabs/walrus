@@ -1558,7 +1558,7 @@ impl<T> Client<T> {
 
         let comms = self
             .communication_factory
-            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+            .node_write_communications(&committees, Arc::new(Semaphore::new(1000)))?;
 
         let progress_bar = {
             let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());

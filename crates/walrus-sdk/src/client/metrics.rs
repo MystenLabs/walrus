@@ -58,6 +58,10 @@ pub struct ClientMetrics {
     pub get_certificates_latency_s: Histogram,
     /// Time to upload a certificate to Sui.
     pub upload_certificate_latency_s: Histogram,
+    /// Time taken to upload a quilt.
+    pub quilt_upload_latency: HistogramVec,
+    /// Time taken to read quilt blobs.
+    pub quilt_read_latency: HistogramVec,
 }
 
 impl ClientMetrics {
@@ -146,6 +150,22 @@ impl ClientMetrics {
                 registry,
             )
             .expect("this is a valid metrics registration"),
+            quilt_upload_latency: register_histogram_vec_with_registry!(
+                "quilt_upload_latency_s",
+                "Time taken to upload a quilt",
+                &["num_blobs_bucket", "size_bucket"],
+                LATENCY_SEC_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            quilt_read_latency: register_histogram_vec_with_registry!(
+                "quilt_read_latency_s",
+                "Time taken to read quilt blobs",
+                &["status", "num_blobs_bucket"],
+                LATENCY_SEC_BUCKETS.to_vec(),
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
         }
     }
 
@@ -209,5 +229,48 @@ impl ClientMetrics {
     pub fn observe_get_certificates(&self, latency: Duration) {
         self.get_certificates_latency_s
             .observe(latency.as_secs_f64());
+    }
+
+    /// Logs the latency for uploading a quilt.
+    pub fn observe_quilt_upload_latency(
+        &self,
+        duration: Duration,
+        num_blobs: usize,
+        total_size: usize,
+    ) {
+        let num_blobs_bucket = self.get_blob_count_bucket(num_blobs);
+        let size_bucket = self.get_size_bucket(total_size);
+
+        self.quilt_upload_latency
+            .with_label_values(&[&num_blobs_bucket, &size_bucket])
+            .observe(duration.as_secs_f64());
+    }
+
+    fn get_blob_count_bucket(&self, count: usize) -> String {
+        match count {
+            1..=10 => "1-10".to_string(),
+            11..=50 => "11-50".to_string(),
+            51..=100 => "51-100".to_string(),
+            _ => "100+".to_string(),
+        }
+    }
+
+    fn get_size_bucket(&self, size: usize) -> String {
+        match size {
+            0..=1_000_000 => "0-1MB".to_string(),
+            1_000_001..=10_000_000 => "1-10MB".to_string(),
+            10_000_001..=100_000_000 => "10-100MB".to_string(),
+            _ => "100MB+".to_string(),
+        }
+    }
+
+    /// Logs the latency for reading quilt blobs.
+    pub fn observe_quilt_read_latency(&self, duration: Duration, num_blobs: usize, success: bool) {
+        let status = if success { "success" } else { "failure" };
+        let num_blobs_bucket = self.get_blob_count_bucket(num_blobs);
+
+        self.quilt_read_latency
+            .with_label_values(&[status, &num_blobs_bucket])
+            .observe(duration.as_secs_f64());
     }
 }

@@ -1019,6 +1019,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
             StoreOptimizations::none(),
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
+            None,
         )
         .await?;
 
