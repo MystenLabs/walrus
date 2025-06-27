@@ -1230,7 +1230,7 @@ impl CliOutput for ReadQuiltOutput {
     fn print_cli_output(&self) {
         if let Some(out) = &self.out {
             println!(
-                "Retrieved {} Blobs and saved to directory: {}",
+                "Retrieved {} blobs and saved to directory: {}",
                 self.retrieved_blobs
                     .len()
                     .to_string()
@@ -1251,6 +1251,7 @@ impl CliOutput for ReadQuiltOutput {
                 println!();
             }
         } else {
+            // TODO(WAL-858): Find a better way to print the blobs to stdout.
             for blob in &self.retrieved_blobs {
                 if let Err(e) = std::io::stdout().write_all(blob.data()) {
                     eprintln!("Error writing {} to stdout: {e}", blob.identifier());

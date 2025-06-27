@@ -352,8 +352,8 @@ pub enum CliCommands {
 
         /// The directory path where to write the quilt patches.
         /// The blobs are written to the directory with the same name as the identifier.
-        /// The metadata of the quilt patches, including identifiers and tags are printed to the
-        /// stdout.
+        /// The user-defined metadata of the quilt patches, including identifiers and tags are
+        /// printed to the stdout.
         ///
         /// If unset, prints the quilt patches raw data to stdout, while the metadata of the quilt
         /// patches are ignored.
@@ -1256,17 +1256,17 @@ impl QuiltPatchSelector {
         if !identifiers.is_empty() {
             Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id: quilt_id.expect("quilt_id should be present"),
-                identifiers: identifiers.clone(),
+                identifiers,
             }))
         } else if tag.is_some() && value.is_some() {
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id: quilt_id.expect("quilt_id should be present"),
-                tag: tag.as_ref().expect("tag should be present").clone(),
-                value: value.as_ref().expect("value should be present").clone(),
+                tag: tag.expect("tag should be present"),
+                value: value.expect("value should be present"),
             }))
         } else if !quilt_patch_ids.is_empty() {
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
-                quilt_patch_ids: quilt_patch_ids.clone(),
+                quilt_patch_ids,
             }))
         } else if quilt_id.is_some() {
             Ok(QuiltPatchSelector::All(
