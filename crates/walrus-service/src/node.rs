@@ -4628,7 +4628,7 @@ mod tests {
                             .unwrap()
                             .is_none()
                     );
-                    return Ok(());
+                    return Ok::<(), anyhow::Error>(());
                 }
 
                 let Sliver::Primary(dst_primary) = shard_storage_dst
@@ -4661,7 +4661,16 @@ mod tests {
                 );
 
                 Ok(())
-            })
+            })?;
+
+        // Checks that the shard sync progress is reset.
+        assert!(
+            shard_storage_dst
+                .get_last_synced_blob_id()
+                .expect("getting last synced blob id should succeed")
+                .is_none()
+        );
+        Ok(())
     }
 
     async fn wait_for_shard_in_active_state(shard_storage: &ShardStorage) -> TestResult {
@@ -4771,7 +4780,6 @@ mod tests {
 
         // Checks that the shard is completely migrated.
         check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
-
         Ok(())
     }
 
