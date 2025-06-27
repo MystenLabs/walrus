@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package walrus.event.v1alpha;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "sui/rpc/v2beta/checkpoint_contents.proto";
+import "sui/rpc/v2beta/checkpoint_summary.proto";
+import "sui/rpc/v2beta/event.proto";
+
+// EventStreamingService provides a verifiable stream of events from the Sui
+// blockchain for an event stream. It allows clients to receive events
+// along with cryptographic proofs that tie them to a specific checkpoint.
+// It is designed to be forward-compatible, allowing for proof mechanisms
+// to be upgraded over time without breaking clients.
+service EventStreamingService {
+    // StreamEvents opens a server-side stream that sends sets of events
+    // as they are finalized in checkpoints. Each message in the stream contains
+    // all relevant events for a single checkpoint, plus the necessary data to verify them.
+    rpc StreamEvents(StreamEventsRequest) returns (stream VerifiableEvents);
+
+    // GetNonInclusionProof allows a client to request a cryptographic proof
+    // that a specific event did NOT occur within a given range of checkpoints.
+    // This is a standard unary RPC call.
+    rpc GetNonInclusionProof(GetNonInclusionProofRequest) returns (GetNonInclusionProofResponse);
+}
+
+
+// ============== Event Streaming RPC Messages ==============
+
+// An enum defining the available proof types.
+enum ProofType {
+    // Defaults to the server's preferred/most modern proof type.
+    PROOF_TYPE_UNSPECIFIED = 0;
+
+    // The client does not require a proof.
+    PROOF_TYPE_NONE = 1;
+
+    // The V1 checkpoint contents proof.
+    PROOF_TYPE_CHECKPOINT_CONTENTS_V1 = 2;
+
+    // The V2 Merkle inclusion proof.
+    PROOF_TYPE_MERKLE_PROOF_V2 = 3;
+}
+
+message StreamEventsRequest {
+    // The checkpoint sequence number from which to start streaming.
+    // Events from checkpoints before this number will not be sent.
+    // Defaults to 0, starting from the first available checkpoint.
+    optional uint64 starting_checkpoint_sequence_number = 1;
+
+    // The method used to identify the event stream. The client MUST specify
+    // exactly one of these options. This makes the API explicit and avoids
+    // ambiguity between V1 (package-based) and V2 (object-based) streams.
+    oneof stream_selector {
+        // V1: Subscribe to all events emitted by a specific package.
+        PackageSubscription package_id = 2;
+
+        // V2: Subscribe to events managed by a dedicated stream head object.
+        StreamHead stream_head = 3;
+    }
+
+    // The desired proof types, in order of client preference.
+    // The server will attempt to provide the first type in this list that it
+    // supports for a given checkpoint. If empty, it uses its default behavior.
+    // Example: [MERKLE_PROOF_V2, CHECKPOINT_CONTENTS_V1] means client prefer V2,
+    // but will accept V1 if V2 is not available (would not accept response without
+    // a proof)
+    repeated ProofType desired_proof_types = 4;
+}
+
+// VerifiableEvents is the message type for the stream.
+// Each message represents a single checkpoint that contained Walrus events.
+message VerifiableEvents {
+    // The summary of the checkpoint containing these events. The client uses
+    // the `digest` field from this summary to verify the accompanying proof.
+    optional sui.rpc.v2beta.CheckpointSummary summary = 1;
+
+    // The list of all events found within this checkpoint.
+    repeated sui.rpc.v2beta.Event events = 2;
+
+    optional uint64 checkpoint_sequence_number = 3;
+
+    // The cryptographic proof that ties the events to the checkpoint summary.
+    // This is designed to be upgradeable.
+    optional Proof proof = 4;
+}
+
+message StreamHead {
+    // The Object ID of the dedicated stream head object.
+    optional string object_id = 1;
+}
+
+message PackageSubscription {
+    // The package object ID to subscribe to.
+    optional string package_id = 1;
+}
+
+// ============== Proof Structures ============================
+
+// Proof is an enum that allows the server to send different types of proofs.
+// This enables a future protocol upgrade from the simple V1 proof to the
+// more efficient V2 Merkle proof without breaking the API contract.
+message Proof {
+    oneof proof_type {
+        // V1 Proof: The entire raw contents of the checkpoint.
+        // The client verifies this by hashing the bcs and comparing
+        // it to the digest in the CheckpointSummary. And comparing the
+        // events against the content. Inefficient but simple.
+        sui.rpc.v2beta.CheckpointContents checkpoint_contents = 1;
+
+        // V2 Proof: A compact Merkle proof.
+        MerkleInclusionProof merkle_proof = 2;
+
+        // No-Proof Option: Sent when the client trusts the server and opts out
+        // of verification to save bandwidth and CPU.
+        google.protobuf.Empty proof_none = 3;
+    }
+}
+
+// Represents a Merkle inclusion proof for a checkpoint artifact.
+message MerkleInclusionProof {
+    // The index of the leaf in the Merkle tree.
+    optional uint64 leaf_index = 1;
+
+    // The raw bytes of the event artifact that was hashed to create the leaf.
+    optional bytes leaf_artifact = 2;
+
+    // The list of sibling hashes needed to reconstruct the path to the root.
+    repeated bytes sibling_hashes = 3;
+}
+
+// ============== Non-Inclusion Proof RPC Messages ==============
+
+message GetNonInclusionProofRequest {
+    // The starting checkpoint sequence number for the range to check (inclusive).
+    optional uint64 start_checkpoint_sequence_number = 1;
+
+    // The ending checkpoint sequence number for the range to check (inclusive).
+    optional uint64 end_checkpoint_sequence_number = 2;
+
+    // The selector for the event stream to prove non-inclusion against.
+    oneof stream_selector {
+        PackageSubscription package_id = 3;
+        StreamHead stream_head = 4;
+    }
+}
+
+// Represents a proof that a specific event was not included in a checkpoint.
+// This is only possible with a V2 (Merkle tree) proofing system.
+message NonInclusionProof {
+    // The sequence number of the checkpoint this proof applies to.
+    optional uint64 checkpoint_sequence_number = 1;
+
+    // A valid non-inclusion proof consists of proving the existence of the
+    // two artifacts that are the immediate neighbors of the item being disproven
+    // in the sorted Merkle tree.
+    repeated MerkleInclusionProof adjacent_proofs = 2;
+}
+
+message GetNonInclusionProofResponse {
+    // The non-inclusion proofs for each checkpoint in the requested range.
+    repeated NonInclusionProof proofs = 1;
+}
