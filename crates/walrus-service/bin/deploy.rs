@@ -21,14 +21,15 @@ use walrus_service::{
         defaults::{METRICS_PORT, REST_API_PORT},
     },
     testbed,
-    utils::version,
 };
 use walrus_sui::{
     client::{UpgradeType, rpc_config::RpcFallbackConfigArgs},
     utils::SuiNetwork,
 };
 
-const VERSION: &str = version!();
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
+
 #[derive(Parser, Debug)]
 #[command(
     name = env!("CARGO_BIN_NAME"),
