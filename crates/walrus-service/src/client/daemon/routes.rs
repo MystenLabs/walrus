@@ -149,11 +149,6 @@ fn populate_response_headers_from_attributes(
     allowed_headers: Option<&HashSet<String>>,
 ) {
     for (key, value) in attribute.iter() {
-        tracing::info!(
-            attribute_key = key,
-            attribute_value = value,
-            "quilt blob attribute"
-        );
         if !key.is_empty() && allowed_headers.is_none_or(|headers| headers.contains(key)) {
             if let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
@@ -473,7 +468,10 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
                     &response_header_config,
                 )
             } else {
-                tracing::info!("no blob returned for the requested quilt blob ID");
+                tracing::debug!(
+                    ?quilt_patch_id_str,
+                    "no blob returned for the requested quilt patchID"
+                );
                 let error = GetBlobError::QuiltPatchNotFound;
                 error.to_response()
             }
@@ -483,16 +481,19 @@ pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
 
             match &error {
                 GetBlobError::BlobNotFound => {
-                    tracing::info!("requested quilt blob ID does not exist")
+                    tracing::debug!(
+                        ?quilt_patch_id_str,
+                        "requested quilt patch ID does not exist"
+                    )
                 }
                 GetBlobError::QuiltPatchNotFound => {
-                    tracing::info!(
-                        "requested quilt patch {} does not exist",
-                        quilt_patch_id_str,
+                    tracing::debug!(
+                        ?quilt_patch_id_str,
+                        "requested quilt patch ID does not exist"
                     )
                 }
                 GetBlobError::Internal(error) => {
-                    tracing::info!(?error, "error retrieving quilt blob")
+                    tracing::error!(?error, ?quilt_patch_id_str, "error retrieving quilt patch")
                 }
                 _ => (),
             }
