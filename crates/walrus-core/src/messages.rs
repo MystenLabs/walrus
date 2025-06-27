@@ -176,6 +176,9 @@ pub enum MessageVerificationError {
     InvalidIntent(#[from] InvalidIntent),
 }
 
+// Make sure to update the list of intents in `contracts/walrus/docs/msg_formats.txt`
+// as well. And keep the order and the indexes consistent with Move definitions in
+// `contracts/walrus/sources/system/messages.move`.
 wrapped_uint! {
     /// Type for the intent type of signed messages.
     pub struct IntentType(pub u8) {
@@ -188,6 +191,12 @@ wrapped_uint! {
         /// Intent type for invalid blob id messages.
         /// Note that this message is only used for communication between storage nodes.
         pub const SYNC_SHARD_MSG: Self = Self(3);
+        /// Intent type for deny list update messages.
+        pub const DENY_LIST_UPDATE_MSG: Self = Self(4);
+        /// Intent type for deny list blob deleted messages.
+        pub const DENY_LIST_BLOB_DELETED_MSG: Self = Self(5);
+        /// Intent type for protocol version messages.
+        pub const PROTOCOL_VERSION_MSG: Self = Self(6);
     }
 }
 

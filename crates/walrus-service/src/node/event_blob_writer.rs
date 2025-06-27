@@ -46,20 +46,18 @@ use walrus_sui::{
 use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
-    node::{
-        DatabaseConfig,
-        StorageNodeInner,
-        errors::StoreSliverError,
+    event::{
+        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+        event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
         events::{
             EventStreamCursor,
             EventStreamElement,
             IndexedStreamEvent,
             InitState,
             PositionedStreamEvent,
-            event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
         },
     },
+    node::{StorageNodeInner, errors::StoreSliverError, storage::DatabaseConfig},
 };
 
 /// The column family name for certified event blobs.
@@ -300,7 +298,7 @@ impl EventBlobWriterFactory {
                 .and_then(|name| name.parse::<u64>().ok());
             if let Some(event_index) = event_index {
                 // Check if blob exists in any database
-                let exists_in_db = self.pending.safe_iter().any(|result| {
+                let exists_in_db = self.pending.safe_iter()?.any(|result| {
                     result
                         .map(|(_, metadata)| metadata.event_cursor.element_index == event_index)
                         .unwrap_or(false)
@@ -492,7 +490,7 @@ impl EventBlobWriterFactory {
 
         let event_cursor = factory
             .pending
-            .safe_iter()
+            .safe_iter()?
             .last()
             .map(|result| result.map(|(_, metadata)| metadata.event_cursor))
             .transpose()?
@@ -522,7 +520,7 @@ impl EventBlobWriterFactory {
             });
         let epoch = factory
             .pending
-            .safe_iter()
+            .safe_iter()?
             .last()
             .map(|result| result.map(|(_, metadata)| metadata.epoch))
             .transpose()?
@@ -593,7 +591,7 @@ impl EventBlobWriterFactory {
             wb.insert_batch(&self.certified, std::iter::once(((), certified_metadata)))?;
             wb.delete_batch(&self.attested, std::iter::once(()))?;
             wb.delete_batch(&self.failed_to_attest, std::iter::once(()))?;
-            for entry in self.pending.safe_iter() {
+            for entry in self.pending.safe_iter()? {
                 wb.delete_batch(&self.pending, std::iter::once(entry?.0))?;
             }
         } else {
@@ -720,7 +718,7 @@ impl EventBlobWriterFactory {
             num_uncertified_blob_threshold.unwrap_or(DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD);
 
         let pending = pending_db
-            .safe_iter()
+            .safe_iter()?
             .filter(|result| match result {
                 Ok((_, metadata)) => {
                     metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
@@ -729,7 +727,7 @@ impl EventBlobWriterFactory {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let attested = attested_db
-            .safe_iter()
+            .safe_iter()?
             .filter(|result| match result {
                 Ok((_, metadata)) => {
                     metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
@@ -738,7 +736,7 @@ impl EventBlobWriterFactory {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let failed_to_attest = failed_to_attest_db
-            .safe_iter()
+            .safe_iter()?
             .filter(|result| match result {
                 Ok((_, metadata)) => {
                     metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
@@ -746,9 +744,9 @@ impl EventBlobWriterFactory {
                 Err(_) => true,
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let total_uncertified_blobs = pending_db.safe_iter().count()
-            + failed_to_attest_db.safe_iter().count()
-            + attested_db.safe_iter().count();
+        let total_uncertified_blobs = pending_db.safe_iter()?.count()
+            + failed_to_attest_db.safe_iter()?.count()
+            + attested_db.safe_iter()?.count();
         let consecutive_uncertified = pending.len() + failed_to_attest.len() + attested.len();
 
         // We reset the node pending blobs if the local node has already certified the last
@@ -1388,7 +1386,7 @@ impl EventBlobWriter {
     /// This method processes the next pending blob by storing its slivers,
     /// attesting it, and updating the database state. Returns the blob id if it is attested.
     async fn attest_pending_blob(&mut self) -> Result<Option<BlobId>> {
-        let Some(result) = self.pending.safe_iter().next() else {
+        let Some(result) = self.pending.safe_iter()?.next() else {
             return Ok(None);
         };
         let (event_index, metadata) = result?;
@@ -1696,7 +1694,7 @@ impl EventBlobWriter {
     /// This method updates the database state to move attested blobs back to
     /// pending status when an epoch change occurs.
     fn move_attested_blob_to_pending(&mut self, batch: &mut DBBatch) -> Result<()> {
-        let Some(result) = self.attested.safe_iter().next() else {
+        let Some(result) = self.attested.safe_iter()?.next() else {
             return Ok(());
         };
         let (_, metadata) = result?;
@@ -1777,14 +1775,13 @@ mod tests {
     use walrus_utils::metrics::Registry;
 
     use crate::{
+        event::{
+            event_blob::EventBlob,
+            events::{CheckpointEventPosition, PositionedStreamEvent},
+        },
         node::{
             DatabaseConfig,
-            events::{
-                CheckpointEventPosition,
-                PositionedStreamEvent,
-                event_blob::EventBlob,
-                event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
-            },
+            event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
         },
         test_utils::StorageNodeHandle,
     };
@@ -1813,7 +1810,7 @@ mod tests {
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;
 
-        let pending_blobs = blob_writer.pending.safe_iter().collect::<Vec<_>>();
+        let pending_blobs = blob_writer.pending.safe_iter()?.collect::<Vec<_>>();
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
 
         let mut prev_blob_id = BlobId([0; 32]);
@@ -1903,7 +1900,7 @@ mod tests {
 
         let pending_blobs = blob_writer
             .pending
-            .safe_iter()
+            .safe_iter()?
             .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
         let first_pending_blob_event_index = pending_blobs[0].0;
@@ -1920,7 +1917,7 @@ mod tests {
         )?;
 
         assert_eq!(
-            blob_writer.pending.safe_iter().count() as u64,
+            blob_writer.pending.safe_iter()?.count() as u64,
             NUM_BLOBS - 2
         );
 
@@ -1959,7 +1956,7 @@ mod tests {
 
         let pending_blobs = blob_writer
             .pending
-            .safe_iter()
+            .safe_iter()?
             .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
         let first_pending_blob_event_index = pending_blobs[0].0;
@@ -1976,7 +1973,7 @@ mod tests {
         )?;
 
         assert_eq!(
-            blob_writer.pending.safe_iter().count() as u64,
+            blob_writer.pending.safe_iter()?.count() as u64,
             NUM_BLOBS - 2
         );
 

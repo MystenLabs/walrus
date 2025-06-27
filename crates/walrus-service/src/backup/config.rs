@@ -8,7 +8,10 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationMilliSeconds, DurationSeconds, serde_as};
 
-use crate::{common::config::SuiReaderConfig, node::events::EventProcessorConfig};
+use crate::{
+    common::config::SuiReaderConfig,
+    event::event_processor::config::EventProcessorConfig,
+};
 
 /// The subdirectory in which to store the backup blobs when running without remote storage.
 pub const BACKUP_BLOB_ARCHIVE_SUBDIR: &str = "archive";

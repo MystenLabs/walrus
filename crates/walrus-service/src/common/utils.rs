@@ -48,15 +48,15 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_core::{PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
-    client::{SuiReadClient, contract_config::ContractConfig, retry_client::RetriableSuiClient},
+    client::{contract_config::ContractConfig, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
+use crate::node::config::MetricsPushConfig;
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -89,8 +89,6 @@ macro_rules! version {
     }};
 }
 pub use version;
-
-use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
@@ -219,7 +217,8 @@ pub struct MetricsAndLoggingRuntime {
     /// The Prometheus registry.
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
-    _tracing_handle: TracingHandle,
+    /// The tracing handle.
+    pub tracing_handle: Arc<TracingHandle>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Option<Runtime>,
@@ -260,7 +259,7 @@ impl MetricsAndLoggingRuntime {
             runtime,
             registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
+            tracing_handle: Arc::new(tracing_handle),
         })
     }
 }
@@ -712,50 +711,6 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     Ok(guard)
 }
 
-/// Downloads event blobs for catchup purposes.
-///
-/// This function creates a client to download event blobs up to a specified
-/// checkpoint. The blobs are stored in the provided recovery path.
-#[cfg(feature = "client")]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    use walrus_sui::client::contract_config::ContractConfig;
-
-    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
-    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let walrus_client =
-        create_walrus_client_with_refresher(contract_config.clone(), sui_read_client.clone())
-            .await?;
-
-    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
-    let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path, metrics)
-        .await?;
-
-    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
-    Ok(blob_ids)
-}
-
-/// Placeholder function for when the client feature is not enabled.
-#[cfg(not(feature = "client"))]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    _metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    Ok(vec![])
-}
-
 /// Returns whether a node cursor should be repositioned.
 ///
 /// The node cursor should be repositioned if it is behind the actual event index and it is at
@@ -838,10 +793,18 @@ where
 
 /// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
 /// or resumes a panic if the function had panicked.
-pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::JoinError>>(
+    result: Result<Result<T, E>, JoinError>,
+) -> Result<T, E> {
     match result {
         Ok(value) => value,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic())
+            } else {
+                Err(error.into())
+            }
+        }
     }
 }
 

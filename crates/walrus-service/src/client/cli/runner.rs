@@ -572,7 +572,6 @@ impl ClientCommandRunner {
         ReadOutput::new(out, blob_id, blob).print_output(self.json)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn read_quilt(
         self,
         selector: QuiltPatchSelector,

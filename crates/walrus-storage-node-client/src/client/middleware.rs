@@ -107,7 +107,7 @@ impl HttpClientMetrics {
     }
 
     fn observe_response_body_size(&self, body_size: usize, labels: &HttpLabels) {
-        self.request_body_size_bytes
+        self.response_body_size_bytes
             .get_metric_with_label_values(&labels.to_array())
             .expect("label count is the same as definition")
             .observe(body_size as f64);

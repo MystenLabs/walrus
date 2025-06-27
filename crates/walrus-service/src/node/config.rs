@@ -43,7 +43,8 @@ use walrus_sui::types::{
 use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
-    node::{db_checkpoint::DbCheckpointConfig, events::EventProcessorConfig},
+    event::event_processor::config::EventProcessorConfig,
+    node::db_checkpoint::DbCheckpointConfig,
 };
 
 /// Configuration for the config synchronizer.
@@ -592,7 +593,7 @@ pub struct CommitteeServiceConfig {
     pub metadata_request_timeout: Duration,
     /// The number of concurrent metadata requests
     pub max_concurrent_metadata_requests: NonZeroUsize,
-    /// The timeout when requesting slivers from a storage node.
+    /// The timeout when requesting recovery symbols for slivers from a storage node.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "sliver_request_timeout_secs")]
     pub sliver_request_timeout: Duration,
@@ -615,7 +616,7 @@ impl Default for CommitteeServiceConfig {
             retry_interval_min: Duration::from_secs(1),
             retry_interval_max: Duration::from_secs(3600),
             metadata_request_timeout: Duration::from_secs(5),
-            sliver_request_timeout: Duration::from_secs(300),
+            sliver_request_timeout: Duration::from_secs(45),
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
@@ -1024,6 +1025,7 @@ pub struct RestServerConfig {
 
 /// Configuration of the HTTP/2 connections established by the REST API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Http2Config {
     /// The maximum number of concurrent streams that a client can open
     /// over a connection to the server.

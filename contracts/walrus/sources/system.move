@@ -202,6 +202,19 @@ public fun add_per_epoch_subsidies(system: &mut System, subsidies: vector<Balanc
     system.inner_mut().add_per_epoch_subsidies(subsidies)
 }
 
+// === Protocol Version ===
+
+/// Node collects signatures on the protocol version event and emits it.
+public fun update_protocol_version(
+    self: &mut System,
+    cap: &StorageNodeCap,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner().update_protocol_version(cap, signature, members_bitmap, message)
+}
+
 // === Deny List Features ===
 
 /// Register a deny list update.

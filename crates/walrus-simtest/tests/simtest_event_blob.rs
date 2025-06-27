@@ -21,7 +21,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
     use walrus_service::{
-        node::{DatabaseConfig, events::event_blob_writer::CertifiedEventBlobMetadata},
+        node::{DatabaseConfig, event_blob_writer::CertifiedEventBlobMetadata},
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
@@ -458,7 +458,8 @@ mod tests {
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| checkpoints_per_event_blob).await;
 
         // Wait for the cluster to process some events.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.

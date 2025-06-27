@@ -14,11 +14,7 @@ use walrus_sui::{
     types::move_structs::EventBlob,
 };
 
-use crate::node::events::{
-    EventStreamCursor,
-    event_blob::EventBlob as LocalEventBlob,
-    event_processor::EventProcessorMetrics,
-};
+use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
 
 /// A struct that contains the metadata of an event blob.
 #[derive(Debug, Clone)]
@@ -110,7 +106,6 @@ impl EventBlobDownloader {
         upto_checkpoint: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
-        metrics: Option<&EventProcessorMetrics>,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
         let mut prev_event_blob = match from_blob {
@@ -149,8 +144,8 @@ impl EventBlobDownloader {
             }
 
             let blob_path = path.join(prev_event_blob.to_string());
-            let (blob, blob_source) = if blob_path.exists() {
-                (std::fs::read(blob_path.as_path())?, "local")
+            let blob = if blob_path.exists() {
+                std::fs::read(blob_path.as_path())?
             } else {
                 match self
                     .walrus_client
@@ -160,23 +155,12 @@ impl EventBlobDownloader {
                     )
                     .await
                 {
-                    Ok(blob) => (blob, "network"),
+                    Ok(blob) => blob,
                     Err(err) => {
-                        metrics.inspect(|&m| {
-                            m.event_processor_event_blob_fetched
-                                .with_label_values(&["network"])
-                                .inc()
-                        });
                         return Err(err.into());
                     }
                 }
             };
-
-            metrics.inspect(|&m| {
-                m.event_processor_event_blob_fetched
-                    .with_label_values(&[blob_source])
-                    .inc()
-            });
 
             tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
 
