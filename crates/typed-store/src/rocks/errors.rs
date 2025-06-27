@@ -94,6 +94,18 @@ pub fn typed_store_err_from_rocks_err(err: RocksError) -> TypedStoreError {
     TypedStoreError::RocksDBError(format!("{err}"))
 }
 
+impl From<tokio::task::JoinError> for TypedStoreError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        if err.is_panic() {
+            // For panics, we should resume the unwind rather than converting to an error
+            tracing::error!("panic in task: {:?}", err);
+            std::panic::resume_unwind(err.into_panic());
+        } else {
+            TypedStoreError::TaskError(err.to_string())
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Error, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
 /// The error type for the typed store
@@ -119,6 +131,10 @@ pub enum TypedStoreError {
     /// The iterator is not initialized
     #[error("Iterator is not initialized")]
     IteratorNotInitialized,
+    /// A task failure if the task returns a TypedStoreError. This is used to propagate background
+    /// tokio tasks errors back to the caller.
+    #[error("Task error: {0}")]
+    TaskError(String),
 }
 
 /// The result type for the typed store

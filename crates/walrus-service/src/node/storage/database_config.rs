@@ -1,8 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use rocksdb::{BlockBasedOptions, Cache, DBCompressionType, Options};
+use rocksdb::{DBCompressionType, Options};
 use serde::{Deserialize, Serialize};
+use typed_store::rocks::get_block_options;
 
 /// Options for configuring a column family.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
@@ -55,6 +56,9 @@ pub struct DatabaseTableOptions {
     /// Block cache size in bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
     block_cache_size: Option<usize>,
+    /// Block size in bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    block_size: Option<usize>,
     /// Pin l0 filter and index blocks in block cache.
     #[serde(skip_serializing_if = "Option::is_none")]
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
@@ -83,6 +87,7 @@ impl DatabaseTableOptions {
             target_file_size_base: Some(64 << 20),     // 64 MB,
             max_bytes_for_level_base: Some(512 << 20), // 512 MB,
             block_cache_size: Some(256 << 20),         // 256 MB,
+            block_size: Some(64 << 10),                // 64 KiB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             hard_pending_compaction_bytes_limit: None,
@@ -102,7 +107,8 @@ impl DatabaseTableOptions {
             write_buffer_size: Some(256 << 20),      // 256 MB,
             target_file_size_base: Some(256 << 20),  // 256 MB,
             max_bytes_for_level_base: Some(2 << 30), // 2 GB,
-            block_cache_size: Some(256 << 20),       // 256 MB,
+            block_cache_size: Some(1 << 30),         // 1 GB,
+            block_size: Some(64 << 10),              // 64 KiB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             hard_pending_compaction_bytes_limit: None,
@@ -123,6 +129,7 @@ impl DatabaseTableOptions {
             target_file_size_base: Some(512 << 20),  // 512 MB,
             max_bytes_for_level_base: Some(5 << 30), // 5 GB,
             block_cache_size: Some(512 << 20),       // 512 MB,
+            block_size: Some(64 << 10),              // 64 KiB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             // TODO(WAL-840): decide whether we want to keep this option even after all the nodes
@@ -175,6 +182,7 @@ impl DatabaseTableOptions {
                 .max_bytes_for_level_base
                 .or(default_override.max_bytes_for_level_base),
             block_cache_size: self.block_cache_size.or(default_override.block_cache_size),
+            block_size: self.block_size.or(default_override.block_size),
             pin_l0_filter_and_index_blocks_in_block_cache: self
                 .pin_l0_filter_and_index_blocks_in_block_cache
                 .or(default_override.pin_l0_filter_and_index_blocks_in_block_cache),
@@ -234,15 +242,11 @@ impl DatabaseTableOptions {
             options.set_max_bytes_for_level_base(max_bytes_for_level_base);
         }
         if let Some(block_cache_size) = self.block_cache_size {
-            let mut block_based_options = BlockBasedOptions::default();
-            block_based_options.set_block_cache(&Cache::new_lru_cache(block_cache_size));
-            if let Some(pin_l0_filter_and_index_blocks_in_block_cache) =
-                self.pin_l0_filter_and_index_blocks_in_block_cache
-            {
-                block_based_options.set_pin_l0_filter_and_index_blocks_in_cache(
-                    pin_l0_filter_and_index_blocks_in_block_cache,
-                );
-            }
+            let block_based_options = get_block_options(
+                block_cache_size,
+                self.block_size,
+                self.pin_l0_filter_and_index_blocks_in_block_cache,
+            );
             options.set_block_based_table_factory(&block_based_options);
         }
         if let Some(soft_pending_compaction_bytes_limit) = self.soft_pending_compaction_bytes_limit

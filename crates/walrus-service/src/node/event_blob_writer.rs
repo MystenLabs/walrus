@@ -46,20 +46,18 @@ use walrus_sui::{
 use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
-    node::{
-        DatabaseConfig,
-        StorageNodeInner,
-        errors::StoreSliverError,
+    event::{
+        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
+        event_blob_downloader::{EventBlobWithMetadata, LastCertifiedEventBlob},
         events::{
             EventStreamCursor,
             EventStreamElement,
             IndexedStreamEvent,
             InitState,
             PositionedStreamEvent,
-            event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
         },
     },
+    node::{StorageNodeInner, errors::StoreSliverError, storage::DatabaseConfig},
 };
 
 /// The column family name for certified event blobs.
@@ -1777,14 +1775,13 @@ mod tests {
     use walrus_utils::metrics::Registry;
 
     use crate::{
+        event::{
+            event_blob::EventBlob,
+            events::{CheckpointEventPosition, PositionedStreamEvent},
+        },
         node::{
             DatabaseConfig,
-            events::{
-                CheckpointEventPosition,
-                PositionedStreamEvent,
-                event_blob::EventBlob,
-                event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
-            },
+            event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
         },
         test_utils::StorageNodeHandle,
     };

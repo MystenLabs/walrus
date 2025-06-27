@@ -79,39 +79,40 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
 #[cfg(msim)]
-use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
-use crate::node::{
-    DatabaseConfig,
-    Storage,
-    StorageNode,
-    committee::{
-        BeginCommitteeChangeError,
-        CommitteeLookupService,
-        CommitteeService,
-        DefaultNodeServiceFactory,
-        EndCommitteeChangeError,
-        NodeCommitteeService,
+use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
+#[cfg(msim)]
+use crate::node::ConfigLoader;
+use crate::{
+    event::{
+        event_processor::processor::EventProcessor,
+        events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
-    config::{
-        self,
-        BlobEventProcessorConfig,
-        ConfigSynchronizerConfig,
-        NodeRecoveryConfig,
-        ShardSyncConfig,
-        StorageNodeConfig,
+    node::{
+        DatabaseConfig,
+        Storage,
+        StorageNode,
+        committee::{
+            BeginCommitteeChangeError,
+            CommitteeLookupService,
+            CommitteeService,
+            DefaultNodeServiceFactory,
+            EndCommitteeChangeError,
+            NodeCommitteeService,
+        },
+        config::{
+            self,
+            BlobEventProcessorConfig,
+            ConfigSynchronizerConfig,
+            NodeRecoveryConfig,
+            ShardSyncConfig,
+            StorageNodeConfig,
+        },
+        consistency_check::StorageNodeConsistencyCheckConfig,
+        contract_service::SystemContractService,
+        errors::{SyncNodeConfigError, SyncShardClientError},
+        server::{RestApiConfig, RestApiServer},
+        system_events::{EventManager, EventRetentionManager, SystemEventProvider},
     },
-    consistency_check::StorageNodeConsistencyCheckConfig,
-    contract_service::SystemContractService,
-    errors::{SyncNodeConfigError, SyncShardClientError},
-    events::{
-        CheckpointEventPosition,
-        EventStreamCursor,
-        InitState,
-        PositionedStreamEvent,
-        event_processor::EventProcessor,
-    },
-    server::{RestApiConfig, RestApiServer},
-    system_events::{EventManager, EventRetentionManager, SystemEventProvider},
 };
 
 /// Default buyer subsidy rate (5%)
@@ -528,7 +529,7 @@ impl SimStorageNodeHandle {
                 rpc_fallback_config: None,
                 db_config: DatabaseConfig::default(),
             };
-            let system_config = crate::node::events::event_processor::SystemConfig {
+            let system_config = SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
                 staking_object_id: sui_config.contract_config.staking_object,
                 system_pkg_id: sui_read_client.get_system_package_id(),
@@ -939,7 +940,7 @@ impl StorageNodeHandleBuilder {
             );
             wait_for_event_processor_to_start(
                 event_processor.clone(),
-                event_processor.client.clone(),
+                event_processor.client_manager.rpc_client.clone(),
             )
             .await?;
         }
@@ -2294,13 +2295,12 @@ pub mod test_cluster {
     };
 
     use super::*;
-    use crate::node::{
-        committee::DefaultNodeServiceFactory,
-        contract_service::SuiSystemContractService,
-        events::{
-            EventProcessorConfig,
-            event_processor::{EventProcessorRuntimeConfig, SystemConfig},
+    use crate::{
+        event::event_processor::{
+            config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
         },
+        node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
 
     /// The weight of each storage node in the test cluster.
