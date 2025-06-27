@@ -1796,6 +1796,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             .with_deploy_directory(deploy_dir.path().to_path_buf())
             .with_delegate_governance_to_admin_wallet()
             .with_contract_directory(testnet_contract_dir()?)
+            .with_epoch_duration(Duration::from_secs(20))
             .build()
             .await?;
 
@@ -1820,6 +1821,8 @@ async fn test_quorum_contract_upgrade() -> TestResult {
 
     // Change the version in the contracts
     let walrus_package_path = upgrade_dir.path().join("walrus");
+
+    let upgrade_epoch = client.as_ref().sui_client().current_epoch().await?;
 
     // Vote for the upgrade
     // We can vote on behalf of all nodes from the client wallet since the client
@@ -1852,7 +1855,23 @@ async fn test_quorum_contract_upgrade() -> TestResult {
         )
         .await?;
 
-    tracing::info!("after upgrade");
+    // Set the migration epoch on the staking object to the following epoch.
+    client
+        .as_ref()
+        .sui_client()
+        .set_migration_epoch(new_package_id)
+        .await?;
+
+    // Check that the upgrade was completed within one epoch. A failure here indicates that the
+    // epoch duration for the test is set too short.
+    let end_upgrade_epoch = client.as_ref().sui_client().current_epoch().await?;
+    assert_eq!(end_upgrade_epoch, upgrade_epoch);
+    tracing::info!(upgrade_epoch, "upgraded contract");
+
+    // Wait for the nodes to reach the migration epoch.
+    walrus_cluster
+        .wait_for_nodes_to_reach_epoch(upgrade_epoch + 1)
+        .await;
 
     // Migrate the objects
     client

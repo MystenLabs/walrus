@@ -22,6 +22,9 @@ use walrus::{blob::Blob, storage_resource::Storage, system::System};
 /// Subsidy rate is in basis points (1/100 of a percent).
 const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 
+/// The compatible version of the walrus contract.
+const COMPATIBLE_WALRUS_VERSION: u64 = 2;
+
 // === Versioning ===
 
 // Whenever the package is upgraded, we create a new type here that will have the ID of the new
@@ -345,10 +348,14 @@ public fun register_blob(
     blob
 }
 
-entry fun migrate(subsidies: &mut Subsidies) {
+/// Migrates the subsidies object to the new version and sets the subsidy rates to 0.
+entry fun migrate(subsidies: &mut Subsidies, system: &System) {
     check_version_upgrade(subsidies);
+    assert!(system.version() == COMPATIBLE_WALRUS_VERSION, EWrongVersion);
     subsidies.version = VERSION;
     subsidies.package_id = package_id_for_current_version();
+    subsidies.buyer_subsidy_rate = 0;
+    subsidies.system_subsidy_rate = 0;
 }
 
 // === Accessors ===

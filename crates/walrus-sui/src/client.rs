@@ -840,10 +840,21 @@ impl SuiContractClient {
         .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_migration_epoch(new_package_id)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -2005,10 +2016,23 @@ impl SuiContractClientInner {
             .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.set_migration_epoch(new_package_id).await?;
+        let transaction: TransactionData =
+            pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "set_migration_epoch")
+            .await?;
+        Ok(())
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.migrate_contracts(new_package_id).await?;
