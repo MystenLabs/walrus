@@ -695,13 +695,9 @@ impl DbCheckpointManager {
                 return Err(DbCheckpointError::NoCheckpointFound);
             }
 
-            engine
-                .restore_from_backup(db_path, wal_path, &restore_opts, backup_id)
-                .map_err(|e| DbCheckpointError::RestoreError(e.into_string()))?;
+            engine.restore_from_backup(db_path, wal_path, &restore_opts, backup_id)?
         } else {
-            engine
-                .restore_from_latest_backup(db_path, wal_path, &restore_opts)
-                .map_err(|e| DbCheckpointError::RestoreError(e.into_string()))?;
+            engine.restore_from_latest_backup(db_path, wal_path, &restore_opts)?;
         }
 
         tracing::info!("database restored successfully");

@@ -414,7 +414,7 @@ pub enum DbCheckpointError {
     #[error("No checkpoint found")]
     NoCheckpointFound,
     #[error("Restore error: {0}")]
-    RestoreError(String),
+    RestoreError(#[from] rocksdb::Error),
     #[error("Other checkpoint error: {0}")]
     Other(#[from] anyhow::Error),
 }
