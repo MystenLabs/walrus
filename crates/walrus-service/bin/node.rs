@@ -56,7 +56,6 @@ use walrus_service::{
         MAX_NODE_NAME_LENGTH,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
-        version,
         wait_until_terminated,
     },
 };
@@ -67,7 +66,8 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-const VERSION: &str = version!();
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
 
 /// Manage and run a Walrus storage node.
 #[derive(Debug, Parser)]

@@ -95,7 +95,6 @@ enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true
 futures-util.workspace = true
-git-version.workspace = true
 home.workspace = true
 hostname.workspace = true
 http-body = "1.0.1"
