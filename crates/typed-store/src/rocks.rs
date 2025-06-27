@@ -586,22 +586,7 @@ impl<K, V> DBMap<K, V> {
         let from_buf = be_fix_int_ser(start)?;
         let to_buf = be_fix_int_ser(end)?;
         self.rocksdb
-            .compact_range_cf(&self.cf(), Some(from_buf), Some(to_buf));
-        Ok(())
-    }
-
-    /// Compact a range of keys in a specific column family
-    pub fn compact_range_raw(
-        &self,
-        cf_name: &str,
-        start: Vec<u8>,
-        end: Vec<u8>,
-    ) -> Result<(), TypedStoreError> {
-        let cf = self
-            .rocksdb
-            .cf_handle(cf_name)
-            .expect("compact range: column family does not exist");
-        self.rocksdb.compact_range_cf(&cf, Some(start), Some(end));
+            .compact_range_cf(&self.cf()?, Some(from_buf), Some(to_buf));
         Ok(())
     }
 
@@ -614,35 +599,22 @@ impl<K, V> DBMap<K, V> {
         let from_buf = be_fix_int_ser(start)?;
         let to_buf = be_fix_int_ser(end)?;
         self.rocksdb
-            .compact_range_to_bottom(&self.cf(), Some(from_buf), Some(to_buf));
+            .compact_range_to_bottom(&self.cf()?, Some(from_buf), Some(to_buf));
         Ok(())
     }
 
     /// Get the column family
-    pub fn cf(&self) -> Arc<rocksdb::BoundColumnFamily<'_>> {
-        self.rocksdb.cf_handle(&self.cf).unwrap_or_else(|| {
-            // Force capture backtrace regardless of RUST_BACKTRACE env var
-            let backtrace = std::backtrace::Backtrace::force_capture();
-            eprintln!("PANIC: Column family '{}' not found!", &self.cf);
-            eprintln!("Database path: {:?}", &self.rocksdb.db_path);
-            eprintln!("Full backtrace:\n{}", backtrace);
-            panic!(
-                "Map-keying column family {} should have been checked at DB creation",
-                &self.cf
-            )
-        })
+    pub fn cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily<'_>>, TypedStoreError> {
+        self.rocksdb
+            .cf_handle(&self.cf)
+            .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf.clone()))
     }
 
     /// Flush the column family
     pub fn flush(&self) -> Result<(), TypedStoreError> {
         self.rocksdb
-            .flush_cf(&self.cf())
+            .flush_cf(&self.cf()?)
             .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
-    }
-
-    /// Set the options for the column family
-    pub fn set_options(&self, opts: &[(&str, &str)]) -> Result<(), rocksdb::Error> {
-        self.rocksdb.set_options_cf(&self.cf(), opts)
     }
 
     fn get_int_property(
@@ -686,7 +658,7 @@ impl<K, V> DBMap<K, V> {
         let results: Result<Vec<_>, TypedStoreError> = self
             .rocksdb
             .batched_multi_get_cf_opt(
-                &self.cf(),
+                &self.cf()?,
                 keys_refs,
                 /*sorted_keys=*/ false,
                 &self.opts.readopts(),
@@ -940,7 +912,7 @@ impl<K, V> DBMap<K, V> {
             .expect("the function parameters are valid");
         let mut value_hist = hdrhistogram::Histogram::<u64>::new_with_max(100000, 2)
             .expect("the function parameters are valid");
-        for item in self.safe_iter() {
+        for item in self.safe_iter()? {
             let (key, value) = item?;
             num_keys += 1;
             let key_len = be_fix_int_ser(key.borrow())?.len();
@@ -1043,7 +1015,7 @@ impl<K, V> DBMap<K, V> {
                 .unwrap_or(Bound::Unbounded),
         ));
 
-        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf(), readopts);
+        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
         let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
         let iter = SafeIter::new(
             self.cf.clone(),
@@ -1270,7 +1242,7 @@ impl DBBatch {
             .into_iter()
             .try_for_each::<_, Result<_, TypedStoreError>>(|k| {
                 let k_buf = be_fix_int_ser(k.borrow())?;
-                self.batch.delete_cf(&db.cf(), k_buf);
+                self.batch.delete_cf(&db.cf()?, k_buf);
 
                 Ok(())
             })?;
@@ -1299,7 +1271,7 @@ impl DBBatch {
         let from_buf = be_fix_int_ser(from)?;
         let to_buf = be_fix_int_ser(to)?;
 
-        self.batch.delete_range_cf(&db.cf(), from_buf, to_buf);
+        self.batch.delete_range_cf(&db.cf()?, from_buf, to_buf);
         Ok(())
     }
 
@@ -1319,7 +1291,7 @@ impl DBBatch {
                 let k_buf = be_fix_int_ser(k.borrow())?;
                 let v_buf = bcs::to_bytes(v.borrow()).map_err(typed_store_err_from_bcs_err)?;
                 total += k_buf.len() + v_buf.len();
-                self.batch.put_cf(&db.cf(), k_buf, v_buf);
+                self.batch.put_cf(&db.cf()?, k_buf, v_buf);
                 Ok(())
             })?;
         self.db_metrics
@@ -1343,7 +1315,7 @@ impl DBBatch {
             .into_iter()
             .try_for_each::<_, Result<_, TypedStoreError>>(|(k, v)| {
                 let k_buf = be_fix_int_ser(k.borrow())?;
-                self.batch.merge_cf(&db.cf(), k_buf, v);
+                self.batch.merge_cf(&db.cf()?, k_buf, v);
                 Ok(())
             })?;
         Ok(self)
@@ -1370,10 +1342,10 @@ where
         let readopts = self.opts.readopts();
         Ok(self
             .rocksdb
-            .key_may_exist_cf(&self.cf(), &key_buf, &readopts)
+            .key_may_exist_cf(&self.cf()?, &key_buf, &readopts)
             && self
                 .rocksdb
-                .get_pinned_cf_opt(&self.cf(), &key_buf, &readopts)
+                .get_pinned_cf_opt(&self.cf()?, &key_buf, &readopts)
                 .map_err(typed_store_err_from_rocks_err)?
                 .is_some())
     }
@@ -1406,7 +1378,7 @@ where
         let key_buf = be_fix_int_ser(key)?;
         let res = self
             .rocksdb
-            .get_pinned_cf_opt(&self.cf(), &key_buf, &self.opts.readopts())
+            .get_pinned_cf_opt(&self.cf()?, &key_buf, &self.opts.readopts())
             .map_err(typed_store_err_from_rocks_err)?;
         self.db_metrics
             .op_metrics
@@ -1452,7 +1424,7 @@ where
                 .report_metrics(&self.cf);
         }
         self.rocksdb
-            .put_cf(&self.cf(), &key_buf, &value_buf, &self.opts.writeopts())
+            .put_cf(&self.cf()?, &key_buf, &value_buf, &self.opts.writeopts())
             .map_err(typed_store_err_from_rocks_err)?;
 
         let elapsed = timer.stop_and_record();
@@ -1488,7 +1460,7 @@ where
         };
         let key_buf = be_fix_int_ser(key)?;
         self.rocksdb
-            .delete_cf(&self.cf(), key_buf, &self.opts.writeopts())
+            .delete_cf(&self.cf()?, key_buf, &self.opts.writeopts())
             .map_err(typed_store_err_from_rocks_err)?;
         self.db_metrics
             .op_metrics
@@ -1526,7 +1498,7 @@ where
     /// overridden in the config), so please use this function with caution
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn schedule_delete_all(&self) -> Result<(), TypedStoreError> {
-        let first_key = self.safe_iter().next().transpose()?.map(|(k, _v)| k);
+        let first_key = self.safe_iter()?.next().transpose()?.map(|(k, _v)| k);
         let last_key = self
             .reversed_safe_iter_with_bounds(None, None)?
             .next()
@@ -1541,15 +1513,18 @@ where
     }
 
     fn is_empty(&self) -> bool {
-        self.safe_iter().next().is_none()
+        self.safe_iter()
+            .expect("safe_iter should not fail")
+            .next()
+            .is_none()
     }
 
-    fn safe_iter(&'a self) -> Self::SafeIterator {
+    fn safe_iter(&'a self) -> Result<Self::SafeIterator, TypedStoreError> {
         let db_iter = self
             .rocksdb
-            .raw_iterator_cf(&self.cf(), self.opts.readopts());
+            .raw_iterator_cf(&self.cf()?, self.opts.readopts());
         let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
-        SafeIter::new(
+        Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
             _timer,
@@ -1557,18 +1532,18 @@ where
             bytes_scanned,
             keys_scanned,
             Some(self.db_metrics.clone()),
-        )
+        ))
     }
 
     fn safe_iter_with_bounds(
         &'a self,
         lower_bound: Option<K>,
         upper_bound: Option<K>,
-    ) -> Self::SafeIterator {
+    ) -> Result<Self::SafeIterator, TypedStoreError> {
         let readopts = self.create_read_options_with_bounds(lower_bound, upper_bound);
-        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf(), readopts);
+        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
         let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
-        SafeIter::new(
+        Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
             _timer,
@@ -1576,14 +1551,17 @@ where
             bytes_scanned,
             keys_scanned,
             Some(self.db_metrics.clone()),
-        )
+        ))
     }
 
-    fn safe_range_iter(&'a self, range: impl RangeBounds<K>) -> Self::SafeIterator {
+    fn safe_range_iter(
+        &'a self,
+        range: impl RangeBounds<K>,
+    ) -> Result<Self::SafeIterator, TypedStoreError> {
         let readopts = self.create_read_options_with_range(range);
-        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf(), readopts);
+        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
         let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
-        SafeIter::new(
+        Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
             _timer,
@@ -1591,7 +1569,7 @@ where
             bytes_scanned,
             keys_scanned,
             Some(self.db_metrics.clone()),
-        )
+        ))
     }
 
     /// Returns a vector of values corresponding to the keys provided.

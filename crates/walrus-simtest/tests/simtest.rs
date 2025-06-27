@@ -82,6 +82,7 @@ mod tests {
             false,
             false,
             &mut blobs_written,
+            0,
         )
         .await
         .expect("workload should not fail");
@@ -142,7 +143,7 @@ mod tests {
             .unwrap();
 
         let client_arc = Arc::new(client);
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true);
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true, 0);
 
         // Run the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -267,7 +268,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(90)).await;
@@ -449,7 +451,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -523,7 +526,7 @@ mod tests {
             .await
             .unwrap();
 
-        let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true);
+        let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true, 0);
 
         // Run the workload for 120 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(120)).await;

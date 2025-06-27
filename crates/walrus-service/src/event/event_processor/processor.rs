@@ -210,7 +210,7 @@ impl EventProcessor {
     pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
         self.stores
             .event_store
-            .safe_iter_with_bounds(Some(from), None)
+            .safe_iter_with_bounds(Some(from), None)?
             .take(MAX_EVENTS_PER_POLL)
             .map(|result| result.map(|(_, event)| event))
             .collect()
@@ -222,7 +222,7 @@ impl EventProcessor {
         let mut iter = self
             .stores
             .event_store
-            .safe_iter_with_bounds(Some(from), None);
+            .safe_iter_with_bounds(Some(from), None)?;
         let Some(result) = iter.next() else {
             return Ok(None);
         };
@@ -330,7 +330,7 @@ impl EventProcessor {
                         .with_fixint_encoding()
                         .serialize(&commit_index)?;
                     self.stores.event_store.rocksdb.delete_file_in_range(
-                        &self.stores.event_store.cf(),
+                        &self.stores.event_store.cf()?,
                         &start,
                         &end,
                     )?;

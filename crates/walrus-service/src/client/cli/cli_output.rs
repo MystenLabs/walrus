@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::stdout, num::NonZeroU16, path::PathBuf};
+use std::{
+    io::{Write, stdout},
+    num::NonZeroU16,
+    path::PathBuf,
+};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -9,11 +13,17 @@ use indoc::printdoc;
 use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
-use walrus_core::{BlobId, ShardIndex};
+use walrus_core::{
+    BlobId,
+    ShardIndex,
+    encoding::quilt_encoding::QuiltPatchApi,
+    metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1},
+};
 use walrus_sdk::{
     client::{
+        client_types::StoredQuiltPatch,
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
     format_event_id,
 };
@@ -53,10 +63,12 @@ use crate::client::{
         InfoStorageOutput,
         NodeHealthOutput,
         ReadOutput,
+        ReadQuiltOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
+        StoreQuiltDryRunOutput,
         WalletOutput,
     },
 };
@@ -239,6 +251,19 @@ impl CliOutput for BlobStoreResultWithPath {
     }
 }
 
+impl CliOutput for QuiltStoreResult {
+    fn print_cli_output(&self) {
+        let blob_store_result = BlobStoreResultWithPath {
+            blob_store_result: self.blob_store_result.clone(),
+            path: PathBuf::from("path(s) ignored for quilt store result"),
+        };
+        blob_store_result.print_cli_output();
+
+        let table_output = construct_stored_quilt_patch_table(&self.stored_quilt_blobs);
+        table_output.printstd();
+    }
+}
+
 impl CliOutput for ReadOutput {
     fn print_cli_output(&self) {
         if let Some(path) = &self.out {
@@ -287,6 +312,48 @@ impl CliOutput for DryRunOutput {
             HumanReadableFrost::from(self.storage_cost),
         )
     }
+}
+
+/// Get the stored quilt patches from a quilt index.
+fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<StoredQuiltPatch> {
+    quilt_index
+        .patches()
+        .iter()
+        .map(|patch| {
+            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
+        })
+        .collect()
+}
+
+impl CliOutput for StoreQuiltDryRunOutput {
+    fn print_cli_output(&self) {
+        self.quilt_blob_output.print_cli_output();
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.quilt_index,
+            self.quilt_blob_output.blob_id,
+        ))
+        .printstd();
+    }
+}
+
+fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Table {
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(row![
+        b->"Index",
+        b->"QuiltPatchId",
+        b->"Identifier"
+    ]);
+
+    for (i, quilt_patch) in quilt_patches.iter().enumerate() {
+        table.add_row(row![
+            bFc->format!("{i}"),
+            quilt_patch.quilt_patch_id,
+            quilt_patch.identifier
+        ]);
+    }
+
+    table
 }
 
 impl CliOutput for BlobStatusOutput {
@@ -1131,6 +1198,65 @@ impl CliOutput for GetBlobAttributeOutput {
             }
         } else {
             println!("No attribute found");
+        }
+    }
+}
+
+impl CliOutput for QuiltMetadata {
+    fn print_cli_output(&self) {
+        match self {
+            QuiltMetadata::V1(metadata_v1) => metadata_v1.print_cli_output(),
+        }
+    }
+}
+
+impl CliOutput for QuiltMetadataV1 {
+    fn print_cli_output(&self) {
+        println!(
+            "{}: {}",
+            "Quilt Metadata V1".bold().walrus_purple(),
+            self.quilt_id
+        );
+
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.index.clone().into(),
+            self.quilt_id,
+        ))
+        .printstd();
+    }
+}
+
+impl CliOutput for ReadQuiltOutput {
+    fn print_cli_output(&self) {
+        if let Some(out) = &self.out {
+            println!(
+                "Retrieved {} blobs and saved to directory: {}",
+                self.retrieved_blobs
+                    .len()
+                    .to_string()
+                    .bold()
+                    .walrus_purple(),
+                out.display().to_string().bold().walrus_purple()
+            );
+            for (i, blob) in self.retrieved_blobs.iter().enumerate() {
+                println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
+                if blob.tags().is_empty() {
+                    println!("   Tags: (none)");
+                } else {
+                    println!("   Tags:");
+                    for (key, value) in blob.tags() {
+                        println!("     {}: {}", key, value);
+                    }
+                }
+                println!();
+            }
+        } else {
+            // TODO(WAL-858): Find a better way to print the blobs to stdout.
+            for blob in &self.retrieved_blobs {
+                if let Err(e) = std::io::stdout().write_all(blob.data()) {
+                    eprintln!("Error writing {} to stdout: {e}", blob.identifier());
+                }
+            }
         }
     }
 }
