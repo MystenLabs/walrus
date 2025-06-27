@@ -259,9 +259,9 @@ struct UpgradeArgs {
     /// the active address from the wallet is used.
     #[arg(long, requires = "serialize_unsigned")]
     sender: Option<SuiAddress>,
-    /// Also migrate the system and staking objects after upgrading the contract.
+    /// Also set the migration epoch on the staking object after upgrading the contract.
     #[arg(long, conflicts_with = "serialize_unsigned")]
-    migrate: bool,
+    set_migration_epoch: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -623,7 +623,7 @@ mod commands {
             upgrade_manager_object_id,
             sender,
             serialize_unsigned,
-            migrate,
+            set_migration_epoch,
         }: UpgradeArgs,
         upgrade_type: UpgradeType,
     ) -> anyhow::Result<()> {
@@ -669,10 +669,10 @@ mod commands {
                 success(),
                 new_package_id
             );
-            if migrate {
-                contract_client.migrate_contracts(new_package_id).await?;
+            if set_migration_epoch {
+                contract_client.set_migration_epoch(new_package_id).await?;
                 println!(
-                    "{} Migrated the shared objects to package_id: {}",
+                    "{} Set the migration epoch on the staking object for package_id: {}",
                     success(),
                     new_package_id
                 );
