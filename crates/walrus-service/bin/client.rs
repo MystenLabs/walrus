@@ -17,8 +17,8 @@ use walrus_service::{
 };
 use walrus_sui::client::retry_client::RetriableRpcError;
 
-/// The version of the Walrus client.
-pub const VERSION: &str = walrus_service::utils::version!();
+// Define the `GIT_REVISION` and `VERSION` consts for the Walrus client.
+walrus_utils::bin_version!();
 
 /// The build time of the Walrus client.
 pub const BUILD_TIME: DateTime<Utc> = {

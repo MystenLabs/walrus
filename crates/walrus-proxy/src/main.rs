@@ -22,7 +22,7 @@ use walrus_proxy::{
 };
 
 // Define the `GIT_REVISION` and `VERSION` consts
-walrus_proxy::bin_version!();
+walrus_utils::bin_version!();
 
 /// user agent we use when posting to mimir
 static APP_USER_AGENT: &str = const_str::concat!(
