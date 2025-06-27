@@ -27,7 +27,6 @@ serde_urlencoded.workspace = true
 serde_with = { workspace = true, features = ["hex"] }
 serde_yaml.workspace = true
 sui-sdk.workspace = true
-# TODO: expose sui-types via walrus_sdk.
 sui-types.workspace = true
 telemetry-subscribers.workspace = true
 thiserror.workspace = true
@@ -45,5 +44,5 @@ walrus-test-utils.workspace = true
 # walrus-sui.workspace = true
 
 [features]
-default = ["test-client"] # TODO: Remove this eventually.
+default = []
 test-client = []

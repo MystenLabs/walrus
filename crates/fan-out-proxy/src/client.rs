@@ -410,6 +410,7 @@ impl FanOutClient<WalrusPtbBuilder> {
             .await?;
 
         // TODO: clean up the gas budget estimation and use the WalrusClient directly.
+        // REVIEW(will): unclear what needs to be cleaned up.
         let computed_gas_budget = if let Some(gas_budget) = gas_budget {
             gas_budget
         } else {
