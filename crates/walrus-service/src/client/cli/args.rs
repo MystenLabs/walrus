@@ -854,6 +854,12 @@ pub struct AggregatorArgs {
     #[arg(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
+    /// Whether to allow quilt patch tags to be returned in the response headers.
+    /// If true, the tags will be returned in the response headers, regardless of the allowed
+    /// headers.
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub allow_quilt_patch_tags_in_response: bool,
 }
 
 /// The arguments for the publisher service.
@@ -1261,8 +1267,8 @@ impl QuiltPatchSelector {
         } else if tag.is_some() && value.is_some() {
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id: quilt_id.expect("quilt_id should be present"),
-                tag: tag.expect("tag should be present"),
-                value: value.expect("value should be present"),
+                tag: tag.as_ref().expect("tag should be present").clone(),
+                value: value.as_ref().expect("value should be present").clone(),
             }))
         } else if !quilt_patch_ids.is_empty() {
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
@@ -1756,6 +1762,7 @@ mod tests {
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
+                allow_quilt_patch_tags_in_response: false,
             },
         })
     }

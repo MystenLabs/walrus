@@ -507,6 +507,11 @@ impl<'a> QuiltStoreBlob<'a> {
         &self.blob
     }
 
+    /// Returns the blob data by moving it out, consuming the QuiltStoreBlob.
+    pub fn into_data(self) -> Vec<u8> {
+        self.blob.into_owned()
+    }
+
     /// Returns a reference to the identifier.
     pub fn identifier(&self) -> &str {
         &self.identifier
@@ -807,11 +812,11 @@ impl BlobHeaderV1 {
 /// For QuiltVersionV1:
 /// The data is organized as a 2D matrix where:
 /// - Each blob occupies a consecutive range of columns (secondary slivers).
-/// - The first column's initial `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded
-///   length of the [`QuiltIndexV1`]. It is guaranteed the column size is more than
-///   `QUILT_INDEX_SIZE_BYTES_LENGTH`.
-/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, up to
-///   `MAX_NUM_SLIVERS_FOR_QUILT_INDEX`.
+/// - The first column's initial `QUILT_VERSION_BYTES_LENGTH` bytes contain the version byte.
+/// - The next `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded length of the
+///   [`QuiltIndexV1`].
+/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, following the version
+///   byte and the length of the [`QuiltIndexV1`].
 /// - The blob layout is defined by the [`QuiltIndexV1`].
 ///
 // INV:

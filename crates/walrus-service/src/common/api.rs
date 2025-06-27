@@ -29,13 +29,18 @@ use utoipa::{
         schema,
     },
 };
-use walrus_core::BlobId;
+use walrus_core::{BlobId, QuiltPatchId};
 use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode as ApiStatusCode};
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
+
+/// A quilt patch ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
+#[serde_as]
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct QuiltPatchIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) QuiltPatchId);
 
 /// Successful API response body as JSON.
 ///
