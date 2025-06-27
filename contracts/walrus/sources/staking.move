@@ -28,6 +28,9 @@ const EWrongVersion: u64 = 1;
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 2;
 
+/// The key for the migration epoch.
+const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";
+
 /// The one and only staking object.
 public struct Staking has key {
     id: UID,
@@ -368,6 +371,16 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
     staking.new_package_id = option::some(new_package_id);
 }
 
+/// Sets the epoch in which the staking and system objects can be migrated after an upgrade.
+entry fun set_migration_epoch(staking: &mut Staking) {
+    assert!(staking.version < VERSION, EInvalidMigration);
+    if (df::exists_(&staking.id, MIGRATION_EPOCH_KEY)) {
+        return
+    };
+    let migration_epoch = staking.inner_without_version_check().epoch() + 1;
+    df::add(&mut staking.id, MIGRATION_EPOCH_KEY, migration_epoch);
+}
+
 /// Migrate the staking object to the new package id.
 ///
 /// This function sets the new package id and version and can be modified in future versions
@@ -375,7 +388,14 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
 public(package) fun migrate(staking: &mut Staking) {
     assert!(staking.version < VERSION, EInvalidMigration);
 
-    // Move the old system state inner to the new version.
+    // Check that the migration epoch is set and that the current epoch is greater than or equal to
+    // the migration epoch.
+    let mut migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY);
+    assert!(migration_epoch.is_some(), EInvalidMigration);
+    let migration_epoch = migration_epoch.extract();
+    assert!(staking.inner_without_version_check().epoch() >= migration_epoch, EInvalidMigration);
+
+    // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
     df::add(&mut staking.id, VERSION, staking_inner);
     staking.version = VERSION;
@@ -397,6 +417,11 @@ fun inner_mut(staking: &mut Staking): &mut StakingInnerV1 {
 fun inner(staking: &Staking): &StakingInnerV1 {
     assert!(staking.version == VERSION, EWrongVersion);
     df::borrow(&staking.id, VERSION)
+}
+
+/// Get an immutable reference to `StakingInner` from the `Staking` without checking the version.
+fun inner_without_version_check(staking: &Staking): &StakingInnerV1 {
+    df::borrow(&staking.id, staking.version)
 }
 
 // === Tests ===

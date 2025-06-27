@@ -1422,6 +1422,17 @@ impl WalrusPtbBuilder {
             .await
     }
 
+    /// Sets the migration epoch on the staking object to the following epoch.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let args = vec![self.staking_arg(Mutability::Mutable).await?];
+        self.move_call(
+            new_package_id,
+            contracts::staking::set_migration_epoch,
+            args,
+        )?;
+        Ok(())
+    }
+
     /// Migrates the staking and system contracts to the new package id.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let args = vec![

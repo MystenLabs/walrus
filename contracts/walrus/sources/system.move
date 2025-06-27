@@ -281,7 +281,7 @@ public(package) fun package_id(system: &System): ID {
     system.package_id
 }
 
-public(package) fun version(system: &System): u64 {
+public fun version(system: &System): u64 {
     system.version
 }
 
