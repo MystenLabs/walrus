@@ -631,6 +631,15 @@ impl BlobSynchronizer {
                                     );
                                     return Err(RecoverSliverError::Database(err));
                                 }
+                                // When storage node is shutting down and the runtime is turning
+                                // off, internal tasks may get cancelled and this is expected.
+                                TypedStoreError::TaskError(ref message) => {
+                                    tracing::error!(
+                                        "database error during sliver sync: task error {:?}",
+                                        message
+                                    );
+                                    return Err(RecoverSliverError::Database(err));
+                                }
                                 _ => {
                                     panic!("database operations should not fail: {:?}", err)
                                 }
