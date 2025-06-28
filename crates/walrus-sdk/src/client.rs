@@ -30,12 +30,13 @@ use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
+#[cfg(any(test, feature = "test-utils"))]
+use walrus_core::ShardIndex;
 use walrus_core::{
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
-    ShardIndex,
     Sliver,
     SliverIndex,
     bft,
@@ -1403,7 +1404,7 @@ impl Client<SuiContractClient> {
                         metadata,
                         pairs,
                         &blob_object.blob_persistence_type(),
-                        multi_pb,
+                        Some(multi_pb),
                     )
                     .await?;
                 let duration = certify_start_timer.elapsed();
@@ -1536,7 +1537,7 @@ impl<T> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
         blob_persistence_type: &BlobPersistenceType,
-        multi_pb: &MultiProgress,
+        multi_pb: Option<&MultiProgress>,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let committees = self.get_committees().await?;
@@ -1560,29 +1561,41 @@ impl<T> Client<T> {
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
-        let progress_bar = {
+        let progress_bar = multi_pb.map(|multi_pb| {
             let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
             pb.set_message(format!("sending slivers ({})", metadata.blob_id()));
             multi_pb.add(pb)
-        };
+        });
 
-        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
-            n.store_metadata_and_pairs(
-                metadata,
-                pairs_per_node
-                    .remove(&n.node_index)
-                    .expect("there are shards for each node"),
-                blob_persistence_type,
-            )
-            .inspect({
-                let value = progress_bar.clone();
-                move |result| {
-                    if result.is_ok() && !value.is_finished() {
-                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
+        let mut requests = WeightedFutures::new(comms.iter().map({
+            let progress_bar = progress_bar.clone();
+
+            move |n| {
+                let fut = n.store_metadata_and_pairs(
+                    metadata,
+                    pairs_per_node
+                        .remove(&n.node_index)
+                        .expect("there are shards for each node"),
+                    blob_persistence_type,
+                );
+
+                let progress_bar = progress_bar.clone();
+                async move {
+                    let progress_bar = progress_bar.clone();
+                    let result = fut.await;
+                    if result.is_ok() {
+                        if let Some(value) = progress_bar {
+                            if result.is_ok() && !value.is_finished() {
+                                value
+                                    .inc(result.weight.try_into().expect("the weight fits a usize"))
+                            }
+                        }
                     }
+                    result
                 }
-            })
+            }
         }));
+
         let start = Instant::now();
 
         // We do not limit the number of concurrent futures awaited here, because the number of
@@ -1615,7 +1628,9 @@ impl<T> Client<T> {
             "stored metadata and slivers onto a quorum of nodes"
         );
 
-        progress_bar.finish_with_message(format!("slivers sent ({})", metadata.blob_id()));
+        progress_bar.inspect(|progress_bar| {
+            progress_bar.finish_with_message(format!("slivers sent ({})", metadata.blob_id()))
+        });
 
         let extra_time = self
             .config
@@ -1623,7 +1638,7 @@ impl<T> Client<T> {
             .sliver_write_extra_time
             .extra_time(start.elapsed());
 
-        let spinner = {
+        let spinner = multi_pb.map(|multi_pb| {
             let pb = styled_spinner();
             pb.set_message(format!(
                 "waiting at most {} more, to store on additional nodes ({})",
@@ -1631,7 +1646,7 @@ impl<T> Client<T> {
                 metadata.blob_id()
             ));
             multi_pb.add(pb)
-        };
+        });
 
         // Allow extra time for the client to store the slivers.
         let completed_reason = requests
@@ -1650,10 +1665,12 @@ impl<T> Client<T> {
             "stored metadata and slivers onto additional nodes"
         );
 
-        spinner.finish_with_message(format!(
-            "additional slivers stored ({})",
-            metadata.blob_id()
-        ));
+        spinner.inspect(|s| {
+            s.finish_with_message(format!(
+                "additional slivers stored ({})",
+                metadata.blob_id()
+            ))
+        });
 
         let results = requests.into_results();
 

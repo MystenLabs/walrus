@@ -351,7 +351,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &metadata,
             &pairs,
             &BlobPersistenceType::Permanent,
-            &MultiProgress::new(),
+            None,
         )
         .await?;
 
