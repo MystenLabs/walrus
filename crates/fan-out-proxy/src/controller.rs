@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use axum::{
     Router,
     body::Bytes,
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -249,6 +249,7 @@ pub(crate) async fn run_proxy(
         .merge(Redoc::with_url(API_DOCS, FanOutApiDoc::openapi()))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_FAN_OUT_ROUTE, post(fan_out_blob_slivers))
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
         .with_state(Arc::new(Controller::new(
             client,
             n_shards,
@@ -346,7 +347,7 @@ pub(crate) async fn fan_out_blob_slivers(
     Query(params): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
-    tracing::debug!(?params, "starting to process a fan-out request");
+    tracing::info!(?params, "starting to process a fan-out request");
     let response = controller
         .fan_out(body, params)
         .await

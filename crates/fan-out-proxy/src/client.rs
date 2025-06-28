@@ -46,9 +46,9 @@ use walrus_sdk::{
 };
 
 use crate::{
-    TipConfig,
     controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
     params::{AuthPackage, Params},
+    tip::TipConfig,
 };
 
 /// Runs the test client.

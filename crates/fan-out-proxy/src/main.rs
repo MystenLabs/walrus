@@ -9,7 +9,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 #[cfg(feature = "test-client")]
 use reqwest::Url;
-use tip::TipConfig;
 #[cfg(feature = "test-client")]
 use walrus_sdk::core::EpochCount;
 use walrus_sdk::core_utils::metrics::{Registry, monitored_scope};
@@ -35,9 +34,6 @@ const VERSION: &str = self::utils::version!();
     version = VERSION,
 )]
 struct Args {
-    /// Subcommand to run.
-    #[command(subcommand)]
-    command: Command,
     #[arg(
         long,
         short,
@@ -45,6 +41,9 @@ struct Args {
         default_value = "127.0.0.1:9184"
     )]
     metrics_address: std::net::SocketAddr,
+    /// Subcommand to run.
+    #[command(subcommand)]
+    command: Command,
 }
 
 #[derive(Debug, Clone, Subcommand)]
