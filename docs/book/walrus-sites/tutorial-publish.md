@@ -26,7 +26,7 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ``` sh
-site-builder deploy ./walrus-snake --epochs 1
+site-builder publish ./walrus-snake --epochs 1
 ```
 
 ``` admonish tip
