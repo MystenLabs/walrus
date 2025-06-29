@@ -59,6 +59,7 @@ pub(super) struct EventHandle {
 }
 
 impl EventHandle {
+    /// Creates a new [`EventHandle`] instance for the given event.
     pub fn new(index: u64, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
         Self {
             index,
@@ -68,10 +69,12 @@ impl EventHandle {
         }
     }
 
+    /// Returns the index of the event.
     pub fn index(&self) -> u64 {
         self.index
     }
 
+    /// Returns the [`EventID`] associated with the event.
     pub fn event_id(&self) -> EventID {
         self.event_id
     }

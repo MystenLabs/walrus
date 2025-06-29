@@ -68,6 +68,7 @@ pub(crate) fn per_object_blob_info_cf_options(db_config: &DatabaseConfig) -> Opt
 }
 
 impl BlobInfoTable {
+    /// Reopens the blob info tables from the given RocksDB instance.
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
@@ -95,6 +96,7 @@ impl BlobInfoTable {
         })
     }
 
+    /// Returns the column family options for blob info tables.
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
         vec![
             (
@@ -157,6 +159,7 @@ impl BlobInfoTable {
         latest_handled_index.is_some_and(|i| event_index <= i)
     }
 
+    /// Adds a metadata stored merge operand to the batch for the given blob.    
     pub fn set_metadata_stored<'a>(
         &self,
         batch: &'a mut DBBatch,
@@ -225,10 +228,12 @@ impl BlobInfoTable {
 // TODO(#900): Rewrite other tests without relying on blob-info internals.
 #[cfg(test)]
 impl BlobInfoTable {
+    /// Creates a new database batch for the aggregate blob info table.
     pub fn batch(&self) -> DBBatch {
         self.aggregate_blob_info.batch()
     }
 
+    /// Merges a given operand into the aggregate blob info for the specified blob.
     pub fn merge_blob_info(
         &self,
         blob_id: &BlobId,
@@ -239,14 +244,17 @@ impl BlobInfoTable {
         batch.write()
     }
 
+    /// Inserts the blob info for the given blob ID.
     pub fn insert(&self, blob_id: &BlobId, blob_info: &BlobInfo) -> Result<(), TypedStoreError> {
         self.aggregate_blob_info.insert(blob_id, blob_info)
     }
 
+    /// Removes the blob info for the given blob ID.
     pub fn remove(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         self.aggregate_blob_info.remove(blob_id)
     }
 
+    /// Returns a list of all blob IDs in the aggregate blob info table.
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
         self.aggregate_blob_info
             .safe_iter()
@@ -255,6 +263,7 @@ impl BlobInfoTable {
             .collect()
     }
 
+    /// Inserts multiple blob info entries into the aggregate blob info table using the provided batch.
     pub fn insert_batch<'a>(
         &self,
         batch: &mut DBBatch,
@@ -264,6 +273,7 @@ impl BlobInfoTable {
         Ok(())
     }
 
+    /// Inserts multiple per-object blob info entries using the provided batch.
     pub fn insert_per_object_batch<'a>(
         &self,
         batch: &mut DBBatch,
