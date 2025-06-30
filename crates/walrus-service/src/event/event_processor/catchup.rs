@@ -314,7 +314,7 @@ impl EventBlobCatchupManager {
             }
 
             tracing::info!(
-                "Processed event blob {} with {} events, last event index: {}, \
+                "processed event blob {} with {} events, last event index: {}, \
                 start checkpoint: {}, end checkpoint: {}",
                 blob_id,
                 downloaded_blob.events.len(),
@@ -322,7 +322,7 @@ impl EventBlobCatchupManager {
                     .events
                     .last()
                     .expect("Event list is not empty")
-                    .index
+                    .index,
                 downloaded_blob.start_checkpoint,
                 downloaded_blob.end_checkpoint
             );
