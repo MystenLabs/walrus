@@ -1,4 +1,4 @@
-# the base image is the same as rust:1.87-bookworm but we use the GCP registry to avoid rate limiting
+# This is the same as rust:1.87-bookworm but we use the GCP registry to avoid rate limiting.
 FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.87-bookworm-amd64 as builder
 
 ARG PROFILE=release
