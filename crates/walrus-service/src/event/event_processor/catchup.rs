@@ -314,7 +314,7 @@ impl EventBlobCatchupManager {
             }
 
             tracing::info!(
-                "Processed event blob {} with {} events, last event index: {}, \
+                "processed event blob {} with {} events, last event index: {}, \
                 start checkpoint: {}, end checkpoint: {}",
                 blob_id,
                 downloaded_blob.events.len(),
