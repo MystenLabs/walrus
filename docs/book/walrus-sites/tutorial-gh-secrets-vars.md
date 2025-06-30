@@ -15,7 +15,8 @@ Before you start, you must have the `sui` binary installed. If you haven't insta
 
 You can use a dedicated key for your GitHub Actions or an existing one. We will cover two methods to export your private key in the required format.
 
-### Method 1: From the Slush Extension
+{{#tabs }}
+{{#tab name="From Slush Wallet" }}
 
 This method is recommended if you manage your keys through the Slush browser extension.
 
@@ -38,10 +39,10 @@ This method is recommended if you manage your keys through the Slush browser ext
     ╰────────────────┴──────────────────────────────────────────────────────────────────────────╯
     ```
     The `scheme` field in the output will indicate which of the three possible signature schemes (`ed25519`, `secp256k1`, or `secp256r1`) your key uses.
-
     Copy the **`base64WithFlag`** value. This is what you will use for the `SUI_KEYSTORE` secret.
 
-### Method 2: From the Sui CLI
+{{#endtab }}
+{{#tab name="From Sui CLI" }}
 
 If you prefer using the command line, we recommend generating a new, dedicated key-pair for your GitHub deployment workflow. This approach is cleaner and more secure.
 
@@ -58,6 +59,9 @@ If you prefer using the command line, we recommend generating a new, dedicated k
 
 > **Note on existing keys**
 > If you wish to use a key you already own, you can find it in the `~/.sui/sui_config/sui.keystore` file. This file contains a JSON array of all your keys. To find the address for a specific key, you would need to use the `sui keytool unpack "<the base64 key from sui.keystore>"` command.
+
+{{#endtab }}
+{{#endtabs }}
 
 ## Funding Your Address
 
@@ -84,5 +88,3 @@ Now, let's add the key and address to your GitHub repository.
 6.  Name the variable `SUI_ADDRESS`.
 7.  In the **Value** field, paste the Sui address that corresponds to your private key.
     ![TODO: Adding SUI_ADDRESS variable](assets/sui-address-variable.png)
-
-You have now successfully configured the credentials for the deployment Action!
