@@ -789,7 +789,7 @@ async fn upload_blob_to_storage(
                         .with_bucket_name(backup_bucket.to_string())
                         .build()?,
                 ),
-                format!("gs://{}/{}", backup_bucket, blob_id),
+                format!("gs://{backup_bucket}/{blob_id}"),
             )
         } else {
             (
@@ -878,7 +878,7 @@ where
                 db_reconnects.inc();
             }
             Err(error) => {
-                panic!("final error within retry_serializable_query: {:?}", error);
+                panic!("final error within retry_serializable_query: {error:?}");
             }
         }
     }

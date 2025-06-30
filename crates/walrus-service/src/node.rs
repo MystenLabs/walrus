@@ -993,7 +993,7 @@ impl StorageNode {
         {
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
-                format!("process_event {}", event_label)
+                format!("process_event {event_label}")
             });
 
             let task = async {
@@ -3875,24 +3875,12 @@ mod tests {
                 .await
                 .unwrap();
 
-        // Delete shard data to force a panic in the blob sync task.
-        // Note that this only deletes the storage for the shard. Storage still has an entry for the
-        // shard, so it thinks it still owns the shard.
-        cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .shard_storage(test_shard)
-            .await
-            .unwrap()
-            .delete_shard_storage()
-            .unwrap();
-
         // Start a sync to trigger the blob sync task.
+        // Use a epoch number in the future will trigger a panic in reading the committee.
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 1, None)
+            .start_sync(*blob.blob_id(), 100, None)
             .await
             .unwrap();
 
@@ -4282,7 +4270,7 @@ mod tests {
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
             )
             .await;
-        assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+        assert!(status.is_ok(), "Unexpected sync shard error: {status:?}");
 
         let SyncShardResponse::V1(response) = status.unwrap();
         assert_eq!(response.len(), 1);
@@ -4326,7 +4314,7 @@ mod tests {
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
             )
             .await;
-        assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+        assert!(status.is_ok(), "Unexpected sync shard error: {status:?}");
 
         let SyncShardResponse::V1(response) = status.unwrap();
         assert_eq!(response.len(), 0);
@@ -4640,7 +4628,7 @@ mod tests {
                             .unwrap()
                             .is_none()
                     );
-                    return Ok(());
+                    return Ok::<(), anyhow::Error>(());
                 }
 
                 let Sliver::Primary(dst_primary) = shard_storage_dst
@@ -4673,7 +4661,8 @@ mod tests {
                 );
 
                 Ok(())
-            })
+            })?;
+        Ok(())
     }
 
     async fn wait_for_shard_in_active_state(shard_storage: &ShardStorage) -> TestResult {
@@ -4784,6 +4773,13 @@ mod tests {
         // Checks that the shard is completely migrated.
         check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
+        // Checks that the shard sync progress is reset.
+        assert!(
+            shard_storage_dst
+                .get_last_synced_blob_id()
+                .expect("getting last synced blob id should succeed")
+                .is_none()
+        );
         Ok(())
     }
 
@@ -4893,6 +4889,14 @@ mod tests {
             &[],
         )?;
 
+        // Checks that the shard sync progress is reset.
+        assert!(
+            shard_storage_dst
+                .get_last_synced_blob_id()
+                .expect("getting last synced blob id should succeed")
+                .is_none()
+        );
+
         Ok(())
     }
 
@@ -4961,6 +4965,14 @@ mod tests {
             shard_storage_dst.as_ref(),
             &[],
         )?;
+
+        // Checks that the shard sync progress is reset.
+        assert!(
+            shard_storage_dst
+                .get_last_synced_blob_id()
+                .expect("getting last synced blob id should succeed")
+                .is_none()
+        );
 
         Ok(())
     }
@@ -5079,6 +5091,14 @@ mod tests {
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
 
             Ok(())
         }
@@ -5237,6 +5257,14 @@ mod tests {
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
+
             if must_use_recovery {
                 assert!(enter_recovery_mode.load(Ordering::SeqCst));
             } else {
@@ -5277,6 +5305,14 @@ mod tests {
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
             check_all_blobs_are_synced(&_blob_details, &storage_dst, &shard_storage_dst, &[])?;
+
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
 
             Ok(())
         }
@@ -5370,6 +5406,14 @@ mod tests {
 
             // All blobs should be recovered in the new dst node.
             check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])?;
+
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
 
             // Checks that shard sync recovery is not triggered.
             assert!(!shard_sync_recovery_triggered.load(Ordering::SeqCst));
@@ -5477,6 +5521,14 @@ mod tests {
                 &[],
             )?;
 
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
+
             Ok(())
         }
 
@@ -5548,6 +5600,14 @@ mod tests {
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
 
             Ok(())
         }
@@ -5805,6 +5865,14 @@ mod tests {
                 shard_storage_dst.as_ref(),
                 &[3, 9, 19],
             )?;
+
+            // Checks that the shard sync progress is reset.
+            assert!(
+                shard_storage_dst
+                    .get_last_synced_blob_id()
+                    .expect("getting last synced blob id should succeed")
+                    .is_none()
+            );
 
             clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
 

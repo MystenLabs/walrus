@@ -73,7 +73,7 @@ pub fn load_allowlist_from_file(allowlist_path: &Option<PathBuf>) -> Result<Vec<
         tracing::info!("loading allowlist from file: {:?}", path);
         // Read file in yaml format which stores a list of name, network_address, network_public_key
         let nodes: Vec<NodeInfo> = serde_yaml::from_reader(
-            std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
+            std::fs::File::open(path).context(format!("cannot open {path:?}"))?,
         )?;
         for node in nodes.iter() {
             tracing::info!(

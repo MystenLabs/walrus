@@ -503,7 +503,7 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
-    /// Runs the synchronizer and returns true if successful, false if cancelled.
+    /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
     async fn run(self, sliver_permits: Arc<Semaphore>) {
         let this = Arc::new(self);
@@ -516,6 +516,35 @@ impl BlobSynchronizer {
             .map_ok(|(_, metadata)| Arc::new(metadata))
             .await
             .expect("database operations should not fail");
+
+        while let Err(error) = this
+            .clone()
+            .recover_blob_slivers(sliver_permits.clone(), shared_metadata.clone())
+            .await
+        {
+            let backoff_duration = if cfg!(msim) {
+                // Doing fast retry in simtest to save some time.
+                Duration::from_secs(0)
+            } else {
+                Duration::from_secs(30)
+            };
+            tracing::warn!(
+                ?error,
+                "recovering sliver failed with error {:?}, retrying after {} seconds",
+                error,
+                backoff_duration.as_secs()
+            );
+            tokio::time::sleep(backoff_duration).await;
+        }
+    }
+
+    /// Starts the task that syncs all the missing slivers for a blob.
+    async fn recover_blob_slivers(
+        self: Arc<Self>,
+        sliver_permits: Arc<Semaphore>,
+        shared_metadata: Arc<VerifiedBlobMetadataWithId>,
+    ) -> Result<(), RecoverSliverError> {
+        let histograms = &self.metrics().recover_blob_part_duration_seconds;
 
         // Note that we only need to recover the slivers in the shards that are assigned to the
         // node at the time of the start of blob sync. Due to slow event processing, the contract
@@ -530,26 +559,26 @@ impl BlobSynchronizer {
         // this function panics since no shard assignment info is found. Upon restarting the node,
         // the node will enter recovery mode until catching up with all the events and start
         // recovering all the missing blobs.
-        let futures_iter = this
+        let futures_iter = self
             .node
-            .owned_shards_at_epoch(this.node.current_event_epoch())
+            .owned_shards_at_epoch(self.node.current_event_epoch())
             .unwrap_or_else(|_| {
                 tracing::error!(
                     "shard assignment must be found at the certified epoch {}",
-                    this.node.current_event_epoch()
+                    self.node.current_event_epoch()
                 );
                 panic!(
                     "shard assignment must be found at the certified epoch {}",
-                    this.node.current_event_epoch()
+                    self.node.current_event_epoch()
                 )
             })
             .into_iter()
             .map(|shard| {
-                this.clone()
+                self.clone()
                     .recover_slivers_for_shard(shared_metadata.clone(), shard)
             });
 
-        let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
+        let futures_with_permits = stream::iter(futures_iter).then(move |future| {
             let permits = sliver_permits.clone();
 
             // We use a future to get the permit. Only then is the future returned from the stream
@@ -582,14 +611,39 @@ impl BlobSynchronizer {
                         {
                             tracing::warn!("received an inconsistency proof");
                             // No need to recover other slivers, sync the proof and return
-                            this.sync_inconsistency_proof(&inconsistency_proof)
+                            self.sync_inconsistency_proof(&inconsistency_proof)
                                 .observe_future(histograms.clone(),
                                                 labels_from_inconsistency_sync_result)
                                 .await;
                             break;
                         }
                         Ok((Err(RecoverSliverError::Database(err)), _)) => {
-                            panic!("database operations should not fail: {:?}", err)
+                            match err {
+                                TypedStoreError::UnregisteredColumn(ref column) => {
+                                    // It is possible that when the blob recovery is running, a
+                                    // shard is removed from the storage, and therefore encounter
+                                    // UnregisteredColumn error. In this case, we should not panic
+                                    // and instead return an error to retry the blob sync.
+                                    tracing::error!(
+                                        "database error during sliver sync: unregistered column \
+                                        {:?}",
+                                        column
+                                    );
+                                    return Err(RecoverSliverError::Database(err));
+                                }
+                                // When storage node is shutting down and the runtime is turning
+                                // off, internal tasks may get cancelled and this is expected.
+                                TypedStoreError::TaskError(ref message) => {
+                                    tracing::error!(
+                                        "database error during sliver sync: task error {:?}",
+                                        message
+                                    );
+                                    return Err(RecoverSliverError::Database(err));
+                                }
+                                _ => {
+                                    panic!("database operations should not fail: {err:?}")
+                                }
+                            }
                         }
                         Ok(_) => (),
                         Err(join_err) => match join_err.try_into_panic() {
@@ -628,6 +682,8 @@ impl BlobSynchronizer {
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Drives the recovery and storage of the slivers associated with this blob, for one shard.
@@ -696,7 +752,7 @@ impl BlobSynchronizer {
                 .storage()
                 .shard_storage(shard)
                 .await
-                .unwrap_or_else(|| panic!("shard {} is managed by this node", shard));
+                .unwrap_or_else(|| panic!("shard {shard} is managed by this node"));
             let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));
@@ -711,6 +767,8 @@ impl BlobSynchronizer {
                 .committee_service()
                 .recover_sliver(metadata, sliver_id, A::sliver_type(), self.certified_epoch)
                 .await;
+
+            sui_macros::fail_point_async!("fail_point_recover_sliver_before_put_sliver");
 
             match sliver_or_proof {
                 Ok(sliver) => {

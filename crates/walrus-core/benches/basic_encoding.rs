@@ -40,8 +40,7 @@ fn basic_encoding(c: &mut Criterion) {
 
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
-                    "symbol_count={},symbol_size={}",
-                    symbol_count, symbol_size
+                    "symbol_count={symbol_count},symbol_size={symbol_size}"
                 )),
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
@@ -90,8 +89,7 @@ fn basic_decoding(c: &mut Criterion) {
             .collect();
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
-                    "symbol_count={},symbol_size={}",
-                    symbol_count, symbol_size
+                    "symbol_count={symbol_count},symbol_size={symbol_size}"
                 )),
                 &(symbol_count, symbol_size, symbols),
                 |b, (symbol_count, symbol_size, symbols)| {
@@ -146,7 +144,7 @@ fn flatten_symbols(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new(
                     "original",
-                    format!("symbol_count={},symbol_size={}", symbol_count, symbol_size),
+                    format!("symbol_count={symbol_count},symbol_size={symbol_size}"),
                 ),
                 &input,
                 |b, input| {
@@ -162,7 +160,7 @@ fn flatten_symbols(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new(
                     "memcpy",
-                    format!("symbol_count={},symbol_size={}", symbol_count, symbol_size),
+                    format!("symbol_count={symbol_count},symbol_size={symbol_size}"),
                 ),
                 &input,
                 |b, input| {
@@ -203,8 +201,7 @@ fn merkle_tree(c: &mut Criterion) {
 
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
-                    "symbol_count={},symbol_size={}",
-                    symbol_count, symbol_size
+                    "symbol_count={symbol_count},symbol_size={symbol_size}"
                 )),
                 &encoded_symbols,
                 |b, encoded_symbols| {

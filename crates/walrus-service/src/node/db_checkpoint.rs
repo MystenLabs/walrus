@@ -21,7 +21,7 @@ pub struct DisplayableDbCheckpointInfo {
 
 impl std::fmt::Debug for DisplayableDbCheckpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -192,14 +192,14 @@ impl DelayedTask {
                     }
                     Ok(Err(e)) => {
                         let mut status_guard = status.lock().expect("Failed to lock status");
-                        *status_guard = TaskStatus::Failed(format!("Task failed: {:?}", e));
+                        *status_guard = TaskStatus::Failed(format!("Task failed: {e:?}"));
                         let _ = response.send(TaskResult::Failed(e));
                     }
                     Err(e) => {
                         let mut status_guard = status.lock().expect("Failed to lock status");
-                        *status_guard = TaskStatus::TaskError(format!("Task panicked: {}", e));
+                        *status_guard = TaskStatus::TaskError(format!("Task panicked: {e}"));
                         let _ = response.send(
-                            TaskResult::TaskError(format!("Task panicked: {}", e))
+                            TaskResult::TaskError(format!("Task panicked: {e}"))
                         );
                     }
                 };
@@ -660,22 +660,45 @@ impl DbCheckpointManager {
         }
     }
 
-    /// Restore from the most recent backup.
-    pub async fn restore_latest(
+    /// Restore from backup.
+    ///
+    /// If backup_id is provided, restore from the specified backup.
+    /// If backup_id is not provided, restore from the latest backup.
+    pub async fn restore_from_backup(
         db_checkpoint_dir: &Path,
         db_path: &Path,
         wal_dir: Option<&Path>,
+        backup_id: Option<u32>,
     ) -> Result<(), DbCheckpointError> {
-        // Create a fresh BackupEngine for this operation.
         let mut engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
-
         let restore_opts = RestoreOptions::default();
         let wal_path = wal_dir.unwrap_or(db_path);
 
-        tracing::info!("restoring database from latest backup");
-        engine
-            .restore_from_latest_backup(db_path, wal_path, &restore_opts)
-            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("restore error: {}", e)))?;
+        tracing::info!(
+            ?db_checkpoint_dir,
+            ?backup_id,
+            ?db_path,
+            ?wal_path,
+            "restoring database from backup"
+        );
+
+        if let Some(backup_id) = backup_id {
+            let backup_info = engine.get_backup_info();
+
+            if backup_info.is_empty() {
+                return Err(DbCheckpointError::NoCheckpointFound);
+            }
+
+            let checkpoint = backup_info.iter().find(|info| info.backup_id == backup_id);
+
+            if checkpoint.is_none() {
+                return Err(DbCheckpointError::NoCheckpointFound);
+            }
+
+            engine.restore_from_backup(db_path, wal_path, &restore_opts, backup_id)?
+        } else {
+            engine.restore_from_latest_backup(db_path, wal_path, &restore_opts)?;
+        }
 
         tracing::info!("database restored successfully");
         Ok(())
@@ -762,7 +785,7 @@ mod tests {
         let large_count = num_keys - small_count;
 
         for i in 0..small_count {
-            let key = format!("small_key_{:03}", i).into_bytes();
+            let key = format!("small_key_{i:03}").into_bytes();
 
             let small_size = rng.gen_range(1..=median_size);
             let value = vec![b's'; small_size];
@@ -771,7 +794,7 @@ mod tests {
         }
 
         for i in 0..large_count {
-            let key = format!("large_key_{:03}", i).into_bytes();
+            let key = format!("large_key_{i:03}").into_bytes();
 
             let size = rng.gen_range(median_size + 1..=median_size * 2);
             let value = vec![b'l'; size];
@@ -843,8 +866,13 @@ mod tests {
         );
 
         // Restore from backup to a new location.
-        DbCheckpointManager::restore_latest(db_checkpoint_dir.path(), restore_dir.path(), None)
-            .await?;
+        DbCheckpointManager::restore_from_backup(
+            db_checkpoint_dir.path(),
+            restore_dir.path(),
+            None,
+            None,
+        )
+        .await?;
 
         // Reopen restored DB and verify contents.
         {

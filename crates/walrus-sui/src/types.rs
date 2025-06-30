@@ -430,20 +430,14 @@ impl Committee {
                 let comparison = compare_node_attributes(node_id, left_node, right_node, extended);
                 error_msgs.extend(comparison);
             } else {
-                error_msgs.push(format!(
-                    "Node {:?} exists in left but not in right",
-                    node_id
-                ));
+                error_msgs.push(format!("Node {node_id:?} exists in left but not in right"));
             }
         }
 
         // Check each node in right committee exists in left
         for node_id in other_nodes.keys() {
             if !self_nodes.contains_key(node_id) {
-                error_msgs.push(format!(
-                    "Node {:?} exists in right but not in left",
-                    node_id
-                ));
+                error_msgs.push(format!("Node {node_id:?} exists in right but not in left"));
             }
         }
 

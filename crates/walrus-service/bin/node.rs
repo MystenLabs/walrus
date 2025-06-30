@@ -191,6 +191,27 @@ enum AdminCommands {
         #[command(subcommand)]
         command: CheckpointCommands,
     },
+    /// Restore the database from a checkpoint.
+    Restore {
+        /// The path where the checkpoint will be created. If not specified, the checkpoint will be
+        /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
+        #[arg(long)]
+        #[serde(default)]
+        db_checkpoint_path: PathBuf,
+        /// The path where the database will be restored.
+        #[arg(long)]
+        #[serde(default)]
+        db_path: PathBuf,
+        /// The path where the WAL will be restored. If not specified, the WAL will be restored in
+        /// the same directory as the database.
+        #[arg(long)]
+        #[serde(default)]
+        wal_path: Option<PathBuf>,
+        /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
+        /// restored.
+        #[arg(long)]
+        checkpoint_id: Option<u32>,
+    },
     /// Log level management.
     /// It also supports log directive like `walrus-service=debug`
     /// to set the log level for a specific component. Use it like this:
@@ -1128,10 +1149,7 @@ mod commands {
         let wallet_address =
             utils::generate_sui_wallet(sui_network, &wallet_config, use_faucet, faucet_timeout)
                 .await?;
-        println!(
-            "Successfully generated a new Sui wallet with address {}",
-            wallet_address
-        );
+        println!("Successfully generated a new Sui wallet with address {wallet_address}");
 
         let mut config = generate_config(
             PathArgs {
@@ -1213,6 +1231,27 @@ mod commands {
         command: AdminCommands,
         socket_path: PathBuf,
     ) -> anyhow::Result<()> {
+        if let AdminCommands::Restore {
+            db_checkpoint_path,
+            db_path,
+            wal_path,
+            checkpoint_id,
+        } = command
+        {
+            DbCheckpointManager::restore_from_backup(
+                &db_checkpoint_path,
+                &db_path,
+                wal_path.as_deref(),
+                checkpoint_id,
+            )
+            .await?;
+            println!(
+                "Restore completed successfully. The node must be restarted for changes to \
+                take effect."
+            );
+            return Ok(());
+        }
+
         // Connect to the socket.
         let socket = UnixStream::connect(&socket_path).await.context(format!(
             "failed to connect to local admin socket at '{}'",
@@ -1447,11 +1486,11 @@ async fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminComma
     match args.tracing_handle.update_log(level.as_str()) {
         Ok(_) => AdminCommandResponse {
             success: true,
-            message: format!("Log level updated successfully to: {}", level),
+            message: format!("Log level updated successfully to: {level}"),
         },
         Err(e) => AdminCommandResponse {
             success: false,
-            message: format!("Failed to update log level: {}", e),
+            message: format!("Failed to update log level: {e}"),
         },
     }
 }
@@ -1482,7 +1521,7 @@ async fn handle_checkpoint_command(
                 },
                 Err(e) => AdminCommandResponse {
                     success: false,
-                    message: format!("Failed to create checkpoint: {:?}", e),
+                    message: format!("Failed to create checkpoint: {e:?}"),
                 },
             }
         }
@@ -1495,14 +1534,14 @@ async fn handle_checkpoint_command(
                         "Backups:\n{}",
                         db_checkpoints
                             .iter()
-                            .map(|b| format!("  {}", b))
+                            .map(|b| format!("  {b}"))
                             .collect::<Vec<_>>()
                             .join("\n")
                     ),
                 },
                 Err(e) => AdminCommandResponse {
                     success: false,
-                    message: format!("Failed to list db checkpoints: {}", e),
+                    message: format!("Failed to list db checkpoints: {e}"),
                 },
             }
         }
@@ -1519,7 +1558,7 @@ async fn handle_checkpoint_command(
                 },
                 Err(e) => AdminCommandResponse {
                     success: false,
-                    message: format!("Failed to cancel checkpoint creation: {}", e),
+                    message: format!("Failed to cancel checkpoint creation: {e}"),
                 },
             }
         }
@@ -1539,9 +1578,14 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
                 handle_checkpoint_command(command, &args).await
             }
             Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
+            Ok(AdminCommands::Restore { .. }) => AdminCommandResponse {
+                success: false,
+                message: "Restore is an offline command and cannot be sent to a running node"
+                    .to_string(),
+            },
             Err(e) => AdminCommandResponse {
                 success: false,
-                message: format!("Failed to parse command: {}", e),
+                message: format!("Failed to parse command: {e}"),
             },
         };
 

@@ -36,7 +36,7 @@ pub fn generate_identifier_from_path(path: &Path, index: usize) -> String {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
         .map(String::from)
-        .unwrap_or_else(|| format!("unnamed-blob-{}", index))
+        .unwrap_or_else(|| format!("unnamed-blob-{index}"))
 }
 
 /// Converts a list of blobs with paths to a list of [`QuiltStoreBlob`]s.
@@ -301,6 +301,30 @@ where
                 .collect::<Result<Vec<_>, _>>(),
         }
     }
+
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &mut self,
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized | QuiltCacheReader::Decoder(_) => {
+                let quilt = self
+                    .client
+                    .get_full_quilt(metadata, certified_epoch)
+                    .await?;
+                self.reader = QuiltCacheReader::FullQuilt(quilt);
+            }
+            QuiltCacheReader::FullQuilt(_) => {}
+        }
+
+        let quilt = match &self.reader {
+            QuiltCacheReader::FullQuilt(quilt) => quilt,
+            _ => unreachable!(),
+        };
+        quilt.get_all_blobs().map_err(ClientError::other)
+    }
 }
 
 /// Configuration for the QuiltClient.
@@ -379,7 +403,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let quilt_metadata = match quilt_index {
             QuiltIndex::V1(quilt_index) => QuiltMetadata::V1(QuiltMetadataV1 {
-                quilt_blob_id: *quilt_id,
+                quilt_id: *quilt_id,
                 metadata: metadata.metadata().clone(),
                 index: quilt_index.clone(),
             }),
@@ -632,6 +656,28 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .await
     }
 
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &self,
+        quilt_id: &BlobId,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let (certified_epoch, _) = self
+            .client
+            .get_blob_status_and_certified_epoch(quilt_id, None)
+            .await?;
+        let metadata = self
+            .client
+            .retrieve_metadata(certified_epoch, quilt_id)
+            .await?;
+
+        let mut quilt_reader =
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+        quilt_reader
+            .get_all_blobs(&metadata, certified_epoch)
+            .await
+            .map_err(ClientError::other)
+    }
+
     /// Retrieves the quilt from Walrus.
     async fn get_full_quilt(
         &self,
@@ -794,7 +840,7 @@ mod tests {
         if current_depth < max_depth && rng.gen_bool(0.3) {
             let num_subdirs = rng.gen_range(1..=3);
             for i in 0..num_subdirs {
-                let subdir_name = format!("subdir_{}", i);
+                let subdir_name = format!("subdir_{i}");
                 let subdir_path = base_dir.join(&subdir_name);
                 fs::create_dir_all(&subdir_path)?;
 
@@ -817,7 +863,7 @@ mod tests {
         };
 
         for i in 0..files_in_dir {
-            let file_name = format!("file_{}.dat", i);
+            let file_name = format!("file_{i}.dat");
             let file_size = rng.gen_range(100..=1000);
             let content = create_random_file(base_dir, &file_name, file_size)?;
             file_contents.insert(base_dir.join(&file_name), content);
@@ -853,8 +899,7 @@ mod tests {
             let actual_content = read_files_map.get(path).expect("File should exist");
             assert_eq!(
                 actual_content, expected_content,
-                "Content mismatch for file: {:?}.",
-                path
+                "Content mismatch for file: {path:?}."
             );
         }
 

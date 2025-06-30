@@ -55,6 +55,7 @@ pub mod simtest_utils {
         write_only: bool,
         deletable: bool,
         blobs_written: &mut HashSet<ObjectID>,
+        max_retry_count: usize,
     ) -> anyhow::Result<()> {
         // Get a random epoch length for the blob to be stored.
         let epoch_ahead = rand::thread_rng().gen_range(1..=5);
@@ -65,19 +66,38 @@ pub mod simtest_utils {
         );
         let blob = walrus_test_utils::random_data(data_length);
 
-        let store_results = client
-            .as_ref()
-            .reserve_and_store_blobs_retry_committees(
-                &[blob.as_slice()],
-                DEFAULT_ENCODING,
-                epoch_ahead,
-                StoreOptimizations::none(),
-                BlobPersistence::from_deletable(deletable),
-                PostStoreAction::Keep,
-                None,
-            )
-            .await
-            .context("store blob should not fail")?;
+        let mut retry_count = 0;
+        let store_results = loop {
+            let result = client
+                .as_ref()
+                .reserve_and_store_blobs_retry_committees(
+                    &[blob.as_slice()],
+                    DEFAULT_ENCODING,
+                    epoch_ahead,
+                    StoreOptimizations::none(),
+                    BlobPersistence::from_deletable(deletable),
+                    PostStoreAction::Keep,
+                    None,
+                )
+                .await;
+            if let Ok(result) = result {
+                break result;
+            }
+            if retry_count >= max_retry_count {
+                tracing::error!(
+                    "store blob failed: {:?}, max retry count reached {}",
+                    result,
+                    max_retry_count
+                );
+                return Err(result.unwrap_err().into());
+            }
+            tracing::error!(
+                "store blob failed: {:?}, retry count {}",
+                result.unwrap_err(),
+                retry_count
+            );
+            retry_count += 1;
+        };
 
         tracing::info!(
             "got store results with {} items\n{:?}",
@@ -208,6 +228,7 @@ pub mod simtest_utils {
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
         write_only: bool,
+        max_retry_count: usize,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut data_length = 64;
@@ -224,6 +245,7 @@ pub mod simtest_utils {
                     write_only,
                     deletable,
                     &mut blobs_written,
+                    max_retry_count,
                 )
                 .await
                 .expect("workload should not fail");

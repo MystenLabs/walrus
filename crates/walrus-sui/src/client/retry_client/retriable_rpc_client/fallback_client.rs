@@ -48,7 +48,7 @@ impl FallbackClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, FallbackError> {
-        let url = self.base_url.join(&format!("{}.chk", sequence_number))?;
+        let url = self.base_url.join(&format!("{sequence_number}.chk"))?;
         tracing::debug!(%url, "downloading checkpoint from fallback bucket");
         let response = self.client.get(url).send().await?.error_for_status()?;
         let bytes = response.bytes().await?;

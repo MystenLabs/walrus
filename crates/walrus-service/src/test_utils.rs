@@ -1958,7 +1958,7 @@ impl TestClusterBuilder {
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
-                .with_name(format!("node-{}", idx));
+                .with_name(format!("node-{idx}"));
             tracing::info!(
                 "test cluster builder build enable_node_config_synchronizer: {}",
                 self.enable_node_config_synchronizer
@@ -2018,7 +2018,7 @@ impl TestClusterBuilder {
             .into_iter()
             .enumerate()
             .map(|(idx, result)| {
-                result.with_context(|| format!("Failed to start storage node {}", idx))
+                result.with_context(|| format!("Failed to start storage node {idx}"))
             })
             .collect::<Result<Vec<_>, _>>()?;
 

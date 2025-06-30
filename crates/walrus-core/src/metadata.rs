@@ -61,6 +61,7 @@ pub enum VerificationError {
 
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltPatchV1 {
     /// The start sliver index of the blob.
     #[serde(skip)]
@@ -147,6 +148,7 @@ impl QuiltPatchV1 {
 
 /// A enum wrapper around the quilt index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QuiltIndex {
     /// QuiltIndexV1.
     V1(QuiltIndexV1),
@@ -162,6 +164,13 @@ impl QuiltIndex {
             QuiltIndex::V1(quilt_index) => {
                 quilt_index.get_sliver_indices_for_identifiers(identifiers)
             }
+        }
+    }
+
+    /// Returns the patches of the quilt index.
+    pub fn patches(&self) -> &[QuiltPatchV1] {
+        match self {
+            QuiltIndex::V1(quilt_index) => &quilt_index.quilt_patches,
         }
     }
 }
@@ -249,6 +258,7 @@ impl QuiltPatchInternalIdV1 {
 /// mapped to a contiguous index range.
 // INV: The patches are sorted by their end indices.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
     pub quilt_patches: Vec<QuiltPatchV1>,
@@ -311,7 +321,7 @@ impl QuiltMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {
     /// The BlobId of the quilt blob.
-    pub quilt_blob_id: BlobId,
+    pub quilt_id: BlobId,
     /// The blob metadata of the quilt blob.
     pub metadata: BlobMetadata,
     /// The index of the quilt.
@@ -321,10 +331,7 @@ pub struct QuiltMetadataV1 {
 impl QuiltMetadataV1 {
     /// Returns the verified metadata for the quilt blob.
     pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
-        VerifiedBlobMetadataWithId::new_verified_unchecked(
-            self.quilt_blob_id,
-            self.metadata.clone(),
-        )
+        VerifiedBlobMetadataWithId::new_verified_unchecked(self.quilt_id, self.metadata.clone())
     }
 }
 

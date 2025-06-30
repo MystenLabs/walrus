@@ -129,6 +129,9 @@ pub trait QuiltApi<V: QuiltVersion> {
         target_value: &str,
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
+    /// Returns all the blobs in the quilt.
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
+
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
 
@@ -361,8 +364,7 @@ impl TryFrom<u8> for QuiltVersionEnum {
         match value {
             QuiltVersionV1::QUILT_VERSION_BYTE => Ok(QuiltVersionEnum::V1),
             _ => Err(QuiltError::Other(format!(
-                "Invalid quilt version byte: {}",
-                value
+                "Invalid quilt version byte: {value}"
             ))),
         }
     }
@@ -370,7 +372,7 @@ impl TryFrom<u8> for QuiltVersionEnum {
 
 impl fmt::Display for QuiltVersionEnum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -445,6 +447,13 @@ impl QuiltEnum {
         }
     }
 
+    /// Returns all the blobs in the quilt.
+    pub fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_all_blobs(),
+        }
+    }
+
     /// Returns the quilt index.
     pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
         match self {
@@ -457,7 +466,7 @@ impl QuiltEnum {
 ///
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
     /// The blob data, either borrowed or owned.
     blob: Cow<'a, [u8]>,
@@ -495,6 +504,11 @@ impl<'a> QuiltStoreBlob<'a> {
     /// Returns a reference to the blob data.
     pub fn data(&self) -> &[u8] {
         &self.blob
+    }
+
+    /// Returns the blob data by moving it out, consuming the QuiltStoreBlob.
+    pub fn into_data(self) -> Vec<u8> {
+        self.blob.into_owned()
     }
 
     /// Returns a reference to the identifier.
@@ -574,19 +588,18 @@ impl QuiltVersionV1 {
     /// Returns the total size of the serialized blob.
     pub fn serialized_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
         let identifier_size = bcs::serialized_size(&blob.identifier)
-            .map_err(|e| QuiltError::Other(format!("Failed to compute identifier size: {}", e)))?;
+            .map_err(|e| QuiltError::Other(format!("Failed to compute identifier size: {e}")))?;
 
         if identifier_size >= MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
             return Err(QuiltError::InvalidIdentifier(format!(
-                "identifier size exceeds maximum allowed value: {}",
-                MAX_BLOB_IDENTIFIER_BYTES_LENGTH
+                "identifier size exceeds maximum allowed value: {MAX_BLOB_IDENTIFIER_BYTES_LENGTH}"
             )));
         }
         let mut prefix_size = identifier_size as usize + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
 
         if !blob.tags.is_empty() {
             let tags_size = bcs::serialized_size(&blob.tags)
-                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {}", e)))?;
+                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {e}")))?;
             prefix_size += tags_size + TAGS_SIZE_BYTES_LENGTH;
         }
 
@@ -797,11 +810,11 @@ impl BlobHeaderV1 {
 /// For QuiltVersionV1:
 /// The data is organized as a 2D matrix where:
 /// - Each blob occupies a consecutive range of columns (secondary slivers).
-/// - The first column's initial `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded
-///   length of the [`QuiltIndexV1`]. It is guaranteed the column size is more than
-///   `QUILT_INDEX_SIZE_BYTES_LENGTH`.
-/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, up to
-///   `MAX_NUM_SLIVERS_FOR_QUILT_INDEX`.
+/// - The first column's initial `QUILT_VERSION_BYTES_LENGTH` bytes contain the version byte.
+/// - The next `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded length of the
+///   [`QuiltIndexV1`].
+/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, following the version
+///   byte and the length of the [`QuiltIndexV1`].
 /// - The blob layout is defined by the [`QuiltIndexV1`].
 ///
 // INV:
@@ -889,6 +902,14 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 let start_col = usize::from(patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
             })
+            .collect()
+    }
+
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        self.quilt_index()?
+            .patches()
+            .iter()
+            .map(|patch| QuiltVersionV1::decode_blob(self, usize::from(patch.start_index)))
             .collect()
     }
 
@@ -1056,7 +1077,7 @@ impl fmt::Debug for DebugRow<'_> {
                 write!(f, "    ")?;
             }
 
-            write!(f, "{:width$}", entry, width = hex_width)?;
+            write!(f, "{entry:hex_width$}")?;
 
             if i < self.entries.len() - 1 {
                 write!(f, ", ")?;
@@ -1156,28 +1177,27 @@ impl<'a> QuiltEncoderV1<'a> {
 
         let identifier_size =
             u16::try_from(bcs::serialized_size(&blob.identifier).map_err(|e| {
-                QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
+                QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {e}"))
             })?)
             .map_err(|e| {
                 QuiltError::InvalidIdentifier(format!(
-                    "Failed to convert identifier size to u16: {}",
-                    e
+                    "Failed to convert identifier size to u16: {e}"
                 ))
             })?;
         identifier_bytes.extend_from_slice(&identifier_size.to_le_bytes());
         identifier_bytes.extend_from_slice(&bcs::to_bytes(&blob.identifier).map_err(|e| {
-            QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
+            QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {e}"))
         })?);
         extension_bytes.push(identifier_bytes);
 
         if !blob.tags.is_empty() {
             header.set_has_tags(true);
             let serialized_tags = bcs::to_bytes(&blob.tags)
-                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {}", e)))?;
+                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {e}")))?;
 
             // This must be the same as TAGS_SIZE_BYTES_LENGTH.
             let tags_size = u16::try_from(serialized_tags.len()).map_err(|e| {
-                QuiltError::Other(format!("Failed to convert tags size to u16: {}", e))
+                QuiltError::Other(format!("Failed to convert tags size to u16: {e}"))
             })?;
 
             let mut result_bytes = Vec::with_capacity(tags_size as usize + serialized_tags.len());
@@ -1453,7 +1473,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let quilt_metadata = QuiltMetadata::V1(QuiltMetadataV1 {
-            quilt_blob_id: *metadata.blob_id(),
+            quilt_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
                 quilt_patches: quilt.quilt_index()?.quilt_patches.clone(),
@@ -1732,9 +1752,8 @@ mod utils {
         let max_symbol_size = usize::from(encoding_type.max_symbol_size());
         if symbol_size > max_symbol_size {
             return Err(QuiltError::QuiltOversize(format!(
-                "the resulting symbol size {} is larger than the maximum symbol size {}; \
-                remove some blobs",
-                symbol_size, max_symbol_size
+                "the resulting symbol size {symbol_size} is larger than the maximum symbol size \
+                {max_symbol_size}; remove some blobs"
             )));
         }
 
@@ -2050,11 +2069,8 @@ mod tests {
             let min_blob_size = rng.gen_range(1..100);
             let max_blob_size = rng.gen_range(min_blob_size..1000);
             std::println!(
-                "test_quilt_with_random_blobs: {}, {}, {}, {}",
-                num_blobs,
-                min_blob_size,
-                max_blob_size,
-                n_shards
+                "test_quilt_with_random_blobs: \
+                {num_blobs}, {min_blob_size}, {max_blob_size}, {n_shards}"
             );
             // test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
             test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
@@ -2305,7 +2321,7 @@ mod tests {
 
         let (quilt_blob, metadata_with_id) = decoder
             .decode_and_verify(
-                &quilt_metadata_v1.quilt_blob_id,
+                &quilt_metadata_v1.quilt_id,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
