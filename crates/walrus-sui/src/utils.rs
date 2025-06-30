@@ -340,10 +340,7 @@ pub fn create_wallet(
 pub async fn send_faucet_request(address: SuiAddress, network: &SuiNetwork) -> Result<()> {
     // send the request to the faucet
     let client = reqwest::Client::new();
-    let data_raw = format!(
-        "{{\"FixedAmountRequest\": {{ \"recipient\": \"{}\" }} }} ",
-        address
-    );
+    let data_raw = format!("{{\"FixedAmountRequest\": {{ \"recipient\": \"{address}\" }} }} ");
     let Some(faucet) = network.faucet() else {
         return Err(anyhow!("faucet not available for {network}"));
     };

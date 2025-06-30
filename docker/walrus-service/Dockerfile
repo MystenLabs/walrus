@@ -3,8 +3,8 @@
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
 
-# This is the same as rust:1.87-bookworm but we use the GCP registry to avoid rate limiting.
-FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.87-bookworm-amd64 AS builder
+# This is the same as rust:1.88-bookworm but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.88-bookworm-amd64 AS builder
 
 ARG PROFILE=release
 ARG GIT_REVISION

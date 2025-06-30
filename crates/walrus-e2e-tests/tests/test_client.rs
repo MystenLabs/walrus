@@ -137,7 +137,7 @@ where
 
     // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
-        let path = PathBuf::from(format!("blob_{}", i));
+        let path = PathBuf::from(format!("blob_{i}"));
         path_to_data.insert(path.clone(), data.to_vec());
         blobs_with_paths.push((path, data.to_vec()));
     }
@@ -231,10 +231,7 @@ async fn test_store_and_read_blob_with_crash_failures(
             }
             Err(err) => panic!("unexpected error {err}"),
         },
-        (act, exp) => panic!(
-            "test result mismatch; expected=({:?}); actual=({:?});",
-            exp, act
-        ),
+        (act, exp) => panic!("test result mismatch; expected=({exp:?}); actual=({act:?});"),
     }
 }
 
@@ -288,8 +285,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let blob = walrus_test_utils::random_data(31415);
 
     // Find the shards of the failed nodes.
-    let failed_node_names: Vec<String> =
-        failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
+    let failed_node_names: Vec<String> = failed_nodes.iter().map(|i| format!("node-{i}")).collect();
     let committees = client
         .as_ref()
         .get_committees()
@@ -589,7 +585,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
-        let path = PathBuf::from(format!("blob_{}", i));
+        let path = PathBuf::from(format!("blob_{i}"));
         blobs_with_paths.push((path, data.to_vec()));
     }
 
@@ -767,7 +763,7 @@ async fn test_store_with_existing_storage_resource(
     let unencoded_blobs = blob_data
         .iter()
         .enumerate()
-        .map(|(i, data)| WalrusStoreBlob::new_unencoded(data, format!("test-{:02}", i)))
+        .map(|(i, data)| WalrusStoreBlob::new_unencoded(data, format!("test-{i:02}")))
         .collect();
     let encoding_type = DEFAULT_ENCODING;
     let encoded_blobs = client
@@ -940,8 +936,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         .await?;
     assert!(
         matches!(status_result, BlobStatus::Nonexistent),
-        "status_result: {:?}",
-        status_result
+        "status_result: {status_result:?}"
     );
 
     let read_result = client
@@ -1028,7 +1023,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     } = store_operation_result;
     let blob_object = match blob_store_result {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
-        _ => panic!("Expected NewlyCreated, got {:?}", blob_store_result),
+        _ => panic!("Expected NewlyCreated, got {blob_store_result:?}"),
     };
 
     // Read the blobs in the quilt.
@@ -1172,8 +1167,7 @@ async fn test_blocklist() -> TestResult {
 
     assert!(
         matches!(error.kind(), ClientErrorKind::BlobIdBlocked(_)),
-        "unexpected error {:?}",
-        error
+        "unexpected error {error:?}"
     );
 
     // Remove the blob from the blocklist
@@ -1393,10 +1387,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             BlobStoreResult::AlreadyCertified { .. } => {
                 assert!(is_already_certified, "the blob should be already stored");
             }
-            other => panic!(
-                "we either store the blob, or find it's already created:\n{:?}",
-                other
-            ),
+            other => panic!("we either store the blob, or find it's already created:\n{other:?}"),
         }
     }
 
@@ -1756,7 +1747,7 @@ async fn test_post_store_action(
         .await?;
     assert_eq!(target_address_blobs.len(), n_target_blobs);
     for result in &results {
-        println!("test_post_store_action result: {:?}", result);
+        println!("test_post_store_action result: {result:?}");
     }
 
     if post_store == PostStoreAction::Share {

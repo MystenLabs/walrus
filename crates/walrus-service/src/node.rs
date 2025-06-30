@@ -993,7 +993,7 @@ impl StorageNode {
         {
             let event_label: &'static str = stream_element.element.label();
             let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
-                format!("process_event {}", event_label)
+                format!("process_event {event_label}")
             });
 
             let task = async {
@@ -4270,7 +4270,7 @@ mod tests {
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
             )
             .await;
-        assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+        assert!(status.is_ok(), "Unexpected sync shard error: {status:?}");
 
         let SyncShardResponse::V1(response) = status.unwrap();
         assert_eq!(response.len(), 1);
@@ -4314,7 +4314,7 @@ mod tests {
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
             )
             .await;
-        assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+        assert!(status.is_ok(), "Unexpected sync shard error: {status:?}");
 
         let SyncShardResponse::V1(response) = status.unwrap();
         assert_eq!(response.len(), 0);

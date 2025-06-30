@@ -164,10 +164,7 @@ impl NodeRecoveryHandler {
                             // The only place where start_sync can fail is when marking the
                             // event complete, which is not applicable here since the there
                             // is no event associated with the recovery task.
-                            panic!(
-                                "failed to start recovery sync for blob {}: {}",
-                                blob_id, err,
-                            );
+                            panic!("failed to start recovery sync for blob {blob_id}: {err}",);
                         }
                     }
                 }

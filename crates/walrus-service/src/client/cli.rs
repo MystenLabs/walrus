@@ -269,7 +269,7 @@ impl std::fmt::Display for HumanReadableBytes {
         let set_precision = f.precision().unwrap_or(3).max(1);
         let precision = set_precision.saturating_sub(normalized_integer_digits);
 
-        write!(f, "{normalized_value:.*} {unit}", precision)
+        write!(f, "{normalized_value:.precision$} {unit}")
     }
 }
 

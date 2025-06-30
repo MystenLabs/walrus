@@ -347,7 +347,7 @@ impl MetricsMiddlewareState {
         self.inner
             .task_monitors
             .get_or_insert_with_task_name(&(method.clone(), http_route.to_owned()), || {
-                format!("{} {}", method, http_route)
+                format!("{method} {http_route}")
             })
     }
 

@@ -578,7 +578,7 @@ impl BlobSynchronizer {
                     .recover_slivers_for_shard(shared_metadata.clone(), shard)
             });
 
-        let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
+        let futures_with_permits = stream::iter(futures_iter).then(move |future| {
             let permits = sliver_permits.clone();
 
             // We use a future to get the permit. Only then is the future returned from the stream
@@ -632,7 +632,7 @@ impl BlobSynchronizer {
                                     return Err(RecoverSliverError::Database(err));
                                 }
                                 _ => {
-                                    panic!("database operations should not fail: {:?}", err)
+                                    panic!("database operations should not fail: {err:?}")
                                 }
                             }
                         }
@@ -743,7 +743,7 @@ impl BlobSynchronizer {
                 .storage()
                 .shard_storage(shard)
                 .await
-                .unwrap_or_else(|| panic!("shard {} is managed by this node", shard));
+                .unwrap_or_else(|| panic!("shard {shard} is managed by this node"));
             let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));

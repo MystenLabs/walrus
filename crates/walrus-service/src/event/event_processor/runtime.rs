@@ -152,7 +152,7 @@ impl EventProcessorRuntime {
         tokio::spawn(async move {
             let result = event_processor_clone.start(cancel_token).await;
             if let Err(ref error) = result {
-                panic!("event manager exited with an error: {:?}", error);
+                panic!("event manager exited with an error: {error:?}");
             }
         });
         Ok(event_processor)

@@ -605,16 +605,22 @@ impl ValidBlobInfoV1 {
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
         // TODO: The following should be adjusted/simplified when we have proper cleanup (WAL-473).
         let deletable_counts = DeletableCounts {
-            count_deletable_total: self
+            count_deletable_total: if self
                 .latest_seen_deletable_registered_epoch
                 .is_some_and(|e| e > current_epoch)
-                .then_some(self.count_deletable_total)
-                .unwrap_or_default(),
-            count_deletable_certified: self
+            {
+                self.count_deletable_total
+            } else {
+                Default::default()
+            },
+            count_deletable_certified: if self
                 .latest_seen_deletable_certified_epoch
                 .is_some_and(|e| e > current_epoch)
-                .then_some(self.count_deletable_certified)
-                .unwrap_or_default(),
+            {
+                self.count_deletable_certified
+            } else {
+                Default::default()
+            },
         };
 
         let initial_certified_epoch = self.initial_certified_epoch;

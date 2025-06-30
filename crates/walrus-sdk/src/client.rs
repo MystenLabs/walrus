@@ -989,8 +989,8 @@ impl Client<SuiContractClient> {
             if total_blob_size > max_total_blob_size {
                 return Err(ClientError::from(ClientErrorKind::Other(
                     format!(
-                        "total blob size {} exceeds the maximum limit of {}",
-                        total_blob_size, max_total_blob_size
+                        "total blob size {total_blob_size} exceeds the maximum limit of \
+                        {max_total_blob_size}"
                     )
                     .into(),
                 )));
@@ -1123,8 +1123,8 @@ impl Client<SuiContractClient> {
         debug_assert_eq!(
             num_registered_blobs, num_encoded_blobs,
             "the number of registered blobs and the number of blobs to store must be the same \
-            (num_registered_blobs = {}, num_encoded_blobs = {})",
-            num_registered_blobs, num_encoded_blobs
+            (num_registered_blobs = {num_registered_blobs}, num_encoded_blobs = \
+            {num_encoded_blobs})"
         );
         if let Some(metrics) = metrics {
             metrics.observe_store_operation(store_op_duration);
@@ -1143,8 +1143,7 @@ impl Client<SuiContractClient> {
                 to_be_certified.push(registered_blob);
             } else {
                 return Err(ClientError::store_blob_internal(format!(
-                    "unexpected blob state {:?}",
-                    registered_blob
+                    "unexpected blob state {registered_blob:?}"
                 )));
             }
         }
@@ -1232,26 +1231,26 @@ impl Client<SuiContractClient> {
         // Complete to_be_extended blobs.
         for blob in to_be_extended {
             let Some(object_id) = blob.get_object_id() else {
-                panic!("Invalid blob state {:?}", blob);
+                panic!("Invalid blob state {blob:?}");
             };
             if let Some(result) = result_map.get(&object_id) {
                 final_result
                     .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
             } else {
-                panic!("Invalid blob state {:?}", blob);
+                panic!("Invalid blob state {blob:?}");
             }
         }
 
         // Complete to_be_certified blobs.
         for blob in to_be_certified {
             let Some(object_id) = blob.get_object_id() else {
-                panic!("Invalid blob state {:?}", blob);
+                panic!("Invalid blob state {blob:?}");
             };
             if let Some(result) = result_map.get(&object_id) {
                 final_result
                     .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
             } else {
-                panic!("Invalid blob state {:?}", blob);
+                panic!("Invalid blob state {blob:?}");
             }
         }
 
@@ -1276,8 +1275,7 @@ impl Client<SuiContractClient> {
                 let blob_id = encode_blob
                     .get_blob_id()
                     .ok_or(ClientError::store_blob_internal(format!(
-                        "missing blob ID from {:?}",
-                        encode_blob
+                        "missing blob ID from {encode_blob:?}"
                     )))?;
                 if let Err(e) = self.check_blob_id(&blob_id) {
                     return encode_blob.with_error(e);
@@ -1319,8 +1317,7 @@ impl Client<SuiContractClient> {
                     let operation = registered_blob.get_operation().cloned();
                     let Some(StoreOp::RegisterNew { blob, operation }) = operation else {
                         return Err(ClientError::store_blob_internal(format!(
-                            "Expected a WalrusStoreBlob::RegisterNew, got {:?}",
-                            registered_blob
+                            "Expected a WalrusStoreBlob::RegisterNew, got {registered_blob:?}"
                         )));
                     };
                     let (Some(pairs), Some(metadata), Some(blob_status)) = (
@@ -1329,8 +1326,8 @@ impl Client<SuiContractClient> {
                         registered_blob.get_status(),
                     ) else {
                         return Err(ClientError::store_blob_internal(format!(
-                            "Missing sliver pairs, metadata, or status for blob: {:?}",
-                            registered_blob
+                            "Missing sliver pairs, metadata, or status for blob: \
+                            {registered_blob:?}"
                         )));
                     };
                     let certificate_result = self

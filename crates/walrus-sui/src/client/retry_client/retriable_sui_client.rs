@@ -844,9 +844,8 @@ impl RetriableSuiClient {
         K: DeserializeOwned + Serialize,
     {
         let key_tag = key_type.to_canonical_string(true);
-        let key_tag =
-            TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
-                .expect("valid type tag");
+        let key_tag = TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{key_tag}>"))
+            .expect("valid type tag");
         let inner_object_id = self.get_dynamic_field(parent, key_tag, key).await?;
         let inner = self.get_sui_object(inner_object_id).await?;
         Ok(inner)

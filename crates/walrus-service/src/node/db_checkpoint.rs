@@ -21,7 +21,7 @@ pub struct DisplayableDbCheckpointInfo {
 
 impl std::fmt::Debug for DisplayableDbCheckpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -192,14 +192,14 @@ impl DelayedTask {
                     }
                     Ok(Err(e)) => {
                         let mut status_guard = status.lock().expect("Failed to lock status");
-                        *status_guard = TaskStatus::Failed(format!("Task failed: {:?}", e));
+                        *status_guard = TaskStatus::Failed(format!("Task failed: {e:?}"));
                         let _ = response.send(TaskResult::Failed(e));
                     }
                     Err(e) => {
                         let mut status_guard = status.lock().expect("Failed to lock status");
-                        *status_guard = TaskStatus::TaskError(format!("Task panicked: {}", e));
+                        *status_guard = TaskStatus::TaskError(format!("Task panicked: {e}"));
                         let _ = response.send(
-                            TaskResult::TaskError(format!("Task panicked: {}", e))
+                            TaskResult::TaskError(format!("Task panicked: {e}"))
                         );
                     }
                 };
@@ -785,7 +785,7 @@ mod tests {
         let large_count = num_keys - small_count;
 
         for i in 0..small_count {
-            let key = format!("small_key_{:03}", i).into_bytes();
+            let key = format!("small_key_{i:03}").into_bytes();
 
             let small_size = rng.gen_range(1..=median_size);
             let value = vec![b's'; small_size];
@@ -794,7 +794,7 @@ mod tests {
         }
 
         for i in 0..large_count {
-            let key = format!("large_key_{:03}", i).into_bytes();
+            let key = format!("large_key_{i:03}").into_bytes();
 
             let size = rng.gen_range(median_size + 1..=median_size * 2);
             let value = vec![b'l'; size];

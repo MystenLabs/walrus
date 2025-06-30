@@ -19,7 +19,7 @@ pub fn attribute_macro(args: TokenStream, item: TokenStream) -> TokenStream {
     let output = if cfg!(msim) {
         let mut input = input;
         let fn_name = &input.sig.ident;
-        input.sig.ident = syn::Ident::new(&format!("simtest_{}", fn_name), fn_name.span());
+        input.sig.ident = syn::Ident::new(&format!("simtest_{fn_name}"), fn_name.span());
         quote! {
             #[sui_macros::sim_test(#(#args),*)]
             #input

@@ -147,14 +147,12 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                     .await
                     .map_err(|_| {
                         FailoverError::FailedToGetClient(format!(
-                            "Client validation timed out for {:?}",
-                            rpc_url
+                            "Client validation timed out for {rpc_url:?}"
                         ))
                     })?
                     .map_err(|e| {
                         FailoverError::FailedToGetClient(format!(
-                            "Client validation failed for {:?}: {:?}",
-                            rpc_url, e
+                            "Client validation failed for {rpc_url:?}: {e:?}"
                         ))
                     })?;
                 }

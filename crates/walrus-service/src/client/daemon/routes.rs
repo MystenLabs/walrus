@@ -877,7 +877,7 @@ mod tests {
         ]
     }
     fn test_parse_publisher_query(query_str: &str, expected: Option<PublisherQuery>) {
-        let uri_str = format!("http://localhost/test?{}", query_str);
+        let uri_str = format!("http://localhost/test?{query_str}");
         let uri: Uri = uri_str.parse().expect("the uri is valid");
 
         let result = Query::<PublisherQuery>::try_from_uri(&uri);

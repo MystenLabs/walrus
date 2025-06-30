@@ -100,7 +100,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
         .await
         .unwrap()
     {
-        panic!("Event blob should not be written: {:?}", blob);
+        panic!("Event blob should not be written: {blob:?}");
     };
     Ok(())
 }

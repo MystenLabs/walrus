@@ -204,8 +204,7 @@ where
     let name: String = Deserialize::deserialize(deserializer)?;
     if name.len() > MAX_NODE_NAME_LENGTH {
         return Err(D::Error::custom(format!(
-            "Node name must not exceed {} characters",
-            MAX_NODE_NAME_LENGTH
+            "Node name must not exceed {MAX_NODE_NAME_LENGTH} characters"
         )));
     }
     Ok(name)

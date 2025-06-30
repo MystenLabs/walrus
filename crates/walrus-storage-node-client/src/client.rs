@@ -198,7 +198,7 @@ impl UrlEndpoints {
 
     fn recovery_symbol(&self, blob_id: &BlobId, symbol_id: SymbolId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id, &format!("recoverySymbols/{}", symbol_id)),
+            self.blob_resource(blob_id, &format!("recoverySymbols/{symbol_id}")),
             RECOVERY_SYMBOL_URL_TEMPLATE,
         )
     }

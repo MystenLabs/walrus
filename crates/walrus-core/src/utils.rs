@@ -155,8 +155,8 @@ pub fn data_prefix_string<T: ToString>(data: &[T], max_values_printed: usize) ->
         .collect::<Vec<_>>()
         .join(", ");
     if data.len() <= max_values_printed {
-        format!("[{}]", data_items)
+        format!("[{data_items}]")
     } else {
-        format!("[{}, ...]", data_items)
+        format!("[{data_items}, ...]")
     }
 }
