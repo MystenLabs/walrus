@@ -1172,6 +1172,9 @@ pub struct QuiltPatchQuery {
 impl QuiltPatchQuery {
     pub fn to_selector(&self) -> Result<QuiltPatchSelector> {
         if !self.identifiers.is_empty() {
+            if !self.tag.is_empty() || !self.quilt_patch_ids.is_empty() || self.quilt_id.is_none() {
+                return Err(Self::invalid_query_error());
+            }
             Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 identifiers: self.identifiers.clone(),
@@ -1180,12 +1183,18 @@ impl QuiltPatchQuery {
             if self.tag.len() != 2 {
                 return Err(anyhow!("Only one tag is supported for now."));
             }
+            if self.quilt_id.is_none() || self.quilt_patch_ids.is_empty() {
+                return Err(Self::invalid_query_error());
+            }
             Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
                 quilt_id: self.quilt_id.expect("quilt_id should be present"),
                 tag: self.tag[0].clone(),
                 value: self.tag[1].clone(),
             }))
         } else if !self.quilt_patch_ids.is_empty() {
+            if self.quilt_id.is_none() {
+                return Err(Self::invalid_query_error());
+            }
             Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
                 quilt_patch_ids: self.quilt_patch_ids.clone(),
             }))
@@ -1194,14 +1203,19 @@ impl QuiltPatchQuery {
                 self.quilt_id.expect("quilt_id should be present"),
             ))
         } else {
-            Err(anyhow!(
-                "Exactly one query type must be specified. Valid query types are:\n\
-                - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
-                - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
-                - --quilt-patch-id <PATCH_ID>...\n\
-                - --quilt-id <ID>"
-            ))
+            Err(Self::invalid_query_error())
         }
+    }
+
+    /// Returns an error message for an invalid query.
+    fn invalid_query_error() -> anyhow::Error {
+        anyhow!(
+            "Exactly one query type must be specified. Valid query types are:\n\
+            - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
+            - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
+            - --quilt-patch-id <PATCH_ID>...\n\
+            - --quilt-id <ID>"
+        )
     }
 }
 
