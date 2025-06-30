@@ -301,6 +301,30 @@ where
                 .collect::<Result<Vec<_>, _>>(),
         }
     }
+
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &mut self,
+        metadata: &VerifiedBlobMetadataWithId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        match &self.reader {
+            QuiltCacheReader::Uninitialized | QuiltCacheReader::Decoder(_) => {
+                let quilt = self
+                    .client
+                    .get_full_quilt(metadata, certified_epoch)
+                    .await?;
+                self.reader = QuiltCacheReader::FullQuilt(quilt);
+            }
+            QuiltCacheReader::FullQuilt(_) => {}
+        }
+
+        let quilt = match &self.reader {
+            QuiltCacheReader::FullQuilt(quilt) => quilt,
+            _ => unreachable!(),
+        };
+        quilt.get_all_blobs().map_err(ClientError::other)
+    }
 }
 
 /// Configuration for the QuiltClient.
@@ -379,7 +403,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let quilt_metadata = match quilt_index {
             QuiltIndex::V1(quilt_index) => QuiltMetadata::V1(QuiltMetadataV1 {
-                quilt_blob_id: *quilt_id,
+                quilt_id: *quilt_id,
                 metadata: metadata.metadata().clone(),
                 index: quilt_index.clone(),
             }),
@@ -630,6 +654,28 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         quilt_reader
             .get_blobs_by_patch_internal_ids(&internal_ids)
             .await
+    }
+
+    /// Retrieves all the blobs from the quilt.
+    pub async fn get_all_blobs(
+        &self,
+        quilt_id: &BlobId,
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        let (certified_epoch, _) = self
+            .client
+            .get_blob_status_and_certified_epoch(quilt_id, None)
+            .await?;
+        let metadata = self
+            .client
+            .retrieve_metadata(certified_epoch, quilt_id)
+            .await?;
+
+        let mut quilt_reader =
+            QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
+        quilt_reader
+            .get_all_blobs(&metadata, certified_epoch)
+            .await
+            .map_err(ClientError::other)
     }
 
     /// Retrieves the quilt from Walrus.

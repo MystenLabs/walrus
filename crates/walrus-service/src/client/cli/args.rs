@@ -4,9 +4,11 @@
 //! The arguments to the Walrus client binary.
 
 use std::{
+    collections::BTreeMap,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
@@ -21,6 +23,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    QuiltPatchId,
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
 };
@@ -31,7 +34,7 @@ use walrus_sui::{
 };
 use walrus_utils::read_blob_from_file;
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -205,46 +208,43 @@ pub enum CliCommands {
         #[arg(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
-        /// The epoch argument to specify either the number of epochs to store the blob, or the
-        /// end epoch, or the earliest expiry time in rfc3339 format.
-        ///
+        /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]
-        epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
+        common_options: CommonStoreOptions,
+    },
+    /// Store files as a quilt.
+    #[command(alias("write-quilt"))]
+    StoreQuilt {
+        /// Paths to files to include in the quilt.
         ///
-        /// This assumes `--force`; i.e., it does not check the current status of the blob.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the blob status before storing it.
+        /// If a path is a directory, all the files in the directory will be included
+        /// in the quilt, recursively.
+        /// If a path is a file, the file will be included in the quilt.
+        /// The filenames are used as the identifiers of the quilt patches.
+        /// Note duplicate filenames are not allowed.
+        /// Custom identifiers and tags are NOT supported for quilt patches.
+        /// Use `--blobs` to specify custom identifiers and tags.
+        #[arg(long, num_args = 0..)]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        paths: Vec<PathBuf>,
+        /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
-        /// This will create a new blob even if the blob is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
+        /// Example:
+        ///   walrus store-quilt --epochs 10
+        ///     --blobs '{"path":"/path/to/food-locations.pdf","identifier":"paper-v2",\
+        ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}' \
+        ///     '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
+        ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
+        /// Note if identifier is not specified, the filename will be used as the identifier,
+        /// and duplicate identifiers are not allowed.
+        #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the blob
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the blob as deletable.
-        ///
-        /// Deletable blobs can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the blob into a shared blob object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        blobs: Vec<QuiltBlobInput>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -261,6 +261,122 @@ pub enum CliCommands {
             deserialize_with = "walrus_utils::config::resolve_home_dir_option"
         )]
         out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// Read quilt patches (blobs) from Walrus.
+    #[command(override_usage = "walrus read-quilt <Arguments> [OPTIONS]")]
+    ReadQuilt {
+        /// The quilt ID, which is the BlobID of the quilt.
+        ///
+        /// It is required unless `--quilt-patch-id` is used.
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            value_parser = parse_blob_id,
+            required_unless_present = "quilt_patch_ids",
+            help_heading = "Arguments",
+        )]
+        quilt_id: Option<BlobId>,
+
+        /// The identifiers to read from the quilt.
+        ///
+        /// It is required to be used with `--quilt-id`.
+        ///
+        /// Example:
+        /// walrus read-quilt --quilt-id `<ID>` --identifier `<IDENTIFIER>`...
+        #[arg(
+            long = "identifier",
+            conflicts_with = "tag",
+            conflicts_with = "quilt_patch_ids",
+            help_heading = "Arguments"
+        )]
+        #[serde(default)]
+        identifiers: Vec<String>,
+
+        /// The tag key.
+        ///
+        /// It is required to be used with `--quilt-id` and `--value`.
+        ///
+        /// Example:
+        /// walrus read-quilt --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
+        #[arg(
+            long,
+            requires = "value",
+            conflicts_with = "identifiers",
+            conflicts_with = "quilt_patch_ids",
+            help_heading = "Arguments"
+        )]
+        #[serde(default)]
+        tag: Option<String>,
+
+        /// The tag value to match.
+        ///
+        /// It is required to be used with `--quilt-id` and `--tag`.
+        ///
+        /// Example:
+        /// walrus read-quilt --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
+        #[arg(
+            long,
+            requires = "tag",
+            conflicts_with = "identifiers",
+            conflicts_with = "quilt_patch_ids",
+            help_heading = "Arguments"
+        )]
+        #[serde(default)]
+        value: Option<String>,
+
+        /// The quilt patch IDs.
+        ///
+        /// It should be used alone without other arguments.
+        ///
+        /// Example:
+        /// walrus read-quilt --quilt-patch-id `<PATCH_ID>`...
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        #[arg(
+            long = "quilt-patch-id",
+            alias = "patch-id",
+            allow_hyphen_values = true,
+            value_parser = parse_quilt_patch_id,
+            action = clap::ArgAction::Append,
+            conflicts_with = "quilt_id",
+            conflicts_with = "identifiers",
+            conflicts_with = "tag",
+            help_heading = "Arguments",
+        )]
+        #[serde(default)]
+        quilt_patch_ids: Vec<QuiltPatchId>,
+
+        /// The directory path where to write the quilt patches.
+        /// The blobs are written to the directory with the same name as the identifier.
+        /// The user-defined metadata of the quilt patches, including identifiers and tags are
+        /// printed to the stdout.
+        ///
+        /// If unset, prints the quilt patches raw data to stdout, while the metadata of the quilt
+        /// patches are ignored.
+        //
+        // TODO(WAL-900): Provide more flexible options to specify the file names.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// List the blobs in a quilt.
+    #[command(alias("resolve-quilt"))]
+    ListPatchesInQuilt {
+        /// The quilt ID to be inspected.
+        #[serde_as(as = "DisplayFromStr")]
+        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
+        quilt_id: BlobId,
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]
@@ -738,6 +854,12 @@ pub struct AggregatorArgs {
     #[arg(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
+    /// Whether to allow quilt patch tags to be returned in the response headers.
+    /// If true, the tags will be returned in the response headers, regardless of the allowed
+    /// headers.
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub allow_quilt_patch_tags_in_response: bool,
 }
 
 /// The arguments for the publisher service.
@@ -936,6 +1058,51 @@ pub struct DaemonArgs {
     pub(crate) blocklist: Option<PathBuf>,
 }
 
+/// Common options shared between store and store-quilt commands.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommonStoreOptions {
+    /// The epoch argument to specify either the number of epochs to store the blob, or the
+    /// end epoch, or the earliest expiry time in rfc3339 format.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub epoch_arg: EpochArg,
+    /// Perform a dry-run of the store without performing any actions on chain.
+    ///
+    /// This assumes `--force`; i.e., it does not check the current status of the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Do not check for the blob/quilt status before storing it.
+    ///
+    /// This will create a new blob/quilt even if it is already certified for a sufficient
+    /// duration.
+    #[arg(long)]
+    #[serde(default)]
+    pub force: bool,
+    /// Ignore the storage resources owned by the wallet.
+    ///
+    /// The client will not check if it can reuse existing resources, and just check the blob/quilt
+    /// status on chain.
+    #[arg(long)]
+    #[serde(default)]
+    pub ignore_resources: bool,
+    /// Mark the blob/quilt as deletable.
+    ///
+    /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
+    #[arg(long)]
+    #[serde(default)]
+    pub deletable: bool,
+    /// Whether to put the blob/quilt into a shared object.
+    #[arg(long)]
+    #[serde(default)]
+    pub share: bool,
+    /// The encoding type to use for encoding the files.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -981,6 +1148,31 @@ impl FileOrBlobId {
     }
 }
 
+/// Represents a blob to be stored in a quilt, together with its identifier and tags.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltBlobInput {
+    /// The path to the blob.
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
+    pub(crate) path: PathBuf,
+    /// The identifier of the blob.
+    ///
+    /// If not provided, the file name will be used as the identifier.
+    #[serde(default)]
+    pub(crate) identifier: Option<String>,
+    /// The tags of the blob.
+    #[serde(default)]
+    pub(crate) tags: BTreeMap<String, String>,
+}
+
+impl FromStr for QuiltBlobInput {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
+}
+
 /// Represents a blob.
 #[serde_as]
 #[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -1012,6 +1204,89 @@ impl std::fmt::Display for BlobIdentity {
             identity.push_str(&format!("object ID: {}", object_id));
         }
         write!(f, "{}", identity)
+    }
+}
+
+/// Query for quilt patches by identifier.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByIdentifier {
+    /// The quilt ID, which is the BlobID of the quilt.
+    pub quilt_id: BlobId,
+    /// The identifiers to read from the quilt.
+    pub identifiers: Vec<String>,
+}
+
+/// Query for quilt patches by tag.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByTag {
+    /// The quilt ID, which is the BlobID of the quilt.
+    pub quilt_id: BlobId,
+    /// The tag key.
+    pub tag: String,
+    /// The tag value.
+    pub value: String,
+}
+
+/// Query for quilt patches by patch ID.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByPatchId {
+    /// The quilt patch IDs.
+    pub quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+/// Selector for quilt patches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuiltPatchSelector {
+    /// Patches by quilt_id and identifier.
+    ByIdentifier(QuiltPatchByIdentifier),
+    /// Patches by quilt_id and tag.
+    ByTag(QuiltPatchByTag),
+    /// Patches by quilt_patch_id.
+    ByPatchId(QuiltPatchByPatchId),
+    /// Read 'em all.
+    All(BlobId),
+}
+
+impl QuiltPatchSelector {
+    /// Get a selector from the command line arguments.
+    pub fn get_selector_from_args(
+        quilt_id: Option<BlobId>,
+        identifiers: Vec<String>,
+        tag: Option<String>,
+        value: Option<String>,
+        quilt_patch_ids: Vec<QuiltPatchId>,
+    ) -> Result<QuiltPatchSelector> {
+        if !identifiers.is_empty() {
+            Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                quilt_id: quilt_id.expect("quilt_id should be present"),
+                identifiers,
+            }))
+        } else if tag.is_some() && value.is_some() {
+            Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                quilt_id: quilt_id.expect("quilt_id should be present"),
+                tag: tag.as_ref().expect("tag should be present").clone(),
+                value: value.as_ref().expect("value should be present").clone(),
+            }))
+        } else if !quilt_patch_ids.is_empty() {
+            Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+                quilt_patch_ids,
+            }))
+        } else if quilt_id.is_some() {
+            Ok(QuiltPatchSelector::All(
+                quilt_id.expect("quilt_id should be present"),
+            ))
+        } else {
+            Err(anyhow!(
+                "Exactly one query type must be specified. Valid query types are:\n\
+                - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
+                - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
+                - --quilt-patch-id <PATCH_ID>...\n\
+                - --quilt-id <ID>"
+            ))
+        }
     }
 }
 
@@ -1434,17 +1709,19 @@ mod tests {
     fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epoch_arg: EpochArg {
-                epochs: Some(epochs),
-                earliest_expiry_time: None,
-                end_epoch: None,
+            common_options: CommonStoreOptions {
+                epoch_arg: EpochArg {
+                    epochs: Some(epochs),
+                    earliest_expiry_time: None,
+                    end_epoch: None,
+                },
+                dry_run: false,
+                force: false,
+                ignore_resources: false,
+                deletable: false,
+                share: false,
+                encoding_type: Default::default(),
             },
-            dry_run: false,
-            force: false,
-            ignore_resources: false,
-            deletable: false,
-            share: false,
-            encoding_type: Default::default(),
         })
     }
 
@@ -1485,6 +1762,7 @@ mod tests {
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
+                allow_quilt_patch_tags_in_response: false,
             },
         })
     }

@@ -129,6 +129,9 @@ pub trait QuiltApi<V: QuiltVersion> {
         target_value: &str,
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
+    /// Returns all the blobs in the quilt.
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
+
     /// Returns the quilt index.
     fn quilt_index(&self) -> Result<&V::QuiltIndex, QuiltError>;
 
@@ -445,6 +448,13 @@ impl QuiltEnum {
         }
     }
 
+    /// Returns all the blobs in the quilt.
+    pub fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        match self {
+            QuiltEnum::V1(quilt_v1) => quilt_v1.get_all_blobs(),
+        }
+    }
+
     /// Returns the quilt index.
     pub fn get_quilt_index(&self) -> Result<QuiltIndex, QuiltError> {
         match self {
@@ -457,7 +467,7 @@ impl QuiltEnum {
 ///
 /// A valid identifier is a string that contains only alphanumeric characters,
 /// underscores, hyphens, and periods.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct QuiltStoreBlob<'a> {
     /// The blob data, either borrowed or owned.
     blob: Cow<'a, [u8]>,
@@ -495,6 +505,11 @@ impl<'a> QuiltStoreBlob<'a> {
     /// Returns a reference to the blob data.
     pub fn data(&self) -> &[u8] {
         &self.blob
+    }
+
+    /// Returns the blob data by moving it out, consuming the QuiltStoreBlob.
+    pub fn into_data(self) -> Vec<u8> {
+        self.blob.into_owned()
     }
 
     /// Returns a reference to the identifier.
@@ -797,11 +812,11 @@ impl BlobHeaderV1 {
 /// For QuiltVersionV1:
 /// The data is organized as a 2D matrix where:
 /// - Each blob occupies a consecutive range of columns (secondary slivers).
-/// - The first column's initial `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded
-///   length of the [`QuiltIndexV1`]. It is guaranteed the column size is more than
-///   `QUILT_INDEX_SIZE_BYTES_LENGTH`.
-/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, up to
-///   `MAX_NUM_SLIVERS_FOR_QUILT_INDEX`.
+/// - The first column's initial `QUILT_VERSION_BYTES_LENGTH` bytes contain the version byte.
+/// - The next `QUILT_INDEX_SIZE_BYTES_LENGTH` bytes contain the unencoded length of the
+///   [`QuiltIndexV1`].
+/// - The [`QuiltIndexV1`] is stored in the first one or multiple columns, following the version
+///   byte and the length of the [`QuiltIndexV1`].
 /// - The blob layout is defined by the [`QuiltIndexV1`].
 ///
 // INV:
@@ -889,6 +904,14 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
                 let start_col = usize::from(patch.start_index);
                 QuiltVersionV1::decode_blob(self, start_col)
             })
+            .collect()
+    }
+
+    fn get_all_blobs(&self) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError> {
+        self.quilt_index()?
+            .patches()
+            .iter()
+            .map(|patch| QuiltVersionV1::decode_blob(self, usize::from(patch.start_index)))
             .collect()
     }
 
@@ -1453,7 +1476,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let quilt_metadata = QuiltMetadata::V1(QuiltMetadataV1 {
-            quilt_blob_id: *metadata.blob_id(),
+            quilt_id: *metadata.blob_id(),
             metadata: metadata.metadata().clone(),
             index: QuiltIndexV1 {
                 quilt_patches: quilt.quilt_index()?.quilt_patches.clone(),
@@ -2305,7 +2328,7 @@ mod tests {
 
         let (quilt_blob, metadata_with_id) = decoder
             .decode_and_verify(
-                &quilt_metadata_v1.quilt_blob_id,
+                &quilt_metadata_v1.quilt_id,
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
