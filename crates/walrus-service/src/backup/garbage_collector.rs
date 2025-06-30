@@ -13,9 +13,12 @@ use super::{
     BACKUP_BLOB_ARCHIVE_SUBDIR,
     config::BackupConfig,
     metrics::BackupGarbageCollectorMetricSet,
-    service::{VERSION, establish_connection_async, retry_serializable_query},
+    service::{establish_connection_async, retry_serializable_query},
 };
-use crate::common::utils::{self, MetricsAndLoggingRuntime};
+use crate::{
+    backup::VERSION,
+    common::utils::{self, MetricsAndLoggingRuntime},
+};
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_garbage_collector(

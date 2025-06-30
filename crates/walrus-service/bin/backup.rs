@@ -19,6 +19,9 @@ use walrus_service::{
 };
 use walrus_utils::load_from_yaml;
 
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
+
 /// Manage and run Walrus backup nodes
 #[derive(Parser)]
 #[command(

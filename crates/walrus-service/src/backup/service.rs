@@ -42,17 +42,15 @@ use super::{
     schema,
 };
 use crate::{
+    VERSION,
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::utils::{self, MetricsAndLoggingRuntime, version},
+    common::utils::{self, MetricsAndLoggingRuntime},
     event::{
         event_processor::{processor::EventProcessor, runtime::EventProcessorRuntime},
         events::{CheckpointEventPosition, EventStreamElement, PositionedStreamEvent},
     },
     node::{DatabaseConfig, metrics::TelemetryLabel as _, system_events::SystemEventProvider as _},
 };
-
-// Define the `GIT_REVISION` and `VERSION` consts
-walrus_utils::bin_version!();
 
 const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 
