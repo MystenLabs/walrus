@@ -247,7 +247,7 @@ pub struct EncodingConfig {
 impl EncodingConfig {
     /// Creates a new encoding config, given the number of shards.
     ///
-    /// The number of shards determines the the appropriate number of primary and secondary source
+    /// The number of shards determines the appropriate number of primary and secondary source
     /// symbols.
     ///
     /// # Panics
@@ -337,7 +337,7 @@ impl ReedSolomonEncodingConfig {
 
     /// Creates a new encoding config, given the number of shards.
     ///
-    /// The number of shards determines the the appropriate number of primary and secondary source
+    /// The number of shards determines the appropriate number of primary and secondary source
     /// symbols.
     ///
     /// # Panics

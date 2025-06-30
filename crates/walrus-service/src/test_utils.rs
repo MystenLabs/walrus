@@ -777,7 +777,7 @@ impl StorageNodeHandleBuilder {
 
     /// Specify the shard assignment for this node.
     ///
-    /// If specified, it will determine the the shard assignment for the node in the committee. If
+    /// If specified, it will determine the shard assignment for the node in the committee. If
     /// not, the shard assignment will be inferred from the shards present in the storage.
     ///
     /// Resets any prior calls to [`Self::with_test_config`].
@@ -788,7 +788,7 @@ impl StorageNodeHandleBuilder {
 
     /// Specify the test config for this node.
     ///
-    /// If specified, it will determine the the shard assignment for the node in the committee
+    /// If specified, it will determine the shard assignment for the node in the committee
     /// as well as the network address and the protocol key.
     ///
     /// Resets any prior calls to [`Self::with_shard_assignment`].

@@ -170,7 +170,7 @@ impl HttpLabels {
         }
     }
 
-    /// Adds label values for the the provided output.
+    /// Adds label values for the provided output.
     ///
     /// A value of `None` indicates that the request was aborted, and the added
     /// label values reflect that.

@@ -106,7 +106,7 @@ disables the checks that ensure the contents of the JWT claim match the requeste
 
 Specifically, the publisher will:
 
-- Verify that the number of `epochs` in query is the the same as `epochs` in the JWT, if present;
+- Verify that the number of `epochs` in query is the same as `epochs` in the JWT, if present;
 - Verify that the `send_object_to` field in the query is the same as the `send_object_to` in the
   JWT, if present;
 - Verify the size of uploaded file;

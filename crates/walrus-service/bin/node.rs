@@ -1627,7 +1627,7 @@ mod tests {
 
         let _: ProtocolKeyPair = file_content
             .parse()
-            .expect("a protocol keypair must be parseable from the the file's contents");
+            .expect("a protocol keypair must be parseable from the file's contents");
 
         Ok(())
     }
@@ -1661,7 +1661,7 @@ mod tests {
 
         let _: ProtocolKeyPair = file_content
             .parse()
-            .expect("a protocol keypair must be parseable from the the file's contents");
+            .expect("a protocol keypair must be parseable from the file's contents");
 
         Ok(())
     }
@@ -1690,7 +1690,7 @@ mod tests {
         assert!(file_content.starts_with("-----BEGIN PRIVATE KEY-----"));
 
         NetworkKeyPair::load(&filename)
-            .expect("network keypair must be parseable from the the file's contents");
+            .expect("network keypair must be parseable from the file's contents");
 
         Ok(())
     }

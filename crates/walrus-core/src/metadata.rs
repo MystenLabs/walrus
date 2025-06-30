@@ -408,7 +408,7 @@ impl VerifiedBlobMetadataWithId {
         }
     }
 
-    /// Checks if the number of symbols and number of shards in the config matches the the metadata.
+    /// Checks if the number of symbols and number of shards in the config matches the metadata.
     ///
     /// Returns true if the number of symbols and number of shards in the provided encoding config,
     /// matches that which was used to verify the metadata.

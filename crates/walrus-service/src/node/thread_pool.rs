@@ -86,7 +86,7 @@ impl ThreadPoolBuilder {
     /// Sets the maximum number of concurrent requests to use when building a [`BoundedThreadPool`]
     /// with [`ThreadPoolBuilder::build_bounded`].
     ///
-    /// Reverts the the default computation if `None`.
+    /// Reverts the default computation if `None`.
     pub fn max_concurrent(&mut self, max_concurrent: Option<usize>) -> &mut Self {
         self.max_concurrent = max_concurrent;
         self

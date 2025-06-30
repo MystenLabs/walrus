@@ -191,7 +191,7 @@ impl TestClusterHandle {
     /// Attempts to construct a handle to an externally running sui cluster.
     ///
     /// If the environment variable `SUI_TEST_CONFIG_DIR` is defined, then the wallet and network
-    /// configuration information taken from the the associated Sui files in the specified
+    /// configuration information taken from the associated Sui files in the specified
     /// directory.
     ///
     /// Returns None if the environment variable is not set.

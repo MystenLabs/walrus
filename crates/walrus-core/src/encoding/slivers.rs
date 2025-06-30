@@ -440,7 +440,7 @@ impl SliverPair {
     ///
     /// # Errors
     ///
-    /// Returns a [`RecoverySymbolError::EncodeError`] if any of the the slivers cannot be encoded.
+    /// Returns a [`RecoverySymbolError::EncodeError`] if any of the slivers cannot be encoded.
     /// Returns a [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
     pub fn recovery_symbol_pair_for_sliver(
         &self,
@@ -464,7 +464,7 @@ impl SliverPair {
     ///
     /// # Errors
     ///
-    /// Returns a [`RecoverySymbolError::EncodeError`] if any of the the slivers cannot be encoded.
+    /// Returns a [`RecoverySymbolError::EncodeError`] if any of the slivers cannot be encoded.
     pub fn pair_leaf_input<T: HashFunction<DIGEST_LEN>>(
         &self,
         config: &EncodingConfigEnum,
