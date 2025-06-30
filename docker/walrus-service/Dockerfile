@@ -23,7 +23,9 @@ RUN cargo build --profile $PROFILE \
     --bin walrus-deploy
 
 # Production Image for all binaries under walrus-service
-FROM debian:bookworm-slim AS walrus-service
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-service
+
 RUN apt-get update && apt-get install -y ca-certificates curl git
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -39,7 +41,9 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus CLI
-FROM debian:bookworm-slim AS walrus-cli
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-cli
+
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -52,7 +56,8 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus node
-FROM debian:bookworm-slim AS walrus-node
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-node
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -65,7 +70,8 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus deployment CLI
-FROM debian:bookworm-slim AS walrus-deploy
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-deploy
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

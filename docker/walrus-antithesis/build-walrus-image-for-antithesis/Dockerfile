@@ -57,7 +57,9 @@ RUN LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
     --bin walrus-stress
 RUN find /walrus/target
 
-FROM debian:bookworm-slim
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64
+
 RUN apt-get update && apt-get install -y ca-certificates curl git
 WORKDIR "$WORKDIR/walrus"
 COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus

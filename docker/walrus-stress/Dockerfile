@@ -19,7 +19,9 @@ COPY contracts contracts
 RUN cargo build --profile $PROFILE --bin walrus-stress --bin walrus
 
 # Production Image for walrus stress
-FROM debian:bookworm-slim AS walrus-stress
+# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-stress
+
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

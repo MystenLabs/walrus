@@ -28,6 +28,9 @@ trim_trailing_whitespace = unset
 indent_size = 2
 max_line_length = 150
 
+[Dockerfile*]
+max_line_length = 120
+
 [crates/walrus-orchestrator/src/monitor.rs]
 indent_size = unset
 
