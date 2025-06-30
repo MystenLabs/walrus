@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+#[cfg(feature = "test-client")]
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -13,7 +14,9 @@ use walrus_sdk::{
     sui::ObjectIdSchema,
 };
 
-use crate::{error::FanOutError, utils::compute_digest_sha256};
+use crate::error::FanOutError;
+#[cfg(feature = "test-client")]
+use crate::utils::compute_digest_sha256;
 
 pub(crate) const DIGEST_LEN: usize = 32;
 
@@ -135,6 +138,7 @@ pub(crate) struct HashedAuthPackage {
 
 impl AuthPackage {
     /// Creates an authentication package for the blob.
+    #[cfg(feature = "test-client")]
     pub(crate) fn new(blob: &[u8]) -> Result<Self> {
         let blob_digest = compute_digest_sha256(blob);
         let mut std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
@@ -150,6 +154,7 @@ impl AuthPackage {
     /// Creates a `HashedAuthPackage` by hashing the nonce.
     ///
     /// Does not consume self.
+    #[cfg(feature = "test-client")]
     pub(crate) fn to_hashed(&self) -> HashedAuthPackage {
         let nonce_digest = compute_digest_sha256(&self.nonce).digest;
         HashedAuthPackage {

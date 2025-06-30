@@ -347,11 +347,18 @@ pub(crate) async fn fan_out_blob_slivers(
     Query(params): Query<Params>,
     body: Bytes,
 ) -> Result<impl IntoResponse, FanOutError> {
+    let start = Instant::now();
+    let blob_id = params.blob_id;
     tracing::info!(?params, "starting to process a fan-out request");
     let response = controller
         .fan_out(body, params)
         .await
         .inspect_err(|error| tracing::debug!(?error, "responding to request with error"))?;
+    tracing::info!(
+        duration = ?start.elapsed(),
+        ?blob_id,
+        "finished to process a fan-out request",
+    );
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
