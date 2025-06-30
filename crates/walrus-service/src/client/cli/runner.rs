@@ -197,26 +197,12 @@ impl ClientCommandRunner {
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::ReadQuilt {
-                quilt_id,
-                identifiers,
-                tag,
-                value,
-                quilt_patch_ids,
+                quilt_patch_query,
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(
-                    QuiltPatchSelector::get_selector_from_args(
-                        quilt_id,
-                        identifiers,
-                        tag,
-                        value,
-                        quilt_patch_ids,
-                    )?,
-                    out,
-                    rpc_url,
-                )
-                .await
+                self.read_quilt(quilt_patch_query.to_selector()?, out, rpc_url)
+                    .await
             }
 
             CliCommands::ListPatchesInQuilt {
