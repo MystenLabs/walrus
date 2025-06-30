@@ -199,7 +199,10 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 
 // The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
+#[cfg(not(msim))]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+#[cfg(msim)]
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
 const NUM_DIGEST_BUCKETS: u64 = 10;
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
@@ -1830,6 +1833,8 @@ impl StorageNode {
         // Only record every Nth event.
         // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
         // every few hours.
+
+        tracing::info!("event index: {}", event_index);
         if event_index % NUM_EVENTS_PER_DIGEST_RECORDING != 0 {
             return Ok(());
         }
@@ -1863,6 +1868,22 @@ impl StorageNode {
             bucket.to_string()
         )
         .set(event_source as i64);
+
+        sui_macros::fail_point_arg!(
+            "storage_node_event_index_source",
+            |event_source_map: Arc<
+                std::sync::Mutex<
+                    std::collections::HashMap<u64, std::collections::HashMap<ObjectID, u64>>,
+                >,
+            >| {
+                event_source_map
+                    .lock()
+                    .expect("failed to lock the event source map")
+                    .entry(event_index)
+                    .or_insert_with(|| std::collections::HashMap::new())
+                    .insert(self.inner.node_capability(), event_source);
+            }
+        );
 
         Ok(())
     }

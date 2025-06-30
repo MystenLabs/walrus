@@ -85,6 +85,11 @@ impl EventBlobCatchupManager {
         let current_lag = self.calculate_lag(current_checkpoint, latest_checkpoint)?;
 
         if current_lag > lag_threshold {
+            tracing::info!(
+                current_lag,
+                lag_threshold,
+                "Performing catchup - lag is above threshold"
+            );
             self.perform_catchup(recovery_path).await?;
         } else {
             tracing::info!(
@@ -186,6 +191,7 @@ impl EventBlobCatchupManager {
         tracing::info!("Starting event catchup using event blobs");
 
         let next_checkpoint = self.get_next_checkpoint()?;
+        tracing::info!("ZZZZ next checkpoint: {:?}", next_checkpoint);
         self.ensure_recovery_directory(recovery_path)?;
 
         let blobs = self
@@ -267,7 +273,7 @@ impl EventBlobCatchupManager {
             .download(upto_checkpoint, None, recovery_path)
             .await?;
 
-        tracing::info!("Successfully downloaded {} event blobs", blob_ids.len());
+        tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
         Ok(blob_ids)
     }
 

@@ -84,7 +84,7 @@ use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemC
 use crate::node::ConfigLoader;
 use crate::{
     event::{
-        event_processor::processor::EventProcessor,
+        event_processor::{config::EventProcessorConfig, processor::EventProcessor},
         events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{
@@ -1063,7 +1063,10 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
             public_port: node_info.rest_api_address.port(),
-            event_processor_config: Default::default(),
+            event_processor_config: EventProcessorConfig {
+                event_stream_catchup_min_checkpoint_lag: 200,
+                ..Default::default()
+            },
             use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
@@ -2782,7 +2785,10 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 shard_sync_retry_max_backoff: Duration::from_secs(3),
                 ..Default::default()
             },
-            event_processor_config: Default::default(),
+            event_processor_config: EventProcessorConfig {
+                event_stream_catchup_min_checkpoint_lag: 20,
+                ..Default::default()
+            },
             use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,

@@ -2112,7 +2112,11 @@ impl<T> Client<T> {
 
         // Check the received statuses.
         let statuses = requests.take_unique_results_with_aggregate_weight();
-        tracing::debug!(?statuses, "received blob statuses from storage nodes");
+        tracing::debug!(
+            ?statuses,
+            "received blob statuses from storage nodes, status: {:?}",
+            statuses
+        );
         let mut statuses_list: Vec<_> = statuses.keys().copied().collect();
 
         // Going through statuses from later (invalid) to earlier (nonexistent), see implementation

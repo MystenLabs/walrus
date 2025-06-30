@@ -265,6 +265,7 @@ pub mod simtest_utils {
     /// BlobInfoConsistencyCheck is a helper struct to check the consistency of the blob info.
     #[derive(Debug)]
     pub struct BlobInfoConsistencyCheck {
+        event_source_map: Arc<Mutex<HashMap<u64, HashMap<ObjectID, u64>>>>,
         certified_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         per_object_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         blob_existence_check_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>,
@@ -274,12 +275,21 @@ pub mod simtest_utils {
     impl BlobInfoConsistencyCheck {
         /// Creates a new BlobInfoConsistencyCheck.
         pub fn new() -> Self {
+            let event_source_map = Arc::new(Mutex::new(HashMap::new()));
+            let event_source_map_clone = event_source_map.clone();
             let certified_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let certified_blob_digest_map_clone = certified_blob_digest_map.clone();
             let per_object_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let per_object_blob_digest_map_clone = per_object_blob_digest_map.clone();
             let blob_existence_check_map = Arc::new(Mutex::new(HashMap::new()));
             let blob_existence_check_map_clone = blob_existence_check_map.clone();
+
+            sui_macros::register_fail_point_arg(
+                "storage_node_event_index_source",
+                move || -> Option<Arc<Mutex<HashMap<u64, HashMap<ObjectID, u64>>>>> {
+                    Some(event_source_map_clone.clone())
+                },
+            );
 
             sui_macros::register_fail_point_arg(
                 "storage_node_certified_blob_digest",
@@ -303,6 +313,7 @@ pub mod simtest_utils {
             );
 
             Self {
+                event_source_map,
                 certified_blob_digest_map,
                 per_object_blob_digest_map,
                 blob_existence_check_map,
@@ -314,6 +325,24 @@ pub mod simtest_utils {
         pub fn check_storage_node_consistency(&self) {
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+
+            let event_source_map = self.event_source_map.lock().unwrap();
+            tracing::info!("event source map: {:?}", event_source_map.len());
+            for (event_index, node_event_source_map) in event_source_map.iter() {
+                let mut event_source = None;
+                for (node_id, source) in node_event_source_map.iter() {
+                    tracing::debug!(
+                        "event source check: node {node_id} has event source {source} for \
+                        event index {event_index}",
+                    );
+
+                    if event_source.is_none() {
+                        event_source = Some(source);
+                    } else {
+                        assert_eq!(event_source, Some(source));
+                    }
+                }
+            }
 
             // Ensure that for all epochs, all nodes have the same certified blob digest.
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
@@ -369,8 +398,10 @@ pub mod simtest_utils {
     impl Drop for BlobInfoConsistencyCheck {
         fn drop(&mut self) {
             assert!(self.checked.load(std::sync::atomic::Ordering::SeqCst));
+            sui_macros::clear_fail_point("storage_node_event_index_source");
             sui_macros::clear_fail_point("storage_node_certified_blob_digest");
             sui_macros::clear_fail_point("storage_node_certified_blob_object_digest");
+            sui_macros::clear_fail_point("storage_node_certified_blob_existence_check");
         }
     }
 
