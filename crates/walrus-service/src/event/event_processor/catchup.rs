@@ -35,6 +35,8 @@ struct DownloadedBlob {
     epoch: Epoch,
     first_event_index: Option<IndexedStreamEvent>,
     events: Vec<IndexedStreamEvent>,
+    start_checkpoint: u64,
+    end_checkpoint: u64,
 }
 
 /// Manages the catchup process for events in the event processor using event blobs.
@@ -284,6 +286,7 @@ impl EventBlobCatchupManager {
             let downloaded_blob = self
                 .process_single_blob(blob_id, recovery_path, next_event_index)
                 .await?;
+            tracing::info!("Processed blob: {:?}", downloaded_blob);
 
             if downloaded_blob.events.is_empty() {
                 // We break (rather than continue) because empty events indicates we've hit our
@@ -311,16 +314,6 @@ impl EventBlobCatchupManager {
                 break;
             }
 
-            tracing::info!(
-                "Processed event blob {} with {} events, last event index: {}",
-                blob_id,
-                downloaded_blob.events.len(),
-                downloaded_blob
-                    .events
-                    .last()
-                    .expect("Event list is not empty")
-                    .index
-            );
             num_events_recovered += downloaded_blob.events.len();
             next_event_index = self
                 .store_events_and_update_state(downloaded_blob, recovery_path)
@@ -343,6 +336,8 @@ impl EventBlobCatchupManager {
         let prev_blob_id = event_blob.prev_blob_id();
         let prev_event_id = event_blob.prev_event_id();
         let epoch = event_blob.epoch();
+        let start_checkpoint = event_blob.start_checkpoint_sequence_number();
+        let end_checkpoint = event_blob.end_checkpoint_sequence_number();
 
         let (first_event, events) = self.collect_relevant_events(event_blob, next_event_index);
 
@@ -353,6 +348,8 @@ impl EventBlobCatchupManager {
             epoch,
             first_event_index: first_event,
             events,
+            start_checkpoint,
+            end_checkpoint,
         })
     }
 
