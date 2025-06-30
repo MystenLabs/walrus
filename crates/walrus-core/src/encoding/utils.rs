@@ -14,11 +14,9 @@ pub fn compute_symbol_size(
 ) -> Result<NonZeroU16, DataTooLargeError> {
     // Use a 1-byte symbol size for the empty blob.
     let data_length = data_length.max(1);
-    let symbol_size = std::dbg!(
-        data_length
-            .div_ceil(u64::from(n_symbols.get()))
-            .next_multiple_of(required_alignment.into())
-    );
+    let symbol_size = data_length
+        .div_ceil(u64::from(n_symbols.get()))
+        .next_multiple_of(required_alignment.into());
 
     Ok(
         NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| std::dbg!(DataTooLargeError))?)
@@ -36,7 +34,7 @@ pub fn compute_symbol_size_from_usize(
     compute_symbol_size(
         data_length
             .try_into()
-            .map_err(|_| std::dbg!(DataTooLargeError))?,
+            .map_err(|_| DataTooLargeError)?,
         n_symbols,
         required_alignment,
     )
