@@ -141,6 +141,7 @@ twox-hash = "2.1.1"
 typed-store = { path = "crates/typed-store" }
 uint = "0.10.0"
 url = "2.5.4"
+urlencoding = "2.1"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.17.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
