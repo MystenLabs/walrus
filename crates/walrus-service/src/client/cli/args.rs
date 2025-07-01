@@ -1119,9 +1119,6 @@ pub struct QuiltPatchQuery {
     /// The identifiers to read from the quilt.
     ///
     /// It is required to be used with `--quilt-id`.
-    ///
-    /// Example:
-    /// walrus read-quilt --quilt-id `<ID>` --identifier `<IDENTIFIER>`...
     #[arg(
         long = "identifiers",
         alias = "identifier",
@@ -1150,9 +1147,6 @@ pub struct QuiltPatchQuery {
     /// The quilt patch IDs.
     ///
     /// It should be used alone without other arguments.
-    ///
-    /// Example:
-    /// walrus read-quilt --quilt-patch-id `<PATCH_ID>`...
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[arg(
         long = "quilt-patch-ids",
@@ -1214,7 +1208,7 @@ impl QuiltPatchQuery {
     /// Returns an error message for an invalid query.
     fn invalid_query_error() -> anyhow::Error {
         anyhow!(
-            "Exactly one query type must be specified. Valid query patterns are:\n\
+            "Exactly one query pattern must be specified. Valid query patterns are:\n\
             - quiltId + identifiers: {{\"quiltId\": \"<ID>\", \
             \"identifiers\": [\"<IDENTIFIER>\", ...]}}\n\
             - quiltId + tag: {{\"quiltId\": \"<ID>\", \"tag\": [\"<KEY>\", \"<VALUE>\"]}}\n\
