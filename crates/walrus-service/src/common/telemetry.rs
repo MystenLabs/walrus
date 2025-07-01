@@ -115,7 +115,7 @@ walrus_utils::metrics::define_metric_set! {
         },
 
         #[help = "The seconds since UNIX epoch after which the TLS certificate is not valid."]
-        tls_not_after_seconds: Gauge[],
+        tls_certificate_not_after_seconds: Gauge[],
     }
 }
 
@@ -346,10 +346,10 @@ impl MetricsMiddlewareState {
     }
 
     /// Exports the expiration time of the TLS certificate as a duration since UNIX epoch.
-    pub fn set_tls_expiration_time(&self, duration_since_unix_epoch: Duration) {
+    pub fn set_tls_certificate_expiration_time(&self, duration_since_unix_epoch: Duration) {
         self.inner
             .metrics
-            .tls_not_after_seconds
+            .tls_certificate_not_after_seconds
             .set(duration_since_unix_epoch.as_secs_f64());
     }
 

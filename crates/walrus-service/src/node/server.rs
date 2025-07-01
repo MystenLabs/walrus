@@ -323,7 +323,7 @@ where
             } => configure_self_signed_tls(server_name, network_key_pair).await?,
         };
 
-        self.metrics.set_tls_expiration_time(
+        self.metrics.set_tls_certificate_expiration_time(
             certificate
                 .tbs_certificate
                 .validity
@@ -453,26 +453,17 @@ async fn configure_tls_from_pem(
     certificate: &PathOrInPlace<Vec<u8>>,
     key: &PathOrInPlace<Vec<u8>>,
 ) -> Result<(RustlsConfig, Certificate), anyhow::Error> {
-    let (tls_config, certificate_pem) =
-        if let Some((certificate_path, key_path)) = certificate.path().zip(key.path()) {
-            let tls_config = RustlsConfig::from_pem_file(certificate_path, key_path)
-                .await
-                .context("failed to load certificate and key from provided paths")?;
+    let certificate_pem = certificate
+        .load_transient()
+        .context("failed to load TLS PEM certificate")?;
 
-            let certificate_pem =
-                std::fs::read(certificate_path).context("failed to load certificate")?;
+    let key_pem = key
+        .load_transient()
+        .context("failed to load TLS private key")?;
 
-            (tls_config, certificate_pem)
-        } else {
-            let certificate_pem = certificate.load_transient()?.clone();
-
-            let tls_config =
-                RustlsConfig::from_pem(certificate_pem.clone(), key.load_transient()?.clone())
-                    .await
-                    .context("failed to load certificate and key from in-memory contents")?;
-
-            (tls_config, certificate_pem)
-        };
+    let tls_config = RustlsConfig::from_pem(certificate_pem.clone(), key_pem)
+        .await
+        .context("failed to load certificate and key from in-memory contents")?;
 
     let certificate = x509_cert::Certificate::load_pem_chain(&certificate_pem)?
         .into_iter()
