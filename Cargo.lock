@@ -13110,6 +13110,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "urlencoding",
  "utoipa",
  "walkdir",
  "walrus-core",

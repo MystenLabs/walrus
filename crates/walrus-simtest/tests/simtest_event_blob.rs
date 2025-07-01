@@ -26,7 +26,7 @@ mod tests {
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
     use walrus_sui::{
-        client::{ReadClient, SuiContractClient},
+        client::{ReadClient, SuiContractClient, rpc_client},
         types::move_structs::EventBlob,
     };
     use walrus_test_utils::WithTempDir;
@@ -463,8 +463,10 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.
-        let rpc_client = RpcClient::new(sui_cluster.lock().await.additional_rpc_urls()[0].clone())
-            .expect("Failed to create RPC client");
+        let rpc_client = rpc_client::create_client_with_env_auth(
+            sui_cluster.lock().await.additional_rpc_urls()[0].clone(),
+        )
+        .expect("Failed to create RPC client");
         let latest_sui_checkpoint = rpc_client
             .get_latest_checkpoint()
             .await
