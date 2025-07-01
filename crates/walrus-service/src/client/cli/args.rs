@@ -267,7 +267,7 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// Read quilt patches (blobs) from Walrus.
-    #[command(override_usage = "walrus read-quilt <Arguments> [OPTIONS]")]
+    #[command(override_usage = "walrus read-quilt ARGUMENTS [OPTIONS]")]
     ReadQuilt {
         /// The quilt patch query.
         #[command(flatten)]
@@ -1127,18 +1127,15 @@ pub struct QuiltPatchQuery {
         alias = "identifier",
         conflicts_with = "tag",
         conflicts_with = "quilt_patch_ids",
-        num_args = 0..,
+        num_args = 1..,
         help_heading = "Arguments"
     )]
     #[serde(default)]
     identifiers: Vec<String>,
 
-    /// The tag key.
+    /// The tag key and value.
     ///
-    /// It is required to be used with `--quilt-id` and `--value`.
-    ///
-    /// Example:
-    /// walrus read-quilt --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
+    /// It is required to be used with `--quilt-id`.
     #[arg(
         long,
         conflicts_with = "quilt_patch_ids",
@@ -1160,7 +1157,7 @@ pub struct QuiltPatchQuery {
     #[arg(
         long = "quilt-patch-ids",
         aliases = ["quilt-patch-id", "patch-ids"],
-        num_args = 0..,
+        num_args = 1..,
         value_terminator = "--",
         allow_hyphen_values = true,
         value_parser = parse_quilt_patch_id,
@@ -1173,50 +1170,56 @@ pub struct QuiltPatchQuery {
 impl QuiltPatchQuery {
     /// Returns a QuiltPatchSelector from the command line arguments.
     pub fn to_selector(&self) -> Result<QuiltPatchSelector> {
-        if !self.identifiers.is_empty() {
-            if !self.tag.is_empty() || !self.quilt_patch_ids.is_empty() || self.quilt_id.is_none() {
-                return Err(Self::invalid_query_error());
+        match (
+            !self.identifiers.is_empty(),
+            !self.tag.is_empty(),
+            !self.quilt_patch_ids.is_empty(),
+            self.quilt_id.is_some(),
+        ) {
+            // quilt_id and identifiers provided.
+            (true, false, false, true) => {
+                Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                    quilt_id: self.quilt_id.expect("quilt_id should be present"),
+                    identifiers: self.identifiers.clone(),
+                }))
             }
-            Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
-                quilt_id: self.quilt_id.expect("quilt_id should be present"),
-                identifiers: self.identifiers.clone(),
-            }))
-        } else if !self.tag.is_empty() {
-            if self.tag.len() != 2 {
-                return Err(anyhow!("Only one tag is supported for now."));
+
+            // quilt_id and tags provided.
+            (false, true, false, true) => {
+                if self.tag.len() != 2 {
+                    return Err(anyhow!("Only one tag is supported for now."));
+                }
+                Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                    quilt_id: self.quilt_id.expect("quilt_id should be present"),
+                    tag: self.tag[0].clone(),
+                    value: self.tag[1].clone(),
+                }))
             }
-            if self.quilt_id.is_none() || self.quilt_patch_ids.is_empty() {
-                return Err(Self::invalid_query_error());
-            }
-            Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
-                quilt_id: self.quilt_id.expect("quilt_id should be present"),
-                tag: self.tag[0].clone(),
-                value: self.tag[1].clone(),
-            }))
-        } else if !self.quilt_patch_ids.is_empty() {
-            if self.quilt_id.is_none() {
-                return Err(Self::invalid_query_error());
-            }
-            Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+
+            // quilt_patch_ids provided.
+            (false, false, true, false) => Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
                 quilt_patch_ids: self.quilt_patch_ids.clone(),
-            }))
-        } else if self.quilt_id.is_some() {
-            Ok(QuiltPatchSelector::All(
+            })),
+
+            // Only quilt_id provided.
+            (false, false, false, true) => Ok(QuiltPatchSelector::All(
                 self.quilt_id.expect("quilt_id should be present"),
-            ))
-        } else {
-            Err(Self::invalid_query_error())
+            )),
+
+            // All other combinations are invalid
+            _ => Err(Self::invalid_query_error()),
         }
     }
 
     /// Returns an error message for an invalid query.
     fn invalid_query_error() -> anyhow::Error {
         anyhow!(
-            "Exactly one query type must be specified. Valid query types are:\n\
-            - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
-            - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
-            - --quilt-patch-id <PATCH_ID>...\n\
-            - --quilt-id <ID>"
+            "Exactly one query type must be specified. Valid query patterns are:\n\
+            - quiltId + identifiers: {{\"quiltId\": \"<ID>\", \
+            \"identifiers\": [\"<IDENTIFIER>\", ...]}}\n\
+            - quiltId + tag: {{\"quiltId\": \"<ID>\", \"tag\": [\"<KEY>\", \"<VALUE>\"]}}\n\
+            - quiltPatchIds: {{\"quiltPatchIds\": [\"<PATCH_ID>\", ...]}}\n\
+            - quiltId only: {{\"quiltId\": \"<ID>\"}}"
         )
     }
 }
