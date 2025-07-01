@@ -79,16 +79,12 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
 #[cfg(msim)]
-use crate::event::event_processor::config::{
-    EventProcessorConfig,
-    EventProcessorRuntimeConfig,
-    SystemConfig,
-};
+use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
 use crate::{
     event::{
-        event_processor::processor::EventProcessor,
+        event_processor::{config::EventProcessorConfig, processor::EventProcessor},
         events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{
@@ -687,6 +683,7 @@ pub struct StorageNodeHandleBuilder {
     num_checkpoints_per_blob: Option<u32>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    event_stream_catchup_min_checkpoint_lag: Option<u64>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -842,6 +839,15 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the event stream catchup min checkpoint lag for the node.
+    pub fn with_event_stream_catchup_min_checkpoint_lag(
+        mut self,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    ) -> Self {
+        self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -925,6 +931,16 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
+            event_processor_config: if let Some(event_stream_catchup_min_checkpoint_lag) =
+                self.event_stream_catchup_min_checkpoint_lag
+            {
+                EventProcessorConfig {
+                    event_stream_catchup_min_checkpoint_lag,
+                    ..Default::default()
+                }
+            } else {
+                Default::default()
+            },
             ..storage_node_config().inner
         };
 
@@ -1068,9 +1084,17 @@ impl StorageNodeHandleBuilder {
             public_host: node_info.rest_api_address.ip().to_string(),
             public_port: node_info.rest_api_address.port(),
             event_processor_config: EventProcessorConfig {
-                // Use low checkpoint lag so that we can exercise using event blobs to catch up
-                // in simtest.
-                event_stream_catchup_min_checkpoint_lag: 200,
+                event_stream_catchup_min_checkpoint_lag: if let Some(
+                    event_stream_catchup_min_checkpoint_lag,
+                ) =
+                    self.event_stream_catchup_min_checkpoint_lag
+                {
+                    event_stream_catchup_min_checkpoint_lag
+                } else {
+                    // Use low checkpoint lag so that we can exercise using event blobs to catch up
+                    // in simtest.
+                    200
+                },
                 ..Default::default()
             },
             use_legacy_event_provider: false,
@@ -1164,6 +1188,7 @@ impl Default for StorageNodeHandleBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            event_stream_catchup_min_checkpoint_lag: None,
         }
     }
 }
@@ -1717,6 +1742,7 @@ pub struct TestClusterBuilder {
     disable_event_blob_writer: Vec<bool>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    event_stream_catchup_min_checkpoint_lag: Option<u64>,
 }
 
 impl TestClusterBuilder {
@@ -1906,6 +1932,15 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the event stream catchup min checkpoint lag for all storage nodes.
+    pub fn with_event_stream_catchup_min_checkpoint_lag(
+        mut self,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    ) -> Self {
+        self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let committee_members: Vec<_> = self
@@ -1967,6 +2002,9 @@ impl TestClusterBuilder {
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
+                .with_event_stream_catchup_min_checkpoint_lag(
+                    self.event_stream_catchup_min_checkpoint_lag,
+                )
                 .with_name(format!("node-{idx}"));
             tracing::info!(
                 "test cluster builder build enable_node_config_synchronizer: {}",
@@ -2152,6 +2190,7 @@ impl Default for TestClusterBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            event_stream_catchup_min_checkpoint_lag: None,
         }
     }
 }
@@ -2331,6 +2370,7 @@ pub mod test_cluster {
         #[allow(unused)]
         num_additional_fullnodes: Option<usize>,
         contract_directory: Option<PathBuf>,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
     }
 
     impl Default for E2eTestSetupBuilder {
@@ -2345,6 +2385,7 @@ pub mod test_cluster {
                 delegate_governance_to_admin_wallet: false,
                 num_additional_fullnodes: None,
                 contract_directory: None,
+                event_stream_catchup_min_checkpoint_lag: None,
             }
         }
     }
@@ -2609,6 +2650,9 @@ pub mod test_cluster {
                 .with_blocklist_files(blocklist_files)
                 .with_enable_node_config_synchronizer(
                     test_nodes_config.enable_node_config_synchronizer,
+                )
+                .with_event_stream_catchup_min_checkpoint_lag(
+                    self.event_stream_catchup_min_checkpoint_lag,
                 );
             let cluster = {
                 // Lock to avoid race conditions.
@@ -2703,6 +2747,15 @@ pub mod test_cluster {
         /// Set the source directory of the contracts to be deployed.
         pub fn with_contract_directory(mut self, contract_directory: PathBuf) -> Self {
             self.contract_directory = Some(contract_directory);
+            self
+        }
+
+        /// Set the event stream catchup min checkpoint lag for the nodes in the cluster.
+        pub fn with_event_stream_catchup_min_checkpoint_lag(
+            mut self,
+            event_stream_catchup_min_checkpoint_lag: Option<u64>,
+        ) -> Self {
+            self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
             self
         }
     }
