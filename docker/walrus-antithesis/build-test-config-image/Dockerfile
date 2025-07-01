@@ -1,5 +1,5 @@
 # This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
-FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS setup
+FROM debian:bookworm-slim AS setup
 
 RUN apt update
 RUN apt install python3 python3-pip -y
