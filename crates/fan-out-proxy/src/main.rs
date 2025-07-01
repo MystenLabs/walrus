@@ -52,16 +52,16 @@ enum Command {
     /// Run the Walrus Fan-out Proxy.
     Proxy {
         /// The configuration context to use for the client, if omitted the default_context is used.
-        #[arg(long, global = true)]
+        #[arg(long)]
         context: Option<String>,
         /// The file path to the Walrus read client configuration.
-        #[arg(long, global = true)]
+        #[arg(long)]
         walrus_config: PathBuf,
         /// The address to listen on. Defaults to 0.0.0.0:57391.
-        #[arg(long, global = true)]
+        #[arg(long)]
         server_address: Option<SocketAddr>,
         /// The file path to the configuration of the fan-out proxy.
-        #[arg(long, global = true)]
+        #[arg(long)]
         fan_out_config: PathBuf,
     },
     #[cfg(feature = "test-client")]
@@ -73,10 +73,10 @@ enum Command {
         /// The file to be stored.
         file: PathBuf,
         /// The configuration context to use for the client, if omitted the default_context is used.
-        #[arg(long, global = true)]
+        #[arg(long)]
         context: Option<String>,
         /// The file path to the Walrus read client configuration.
-        #[arg(long, global = true)]
+        #[arg(long)]
         walrus_config: Option<PathBuf>,
         /// The url of the proxy server the client will use.
         #[arg(long)]
@@ -96,13 +96,13 @@ enum Command {
         /// If an invalid path is specified through this option or in the configuration file, an
         /// error is returned.
         // NB: Keep this in sync with `crate::cli`.
-        #[arg(long, verbatim_doc_comment, global = true)]
+        #[arg(long, verbatim_doc_comment)]
         wallet: Option<PathBuf>,
         /// The gas budget for the client.
         ///
         /// If not specified, the client will estimate the gas budget by dry-running the
         /// transaction.
-        #[arg(long, global = true)]
+        #[arg(long)]
         gas_budget: Option<u64>,
     },
 }
