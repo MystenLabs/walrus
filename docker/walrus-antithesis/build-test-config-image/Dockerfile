@@ -1,4 +1,3 @@
-# This is the same as debian:bookworm-slim but we use the GCP registry to avoid rate limiting.
 FROM debian:bookworm-slim AS setup
 
 RUN apt update
