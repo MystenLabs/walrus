@@ -3,9 +3,8 @@
 
 //! Catchup module for catching up the event processor with the network.
 
-use std::{fs, path::Path};
+use std::{fs, path::PathBuf};
 
-use anyhow::{Result, anyhow};
 use sui_types::{
     committee::Committee,
     event::EventID,
@@ -13,10 +12,12 @@ use sui_types::{
     sui_serde::BigInt,
 };
 use tracing;
-use typed_store::{Map, rocks::DBBatch};
+use typed_store::{Map, TypedStoreError, rocks::DBBatch};
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::client::{SuiReadClient, contract_config::ContractConfig};
+use walrus_utils::metrics::Registry;
 
+use super::metrics::EventCatchupManagerMetrics;
 use crate::event::{
     event_blob::EventBlob,
     event_processor::{
@@ -30,10 +31,12 @@ use crate::event::{
 #[derive(Debug, Clone)]
 struct DownloadedBlob {
     blob_id: BlobId,
+    /// Older blob.
     prev_blob_id: BlobId,
+    /// The last event from the previous blob.
     prev_event_id: Option<EventID>,
     epoch: Epoch,
-    first_event_index: Option<IndexedStreamEvent>,
+    first_event: Option<IndexedStreamEvent>,
     events: Vec<IndexedStreamEvent>,
     start_checkpoint: u64,
     end_checkpoint: u64,
@@ -51,6 +54,8 @@ pub struct EventBlobCatchupManager {
     stores: EventProcessorStores,
     clients: SuiClientSet,
     system_config: SystemConfig,
+    recovery_path: PathBuf,
+    metrics: EventCatchupManagerMetrics,
 }
 
 impl std::fmt::Debug for EventBlobCatchupManager {
@@ -69,18 +74,23 @@ impl EventBlobCatchupManager {
         stores: EventProcessorStores,
         clients: SuiClientSet,
         system_config: SystemConfig,
+        recovery_path: PathBuf,
+        registry: &Registry,
     ) -> Self {
+        let metrics = EventCatchupManagerMetrics::new(registry);
         Self {
             stores,
             clients,
             system_config,
+            recovery_path,
+            metrics,
         }
     }
 
     /// Checks if the event processor is lagging behind the network and performs catchup if needed.
-    pub async fn catchup(&self, lag_threshold: u64, recovery_path: &Path) -> Result<()> {
+    pub async fn catchup(&self, lag_threshold: u64) -> anyhow::Result<()> {
         let current_checkpoint = self.get_current_checkpoint()?;
-        let latest_checkpoint = self.get_latest_network_checkpoint().await?;
+        let latest_checkpoint = self.get_latest_network_checkpoint().await;
 
         let current_lag = self.calculate_lag(current_checkpoint, latest_checkpoint)?;
 
@@ -88,14 +98,14 @@ impl EventBlobCatchupManager {
             tracing::info!(
                 current_lag,
                 lag_threshold,
-                "Performing catchup - lag is above threshold"
+                "performing catchup - lag is above threshold"
             );
-            self.perform_catchup(recovery_path).await?;
+            self.perform_catchup().await?;
         } else {
             tracing::info!(
                 current_lag,
                 lag_threshold,
-                "Skipping catchup - lag is below threshold"
+                "skipping catchup - lag is below threshold"
             );
         }
 
@@ -103,7 +113,7 @@ impl EventBlobCatchupManager {
     }
 
     /// Gets the current checkpoint from the store
-    fn get_current_checkpoint(&self) -> Result<u64> {
+    fn get_current_checkpoint(&self) -> Result<u64, TypedStoreError> {
         Ok(self
             .stores
             .checkpoint_store
@@ -112,27 +122,27 @@ impl EventBlobCatchupManager {
             .unwrap_or(0))
     }
 
-    /// Gets the latest checkpoint from the network
-    async fn get_latest_network_checkpoint(&self) -> Result<Option<u64>> {
+    /// Gets the latest checkpoint number from the network
+    async fn get_latest_network_checkpoint(&self) -> Option<u64> {
         match self
             .clients
             .rpc_client
             .get_latest_checkpoint_summary()
             .await
         {
-            Ok(summary) => Ok(Some(summary.sequence_number)),
+            Ok(summary) => Some(summary.sequence_number),
             Err(e) => {
                 tracing::warn!(
                     error = ?e,
                     "Failed to get latest checkpoint summary, proceeding without lag check"
                 );
-                Ok(None)
+                None
             }
         }
     }
 
     /// Calculates the lag between current and latest checkpoint
-    fn calculate_lag(&self, current: u64, latest: Option<u64>) -> Result<u64> {
+    fn calculate_lag(&self, current: u64, latest: Option<u64>) -> anyhow::Result<u64> {
         let lag = match latest {
             Some(latest) => {
                 if current > latest {
@@ -143,7 +153,7 @@ impl EventBlobCatchupManager {
                         checkpoint! This is especially likely when a node is restarted running
                         against a newer localnet, testnet or devnet network."
                     );
-                    return Err(anyhow!("Invalid checkpoint state"));
+                    return Err(anyhow::anyhow!("Invalid checkpoint state"));
                 }
                 latest - current
             }
@@ -158,13 +168,17 @@ impl EventBlobCatchupManager {
     }
 
     /// Performs the catchup operation using event blobs
-    pub async fn perform_catchup(&self, recovery_path: &Path) -> Result<()> {
-        if let Err(error) = self.catchup_using_event_blobs(recovery_path).await {
-            tracing::error!(?error, "Failed to catch up using event blobs");
-            return Err(error);
+    pub async fn perform_catchup(&self) -> anyhow::Result<()> {
+        match self.catchup_using_event_blobs().await {
+            Ok(()) => {
+                tracing::info!("successfully caught up using event blobs");
+                Ok(())
+            }
+            Err(error) => {
+                tracing::error!(?error, "failed to catch up using event blobs");
+                Err(error)
+            }
         }
-        tracing::info!("Successfully caught up using event blobs");
-        Ok(())
     }
 
     /// Catch up the local event store using certified event blobs stored on Walrus nodes.
@@ -187,26 +201,25 @@ impl EventBlobCatchupManager {
     /// starting from `N+1`). If however, the local store is empty, the catch-up will store all
     /// events from the earliest available event blob (in which case the first stored event index
     /// could be greater than `0`).
-    async fn catchup_using_event_blobs(&self, recovery_path: &Path) -> Result<()> {
-        tracing::info!("Starting event catchup using event blobs");
+    async fn catchup_using_event_blobs(&self) -> anyhow::Result<()> {
+        tracing::info!("starting event catchup using event blobs");
 
         let next_checkpoint = self.get_next_checkpoint()?;
-        tracing::info!("ZZZZ next checkpoint: {:?}", next_checkpoint);
-        self.ensure_recovery_directory(recovery_path)?;
+        self.ensure_recovery_directory()?;
 
         let blobs = self
-            .collect_event_blobs_for_catchup(next_checkpoint, recovery_path)
+            .collect_event_blobs_for_catchup(next_checkpoint)
             .await?;
         let next_event_index = self.get_next_event_index()?;
 
-        self.process_event_blobs(blobs, recovery_path, next_event_index)
-            .await?;
+        self.process_event_blobs(blobs, next_event_index).await?;
 
         Ok(())
     }
 
-    /// Gets the next checkpoint sequence number
-    fn get_next_checkpoint(&self) -> Result<Option<u64>> {
+    /// Gets the next checkpoint sequence number that is after the latest checkpoint in the
+    /// checkpoint store.
+    fn get_next_checkpoint(&self) -> Result<Option<u64>, TypedStoreError> {
         Ok(self
             .stores
             .checkpoint_store
@@ -216,8 +229,8 @@ impl EventBlobCatchupManager {
             .map(|(_, checkpoint)| checkpoint.inner().sequence_number + 1))
     }
 
-    /// Gets the next event index
-    fn get_next_event_index(&self) -> Result<Option<u64>> {
+    /// Gets the next event index that is after the latest event index in the event store.
+    fn get_next_event_index(&self) -> Result<Option<u64>, TypedStoreError> {
         Ok(self
             .stores
             .event_store
@@ -228,9 +241,9 @@ impl EventBlobCatchupManager {
     }
 
     /// Ensures the recovery directory exists
-    fn ensure_recovery_directory(&self, recovery_path: &Path) -> Result<()> {
-        if !recovery_path.exists() {
-            fs::create_dir_all(recovery_path)?;
+    fn ensure_recovery_directory(&self) -> anyhow::Result<()> {
+        if !self.recovery_path.exists() {
+            fs::create_dir_all(&self.recovery_path)?;
         }
         Ok(())
     }
@@ -238,7 +251,7 @@ impl EventBlobCatchupManager {
     /// Placeholder function for when the client feature is not enabled.
     #[cfg(not(feature = "client"))]
     pub async fn collect_event_blobs_for_catchup(
-        upto_checkpoint: Option<u64>,
+        starting_checkpoint_to_process: Option<u64>,
         recovery_path: &Path,
     ) -> Result<Vec<BlobId>> {
         Ok(vec![])
@@ -251,9 +264,8 @@ impl EventBlobCatchupManager {
     #[cfg(feature = "client")]
     async fn collect_event_blobs_for_catchup(
         &self,
-        upto_checkpoint: Option<u64>,
-        recovery_path: &Path,
-    ) -> Result<Vec<BlobId>> {
+        starting_checkpoint_to_process: Option<u64>,
+    ) -> anyhow::Result<Vec<BlobId>> {
         use crate::event::event_blob_downloader::EventBlobDownloader;
 
         let contract_config = ContractConfig::new(
@@ -270,7 +282,12 @@ impl EventBlobCatchupManager {
         .await?;
         let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
         let blob_ids = blob_downloader
-            .download(upto_checkpoint, None, recovery_path)
+            .download(
+                starting_checkpoint_to_process,
+                None,
+                &self.recovery_path,
+                &self.metrics,
+            )
             .await?;
 
         tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
@@ -280,18 +297,15 @@ impl EventBlobCatchupManager {
     async fn process_event_blobs(
         &self,
         blobs: Vec<BlobId>,
-        recovery_path: &Path,
         next_event_index: Option<u64>,
-    ) -> Result<()> {
-        tracing::info!("Starting to process event blobs");
+    ) -> anyhow::Result<()> {
+        tracing::info!("starting to process event blobs");
 
         let mut num_events_recovered = 0;
         let mut next_event_index = next_event_index;
 
         for blob_id in blobs.iter().rev() {
-            let downloaded_blob = self
-                .process_single_blob(blob_id, recovery_path, next_event_index)
-                .await?;
+            let downloaded_blob = self.process_single_blob(blob_id, next_event_index).await?;
 
             if downloaded_blob.events.is_empty() {
                 // We break (rather than continue) because empty events indicates we've hit our
@@ -314,7 +328,7 @@ impl EventBlobCatchupManager {
                 tracing::info!(
                     event_blob_id = %blob_id,
                     next_event_index = ?next_event_index,
-                    "No relevant events found in event blob; breaking the loop"
+                    "no relevant events found in event blob; breaking the loop"
                 );
                 break;
             }
@@ -333,9 +347,7 @@ impl EventBlobCatchupManager {
                 downloaded_blob.end_checkpoint
             );
             num_events_recovered += downloaded_blob.events.len();
-            next_event_index = self
-                .store_events_and_update_state(downloaded_blob, recovery_path)
-                .await?;
+            next_event_index = self.store_events_and_update_state(downloaded_blob).await?;
         }
 
         tracing::info!("Recovered {} events from event blobs", num_events_recovered);
@@ -345,10 +357,9 @@ impl EventBlobCatchupManager {
     async fn process_single_blob(
         &self,
         blob_id: &BlobId,
-        recovery_path: &Path,
         next_event_index: Option<u64>,
-    ) -> Result<DownloadedBlob> {
-        let blob_path = recovery_path.join(blob_id.to_string());
+    ) -> anyhow::Result<DownloadedBlob> {
+        let blob_path = self.recovery_path.join(blob_id.to_string());
         let buf = std::fs::read(&blob_path)?;
         let event_blob = EventBlob::new(&buf)?;
         let prev_blob_id = event_blob.prev_blob_id();
@@ -364,7 +375,7 @@ impl EventBlobCatchupManager {
             prev_blob_id,
             prev_event_id,
             epoch,
-            first_event_index: first_event,
+            first_event,
             events,
             start_checkpoint,
             end_checkpoint,
@@ -374,10 +385,11 @@ impl EventBlobCatchupManager {
     async fn store_events_and_update_state(
         &self,
         downloaded_blob: DownloadedBlob,
-        recovery_path: &Path,
-    ) -> Result<Option<u64>> {
+    ) -> anyhow::Result<Option<u64>> {
+        // Note that this is the first event in the blob, which may be different from the first
+        // event stored in `downloaded_blob.events`.
         let first_event_index = downloaded_blob
-            .first_event_index
+            .first_event
             .expect("Event list is not empty")
             .index;
         let last_event_index = downloaded_blob
@@ -411,9 +423,7 @@ impl EventBlobCatchupManager {
 
         batch.write()?;
 
-        // Clean up the blob file
-        let blob_path = recovery_path.join(downloaded_blob.blob_id.to_string());
-        fs::remove_file(blob_path)?;
+        self.cleanup_blob_file(downloaded_blob.blob_id)?;
         Ok(Some(last_event_index + 1))
     }
 
@@ -421,7 +431,7 @@ impl EventBlobCatchupManager {
         &self,
         batch: &mut DBBatch,
         last_checkpoint: u64,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         let checkpoint_summary = self
             .clients
             .rpc_client
@@ -446,7 +456,7 @@ impl EventBlobCatchupManager {
     async fn get_next_committee(
         &self,
         checkpoint_summary: &sui_types::messages_checkpoint::CheckpointSummary,
-    ) -> Result<Committee> {
+    ) -> anyhow::Result<Committee> {
         if let Some(end_of_epoch_data) = &checkpoint_summary.end_of_epoch_data {
             Ok(Committee::new(
                 checkpoint_summary.epoch + 1,
@@ -476,7 +486,7 @@ impl EventBlobCatchupManager {
         blob_id: &BlobId,
         prev_event_id: Option<EventID>,
         epoch: Epoch,
-    ) -> Result<()> {
+    ) -> Result<(), TypedStoreError> {
         let state = InitState::new(*blob_id, prev_event_id, first_event_index, epoch);
         batch.insert_batch(
             &self.stores.init_state,
@@ -485,6 +495,18 @@ impl EventBlobCatchupManager {
         Ok(())
     }
 
+    /// Processes an event blob and returns relevant events that maintain a continuous sequence with
+    /// the local store.
+    ///
+    /// Returns a tuple containing:
+    /// - The first event in the blob (regardless of relevance)
+    /// - A vector of relevant events paired with their indices
+    ///
+    /// Events are considered relevant if they either:
+    /// - Start at the next expected index (when next_event_index is Some)
+    /// - Or all events in the blob (when next_event_index is None)
+    ///
+    /// The function stops collecting events as soon as it encounters a gap in the sequence.
     fn collect_relevant_events(
         &self,
         event_blob: EventBlob,
@@ -499,10 +521,21 @@ impl EventBlobCatchupManager {
                     *state = Some(*expected_index + 1);
                     Some(event)
                 }
-                None => Some(event),
+                None => {
+                    // Ensure sequential event index stored in event blob.
+                    *state = Some(event.index + 1);
+                    Some(event)
+                }
                 _ => None,
             })
             .collect();
         (first_event, relevant_events)
+    }
+
+    // Clean up the blob file
+    fn cleanup_blob_file(&self, blob_id: BlobId) -> anyhow::Result<()> {
+        let blob_path = self.recovery_path.join(blob_id.to_string());
+        fs::remove_file(blob_path)?;
+        Ok(())
     }
 }

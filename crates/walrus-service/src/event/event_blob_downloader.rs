@@ -14,6 +14,7 @@ use walrus_sui::{
     types::move_structs::EventBlob,
 };
 
+use super::event_processor::metrics::EventCatchupManagerMetrics;
 use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
 
 /// A struct that contains the metadata of an event blob.
@@ -103,9 +104,10 @@ impl EventBlobDownloader {
     /// Returns a vector of blob IDs in reverse chronological order (newest to oldest).
     pub async fn download(
         &self,
-        upto_checkpoint: Option<u64>,
+        starting_checkpoint_to_process: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
+        metrics: &EventCatchupManagerMetrics,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
         let mut prev_event_blob = match from_blob {
@@ -145,6 +147,10 @@ impl EventBlobDownloader {
 
             let blob_path = path.join(prev_event_blob.to_string());
             let blob = if blob_path.exists() {
+                metrics
+                    .event_catchup_manager_event_blob_fetched
+                    .with_label_values(&["local"])
+                    .inc();
                 std::fs::read(blob_path.as_path())?
             } else {
                 match self
@@ -155,7 +161,13 @@ impl EventBlobDownloader {
                     )
                     .await
                 {
-                    Ok(blob) => blob,
+                    Ok(blob) => {
+                        metrics
+                            .event_catchup_manager_event_blob_fetched
+                            .with_label_values(&["network"])
+                            .inc();
+                        blob
+                    }
                     Err(err) => {
                         return Err(err.into());
                     }
@@ -166,8 +178,10 @@ impl EventBlobDownloader {
 
             let mut event_blob = LocalEventBlob::new(&blob)?;
 
-            let should_store = match upto_checkpoint {
-                Some(next_cp) => event_blob.end_checkpoint_sequence_number() >= next_cp,
+            let should_store = match starting_checkpoint_to_process {
+                Some(starting_checkpoint_to_process) => {
+                    event_blob.end_checkpoint_sequence_number() >= starting_checkpoint_to_process
+                }
                 None => true,
             };
 
@@ -193,8 +207,8 @@ impl EventBlobDownloader {
                 event_blob.store_as_file(&blob_path)?;
             }
 
-            if let Some(max_cp) = upto_checkpoint {
-                if event_blob.start_checkpoint_sequence_number() <= max_cp {
+            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process {
+                if event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process {
                     break;
                 }
             }

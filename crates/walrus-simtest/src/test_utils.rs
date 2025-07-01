@@ -265,9 +265,13 @@ pub mod simtest_utils {
     /// BlobInfoConsistencyCheck is a helper struct to check the consistency of the blob info.
     #[derive(Debug)]
     pub struct BlobInfoConsistencyCheck {
+        // Per event index, the event source of the event in all nodes.
         event_source_map: Arc<Mutex<HashMap<u64, HashMap<ObjectID, u64>>>>,
+        // Per epoch, the certified blob digest of all nodes.
         certified_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        // Per epoch, the per object blob digest of all nodes.
         per_object_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        // Per epoch, the existence check of all nodes.
         blob_existence_check_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>,
         checked: Arc<AtomicBool>,
     }

@@ -71,7 +71,9 @@ impl CheckpointProcessor {
         }
     }
 
-    /// Verifies the given checkpoint with the given previous checkpoint.
+    /// Verifies the given checkpoint with the given previous checkpoint. This method will verify
+    /// that the checkpoint summary matches the content and that the checkpoint contents match the
+    /// transactions.
     pub fn verify_checkpoint(
         &self,
         checkpoint: &CheckpointData,
@@ -239,13 +241,13 @@ impl CheckpointProcessor {
         // Write all changes
         write_batch.write()?;
 
-        self.update_checkpoint_seq_number(*verified_checkpoint.sequence_number());
+        self.update_cached_latest_checkpoint_seq_number(*verified_checkpoint.sequence_number());
 
         Ok(next_event_index)
     }
 
     /// Updates the cached checkpoint sequence number.
-    pub fn update_checkpoint_seq_number(&self, sequence_number: u64) {
+    pub fn update_cached_latest_checkpoint_seq_number(&self, sequence_number: u64) {
         self.latest_checkpoint_seq_number
             .fetch_max(sequence_number, Ordering::SeqCst);
     }

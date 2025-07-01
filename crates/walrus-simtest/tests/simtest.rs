@@ -132,7 +132,6 @@ mod tests {
                 use_legacy_event_processor: false,
                 ..Default::default()
             })
-            .with_num_checkpoints_per_blob(100)
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),

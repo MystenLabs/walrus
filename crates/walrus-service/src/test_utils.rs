@@ -79,12 +79,16 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
 #[cfg(msim)]
-use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
+use crate::event::event_processor::config::{
+    EventProcessorConfig,
+    EventProcessorRuntimeConfig,
+    SystemConfig,
+};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
 use crate::{
     event::{
-        event_processor::{config::EventProcessorConfig, processor::EventProcessor},
+        event_processor::processor::EventProcessor,
         events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{
@@ -1064,6 +1068,8 @@ impl StorageNodeHandleBuilder {
             public_host: node_info.rest_api_address.ip().to_string(),
             public_port: node_info.rest_api_address.port(),
             event_processor_config: EventProcessorConfig {
+                // Use low checkpoint lag so that we can exercise using event blobs to catch up
+                // in simtest.
                 event_stream_catchup_min_checkpoint_lag: 200,
                 ..Default::default()
             },
@@ -2332,7 +2338,7 @@ pub mod test_cluster {
             Self {
                 epoch_duration: None,
                 test_nodes_config: None,
-                num_checkpoints_per_blob: Some(10),
+                num_checkpoints_per_blob: Some(100),
                 communication_config: None,
                 with_subsidies: false,
                 deploy_directory: None,
@@ -2785,10 +2791,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 shard_sync_retry_max_backoff: Duration::from_secs(3),
                 ..Default::default()
             },
-            event_processor_config: EventProcessorConfig {
-                event_stream_catchup_min_checkpoint_lag: 20,
-                ..Default::default()
-            },
+            event_processor_config: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
