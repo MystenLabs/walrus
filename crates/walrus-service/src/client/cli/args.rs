@@ -1096,6 +1096,7 @@ impl FromStr for QuiltBlobInput {
     }
 }
 
+/// Query to read quilt patches.
 #[serde_as]
 #[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[group(required = true)]
@@ -1170,6 +1171,7 @@ pub struct QuiltPatchQuery {
 }
 
 impl QuiltPatchQuery {
+    /// Returns a QuiltPatchSelector from the command line arguments.
     pub fn to_selector(&self) -> Result<QuiltPatchSelector> {
         if !self.identifiers.is_empty() {
             if !self.tag.is_empty() || !self.quilt_patch_ids.is_empty() || self.quilt_id.is_none() {
