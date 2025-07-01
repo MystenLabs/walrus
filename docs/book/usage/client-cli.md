@@ -253,10 +253,14 @@ a more detailed overview of the feature [Quilt](./quilt.md).
 
 You can interact with quilts using a dedicated set of `walrus` subcommands.
 
-### Storing Blobs in a Quilt
+### Storing Blobs as a Quilt
 
-To batch-store multiple files into a single quilt, use the `store-quilt` command. You can specify
+To batch-store multiple files as a single quilt, use the `store-quilt` command. You can specify
 the files to include in two ways:
+
+```admonish warning
+You must ensure that all the identifiers are unique within a quilt, the operation will fail otherwise.
+```
 
 #### Using `--paths`
 
@@ -265,12 +269,6 @@ used as its unique identifier within the quilt.
 
 ```sh
 walrus store-quilt --epochs 1 --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
-```
-
-```admonish warning
-When using `--paths`, the filename of each file is used as its identifier. You must ensure
-that all filenames are unique across all specified directories, as duplicate identifiers are
-not allowed within a single quilt.
 ```
 
 #### Using `--blobs`
@@ -286,60 +284,49 @@ walrus store-quilt \
   --epochs 1
 ```
 
-Like the regular `store` command, you must specify the storage duration using `--epochs`,
+Like the regular `store` command, you can specify the storage duration using `--epochs`,
 `--earliest-expiry-time`, or `--end-epoch`.
 
 ### Reading Blobs from a Quilt
 
 You can retrieve individual blobs (formally "patches") from a quilt without downloading the
-entire batch. The `read-quilt` command allows you to query for specific blobs by their identifier,
+entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.
 
-To read blobs by their identifiers, repeating the `--identifier` flag for each one:
+To read blobs by their identifiers, repeating the `--identifiers` flag:
 
 ```sh
-walrus read-quilt --out $HOME/quilt-download \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik \
-  --identifier walrus-46.jpg --identifier first-custom-identifier-heliu
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 ```
 
 To read blobs by a tag:
 
 ```sh
 # Read all blobs with tag "size: medium"
-walrus read-quilt --out $HOME/quilt-download \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik \
-  --tag size --value medium
-
-# Read all blobs with tag "color: red"
-walrus read-quilt --out $HOME/quilt-download \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik \
-  --tag color --value red
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
 ```
 
-You can also read a blob using its unique patch ID, which can be retrieved using
-`list-patches-in-quilt`. The `--patch-id` flag can also be repeated:
+You can also read a blob using its QuiltPatchId, which can be retrieved using
+`list-patches-in-quilt`. The `--quilt-patch-ids` flag can also be repeated:
 
 ```sh
-walrus read-quilt --out $HOME/quilt-download \
-  --patch-id GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
-  --patch-id GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
+walrus read-quilt --out <download dir> \
+  --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
+  GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
 ```
 
-By default, the retrieved files are written to the current directory with their identifiers as
-filenames. You can specify a different output directory with `--out <DIRECTORY>`.
+You can specify the output directory with `--out <DIRECTORY>`.
 
-### Listing Blobs in a Quilt
+### Listing patches in a Quilt
 
-To see all the blobs contained within a quilt, along with their identifiers and tags, use the
-`list-patches-in-quilt` command. It also has a convenient alias, `resolve-quilt`.
+To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
+the `list-patches-in-quilt` command.
 
 ```sh
-walrus resolve-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
+walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
 ```
-
-This command will print a list of all patches (blobs), including their identifiers, tags, and
-unique patch IDs.
 
 ## Blob object and blob ID utilities
 
