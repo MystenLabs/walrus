@@ -24,6 +24,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{StreamExt, future, stream::FuturesUnordered};
+use itertools::izip;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -1916,46 +1917,68 @@ impl TestClusterBuilder {
         let mut lookup_service_and_handle = None;
         let mut node_futures = vec![];
 
-        for (
-            idx,
-            (
-                (
-                    (
-                        (
-                            ((((config, event_provider), service), contract_service), capability),
-                            node_wallet_dir,
-                        ),
-                        start_node_from_beginning,
-                    ),
-                    blocklist_file,
-                ),
+        // Helper struct to extract per node setup configurations from the builder.
+        struct NodeSetup {
+            storage_node_config: StorageNodeTestConfig,
+            event_provider: Option<Box<dyn SystemEventProvider>>,
+            committee_service: Option<Arc<dyn CommitteeService>>,
+            contract_service: Option<Arc<dyn SystemContractService>>,
+            storage_capability: Option<StorageNodeCap>,
+            node_wallet_dir: Option<PathBuf>,
+            start_node_from_beginning: bool,
+            blocklist_file: Option<PathBuf>,
+            disable_event_blob_writer: bool,
+        }
+
+        let node_setups = izip!(
+            self.storage_node_configs.into_iter(),
+            self.event_providers.into_iter(),
+            self.committee_services.into_iter(),
+            self.contract_services.into_iter(),
+            self.storage_capabilities.into_iter(),
+            self.node_wallet_dirs.into_iter(),
+            self.start_node_from_beginning.into_iter(),
+            self.blocklist_files.into_iter(),
+            self.disable_event_blob_writer.into_iter()
+        )
+        .map(
+            |(
+                storage_node_config,
+                event_provider,
+                committee_service,
+                contract_service,
+                storage_capability,
+                node_wallet_dir,
+                start_node_from_beginning,
+                blocklist_file,
                 disable_event_blob_writer,
-            ),
-        ) in self
-            .storage_node_configs
-            .into_iter()
-            .zip(self.event_providers.into_iter())
-            .zip(self.committee_services.into_iter())
-            .zip(self.contract_services.into_iter())
-            .zip(self.storage_capabilities.into_iter())
-            .zip(self.node_wallet_dirs.into_iter())
-            .zip(self.start_node_from_beginning.into_iter())
-            .zip(self.blocklist_files.into_iter())
-            .zip(self.disable_event_blob_writer.into_iter())
-            .enumerate()
-        {
-            let storage = empty_storage_with_shards(&config.shards).await;
-            let local_identity = config.key_pair.public().clone();
+            )| NodeSetup {
+                storage_node_config,
+                event_provider,
+                committee_service,
+                contract_service,
+                storage_capability,
+                node_wallet_dir,
+                start_node_from_beginning,
+                blocklist_file,
+                disable_event_blob_writer,
+            },
+        )
+        .collect::<Vec<_>>();
+
+        for (idx, node_setup) in node_setups.into_iter().enumerate() {
+            let storage = empty_storage_with_shards(&node_setup.storage_node_config.shards).await;
+            let local_identity = node_setup.storage_node_config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
                 .with_storage(storage)
-                .with_test_config(config)
+                .with_test_config(node_setup.storage_node_config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
-                .with_storage_node_capability(capability)
-                .with_node_wallet_dir(node_wallet_dir)
-                .with_blocklist_file(blocklist_file)
+                .with_storage_node_capability(node_setup.storage_capability)
+                .with_node_wallet_dir(node_setup.node_wallet_dir)
+                .with_blocklist_file(node_setup.blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
-                .with_disabled_event_blob_writer(disable_event_blob_writer)
+                .with_disabled_event_blob_writer(node_setup.disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
                 .with_name(format!("node-{idx}"));
@@ -1971,11 +1994,11 @@ impl TestClusterBuilder {
                 builder
             };
 
-            if let Some(provider) = event_provider {
+            if let Some(provider) = node_setup.event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
             }
 
-            builder = if let Some(service) = service {
+            builder = if let Some(service) = node_setup.committee_service {
                 builder.with_committee_service(service)
             } else {
                 let (lookup_service, _) = lookup_service_and_handle.get_or_insert_with(|| {
@@ -1995,7 +2018,7 @@ impl TestClusterBuilder {
                 builder.with_committee_service(Arc::new(service))
             };
 
-            if let Some(service) = contract_service {
+            if let Some(service) = node_setup.contract_service {
                 builder = builder.with_system_contract_service(service);
             }
 
@@ -2007,8 +2030,8 @@ impl TestClusterBuilder {
                 nondeterministic!(
                     tempfile::tempdir().expect("temporary directory creation must succeed")
                 ),
-                start_node_from_beginning,
-                disable_event_blob_writer,
+                node_setup.start_node_from_beginning,
+                node_setup.disable_event_blob_writer,
             ));
         }
 

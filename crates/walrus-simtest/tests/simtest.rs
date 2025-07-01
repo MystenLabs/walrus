@@ -57,13 +57,6 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(check_determinism)]
     async fn walrus_basic_determinism() {
-        let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
-            // TODO: remove once Sui simtest can work with these features.
-            config.set_enable_jwk_consensus_updates_for_testing(false);
-            config.set_random_beacon_for_testing(false);
-            config
-        });
-
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
         let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()

@@ -39,13 +39,6 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn walrus_with_single_node_crash_and_restart() {
-        let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
-            // TODO: remove once Sui simtest can work with these features.
-            config.set_enable_jwk_consensus_updates_for_testing(false);
-            config.set_random_beacon_for_testing(false);
-            config
-        });
-
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
