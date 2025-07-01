@@ -1053,6 +1053,18 @@ impl EventBlobWriter {
             backoff: EventBackoff::new(5, 5),
         };
 
+        let latest_certified_index = blob_writer
+            .certified
+            .safe_iter()?
+            .next()
+            .transpose()?
+            .map(|(_, metadata)| metadata.event_cursor.element_index)
+            .unwrap_or(0);
+        blob_writer
+            .metrics
+            .latest_certified_event_index
+            .set(latest_certified_index.try_into()?);
+
         // Upon receiving a blob_certified event for an event blob, we may have crashed after making
         // the db changes but before attesting the next pending blob (since those two events are
         // not atomic).This invocation is to account for that particular scenario.
