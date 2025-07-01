@@ -571,7 +571,7 @@ impl ClientCommandRunner {
 
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
 
-        let retrieved_blobs = match selector {
+        let mut retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id,
                 identifiers,
@@ -596,12 +596,13 @@ impl ClientCommandRunner {
             QuiltPatchSelector::All(quilt_id) => quilt_read_client.get_all_blobs(&quilt_id).await?,
         };
 
-        let read_quilt_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
+        tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
+
         if let Some(out) = out.as_ref() {
-            Self::write_blobs_dedup(&read_quilt_output.retrieved_blobs, out).await?;
+            Self::write_blobs_dedup(&mut retrieved_blobs, out).await?;
         }
 
-        read_quilt_output.print_output(self.json)
+        ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
     }
 
     pub(crate) async fn list_patches_in_quilt(
@@ -1420,20 +1421,25 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    async fn write_blobs_dedup(blobs: &[QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
+    async fn write_blobs_dedup(
+        blobs: &mut [QuiltStoreBlob<'static>],
+        out_dir: &Path,
+    ) -> Result<()> {
         let mut filename_counters = std::collections::HashMap::new();
 
-        for blob in blobs {
-            let original_filename = blob.identifier();
-            let counter = filename_counters.entry(original_filename).or_insert(0);
+        for blob in &mut *blobs {
+            let original_filename = blob.identifier().to_owned();
+            let counter = filename_counters
+                .entry(original_filename.clone())
+                .or_insert(0);
             *counter += 1;
 
             let output_file_path = if *counter == 1 {
-                out_dir.join(original_filename)
+                out_dir.join(&original_filename)
             } else {
                 let (stem, extension) = match original_filename.rsplit_once('.') {
                     Some((s, e)) => (s, Some(e)),
-                    None => (original_filename, None),
+                    None => (original_filename.as_str(), None),
                 };
 
                 let new_filename = if let Some(ext) = extension {
@@ -1445,7 +1451,7 @@ impl ClientCommandRunner {
                 out_dir.join(new_filename)
             };
 
-            std::fs::write(&output_file_path, blob.data())?;
+            std::fs::write(&output_file_path, blob.take_blob())?;
         }
 
         Ok(())

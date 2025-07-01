@@ -807,12 +807,8 @@ impl ReadQuiltOutput {
     /// Creates a new [`ReadQuiltOutput`] object.
     pub fn new(out: Option<PathBuf>, retrieved_blobs: Vec<QuiltStoreBlob<'static>>) -> Self {
         Self {
-            retrieved_blobs: if out.is_some() {
-                vec![]
-            } else {
-                retrieved_blobs
-            },
             out,
+            retrieved_blobs,
         }
     }
 }

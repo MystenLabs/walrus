@@ -512,6 +512,11 @@ impl<'a> QuiltStoreBlob<'a> {
         self.blob.into_owned()
     }
 
+    /// Returns the blob data by moving it out.
+    pub fn take_blob(&mut self) -> Cow<'a, [u8]> {
+        core::mem::take(&mut self.blob)
+    }
+
     /// Returns a reference to the identifier.
     pub fn identifier(&self) -> &str {
         &self.identifier
