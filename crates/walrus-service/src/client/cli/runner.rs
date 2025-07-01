@@ -66,7 +66,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::wallet::Wallet;
+use walrus_sui::{client::rpc_client, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::args::{
@@ -1642,7 +1642,7 @@ async fn get_latest_checkpoint_sequence_number(
     };
 
     // Now url is a String, not an Option<String>
-    let rpc_client_result = sui_rpc_api::Client::new(url);
+    let rpc_client_result = rpc_client::create_sui_rpc_client(&url);
     if let Ok(rpc_client) = rpc_client_result {
         match rpc_client.get_latest_checkpoint().await {
             Ok(checkpoint) => Some(checkpoint.sequence_number),
