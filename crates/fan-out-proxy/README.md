@@ -37,5 +37,3 @@ Options:
   -h, --help
           Print help
 ```
-
-forwards blob uploads
