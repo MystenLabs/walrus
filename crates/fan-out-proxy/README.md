@@ -36,9 +36,18 @@ The store sequence is as follows:
 
 There are various ways to run the `fan-out-proxy`.
 
-## Docker
+## Installation
 
-First, take a look at the built-in help for guidance.
+### Download the Binary
+
+If you'd like to download a pre-built binary in order manually run `fan-out-proxy`, you'll need to download it from
+[here](https://github.com/MystenLabs/walrus/releases). Note that `fan-out-proxy` does not daemonize
+itself, and requires some supervisor process to ensure boot at startup, to restart in the event of
+failures, etc.
+
+### Docker
+
+The docker image for `fan-out-proxy` is available on Docker Hub as `mysten/fan-out-proxy`.
 
 ```
 $ docker run -it --rm mysten/fan-out-proxy --help
@@ -61,14 +70,30 @@ Options:
           Print help
 ```
 
-Notice that `fan-out-proxy` requires some configuration to get started. Each of these can be mounted
-into Docker at runtime. For the sake of the example below, we're assuming that:
+### Build from Source
+
+Of course, if you'd like to build from sources, that is always an option, as well. The sources for
+the `fan-out-proxy` are available on [GitHub](https://github.com/MystenLabs/walrus) in the
+`crates/fan-out-proxy` subdirectory. Running the following from the root of the Walrus repo should
+get you a working binary.
+
+```
+cargo build --release --bin fan-out-proxy
+./target/release/fan-out-proxy --help
+```
+
+## Configuration
+
+Notice that `fan-out-proxy` requires some configuration to get started. Below is an example of how
+you might place the configuration such that it is reachable when invoking Docker to run the proxy.
+For the sake of the example below, we're assuming that:
 
 - `$HOME/.config/fan-out-config.yaml` exists on the host machine and contains the specification for
   the `fan-out-proxy` configuration, as described [here](about:blank).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
   configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
-- Port 3000 is available for the proxy to bind to.
+- Port 3000 is available for the proxy to bind to (change this to whichever port you'd like to
+  expose from your host.)
 
 ```
 docker run \
@@ -82,3 +107,16 @@ docker run \
       --server-address 0.0.0.0:3000 \
       --fan-out-config /opt/walrus/fan-out-config.yaml
 ```
+
+### Tip Configuration
+
+An example Tip configuration can be found
+[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/fan_out_config_example.yaml). The
+various options are described
+[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/src/controller.rs#L63) and
+[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/src/tip/config.rs#L57).
+
+# Conclusion
+
+Setting up the `fan-out-proxy` should be straightforward. Please reach out to the Walrus team if you
+encounter any difficulties or have questions/concerns.
