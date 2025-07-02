@@ -57,7 +57,14 @@ use crate::{
         StakedWal,
         StorageNodeCap,
         StorageResource,
-        move_errors::{BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError},
+        move_errors::{
+            BlobError,
+            MoveExecutionError,
+            StakingError,
+            SubsidiesError,
+            SystemError,
+            WalrusSubsidiesError,
+        },
         move_structs::{
             Authorized,
             Blob,
@@ -76,9 +83,9 @@ mod read_client;
 pub use read_client::{
     CoinType,
     CommitteesAndState,
-    Credits,
     FixedSystemParameters,
     ReadClient,
+    SharedObjectWithPkgConfig,
     SuiReadClient,
 };
 pub mod retry_client;
@@ -103,6 +110,9 @@ pub enum SuiClientError {
     /// Credits are not enabled for this client.
     #[error("credits are not enabled for this client")]
     CreditsNotEnabled,
+    /// Walrus subsidies are not enabled for this client.
+    #[error("walrus subsidies are not configured for this client")]
+    WalrusSubsidiesNotConfigured,
     /// Unexpected internal errors.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -759,6 +769,14 @@ impl SuiContractClient {
         .await
     }
 
+    /// Call to initiate subsidy distribution.
+    ///
+    /// Requires the system-side walrus subsidy contract to be set.
+    pub async fn process_subsidies(&self) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async { self.inner.lock().await.process_subsidies().await })
+            .await
+    }
+
     /// Call to notify the contract that this node is done syncing the specified epoch.
     pub async fn epoch_sync_done(
         &self,
@@ -902,6 +920,39 @@ impl SuiContractClient {
             .await
             .exchange_sui_for_wal(exchange_id, amount)
             .await
+    }
+
+    /// Creates a new walrus subsidies object (`walrus_subsidies::WalrusSubsidies`)
+    /// and returns the object ID and the admin cap ID.
+    pub async fn create_walrus_subsidies(
+        &self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_walrus_subsidies(
+                    package_id,
+                    system_subsidy_rate,
+                    base_subsidy,
+                    subsidy_per_shard,
+                )
+                .await
+        })
+        .await
+    }
+
+    /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
+    /// configured.
+    pub async fn fund_walrus_subsidies(&self, amount: u64) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.fund_walrus_subsidies(amount).await
+        })
+        .await
     }
 
     /// Creates a new credits (`subsidies::Subsidies` in Move) object,
@@ -1261,18 +1312,26 @@ impl SuiContractClient {
             e @ Err(SuiClientError::TransactionExecutionError(
                 MoveExecutionError::Subsidies(SubsidiesError::EWrongVersion(_))
                 | MoveExecutionError::Staking(StakingError::EWrongVersion(_))
-                | MoveExecutionError::System(SystemError::EWrongVersion(_)),
+                | MoveExecutionError::System(SystemError::EWrongVersion(_))
+                | MoveExecutionError::WalrusSubsidies(WalrusSubsidiesError::EWrongVersion(_)),
             )) => {
                 // Store old package IDs
                 let old_package_id = self.read_client.get_system_package_id();
                 let old_credits_package_id = self.read_client.get_credits_package_id();
+                let old_walrus_subsidies_package_id =
+                    self.read_client.get_walrus_subsidies_package_id();
 
                 self.read_client.refresh_package_id().await?;
                 self.read_client.refresh_credits_package_id().await?;
+                self.read_client
+                    .refresh_walrus_subsidies_package_id()
+                    .await?;
 
                 // Check if either package ID changed
                 if self.read_client.get_system_package_id() != old_package_id
                     || self.read_client.get_credits_package_id() != old_credits_package_id
+                    || self.read_client.get_walrus_subsidies_package_id()
+                        != old_walrus_subsidies_package_id
                 {
                     f().await
                 } else {
@@ -1893,6 +1952,18 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Call to initiate subsidy distribution.
+    ///
+    /// Requires the new walrus subsidy contract to be set.
+    pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.process_subsidies().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "process_subsidies")
+            .await?;
+        Ok(())
+    }
+
     /// Call to notify the contract that this node is done syncing the specified epoch.
     pub async fn epoch_sync_done(
         &mut self,
@@ -2024,6 +2095,59 @@ impl SuiContractClientInner {
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "set_authorized_for_pool")
+            .await?;
+        Ok(())
+    }
+
+    /// Creates a new walrus subsidies object (i.e. `walrus_subsidies::WalrusSubsidies` in Move),
+    /// and returns its object ID as well as the object ID of its admin cap.
+    pub async fn create_walrus_subsidies(
+        &mut self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        tracing::info!("creating a new walrus subsidies object");
+
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .create_walrus_subsidies(
+                package_id,
+                system_subsidy_rate,
+                base_subsidy,
+                subsidy_per_shard,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_and_fund_walrus_subsidies")
+            .await?;
+        let admin_cap = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::walrus_subsidies::AdminCap
+                .to_move_struct_tag_with_package(package_id, &[])?,
+        )?;
+        let subsidies_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::walrus_subsidies::WalrusSubsidies
+                .to_move_struct_tag_with_package(package_id, &[])?,
+        )?;
+        ensure!(
+            subsidies_id.len() == 1,
+            "unexpected number of `WalrusSubsidies`s created: {}",
+            subsidies_id.len()
+        );
+        Ok((subsidies_id[0], admin_cap[0]))
+    }
+
+    /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
+    /// configured.
+    pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.fund_walrus_subsidies(amount).await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "fund_walrus_subsidies")
             .await?;
         Ok(())
     }
@@ -2855,6 +2979,10 @@ impl ReadClient for SuiContractClient {
 
     async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
         self.read_client.refresh_credits_package_id().await
+    }
+
+    async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_walrus_subsidies_package_id().await
     }
 
     async fn system_object_version(&self) -> SuiClientResult<u64> {

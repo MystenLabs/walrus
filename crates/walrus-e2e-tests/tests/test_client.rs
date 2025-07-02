@@ -65,7 +65,6 @@ use walrus_sdk::{
     store_optimizations::StoreOptimizations,
 };
 use walrus_service::test_utils::{
-    DEFAULT_SUBSIDY_FUNDS,
     StorageNodeHandleTrait,
     TestNodesConfig,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
@@ -1197,6 +1196,20 @@ async fn test_blob_operations_with_credits() -> TestResult {
         .await?;
     let client = client.as_ref();
 
+    // Get initial funds in credits object.
+    let credits_object_id = client
+        .sui_client()
+        .read_client()
+        .get_credits_object_id()
+        .expect("credits object ID should be set");
+    let initial_credits_funds = client
+        .sui_client()
+        .read_client()
+        .sui_client()
+        .get_sui_object::<Credits>(credits_object_id)
+        .await?
+        .subsidy_pool;
+
     // Store a blob with credits
     let blob_data = walrus_test_utils::random_data(314);
     let blobs = vec![blob_data.as_slice()];
@@ -1232,20 +1245,15 @@ async fn test_blob_operations_with_credits() -> TestResult {
     assert!(extended_blob.storage.end_epoch > initial_storage.end_epoch);
 
     // Verify subsidies were applied by checking remaining funds
-    let credits: Credits = client
+    let credits_funds = client
         .sui_client()
         .read_client()
         .sui_client()
-        .get_sui_object(
-            client
-                .sui_client()
-                .read_client()
-                .get_credits_object_id()
-                .unwrap(),
-        )
-        .await?;
+        .get_sui_object::<Credits>(credits_object_id)
+        .await?
+        .subsidy_pool;
     assert!(
-        credits.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
+        credits_funds < initial_credits_funds,
         "Credits should have been used"
     );
 

@@ -22,7 +22,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{StreamExt, future, stream::FuturesUnordered};
 use itertools::izip;
 use sui_macros::nondeterministic;
@@ -76,7 +76,9 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::WithTempDir;
-use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
+#[cfg(msim)]
+use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::metrics::Registry;
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
@@ -116,13 +118,6 @@ use crate::{
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
     },
 };
-
-/// Default buyer subsidy rate (5%)
-const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
-/// Default system subsidy rate (6%)
-const DEFAULT_SYSTEM_SUBSIDY_RATE: u16 = 600;
-/// Default initial subsidy funds amount
-pub const DEFAULT_SUBSIDY_FUNDS: u64 = 1_000_000;
 
 /// A system event manager that provides events from a stream. It does not support dropping events.
 #[derive(Debug)]
@@ -1567,6 +1562,10 @@ impl SystemContractService for StubContractService {
         anyhow::bail!("stub service cannot initiate epoch change")
     }
 
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot initiate subsidy distribution")
+    }
+
     async fn certify_event_blob(
         &self,
         _blob_metadata: BlobObjectMetadata,
@@ -1594,6 +1593,14 @@ impl SystemContractService for StubContractService {
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         Ok(None)
+    }
+
+    fn is_subsidies_object_configured(&self) -> bool {
+        false
+    }
+
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
+        Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
 }
 
@@ -2291,6 +2298,10 @@ where
         self.as_ref().inner.initiate_epoch_change().await
     }
 
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.process_subsidies().await
+    }
+
     async fn certify_event_blob(
         &self,
         blob_metadata: BlobObjectMetadata,
@@ -2329,6 +2340,14 @@ where
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.as_ref().inner.last_certified_event_blob().await
+    }
+
+    fn is_subsidies_object_configured(&self) -> bool {
+        self.as_ref().inner.is_subsidies_object_configured()
+    }
+
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
+        self.as_ref().inner.last_walrus_subsidies_call().await
     }
 }
 
@@ -2492,7 +2511,7 @@ pub mod test_cluster {
             };
 
             // Get a wallet on the global sui test cluster
-            let mut admin_wallet =
+            let admin_wallet =
                 test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
             let test_nodes_config = self.test_nodes_config.unwrap_or_default();
@@ -2517,19 +2536,25 @@ pub mod test_cluster {
                 })
                 .unzip();
 
-            let system_ctx = create_and_init_system_for_test(
-                &mut admin_wallet.inner,
-                n_shards,
-                Duration::from_secs(0),
-                self.epoch_duration
-                    .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
-                self.max_epochs_ahead,
-                self.with_credits,
-                self.deploy_directory,
-                self.contract_directory,
-            )
-            .await
-            .context("failed to create and init system for test")?;
+            let context_and_client = admin_wallet
+                .and_then_async(async |wallet| {
+                    create_and_init_system_for_test(
+                        wallet,
+                        n_shards,
+                        Duration::from_secs(0),
+                        self.epoch_duration
+                            .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
+                        self.max_epochs_ahead,
+                        self.with_credits,
+                        self.deploy_directory,
+                        self.contract_directory,
+                    )
+                    .await
+                    .context("failed to create and init system for test")
+                })
+                .await?;
+            let system_ctx = context_and_client.inner.0.clone();
+            let admin_contract_client = context_and_client.map(|(_, client)| client);
 
             let n_nodes = members.len();
             let mut contract_clients = Vec::with_capacity(n_nodes);
@@ -2565,39 +2590,6 @@ pub mod test_cluster {
             let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
             let contract_config = system_ctx.contract_config();
-
-            let admin_contract_client = admin_wallet
-                .and_then_async(async |wallet| {
-                    let rpc_urls = &[wallet.get_rpc_url()?];
-
-                    SuiContractClient::new(
-                        wallet,
-                        rpc_urls,
-                        &contract_config,
-                        ExponentialBackoffConfig::default(),
-                        None,
-                    )
-                    .await
-                })
-                .await?;
-
-            if let Some(pkg_id) = system_ctx.credits_pkg_id {
-                let (credits_object_id, _) = admin_contract_client
-                    .as_ref()
-                    .create_and_fund_credits(
-                        pkg_id,
-                        DEFAULT_BUYER_SUBSIDY_RATE,
-                        DEFAULT_SYSTEM_SUBSIDY_RATE,
-                        DEFAULT_SUBSIDY_FUNDS,
-                    )
-                    .await?;
-
-                admin_contract_client
-                    .inner
-                    .read_client()
-                    .set_credits_object(credits_object_id)
-                    .await?;
-            }
 
             let amounts_to_stake = test_nodes_config
                 .node_weights

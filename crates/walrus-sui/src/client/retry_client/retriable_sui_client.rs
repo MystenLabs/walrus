@@ -52,8 +52,9 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, SuiAddress, TransactionDigest},
+    base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    object::Owner,
     quorum_driver_types::ExecuteTransactionRequestType::{self, WaitForLocalExecution},
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
@@ -819,6 +820,26 @@ impl RetriableSuiClient {
     }
 
     // Other wrapper methods.
+
+    pub(crate) async fn get_shared_object_initial_version(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SequenceNumber> {
+        let Some(Owner::Shared {
+            initial_shared_version,
+        }) = self
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+            .await?
+            .owner()
+        else {
+            return Err(anyhow::anyhow!(
+                "trying to get the initial version of a non-shared object {}",
+                object_id
+            )
+            .into());
+        };
+        Ok(initial_shared_version)
+    }
 
     pub(crate) async fn get_extended_field<V>(
         &self,

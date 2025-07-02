@@ -243,6 +243,7 @@ pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_exchange_pkg_id: Option<ObjectID>,
     pub credits_pkg_id: Option<ObjectID>,
+    pub walrus_subsidies_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
 }
@@ -290,18 +291,22 @@ fn copy_recursively_inner_blocking(
 #[tracing::instrument(err, skip(wallet))]
 pub async fn publish_coin_and_system_package(
     wallet: &mut Wallet,
-    walrus_contract_directory: PathBuf,
-    deploy_directory: Option<PathBuf>,
-    with_wal_exchange: bool,
-    use_existing_wal_token: bool,
-    with_credits: bool,
+    InitSystemParams {
+        contract_dir,
+        deploy_directory,
+        with_wal_exchange,
+        use_existing_wal_token,
+        with_credits,
+        with_walrus_subsidies,
+        ..
+    }: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
+        copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
     } else {
-        walrus_contract_directory
+        contract_dir
     };
 
     if !use_existing_wal_token {
@@ -336,19 +341,6 @@ pub async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
-    let credits_pkg_id = if with_credits {
-        // Publish `subsidies` package.
-        let transaction_response = publish_package_with_default_build_config(
-            wallet,
-            walrus_contract_directory.join("subsidies"),
-            gas_budget,
-        )
-        .await?;
-        Some(get_pkg_id_from_tx_response(&transaction_response)?)
-    } else {
-        None
-    };
-
     let [init_cap_id] = get_created_sui_object_ids_by_type(
         &transaction_response,
         &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
@@ -363,12 +355,39 @@ pub async fn publish_coin_and_system_package(
         bail!("unexpected number of UpgradeCap objects created");
     };
 
+    let credits_pkg_id = if with_credits {
+        // Publish `subsidies` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("subsidies"),
+            gas_budget,
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
+
+    let walrus_subsidies_pkg_id = if with_walrus_subsidies {
+        // Publish `walrus_subsidies` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("walrus_subsidies"),
+            gas_budget,
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
+
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
         wal_exchange_pkg_id,
         credits_pkg_id,
         init_cap_id,
         upgrade_cap_id,
+        walrus_subsidies_pkg_id,
     })
 }
 
@@ -393,6 +412,8 @@ pub struct InitSystemParams {
     pub use_existing_wal_token: bool,
     /// Whether to publish the `subsidies` package for client-side credits.
     pub with_credits: bool,
+    /// Whether to publish the `walrus_subsidies` package for system subsidies.
+    pub with_walrus_subsidies: bool,
 }
 
 /// Initialize the system and staking objects on chain.
