@@ -292,9 +292,24 @@ impl SystemEventProvider for EventProcessor {
                     .poll(element_index)
                     .inspect_err(|error| tracing::error!(?error, "failed to poll event stream"))
                     .ok()?;
+
                 // Update the index such that the next future continues the sequence.
                 let n_events = u64::try_from(events.len()).expect("number of events is within u64");
-                Some((stream::iter(events), (interval, element_index + n_events)))
+                let next_element_index = element_index + n_events;
+                if n_events > 0 {
+                    let last_event_index = events
+                        .last()
+                        .expect("we just checked that events is not empty")
+                        .index;
+                    assert!(
+                        last_event_index == next_element_index - 1,
+                        "event index inconsistency in event store",
+                    );
+                };
+                Some((
+                    stream::iter(events.into_iter().map(|e| e.element)),
+                    (interval, next_element_index),
+                ))
             },
         )
         .flatten();

@@ -28,7 +28,7 @@ use crate::event::{
         config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
         db::EventProcessorStores,
     },
-    events::{InitState, PositionedStreamEvent, StreamEventWithInitState},
+    events::{IndexedStreamEvent, InitState, StreamEventWithInitState},
 };
 
 /// The maximum number of events to poll per poll.
@@ -209,12 +209,12 @@ impl EventProcessor {
     }
 
     /// Polls the event store for new events starting from the given sequence number.
-    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
+    pub fn poll(&self, from: u64) -> Result<Vec<IndexedStreamEvent>, TypedStoreError> {
         self.stores
             .event_store
             .safe_iter_with_bounds(Some(from), None)?
             .take(MAX_EVENTS_PER_POLL)
-            .map(|result| result.map(|(_, event)| event))
+            .map(|result| result.map(IndexedStreamEvent::from_index_and_element))
             .collect()
     }
 
