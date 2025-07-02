@@ -27,7 +27,7 @@ use crate::event::{
 };
 
 /// A struct that contains the metadata and events of a downloaded event blob.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct DownloadedBlob {
     blob_id: BlobId,
     prev_blob_id: BlobId,
@@ -37,6 +37,21 @@ struct DownloadedBlob {
     events: Vec<IndexedStreamEvent>,
     start_checkpoint: u64,
     end_checkpoint: u64,
+}
+
+impl std::fmt::Debug for DownloadedBlob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DownloadedBlob")
+            .field("blob_id", &self.blob_id)
+            .field("prev_blob_id", &self.prev_blob_id)
+            .field("prev_event_id", &self.prev_event_id)
+            .field("epoch", &self.epoch)
+            .field("first_event_index", &self.first_event_index)
+            .field("event count", &self.events.len())
+            .field("start_checkpoint", &self.start_checkpoint)
+            .field("end_checkpoint", &self.end_checkpoint)
+            .finish()
+    }
 }
 
 /// Manages the catchup process for events in the event processor using event blobs.
@@ -85,9 +100,18 @@ impl EventBlobCatchupManager {
         let current_lag = self.calculate_lag(current_checkpoint, latest_checkpoint)?;
 
         if current_lag > lag_threshold {
+            tracing::info!(
+                current_checkpoint,
+                latest_checkpoint,
+                current_lag,
+                lag_threshold,
+                "Performing catchup - lag is above threshold"
+            );
             self.perform_catchup(recovery_path).await?;
         } else {
             tracing::info!(
+                current_checkpoint,
+                latest_checkpoint,
                 current_lag,
                 lag_threshold,
                 "Skipping catchup - lag is below threshold"
@@ -183,9 +207,8 @@ impl EventBlobCatchupManager {
     /// events from the earliest available event blob (in which case the first stored event index
     /// could be greater than `0`).
     async fn catchup_using_event_blobs(&self, recovery_path: &Path) -> Result<()> {
-        tracing::info!("Starting event catchup using event blobs");
-
         let next_checkpoint = self.get_next_checkpoint()?;
+        tracing::info!(next_checkpoint, "Starting event catchup using event blobs");
         self.ensure_recovery_directory(recovery_path)?;
 
         let blobs = self
@@ -286,6 +309,8 @@ impl EventBlobCatchupManager {
             let downloaded_blob = self
                 .process_single_blob(blob_id, recovery_path, next_event_index)
                 .await?;
+
+            tracing::info!("processed event blob {:?}", downloaded_blob);
 
             if downloaded_blob.events.is_empty() {
                 // We break (rather than continue) because empty events indicates we've hit our
@@ -471,6 +496,13 @@ impl EventBlobCatchupManager {
         prev_event_id: Option<EventID>,
         epoch: Epoch,
     ) -> Result<()> {
+        tracing::info!(
+            blob_id = %blob_id,
+            prev_event_id = ?prev_event_id,
+            first_event_index,
+            epoch,
+            "Updating init state"
+        );
         let state = InitState::new(*blob_id, prev_event_id, first_event_index, epoch);
         batch.insert_batch(
             &self.stores.init_state,

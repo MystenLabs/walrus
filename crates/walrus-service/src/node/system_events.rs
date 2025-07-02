@@ -292,6 +292,11 @@ impl SystemEventProvider for EventProcessor {
                     .poll(element_index)
                     .inspect_err(|error| tracing::error!(?error, "failed to poll event stream"))
                     .ok()?;
+                tracing::info!(
+                    "EventProcessor polled {} events starting from {}",
+                    events.len(),
+                    element_index
+                );
                 // Update the index such that the next future continues the sequence.
                 let n_events = u64::try_from(events.len()).expect("number of events is within u64");
                 Some((stream::iter(events), (interval, element_index + n_events)))

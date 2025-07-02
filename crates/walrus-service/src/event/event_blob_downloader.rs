@@ -117,11 +117,17 @@ impl EventBlobDownloader {
         };
 
         tracing::info!(
+            upto_checkpoint = ?upto_checkpoint,
+            from_blob = ?from_blob,
             "starting download of event blobs from latest blob ID {} and going backwards",
             prev_event_blob
         );
 
         while prev_event_blob != BlobId::ZERO {
+            tracing::info!(
+                blob_id = %prev_event_blob,
+                "attempting to download blob"
+            );
             let blob_status = match self
                 .walrus_client
                 .get_blob_status_with_retries(&prev_event_blob, &self.sui_read_client)
@@ -130,6 +136,10 @@ impl EventBlobDownloader {
                 Ok(blob_status) => blob_status,
                 Err(err) => {
                     if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
+                        tracing::info!(
+                            blob_id = %prev_event_blob,
+                            "blob ID does not exist, terminating download assuming expired"
+                        );
                         // We've reached an expired blob, safe to terminate
                         break;
                     } else {

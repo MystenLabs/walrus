@@ -261,11 +261,16 @@ impl EventProcessor {
             .transpose()?
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
+        tracing::info!(next_event_index, "latest event index when starting tailing",);
         let Some(prev_checkpoint) = self.stores.checkpoint_store.get(&())? else {
             bail!("No checkpoint found in the checkpoint store");
         };
 
         let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        tracing::info!(
+            next_checkpoint,
+            "next checkpoint to download when starting tailing",
+        );
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
         let mut rx = self
@@ -288,7 +293,12 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
-            tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
+            tracing_sampled::info!(
+                "30s",
+                "Processing checkpoint {}, next event index {}",
+                next_checkpoint,
+                next_event_index
+            );
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint.try_into()?);
