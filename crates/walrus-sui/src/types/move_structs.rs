@@ -919,10 +919,11 @@ impl ExchangeRate {
     }
 }
 
-/// Sui type for a subsidies object.
+/// Sui type for a `subsidies::Subsidies` object. Called `Credits` here to avoid confusion with
+/// the new Walrus Subsidies contract.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Subsidies {
-    /// The object ID of the subsidies object
+pub struct Credits {
+    /// The object ID of the object
     pub id: ObjectID,
     /// The subsidy rate for blob storage buyers
     pub buyer_subsidy_rate: u16,
@@ -930,14 +931,14 @@ pub struct Subsidies {
     pub system_subsidy_rate: u16,
     /// The total amount of WAL available for subsidies
     pub subsidy_pool: u64,
-    /// The package ID of the subsidies contract
+    /// The package ID of the contract
     pub package_id: ObjectID,
-    /// The version of the subsidies object
+    /// The version of the object
     pub version: u64,
 }
 
-impl AssociatedContractStruct for Subsidies {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::subsidies::Subsidies;
+impl AssociatedContractStruct for Credits {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::credits::Subsidies;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

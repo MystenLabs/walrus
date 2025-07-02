@@ -93,7 +93,7 @@ use walrus_sui::{
         BlobEvent,
         ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, SharedBlob, Subsidies},
+        move_structs::{BlobAttribute, Credits, SharedBlob},
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
@@ -1189,15 +1189,15 @@ async fn test_blocklist() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_blob_operations_with_subsidies() -> TestResult {
+async fn test_blob_operations_with_credits() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_subsidies()
+        .with_credits()
         .build()
         .await?;
     let client = client.as_ref();
 
-    // Store a blob with subsidies
+    // Store a blob with credits
     let blob_data = walrus_test_utils::random_data(314);
     let blobs = vec![blob_data.as_slice()];
     let store_result = client
@@ -1218,10 +1218,10 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
 
     let initial_storage = blob_object.storage.clone();
 
-    // Extend blob storage with subsidies
+    // Extend blob storage with credits
     client.sui_client().extend_blob(blob_object.id, 5).await?;
 
-    // Verify blob storage was extended with subsidies
+    // Verify blob storage was extended with credits
     let extended_blob: Blob = client
         .sui_client()
         .sui_client()
@@ -1232,7 +1232,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
     assert!(extended_blob.storage.end_epoch > initial_storage.end_epoch);
 
     // Verify subsidies were applied by checking remaining funds
-    let subsidies: Subsidies = client
+    let credits: Credits = client
         .sui_client()
         .read_client()
         .sui_client()
@@ -1240,13 +1240,13 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
             client
                 .sui_client()
                 .read_client()
-                .get_subsidies_object_id()
+                .get_credits_object_id()
                 .unwrap(),
         )
         .await?;
     assert!(
-        subsidies.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
-        "Subsidies should have been used"
+        credits.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
+        "Credits should have been used"
     );
 
     Ok(())
