@@ -4,8 +4,8 @@
 
 A goal of Walrus is to enable dApps to `store` to Walrus from within their end-users’ browsers
 having low to moderate machine specifications (mobile devices, low-powered laptops, etc.) Currently
-this browser-based scenario is fragile or non-functional due to the high number of network
-connections required to fan-out slivers to shards.
+this browser-based scenario is difficult to achieve in practice due to the high number of network
+connections required to upload all slivers to all shards.
 
 The Fan-out Proxy is a downloadable program that community members, Mysten Labs, and/or dApp writers
 themselves can run on internet-facing hosts to facilitate performing this fan-out on behalf of dApp
