@@ -335,6 +335,10 @@ mod tests {
                     ..Default::default()
                 })
                 .with_num_checkpoints_per_blob(20)
+                // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
+                // fail since the event blob's certified events have not been processed yet.
+                // We can revisit this once we have more robust client read.
+                .with_event_stream_catchup_min_checkpoint_lag(Some(20000))
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
