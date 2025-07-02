@@ -202,7 +202,7 @@ mod tests {
                     && &remote_config.public_key == local_config.protocol_key_pair().public());
 
             if configs_match {
-                tracing::info!("Node config is now in sync with on-chain state\n");
+                tracing::info!("node config is now in sync with on-chain state");
                 return Ok(());
             }
             // Release the read lock explicitly before sleeping.

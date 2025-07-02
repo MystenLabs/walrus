@@ -341,7 +341,7 @@ impl EventBlobCatchupManager {
                 downloaded_blob
                     .events
                     .last()
-                    .expect("Event list is not empty")
+                    .expect("event list is not empty")
                     .index,
                 downloaded_blob.start_checkpoint,
                 downloaded_blob.end_checkpoint
@@ -350,7 +350,7 @@ impl EventBlobCatchupManager {
             next_event_index = self.store_events_and_update_state(downloaded_blob).await?;
         }
 
-        tracing::info!("Recovered {} events from event blobs", num_events_recovered);
+        tracing::info!("recovered {} events from event blobs", num_events_recovered);
         Ok(())
     }
 
@@ -390,12 +390,12 @@ impl EventBlobCatchupManager {
         // event stored in `downloaded_blob.events`.
         let first_event_index = downloaded_blob
             .first_event
-            .expect("Event list is not empty")
+            .expect("event list is not empty")
             .index;
         let last_event_index = downloaded_blob
             .events
             .last()
-            .expect("Event list is not empty")
+            .expect("event list is not empty")
             .index;
 
         let mut batch = self.stores.event_store.batch();

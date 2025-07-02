@@ -640,8 +640,8 @@ impl StorageNode {
         .await
         {
             Ok(manager) => Some(Arc::new(manager)),
-            Err(e) => {
-                tracing::warn!(?e, "Failed to initialize checkpoint manager");
+            Err(error) => {
+                tracing::warn!(?error, "failed to initialize checkpoint manager");
                 None
             }
         };

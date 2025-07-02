@@ -325,7 +325,7 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result
     )?;
     let cf = db
         .cf_handle(event_processor_constants::EVENT_STORE)
-        .expect("Event store column family should exist");
+        .expect("event store column family should exist");
 
     let iter = db.iterator_cf(
         &cf,
@@ -365,7 +365,7 @@ fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize)
 
     let cf = db
         .cf_handle(aggregate_blob_info_cf_name())
-        .expect("Aggregate blob info column family should exist");
+        .expect("aggregate blob info column family should exist");
 
     let iter = if let Some(blob_id) = start_blob_id {
         db.iterator_cf(
@@ -408,7 +408,7 @@ fn read_object_blob_info(
 
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
-        .expect("PerObjectBlobInfo column family should exist");
+        .expect("per-object blob info column family should exist");
 
     let iter = if let Some(object_id) = start_object_id {
         db.iterator_cf(
@@ -447,7 +447,7 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
 
     let cf = db
         .cf_handle(aggregate_blob_info_cf_name())
-        .expect("Aggregate blob info column family should exist");
+        .expect("aggregate blob info column family should exist");
 
     // Scan all the blob info and count the certified ones
     let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);

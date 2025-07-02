@@ -45,13 +45,13 @@ mod tests {
             let current_blob = get_last_certified_event_blob_must_succeed(client).await;
 
             if current_blob.blob_id != last_blob.blob_id {
-                tracing::info!("New event blob seen during fork wait: {:?}", current_blob);
+                tracing::info!("new event blob seen during fork wait: {:?}", current_blob);
                 last_blob = current_blob;
                 last_blob_time = Instant::now();
             }
 
             if last_blob_time.elapsed() > Duration::from_secs(20) {
-                tracing::info!("Event blob certification stuck for 20s");
+                tracing::info!("event blob certification stuck for 20s");
                 break;
             }
 
@@ -77,7 +77,7 @@ mod tests {
             let current_blob = get_last_certified_event_blob_must_succeed(client).await;
 
             if current_blob.blob_id != last_certified_blob.blob_id {
-                tracing::info!("New event blob seen during fork wait: {:?}", current_blob);
+                tracing::info!("new event blob seen during fork wait: {:?}", current_blob);
                 last_certified_blob = current_blob;
                 tokio::time::sleep(Duration::from_secs(30)).await;
 
@@ -87,7 +87,7 @@ mod tests {
                     let current_blob_id =
                         get_last_certified_event_blob_from_node(node).await?.blob_id;
                     if current_blob_id == prev_blob_id {
-                        tracing::info!("Node forked");
+                        tracing::info!("node forked");
                         break;
                     }
                 }
@@ -308,7 +308,7 @@ mod tests {
         // Wait for event blob certification to get stuck
         let stuck_blob = wait_for_certification_stuck(&client).await;
 
-        tracing::info!("Stuck blob: {:?}", stuck_blob);
+        tracing::info!("stuck blob: {:?}", stuck_blob);
 
         // Restart nodes with same checkpoint number to recover
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
@@ -485,7 +485,7 @@ mod tests {
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
         let node_health_infos = simtest_utils::get_nodes_health_info(&node_refs).await;
 
-        tracing::info!("Node health infos: {:?}", node_health_infos);
+        tracing::info!("node health infos: {:?}", node_health_infos);
 
         wait_for_nodes_at_checkpoint(
             &node_refs,

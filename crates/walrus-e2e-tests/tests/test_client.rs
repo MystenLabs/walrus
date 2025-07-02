@@ -305,7 +305,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
     // Change a shard that is not in the failure set. Since the mapping of slivers to shards
-    // depends on the blob id, we need to search for an invalid hash for which the modified shard
+    // depends on the blob ID, we need to search for an invalid hash for which the modified shard
     // is not in the failure set.
     loop {
         metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
@@ -539,7 +539,7 @@ async fn register_blob(
     Ok(blob_id)
 }
 
-/// Store a blob and return the blob id.
+/// Store a blob and return the blob ID.
 async fn store_blob(
     client: &WithTempDir<Client<SuiContractClient>>,
     blob: &[u8],
@@ -563,7 +563,7 @@ async fn store_blob(
         .next()
         .expect("should have one blob store result")
         .blob_id()
-        .expect("blob id should be present"))
+        .expect("blob ID should be present"))
 }
 
 /// Tests that the client can store and read duplicate blobs.
@@ -607,7 +607,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
                     &result
                         .blob_store_result
                         .blob_id()
-                        .expect("blob id should be present"),
+                        .expect("blob ID should be present"),
                 )
                 .await
                 .expect("should be able to read blob");
@@ -876,7 +876,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     // Delete the blobs
     let deleted = client
         .as_ref()
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
+        .delete_owned_blob(&blob_id.expect("blob ID should be present"))
         .await?;
     assert_eq!(deleted, blobs_to_create as usize);
 
@@ -917,19 +917,19 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 
     assert_eq!(
         client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"),)
             .await?,
         blob
     );
 
     client
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
+        .delete_owned_blob(&blob_id.expect("blob ID should be present"))
         .await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
         .get_verified_blob_status(
-            &blob_id.expect("blob id should be present"),
+            &blob_id.expect("blob ID should be present"),
             client.sui_client().read_client(),
             Duration::from_secs(1),
         )
@@ -940,7 +940,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     );
 
     let read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
         .await;
     assert!(matches!(
         read_result.unwrap_err().kind(),
@@ -1131,7 +1131,7 @@ async fn test_blocklist() -> TestResult {
 
     assert_eq!(
         client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"),)
             .await?,
         blob
     );
@@ -1145,19 +1145,19 @@ async fn test_blocklist() -> TestResult {
         blocklists.push(blocklist);
     }
 
-    tracing::info!("Adding blob to blocklist");
+    tracing::info!("adding blob to blocklist");
 
     for blocklist in blocklists.iter_mut() {
-        blocklist.insert(blob_id.expect("blob id should be present"))?;
+        blocklist.insert(blob_id.expect("blob ID should be present"))?;
     }
 
     // Read the blob using the client until it fails with forbidden
     let mut blob_read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
         .await;
     while let Ok(_blob) = blob_read_result {
         blob_read_result = client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
             .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -1172,18 +1172,18 @@ async fn test_blocklist() -> TestResult {
 
     // Remove the blob from the blocklist
     for blocklist in blocklists.iter_mut() {
-        blocklist.remove(&blob_id.expect("blob id should be present"))?;
+        blocklist.remove(&blob_id.expect("blob ID should be present"))?;
     }
 
-    tracing::info!("Removing blob from blocklist");
+    tracing::info!("removing blob from blocklist");
 
     // Read the blob again until it succeeds
     let mut blob_read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
         .await;
     while blob_read_result.is_err() {
         blob_read_result = client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
             .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;

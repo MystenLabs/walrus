@@ -99,13 +99,13 @@ impl Blocklist {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        tracing::debug!("Refreshing blocklist");
-                        if let Err(e) = self.load() {
-                            tracing::error!("Failed to refresh deny list: {}", e);
+                        tracing::debug!("refreshing blocklist");
+                        if let Err(error) = self.load() {
+                            tracing::error!(?error, "failed to refresh blocklist");
                         }
                     }
                     _ = self.shutdown.cancelled() => {
-                        tracing::info!("Received shutdown signal");
+                        tracing::info!("received shutdown signal");
                         break;
                     }
                 }
@@ -208,11 +208,11 @@ impl Blocklist {
         let removed_blobs = old_blobs.difference(&new_blobs).collect::<Vec<_>>();
 
         added_blobs.iter().for_each(|blob_id| {
-            tracing::info!("Added blob to deny list: {}", blob_id);
+            tracing::info!(%blob_id, "added blob to blocklist");
         });
 
         removed_blobs.iter().for_each(|blob_id| {
-            tracing::info!("Removed blob from deny list: {}", blob_id);
+            tracing::info!(%blob_id, "removed blob from blocklist");
         });
 
         *guard = blocklist.0.into_iter().collect();

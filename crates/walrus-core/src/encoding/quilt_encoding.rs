@@ -1421,7 +1421,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         meta_blob_data.push(QuiltVersionV1::quilt_version_byte());
         meta_blob_data.extend_from_slice(&serialized_index_size.to_le_bytes());
         meta_blob_data
-            .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
+            .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("serialization should succeed"));
         assert_eq!(meta_blob_data.len(), index_total_size);
 
         let meta_blob = QuiltStoreBlob::new(&meta_blob_data, "quilt_index");
@@ -1577,7 +1577,7 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
                 *self
                     .slivers
                     .get(&SliverIndex::new(col as u16))
-                    .expect("Sliver exists")
+                    .expect("sliver exists")
             })
             .collect();
 
