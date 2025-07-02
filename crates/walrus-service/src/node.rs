@@ -863,11 +863,21 @@ impl StorageNode {
         let event_index = event_cursor.element_index;
 
         let init_state = self.inner.event_manager.init_state(event_cursor).await?;
+        tracing::info!(
+            event_blob_writer_cursor = ?event_blob_writer_cursor,
+            storage_node_cursor = ?storage_node_cursor,
+            event_cursor = ?event_cursor,
+            event_index,
+            init_state = ?init_state,
+            "continue_event_stream",
+        );
         let Some(init_state) = init_state else {
             return Ok((Pin::from(event_stream), event_index));
         };
 
         let actual_event_index = init_state.event_cursor.element_index;
+
+        tracing::info!(actual_event_index, "actual_event_index",);
 
         let storage_index = storage_node_cursor.element_index;
         let mut storage_node_cursor_repositioned = false;
