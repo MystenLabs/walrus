@@ -124,13 +124,15 @@ pub enum DbToolCommands {
         epoch: Epoch,
     },
 
-    /// Drop a column family from the RocksDB database.
-    DropColumnFamily {
+    /// Drop a column family from the RocksDB database. This can only be called when the storage
+    /// node is stopped.
+    DropColumnFamilies {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
-        /// Column family to drop.
-        column_family_name: String,
+        /// Column families to drop.
+        #[arg(num_args = 1..)]
+        column_family_names: Vec<String>,
     },
 
     /// List all column families in the RocksDB database.
@@ -267,10 +269,10 @@ impl DbToolCommands {
                 count,
             } => read_object_blob_info(db_path, start_object_id, count),
             Self::CountCertifiedBlobs { db_path, epoch } => count_certified_blobs(db_path, epoch),
-            Self::DropColumnFamily {
+            Self::DropColumnFamilies {
                 db_path,
-                column_family_name,
-            } => drop_column_family(db_path, column_family_name),
+                column_family_names,
+            } => drop_column_families(db_path, column_family_names),
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
             Self::ReadBlobMetadata {
                 db_path,
@@ -472,11 +474,26 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
 }
 
 /// Drop a column family from the RocksDB database.
-fn drop_column_family(db_path: PathBuf, column_family_name: String) -> Result<()> {
-    let db = DB::open(&RocksdbOptions::default(), db_path)?;
+fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
+    let db = DB::open_cf(
+        &RocksdbOptions::default(),
+        &db_path,
+        &DB::list_cf(&RocksdbOptions::default(), &db_path)?,
+    )
+    .inspect_err(|_| {
+        println!(
+            "failed to open database; \
+            make sure to stop the storage node before attempting to drop column families"
+        )
+    })?;
 
-    let result = db.drop_cf(column_family_name.as_str());
-    println!("Dropped column family: {result:?}");
+    for column_family_name in column_family_names {
+        println!("Dropping column family: {column_family_name}");
+        match db.drop_cf(column_family_name.as_str()) {
+            Ok(()) => println!("Success."),
+            Err(e) => println!("Failed to drop column family: {e:?}"),
+        }
+    }
 
     Ok(())
 }
