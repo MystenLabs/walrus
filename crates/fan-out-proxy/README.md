@@ -2,24 +2,47 @@
 
 # Overview
 
-The `fan-out-proxy` binary is a stateless HTTP proxy that does the work of encoding blobs, and
-distributing their slivers out to the Walrus network. The need for this proxy arises from the
-reality that some clients will not be able to handle the number of outbound sockets required to
-effectively upload large files to the network in a timely manner.
+A goal of Walrus is to enable dApps to `store` to Walrus from within their end-users’ browsers
+having low to moderate machine specifications (mobile devices, low-powered laptops, etc.) Currently
+this browser-based scenario is fragile or non-functional due to the high number of network
+connections required to fan-out slivers to shards.
 
-By operating a `fan-out-proxy` you can help the Walrus ecosystem and be rewarded. Fan-out proxy
-operators can require clients to pay a small fee (referred to as a "tip") for each blob upload that
-the perform.
+The Fan-out Proxy is a downloadable program that community members, Mysten Labs, and/or dApp writers
+themselves can run on internet-facing hosts to facilitate performing this fan-out on behalf of dApp
+end-users - thus mitigating browser resource consumption and enabling Web-based `store` operations.
 
-TODO: include notes on the trust model for fan-out proxies.
+## Design
+
+### Outline
+
+The store sequence is as follows:
+
+- On the client side:
+  - The client creates a transaction:
+    - Mandatory: The first input, which is not used as the input of any actual contract call, contains the hash of the data `h = Hash(blob)`
+    - Optional: Any transaction that registers or extends blobs, in any order
+    - Mandatory per configuration: Any transaction that will result in the balance of the proxy’s tip address to increase by the tip amount.
+  - The client then executes the transaction, obtaining the transaction ID `tx_id`
+  - The client sends the `blob` and `tx_id` to the proxy
+- On the proxy side:
+  - The proxy requests the effects and balance changes of the transaction `tx_id` from a trusted full node, then checks:
+    - that the balance changes for its address are sufficient to cover its tip (as described in its tip configuration) of storing the blob (possibly considering the length of the blob).
+    - that the data at input zero matches `Hash(blob)` of the received data, confirming that the received data is the data the tip was paid for.
+  - If everything matches, the proxy proceeds to storing the blobs, and if successful, in creating the certificate.
+  - The proxy returns the certificate to the client
+- Finally, the client certifies the blob
 
 # Usage
 
-1. Download the latest release of the `fan-out-proxy` binary from the [releases
-   page](https://github.com/MystenLabs/walrus/releases).
-2. Start the `fan-out-proxy` binary.
+There are various ways to run the `fan-out-proxy`.
+
+## Docker
+
+First, take a look at the built-in help for guidance.
 
 ```
+$ docker run -it --rm mysten/fan-out-proxy --help
+
 Run the Walrus Fan-out Proxy
 
 Usage: fan-out-proxy proxy [OPTIONS] --walrus-config <WALRUS_CONFIG> --fan-out-config <FAN_OUT_CONFIG>
@@ -36,4 +59,26 @@ Options:
           The file path to the configuration of the fan-out proxy
   -h, --help
           Print help
+```
+
+Notice that `fan-out-proxy` requires some configuration to get started. Each of these can be mounted
+into Docker at runtime. For the sake of the example below, we're assuming that:
+
+- `$HOME/.config/fan-out-config.yaml` exists on the host machine and contains the specification for
+  the `fan-out-proxy` configuration, as described [here](about:blank).
+- `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
+  configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
+- Port 3000 is available for the proxy to bind to.
+
+```
+docker run \
+  -p 3000:3000 \
+  -v $HOME/.config/fan-out-config.yaml:/opt/walrus/fan-out-config.yaml \
+  -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
+  mysten/fan-out-proxy \
+    proxy \
+      --context testnet \
+      --walrus-config /opt/walrus/client_config.yaml \
+      --server-address 0.0.0.0:3000 \
+      --fan-out-config /opt/walrus/fan-out-config.yaml
 ```
