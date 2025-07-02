@@ -1,7 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -13,6 +18,7 @@ use axum::{
 };
 use axum_extra::{
     TypedHeader,
+    extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
 use jsonwebtoken::{DecodingKey, Validation};
@@ -31,7 +37,7 @@ use walrus_core::{
 };
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
-    client::responses::BlobStoreResult,
+    client::responses::{BlobStoreResult, QuiltStoreResult},
     error::{ClientError, ClientErrorKind},
     store_optimizations::StoreOptimizations,
 };
@@ -62,6 +68,8 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to store multiple files as a quilt using multipart/form-data.
+pub const QUILT_PUT_ENDPOINT: &str = "/v1/quilts";
 /// The path to get blobs from quilt by IDs.
 pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
 /// The path to get blob from quilt by quilt ID and identifier.
@@ -747,6 +755,300 @@ impl PublisherQuery {
     pub fn send_or_share(&self) -> Option<SendOrShare> {
         self.send_or_share.clone()
     }
+}
+
+/// Query parameters for quilt upload
+#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct QuiltPublisherQuery {
+    /// The encoding type to use for the quilt.
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+    /// The number of epochs, ahead of the current one, for which to store the quilt.
+    #[serde(default = "default_epochs")]
+    pub epochs: EpochCount,
+    /// If true, the publisher creates a deletable quilt instead of a permanent one.
+    #[serde(default)]
+    pub deletable: bool,
+    /// If true, the publisher will always store the quilt, creating a new quilt object.
+    #[serde(default)]
+    pub force: bool,
+    #[serde(flatten, default)]
+    #[param(inline)]
+    send_or_share: Option<SendOrShare>,
+}
+
+impl Default for QuiltPublisherQuery {
+    fn default() -> Self {
+        QuiltPublisherQuery {
+            encoding_type: None,
+            epochs: default_epochs(),
+            deletable: false,
+            force: false,
+            send_or_share: None,
+        }
+    }
+}
+
+impl QuiltPublisherQuery {
+    /// Returns the [`StoreOptimizations`] value based on the query parameters.
+    fn optimizations(&self) -> StoreOptimizations {
+        StoreOptimizations::none().with_check_status(!self.force)
+    }
+
+    /// Returns the [`BlobPersistence`] value based on the query parameters.
+    fn blob_persistence(&self) -> BlobPersistence {
+        BlobPersistence::from_deletable(self.deletable)
+    }
+
+    /// Returns the [`PostStoreAction`] value based on the query parameters.
+    fn post_store_action(&self, default_action: PostStoreAction) -> PostStoreAction {
+        if let Some(send_or_share) = &self.send_or_share {
+            match send_or_share {
+                SendOrShare::SendObjectTo(address) => PostStoreAction::TransferTo(*address),
+                SendOrShare::Share(share) => {
+                    if *share {
+                        PostStoreAction::Share
+                    } else {
+                        default_action
+                    }
+                }
+            }
+        } else {
+            default_action
+        }
+    }
+}
+
+/// Structure to hold a file with its metadata from multipart form
+#[derive(Debug)]
+pub struct QuiltFileEntry {
+    pub filename: String,
+    pub identifier: Option<String>,
+    pub tags: BTreeMap<String, serde_json::Value>,
+    pub data: Vec<u8>,
+}
+
+/// Store multiple files as a quilt using multipart/form-data.
+///
+/// Accepts a multipart form with files and their metadata to create a quilt.
+/// Each file can have:
+/// - The file itself (required)
+/// - identifier: custom identifier (optional, defaults to filename)
+/// - tags: JSON object with string key-value pairs (optional)
+///
+/// # Form Structure
+///
+/// The multipart form should contain:
+/// - `{name}`: The file data (required)
+/// - `{name}_identifier`: Custom identifier for the file (optional)
+/// - `{name}_tags`: JSON object with string key-value pairs (optional)
+///
+/// # Tag Values
+///
+/// Tag values should be strings. Example:
+/// ```json
+/// {
+///   "author": "alice",
+///   "project": "walrus-test",
+///   "version": "1.0",
+///   "environment": "production"
+/// }
+/// ```
+///
+/// # Examples
+///
+/// ## Simple Upload (curl)
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+///   -F "file1=@document.pdf" \
+///   -F "file2=@image.png"
+/// ```
+///
+/// ## Upload with Custom Identifiers
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+///   -F "file1=@document.pdf" \
+///   -F "file1_identifier=contract-v2" \
+///   -F "file2=@image.png" \
+///   -F "file2_identifier=logo-2024"
+/// ```
+///
+/// ## Upload with Tags
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+///   -F "file1=@document.pdf" \
+///   -F "file1_identifier=contract-v2" \
+///   -F 'file1_tags={"author":"alice","version":"2.0","status":"validated","category":"legal"}' \
+///   -F "file2=@image.png" \
+///   -F "file2_identifier=logo-2024" \
+///   -F 'file2_tags={"type":"logo","width":"1920","height":"1080","format":"png"}'
+/// ```
+///
+/// # Response
+/// Returns a `QuiltStoreResult` containing the quilt blob ID and metadata.
+/// Individual files can then be retrieved using the quilt ID and their identifiers.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
+#[utoipa::path(
+    put,
+    path = QUILT_PUT_ENDPOINT,
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form with files and their metadata"),
+    params(QuiltPublisherQuery),
+    responses(
+        (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The quilt is too large"),
+        StoreBlobError,
+    ),
+)]
+pub(super) async fn put_quilt<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
+    Query(query): Query<QuiltPublisherQuery>,
+    bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
+    multipart: Multipart,
+) -> Response {
+    tracing::debug!("starting to process multipart quilt upload");
+
+    // Parse multipart form and extract files with metadata
+    let quilt_files = match parse_multipart_quilt(multipart).await {
+        Ok(files) => files,
+        Err(error) => {
+            tracing::error!(?error, "failed to parse multipart form");
+            return StoreBlobError::Internal(error).into_response();
+        }
+    };
+
+    if quilt_files.is_empty() {
+        return StoreBlobError::Internal(anyhow!("no files provided in multipart form"))
+            .into_response();
+    }
+
+    // Check authorization if present
+    if let Some(TypedHeader(header)) = bearer_header {
+        let total_size: usize = quilt_files.iter().map(|f| f.data.len()).sum();
+        if let Err(error) = check_blob_size(header, total_size) {
+            return error.into_response();
+        }
+    }
+
+    // Convert to QuiltStoreBlob format
+    let quilt_store_blobs: Vec<QuiltStoreBlob<'static>> = quilt_files
+        .into_iter()
+        .map(|file| {
+            let identifier = file.identifier.unwrap_or(file.filename);
+            // Convert JSON values to strings for QuiltStoreBlob
+            let tags: BTreeMap<String, String> = file
+                .tags
+                .into_iter()
+                .map(|(k, v)| {
+                    let value_str = match v {
+                        serde_json::Value::String(s) => s,
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        serde_json::Value::Null => "null".to_string(),
+                        _ => v.to_string(), // For arrays and objects, serialize to JSON string
+                    };
+                    (k, value_str)
+                })
+                .collect();
+            QuiltStoreBlob::new_owned(file.data, identifier).with_tags(tags)
+        })
+        .collect();
+
+    tracing::debug!("storing quilt with {} blobs", quilt_store_blobs.len());
+
+    match client
+        .write_quilt(
+            quilt_store_blobs,
+            query.encoding_type,
+            query.epochs,
+            query.optimizations(),
+            query.blob_persistence(),
+            query.post_store_action(client.default_post_store_action()),
+        )
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => {
+            tracing::error!(?error, "error storing quilt");
+            StoreBlobError::from(error).into_response()
+        }
+    }
+}
+
+/// Parse multipart form data and extract files with their metadata
+async fn parse_multipart_quilt(
+    mut multipart: Multipart,
+) -> Result<Vec<QuiltFileEntry>, anyhow::Error> {
+    let mut file_data_map: BTreeMap<String, (String, Vec<u8>)> = BTreeMap::new();
+    let mut metadata_map: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
+
+    // First pass: collect all fields
+    while let Some(field) = multipart.next_field().await? {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        tracing::info!("field_name: {}", field_name);
+        if field_name.ends_with("_identifier") {
+            // Handle identifier metadata
+            let base_name = field_name.trim_end_matches("_identifier");
+            let identifier = field.text().await?;
+            metadata_map.entry(base_name.to_string()).or_default().0 = Some(identifier);
+        } else if field_name.ends_with("_tags") {
+            // Handle tags metadata
+            let base_name = field_name.trim_end_matches("_tags");
+            let tags_json = field.text().await?;
+            metadata_map.entry(base_name.to_string()).or_default().1 = Some(tags_json);
+        } else {
+            // Handle file data
+            let filename = field.file_name().unwrap_or(&field_name).to_string();
+            let data = field.bytes().await?.to_vec();
+            file_data_map.insert(field_name, (filename, data));
+        }
+    }
+
+    // Second pass: combine file data with metadata
+    let mut files = Vec::new();
+    for (field_name, (filename, data)) in file_data_map {
+        tracing::info!("Processing file field: {}", field_name);
+        let (identifier, tags_json) = metadata_map.get(&field_name).cloned().unwrap_or_default();
+        tracing::info!(
+            "Found metadata for {}: identifier={:?}, tags={:?}",
+            field_name,
+            identifier,
+            tags_json
+        );
+
+        let tags = if let Some(tags_str) = tags_json {
+            match serde_json::from_str::<BTreeMap<String, serde_json::Value>>(&tags_str) {
+                Ok(parsed_tags) => parsed_tags,
+                Err(e) => {
+                    tracing::warn!("Failed to parse tags for {}: {}", field_name, e);
+                    BTreeMap::new()
+                }
+            }
+        } else {
+            BTreeMap::new()
+        };
+
+        tracing::info!(
+            "Final QuiltFileEntry for {}: identifier={:?}, tags={:?}",
+            field_name,
+            identifier,
+            tags
+        );
+
+        files.push(QuiltFileEntry {
+            filename,
+            identifier,
+            tags,
+            data,
+        });
+    }
+
+    Ok(files)
 }
 
 #[cfg(test)]

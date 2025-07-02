@@ -28,6 +28,7 @@ use routes::{
     BLOB_PUT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_PUT_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -47,10 +48,17 @@ use walrus_core::{
     EncodingType,
     EpochCount,
     QuiltPatchId,
-    encoding::{Primary, quilt_encoding::QuiltStoreBlob},
+    encoding::{
+        Primary,
+        quilt_encoding::{QuiltStoreBlob, QuiltVersionV1},
+    },
 };
 use walrus_sdk::{
-    client::{Client, quilt_client::QuiltClientConfig, responses::BlobStoreResult},
+    client::{
+        Client,
+        quilt_client::QuiltClientConfig,
+        responses::{BlobStoreResult, QuiltStoreResult},
+    },
     error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
@@ -132,6 +140,17 @@ pub trait WalrusWriteClient: WalrusReadClient {
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
+    /// Writes a quilt to Walrus.
+    fn write_quilt(
+        &self,
+        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreResult>> + Send;
+
     /// Returns the default [`PostStoreAction`] for this client.
     fn default_post_store_action(&self) -> PostStoreAction;
 }
@@ -204,6 +223,34 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .into_iter()
             .next()
             .expect("there is only one blob, as store was called with one blob"))
+    }
+
+    async fn write_quilt(
+        &self,
+        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        let quilt_client = self.quilt_client(QuiltClientConfig::default());
+        let quilt = quilt_client
+            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
+            .await?;
+
+        quilt_client
+            .reserve_and_store_quilt::<QuiltVersionV1>(
+                &quilt,
+                encoding_type,
+                epochs_ahead,
+                store_optimizations,
+                persistence,
+                post_store,
+            )
+            .await
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {
@@ -393,22 +440,44 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(
-                    ServiceBuilder::new()
-                        .layer(axum::middleware::from_fn_with_state(
-                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                            auth_layer,
-                        ))
-                        .layer(base_layers),
-                ),
-            );
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(
+                        ServiceBuilder::new()
+                            .layer(axum::middleware::from_fn_with_state(
+                                (
+                                    Arc::new(auth_config.clone()),
+                                    Arc::new(replay_suppression_cache.clone()),
+                                ),
+                                auth_layer,
+                            ))
+                            .layer(base_layers.clone()),
+                    ),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt).route_layer(
+                        ServiceBuilder::new()
+                            .layer(axum::middleware::from_fn_with_state(
+                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                                auth_layer,
+                            ))
+                            .layer(base_layers.clone()),
+                    ),
+                );
         } else {
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(base_layers),
-            );
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(base_layers.clone()),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt).route_layer(base_layers),
+                );
         }
         self
     }

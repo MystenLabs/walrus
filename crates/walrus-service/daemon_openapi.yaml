@@ -297,6 +297,155 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/quilts:
+    put:
+      tags:
+      - routes
+      summary: Store multiple files as a quilt using multipart/form-data.
+      description: |-
+        Accepts a multipart form with files and their metadata to create a quilt.
+        Each file can have:
+        - The file itself (required)
+        - identifier: custom identifier (optional, defaults to filename)
+        - tags: JSON object with string key-value pairs (optional)
+
+        # Form Structure
+
+        The multipart form should contain:
+        - `{name}`: The file data (required)
+        - `{name}_identifier`: Custom identifier for the file (optional)
+        - `{name}_tags`: JSON object with string key-value pairs (optional)
+
+        # Tag Values
+
+        Tag values should be strings. Example:
+        ```json
+        {
+          "author": "alice",
+          "project": "walrus-test",
+          "version": "1.0",
+          "environment": "production"
+        }
+        ```
+
+        # Examples
+
+        ## Simple Upload (curl)
+        ```bash
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+          -F "file1=@document.pdf" \
+          -F "file2=@image.png"
+        ```
+
+        ## Upload with Custom Identifiers
+        ```bash
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+          -F "file1=@document.pdf" \
+          -F "file1_identifier=contract-v2" \
+          -F "file2=@image.png" \
+          -F "file2_identifier=logo-2024"
+        ```
+
+        ## Upload with Tags
+        ```bash
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+          -F "file1=@document.pdf" \
+          -F "file1_identifier=contract-v2" \
+          -F 'file1_tags={"author":"alice","version":"2.0","status":"validated","category":"legal"}' \
+          -F "file2=@image.png" \
+          -F "file2_identifier=logo-2024" \
+          -F 'file2_tags={"type":"logo","width":"1920","height":"1080","format":"png"}'
+        ```
+
+        # Response
+        Returns a `QuiltStoreResult` containing the quilt blob ID and metadata.
+        Individual files can then be retrieved using the quilt ID and their identifiers.
+      operationId: put_quilt
+      parameters:
+      - name: encoding_type
+        in: query
+        description: The encoding type to use for the quilt.
+        required: false
+        schema:
+          $ref: '#/components/schemas/EncodingType'
+        style: form
+      - name: epochs
+        in: query
+        description: The number of epochs, ahead of the current one, for which to store the quilt.
+        required: false
+        schema:
+          $ref: '#/components/schemas/u32'
+        style: form
+      - name: deletable
+        in: query
+        description: If true, the publisher creates a deletable quilt instead of a permanent one.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: force
+        in: query
+        description: If true, the publisher will always store the quilt, creating a new quilt object.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: send_or_share
+        in: query
+        required: false
+        schema:
+          oneOf:
+          - type: object
+            description: Send the blob to the specified Sui address.
+            required:
+            - send_object_to
+            properties:
+              send_object_to:
+                $ref: '#/components/schemas/SuiAddress'
+                description: Send the blob to the specified Sui address.
+          - type: object
+            description: Turn the created blob into a shared blob.
+            required:
+            - share
+            properties:
+              share:
+                type: boolean
+                description: Turn the created blob into a shared blob.
+          description: The exclusive option to share the blob or to send it to an address.
+        style: form
+      requestBody:
+        description: Multipart form with files and their metadata
+        content:
+          multipart/form-data: {}
+      responses:
+        '200':
+          description: The quilt was stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuiltStoreResult'
+        '400':
+          description: The request is malformed
+        '413':
+          description: The quilt is too large
+        '451':
+          description: ' The blob cannot be returned as has been blocked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '504':
+          description: ' The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     Binary:
@@ -513,6 +662,21 @@ components:
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+    QuiltStoreResult:
+      type: object
+      description: Result when attempting to store a quilt.
+      required:
+      - blobStoreResult
+      - storedQuiltBlobs
+      properties:
+        blobStoreResult:
+          $ref: '#/components/schemas/BlobStoreResult'
+          description: The result of storing the quilt data as a blob.
+        storedQuiltBlobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredQuiltPatch'
+          description: The structure of the quilt.
     RegisterBlobOp:
       oneOf:
       - type: object
@@ -684,6 +848,19 @@ components:
           format: int64
           description: The total amount of reserved storage.
           minimum: 0
+    StoredQuiltPatch:
+      type: object
+      description: Identifies a stored quilt patch.
+      required:
+      - identifier
+      - quiltPatchId
+      properties:
+        identifier:
+          type: string
+          description: The identifier of the quilt patch.
+        quiltPatchId:
+          type: string
+          description: The quilt patch id.
     SuiAddress:
       type: string
       title: Sui address

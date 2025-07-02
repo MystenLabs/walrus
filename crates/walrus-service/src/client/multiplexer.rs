@@ -13,13 +13,13 @@ use std::{
 
 use sui_sdk::{sui_client_config::SuiEnv, types::base_types::SuiAddress};
 use sui_types::base_types::ObjectID;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount, encoding::quilt_encoding::QuiltStoreBlob};
 use walrus_sdk::{
     client::{
         Client,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
-        responses::BlobStoreResult,
+        responses::{BlobStoreResult, QuiltStoreResult},
     },
     config::ClientConfig,
     error::ClientResult,
@@ -189,6 +189,32 @@ impl WalrusWriteClient for ClientMultiplexer {
             post_store,
         )
         .await
+    }
+
+    async fn write_quilt(
+        &self,
+        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult> {
+        let client = self.client_pool.next_client().await;
+        tracing::debug!("submitting write request to client in pool");
+
+        let result = client
+            .write_quilt(
+                quilt_store_blobs,
+                encoding_type,
+                epochs_ahead,
+                store_optimizations,
+                persistence,
+                post_store,
+            )
+            .await?;
+
+        Ok(result)
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {
