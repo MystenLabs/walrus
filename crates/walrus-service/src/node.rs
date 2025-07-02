@@ -849,6 +849,8 @@ impl StorageNode {
     }
 
     /// Continues the event stream from the last committed event.
+    ///
+    /// Returns the event stream and the event cursor from which the event stream is resumed.
     async fn continue_event_stream(
         &self,
         event_blob_writer_cursor: EventStreamCursor,
@@ -856,24 +858,36 @@ impl StorageNode {
         event_blob_writer: &mut Option<EventBlobWriter>,
     ) -> anyhow::Result<(
         Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
-        u64,
+        EventStreamCursor,
     )> {
         let event_cursor = std::cmp::min(storage_node_cursor, event_blob_writer_cursor);
-        let event_stream = self.inner.event_manager.events(event_cursor).await?;
-        let event_index = event_cursor.element_index;
 
         let init_state = self.inner.event_manager.init_state(event_cursor).await?;
         let Some(init_state) = init_state else {
-            return Ok((Pin::from(event_stream), event_index));
+            tracing::info!(
+                ?event_cursor,
+                "no init state found, resuming from event cursor"
+            );
+            return self.continue_event_stream_from_cursor(event_cursor).await;
         };
 
-        let actual_event_index = init_state.event_cursor.element_index;
+        if init_state.event_cursor == event_cursor {
+            tracing::info!(
+                ?event_cursor,
+                "event cursor is the same as the init state, no repositioning needed"
+            );
+            return self.continue_event_stream_from_cursor(event_cursor).await;
+        }
+
+        tracing::info!(?init_state, "continuing event stream from init_state");
+        let actual_event_cursor = init_state.event_cursor;
+        let actual_event_index = actual_event_cursor.element_index;
 
         let storage_index = storage_node_cursor.element_index;
         let mut storage_node_cursor_repositioned = false;
         if should_reposition_cursor(storage_index, actual_event_index) {
             tracing::info!(
-                "Repositioning storage node cursor from {} to {}",
+                "repositioning storage node cursor from {} to {}",
                 storage_index,
                 actual_event_index
             );
@@ -892,7 +906,7 @@ impl StorageNode {
             let event_blob_writer_index = event_blob_writer_cursor.element_index;
             if should_reposition_cursor(event_blob_writer_index, actual_event_index) {
                 tracing::info!(
-                    "Repositioning event blob writer cursor from {} to {}",
+                    "repositioning event blob writer cursor from {} to {}",
                     event_blob_writer_index,
                     actual_event_index
                 );
@@ -901,14 +915,31 @@ impl StorageNode {
             }
         }
 
-        if !storage_node_cursor_repositioned && !event_blob_writer_repositioned {
-            ensure!(
-                event_index == actual_event_index,
-                "event stream out of sync"
-            );
-        }
+        ensure!(
+            storage_node_cursor_repositioned || event_blob_writer_repositioned,
+            "event stream out of sync"
+        );
 
-        Ok((Pin::from(event_stream), actual_event_index))
+        self.continue_event_stream_from_cursor(actual_event_cursor)
+            .await
+    }
+
+    /// Continues the event stream from the provided event cursor.
+    ///
+    /// Returns the event stream and the provided event cursor.
+    // NB: This is to emphasize that the used event cursor should be the same as the one used to
+    // continue the event stream.
+    async fn continue_event_stream_from_cursor(
+        &self,
+        event_cursor: EventStreamCursor,
+    ) -> anyhow::Result<(
+        Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
+        EventStreamCursor,
+    )> {
+        Ok((
+            Pin::from(self.inner.event_manager.events(event_cursor).await?),
+            event_cursor,
+        ))
     }
 
     async fn get_event_blob_downloader_from_config(
@@ -969,11 +1000,11 @@ impl StorageNode {
             Some(factory) => Some(factory.create().await?),
             None => None,
         };
-        let (event_stream, next_event_index) = self
+        let (event_stream, event_cursor) = self
             .continue_event_stream(writer_cursor, storage_node_cursor, &mut event_blob_writer)
             .await?;
 
-        let index_stream = stream::iter(next_event_index..);
+        let index_stream = stream::iter(event_cursor.element_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);

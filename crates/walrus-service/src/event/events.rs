@@ -141,6 +141,11 @@ impl IndexedStreamEvent {
     pub fn new(element: PositionedStreamEvent, index: u64) -> Self {
         Self { element, index }
     }
+
+    /// Creates a new indexed stream element from an index and an element.
+    pub fn from_index_and_element((index, element): (u64, PositionedStreamEvent)) -> Self {
+        Self { element, index }
+    }
 }
 
 /// An indexed element in the event stream with an initialization state.
