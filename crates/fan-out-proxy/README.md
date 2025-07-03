@@ -94,7 +94,7 @@ Notice that `fan-out-proxy` requires some configuration to get started. Below is
 you might place the configuration such that it is reachable when invoking Docker to run the proxy.
 For the sake of the example below, we're assuming that:
 
-- `$HOME/.config/fan-out-config.yaml` exists on the host machine and contains the specification for
+- `$HOME/.config/walrus/fan-out-config.yaml` exists on the host machine and contains the specification for
   the `fan-out-proxy` configuration, as described [here](about:blank).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
   configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
@@ -104,7 +104,7 @@ For the sake of the example below, we're assuming that:
 ```
 docker run \
   -p 3000:3000 \
-  -v $HOME/.config/fan-out-config.yaml:/opt/walrus/fan-out-config.yaml \
+  -v $HOME/.config/walrus/fan-out-config.yaml:/opt/walrus/fan-out-config.yaml \
   -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
   mysten/fan-out-proxy \
     proxy \

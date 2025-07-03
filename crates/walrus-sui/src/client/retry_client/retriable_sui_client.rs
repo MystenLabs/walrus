@@ -1078,7 +1078,7 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Lower-level primitive, executes a transaction from it bytes representation.
+    /// Lower-level primitive, executes a transaction from its bytes representation.
     ///
     /// This function does not wait for the local execution on the full node. It is equivalent to
     /// calling `execute_transaction_block` with
