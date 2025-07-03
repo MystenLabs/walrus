@@ -45,13 +45,13 @@ mod tests {
             let current_blob = get_last_certified_event_blob_must_succeed(client).await;
 
             if current_blob.blob_id != last_blob.blob_id {
-                tracing::info!("New event blob seen during fork wait: {:?}", current_blob);
+                tracing::info!("new event blob seen during fork wait: {:?}", current_blob);
                 last_blob = current_blob;
                 last_blob_time = Instant::now();
             }
 
             if last_blob_time.elapsed() > Duration::from_secs(20) {
-                tracing::info!("Event blob certification stuck for 20s");
+                tracing::info!("event blob certification stuck for 20s");
                 break;
             }
 
@@ -77,7 +77,7 @@ mod tests {
             let current_blob = get_last_certified_event_blob_must_succeed(client).await;
 
             if current_blob.blob_id != last_certified_blob.blob_id {
-                tracing::info!("New event blob seen during fork wait: {:?}", current_blob);
+                tracing::info!("new event blob seen during fork wait: {:?}", current_blob);
                 last_certified_blob = current_blob;
                 tokio::time::sleep(Duration::from_secs(30)).await;
 
@@ -87,7 +87,7 @@ mod tests {
                     let current_blob_id =
                         get_last_certified_event_blob_from_node(node).await?.blob_id;
                     if current_blob_id == prev_blob_id {
-                        tracing::info!("Node forked");
+                        tracing::info!("node forked");
                         break;
                     }
                 }
@@ -239,6 +239,12 @@ mod tests {
 
         kill_all_storage_nodes(&node_handles).await;
 
+        // Doing a short sleep so that the connection between the old nodes to the fullnodes are
+        // fully cleared. We've seen cases where when the new node is started, the old connection
+        // on the fullnode still exists and the new node will not be able to connect to the
+        //fullnode.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
         for (i, node) in walrus_cluster.nodes.iter_mut().enumerate() {
             node.node_id = Some(
                 SimStorageNodeHandle::spawn_node(
@@ -282,6 +288,10 @@ mod tests {
                     ..Default::default()
                 })
                 .with_num_checkpoints_per_blob(20)
+                // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
+                // fail since the event blob's certified events have not been processed yet.
+                // We can revisit this once we have more robust client read.
+                .with_event_stream_catchup_min_checkpoint_lag(Some(20000))
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -304,13 +314,13 @@ mod tests {
         // Wait for event blob certification to get stuck
         let stuck_blob = wait_for_certification_stuck(&client).await;
 
-        tracing::info!("Stuck blob: {:?}", stuck_blob);
+        tracing::info!("stuck blob: {:?}", stuck_blob);
 
         // Restart nodes with same checkpoint number to recover
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Verify recovery
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(40)).await;
         let recovered_blob = get_last_certified_event_blob_must_succeed(&client).await;
 
         // Event blob should make progress again.
@@ -331,6 +341,10 @@ mod tests {
                     ..Default::default()
                 })
                 .with_num_checkpoints_per_blob(20)
+                // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
+                // fail since the event blob's certified events have not been processed yet.
+                // We can revisit this once we have more robust client read.
+                .with_event_stream_catchup_min_checkpoint_lag(Some(20000))
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),
@@ -386,7 +400,8 @@ mod tests {
                 ));
             }
 
-            let node_health_infos = simtest_utils::get_nodes_health_info(&nodes_to_check).await;
+            let node_health_infos =
+                simtest_utils::get_nodes_health_info(nodes_to_check.clone()).await;
 
             let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
                 .iter()
@@ -459,7 +474,7 @@ mod tests {
 
         // Wait for the cluster to process some events.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.
@@ -479,9 +494,9 @@ mod tests {
 
         // Get the highest processed event and checkpoint for each storage node.
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_infos = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_infos = simtest_utils::get_nodes_health_info(node_refs.clone()).await;
 
-        tracing::info!("Node health infos: {:?}", node_health_infos);
+        tracing::info!("node health infos: {:?}", node_health_infos);
 
         wait_for_nodes_at_checkpoint(
             &node_refs,

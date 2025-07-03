@@ -8,7 +8,10 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{Arc, atomic::AtomicBool},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
@@ -22,10 +25,12 @@ mod tests {
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::sync::RwLock;
+    use walrus_core::EpochCount;
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        node::config::NodeRecoveryConfig,
+        event::event_processor::config::EventProcessorConfig,
+        node::config::{NodeRecoveryConfig, StorageNodeConfig},
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
@@ -83,6 +88,7 @@ mod tests {
             false,
             &mut blobs_written,
             0,
+            None,
         )
         .await
         .expect("workload should not fail");
@@ -132,7 +138,6 @@ mod tests {
                 use_legacy_event_processor: false,
                 ..Default::default()
             })
-            .with_num_checkpoints_per_blob(100)
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -143,9 +148,10 @@ mod tests {
             .unwrap();
 
         let client_arc = Arc::new(client);
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true, 0);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), true, 0, None);
 
-        // Run the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
         // Repeatedly move shards among storage nodes.
@@ -207,7 +213,7 @@ mod tests {
         fail_triggered: Arc<AtomicBool>,
         crash_duration: Duration,
     ) {
-        if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
+        if fail_triggered.load(Ordering::SeqCst) {
             // We only need to trigger failure once.
             return;
         }
@@ -218,7 +224,7 @@ mod tests {
         }
 
         tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
-        fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
+        fail_triggered.store(true, Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
@@ -269,9 +275,9 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
-        // Running the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(90)).await;
 
         walrus_cluster.nodes[5].node_id = Some(
@@ -321,8 +327,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         let committees = client_arc
             .inner
@@ -379,7 +384,7 @@ mod tests {
         }
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[5]])
                 .await
                 .get(0)
                 .unwrap()
@@ -406,6 +411,181 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
 
         clear_fail_point("fail_point_direct_shard_sync_recovery");
+    }
+
+    // TODO(WAL-896): Extend this test to include the following scenarios:
+    // - The catching-up node crashes and restarts.
+    // - A blob is registered and certified in different epochs.
+    // - A blob is deleted.
+    // - The cursor of the event-blob writer is lagging more than MAX_EPOCHS_AHEAD epochs, but the
+    //   node cursor is not.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_recovery_with_incomplete_history() {
+        const MAX_EPOCHS_AHEAD: EpochCount = 3;
+        const EPOCH_DURATION: Duration = Duration::from_secs(30);
+
+        // We need to wait at least until `MAX_EPOCHS_AHEAD + 1` until the first event blob is
+        // expired. The additional +2 is to account for the fact that the first event blob may only
+        // be certified in a later epoch.
+        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 2;
+
+        // Tracks if a node enters recovery mode with incomplete history.
+        let recovery_with_incomplete_history_triggered = Arc::new(AtomicBool::new(false));
+        // Tracks if a node starts catchup using event blobs.
+        let catchup_using_event_blobs_triggered = Arc::new(AtomicBool::new(false));
+
+        {
+            let recovery_with_incomplete_history_triggered =
+                recovery_with_incomplete_history_triggered.clone();
+            register_fail_point("fail_point_recovery_with_incomplete_history", move || {
+                recovery_with_incomplete_history_triggered.store(true, Ordering::SeqCst);
+            });
+            let catchup_using_event_blobs_triggered = catchup_using_event_blobs_triggered.clone();
+            register_fail_point("fail_point_catchup_using_event_blobs_start", move || {
+                catchup_using_event_blobs_triggered.store(true, Ordering::SeqCst);
+            });
+        }
+
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(EPOCH_DURATION)
+                .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
+                .with_test_nodes_config(TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    ..Default::default()
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = simtest_utils::start_background_workload(
+            client_arc.clone(),
+            false,
+            0,
+            Some(MAX_EPOCHS_AHEAD),
+        );
+
+        tracing::info!("waiting for nodes to reach target epoch {}", TARGET_EPOCH);
+        // We need to wait at least for`EPOCH_DURATION * TARGET_EPOCH`. We allow for some more
+        // epochs to increase the test robustness.
+        // TODO(WAL-896): Maybe better check for the first event blob to become expired?
+        tokio::time::sleep(EPOCH_DURATION * TARGET_EPOCH).await;
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..4],
+            TARGET_EPOCH,
+            2 * EPOCH_DURATION,
+        )
+        .await;
+
+        let new_node = &mut walrus_cluster.nodes[5];
+        let storage_node_config = new_node.storage_node_config.clone();
+        let new_node_id = SimStorageNodeHandle::spawn_node(
+            Arc::new(RwLock::new(StorageNodeConfig {
+                event_processor_config: EventProcessorConfig {
+                    event_stream_catchup_min_checkpoint_lag: 0,
+                    ..storage_node_config.event_processor_config
+                },
+                ..storage_node_config
+            })),
+            None,
+            new_node.cancel_token.clone(),
+        )
+        .await
+        .id();
+        new_node.node_id = Some(new_node_id);
+        tracing::info!("spawned a new node with node ID {}", new_node_id);
+
+        let new_node_starting_epoch =
+            simtest_utils::get_current_epoch_from_node(&walrus_cluster.nodes[5])
+                .await
+                .max(TARGET_EPOCH);
+
+        tracing::info!("adding stake to the new node");
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        tracing::info!("waiting for the new node to catch up and recover");
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        tracing::info!("checking the cluster's health info");
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .unwrap();
+        let current_committee = committees.current_committee();
+
+        assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
+        assert!(node_health_info[5].shard_detail.is_some());
+
+        tracing::info!("checking that shards in the new node matches the shards in the committees");
+        let shards_in_new_node_based_on_committee = committees
+            .current_committee()
+            .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
+        let shards_in_new_node_owned = node_health_info[5]
+            .shard_detail
+            .as_ref()
+            .unwrap()
+            .owned
+            .clone();
+        assert_eq!(
+            shards_in_new_node_based_on_committee.len(),
+            shards_in_new_node_owned.len()
+        );
+        for shard in shards_in_new_node_owned {
+            assert!(shards_in_new_node_based_on_committee.contains(&shard.shard));
+        }
+
+        assert_eq!(node_health_info[5].node_status, "Active");
+
+        workload_handle.abort();
+
+        blob_info_consistency_check
+            .check_storage_node_consistency_from_epoch(new_node_starting_epoch);
+
+        assert!(
+            catchup_using_event_blobs_triggered.load(Ordering::SeqCst),
+            "catchup using event blobs should be triggered"
+        );
+        let was_recovery_with_incomplete_history_triggered =
+            recovery_with_incomplete_history_triggered.load(Ordering::SeqCst);
+        tracing::info!(
+            "recovery with incomplete history was triggered: {}",
+            was_recovery_with_incomplete_history_triggered
+        );
+        // TODO(WAL-896): Make the test more robust and enable this again.
+        // assert!(
+        //     recovery_with_incomplete_history_triggered.load(Ordering::SeqCst),
+        //     "recovery with incomplete history should be triggered"
+        // );
+        clear_fail_point("fail_point_recovery_with_incomplete_history");
+        clear_fail_point("fail_point_catchup_using_event_blobs_start");
     }
 
     // The node recovery process is artificially prolonged to be longer than 1 epoch.
@@ -452,9 +632,9 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
-        // Running the workload for 60 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
         // Register a fail point to have a temporary pause in the node recovery process that is
@@ -480,8 +660,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(180)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -490,7 +669,7 @@ mod tests {
         }
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]])
                 .await
                 .get(0)
                 .unwrap()
@@ -526,9 +705,10 @@ mod tests {
             .await
             .unwrap();
 
-        let workload_handle = simtest_utils::start_background_workload(Arc::new(client), true, 0);
+        let workload_handle =
+            simtest_utils::start_background_workload(Arc::new(client), true, 0, None);
 
-        // Run the workload for 120 seconds to get some data in the system.
+        // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(120)).await;
 
         workload_handle.abort();
@@ -536,8 +716,7 @@ mod tests {
         // Wait for event to catch up.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         for node_health in health_info {
             assert!(node_health.event_progress.pending < 10);
         }

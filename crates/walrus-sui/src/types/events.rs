@@ -330,13 +330,22 @@ impl BlobEvent {
     }
 
     /// The epoch in which the event was generated.
-    pub fn event_epoch(&self) -> Epoch {
+    ///
+    /// This returns `None` for blob extensions, as the corresponding events contain the epoch in
+    /// which the blob was first certified.
+    pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
-            BlobEvent::Registered(event) => event.epoch,
-            BlobEvent::Certified(event) => event.epoch,
-            BlobEvent::Deleted(event) => event.epoch,
-            BlobEvent::InvalidBlobID(event) => event.epoch,
-            BlobEvent::DenyListBlobDeleted(event) => event.epoch,
+            BlobEvent::Registered(event) => Some(event.epoch),
+            BlobEvent::Certified(event) => {
+                if event.is_extension {
+                    None
+                } else {
+                    Some(event.epoch)
+                }
+            }
+            BlobEvent::Deleted(event) => Some(event.epoch),
+            BlobEvent::InvalidBlobID(event) => Some(event.epoch),
+            BlobEvent::DenyListBlobDeleted(event) => Some(event.epoch),
         }
     }
 
@@ -919,13 +928,16 @@ impl ContractEvent {
     }
 
     /// Returns the epoch in which the event was issued.
-    pub fn event_epoch(&self) -> Epoch {
+    ///
+    /// This returns `None` for blob extensions, as the corresponding events contain the epoch in
+    /// which the blob was first certified.
+    pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
             ContractEvent::BlobEvent(event) => event.event_epoch(),
-            ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
-            ContractEvent::PackageEvent(event) => event.event_epoch(),
-            ContractEvent::DenyListEvent(event) => event.event_epoch(),
-            ContractEvent::ProtocolEvent(event) => event.event_epoch(),
+            ContractEvent::EpochChangeEvent(event) => Some(event.event_epoch()),
+            ContractEvent::PackageEvent(event) => Some(event.event_epoch()),
+            ContractEvent::DenyListEvent(event) => Some(event.event_epoch()),
+            ContractEvent::ProtocolEvent(event) => Some(event.event_epoch()),
         }
     }
 

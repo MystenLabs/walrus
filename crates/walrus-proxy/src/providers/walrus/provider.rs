@@ -91,7 +91,7 @@ impl WalrusNodeProvider {
     }
     /// poll_peer_list will act as a refresh interval for our cache
     pub fn poll_peer_list(&self) {
-        tracing::info!("Started polling for peers using rpc: {}", self.rpc_url);
+        tracing::info!("started polling for peers using RPC '{}'", self.rpc_url);
 
         let rpc_poll_interval = self.rpc_poll_interval;
         let cloned_self = self.clone();

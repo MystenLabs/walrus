@@ -353,7 +353,7 @@ impl RetriableRpcClient {
                 self.handle_primary_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::DirectFallback => {
-                tracing_sampled::info!("30s", "Direct fallback for checkpoint {}", sequence_number);
+                tracing_sampled::info!("30s", "direct fallback for checkpoint {}", sequence_number);
                 self.handle_fallback_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::FallbackUponPrimaryFailure(_err) => {

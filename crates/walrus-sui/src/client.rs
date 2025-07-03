@@ -29,12 +29,7 @@ use sui_sdk::{
     },
     types::base_types::ObjectID,
 };
-use sui_types::{
-    TypeTag,
-    base_types::SuiAddress,
-    event::EventID,
-    transaction::{Argument, TransactionData},
-};
+use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
@@ -843,10 +838,21 @@ impl SuiContractClient {
         .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_migration_epoch(new_package_id)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -1474,14 +1480,34 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
+        let subsidies_package_id = self.read_client.get_subsidies_package_id();
+
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
-            pt_builder
-                .register_blob(storage.id.into(), blob_metadata, persistence)
-                .await?;
+            match subsidies_package_id {
+                Some(pkg_id) => {
+                    pt_builder
+                        .register_blob_with_subsidies(
+                            storage.id.into(),
+                            blob_metadata,
+                            persistence,
+                            pkg_id,
+                        )
+                        .await?;
+                }
+                None => {
+                    pt_builder
+                        .register_blob_without_subsidies(
+                            storage.id.into(),
+                            blob_metadata,
+                            persistence,
+                        )
+                        .await?;
+                }
+            };
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
@@ -1518,11 +1544,12 @@ impl SuiContractClientInner {
         match subsidies_package_id {
             Some(pkg_id) => {
                 match self
-                    .reserve_and_register_blobs_with_subsidies(
+                    .reserve_and_register_blobs_inner(
                         epochs_ahead,
                         blob_metadata_list.clone(),
                         persistence,
                         pkg_id,
+                        true,
                     )
                     .await
                 {
@@ -1534,10 +1561,12 @@ impl SuiContractClientInner {
                             "Walrus package version mismatch in subsidies call, \
                             falling back to direct contract call"
                         );
-                        self.reserve_and_register_blobs_without_subsidies(
+                        self.reserve_and_register_blobs_inner(
                             epochs_ahead,
                             blob_metadata_list.clone(),
                             persistence,
+                            ObjectID::random(),
+                            false,
                         )
                         .await
                     }
@@ -1545,79 +1574,27 @@ impl SuiContractClientInner {
                 }
             }
             None => {
-                self.reserve_and_register_blobs_without_subsidies(
+                self.reserve_and_register_blobs_inner(
                     epochs_ahead,
                     blob_metadata_list,
                     persistence,
+                    ObjectID::random(),
+                    false,
                 )
                 .await
             }
         }
     }
 
-    /// reserve and register blobs with subsidies
-    pub async fn reserve_and_register_blobs_with_subsidies(
+    /// reserve and register blobs inner
+    pub async fn reserve_and_register_blobs_inner(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
         subsidies_package_id: ObjectID,
+        with_subsidies: bool,
     ) -> SuiClientResult<Vec<Blob>> {
-        // Use helper for implementing with the subsidies approach
-        self.reserve_and_register_blobs_impl(
-            epochs_ahead,
-            blob_metadata_list,
-            persistence,
-            |builder, encoded_size, epochs| {
-                Box::pin(async move {
-                    builder
-                        .reserve_space_with_subsidies(encoded_size, epochs, subsidies_package_id)
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<Argument>>
-            },
-        )
-        .await
-    }
-
-    /// reserve and register blobs without subsidies
-    pub async fn reserve_and_register_blobs_without_subsidies(
-        &mut self,
-        epochs_ahead: EpochCount,
-        blob_metadata_list: Vec<BlobObjectMetadata>,
-        persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<Blob>> {
-        // Use helper for implementing with the non-subsidies approach
-        self.reserve_and_register_blobs_impl(
-            epochs_ahead,
-            blob_metadata_list,
-            persistence,
-            |builder, encoded_size, epochs| {
-                Box::pin(async move {
-                    builder
-                        .reserve_space_without_subsidies(encoded_size, epochs)
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<Argument>>
-            },
-        )
-        .await
-    }
-
-    /// Common implementation for reserving and registering blobs
-    async fn reserve_and_register_blobs_impl<F>(
-        &mut self,
-        epochs_ahead: EpochCount,
-        blob_metadata_list: Vec<BlobObjectMetadata>,
-        persistence: BlobPersistence,
-        reserve_space_fn: F,
-    ) -> SuiClientResult<Vec<Blob>>
-    where
-        F: for<'a> Fn(
-                &'a mut WalrusPtbBuilder,
-                u64,
-                EpochCount,
-            ) -> BoxFuture<'a, SuiClientResult<Argument>>
-            + Send,
-    {
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register");
             return Ok(vec![]);
@@ -1635,8 +1612,20 @@ impl SuiContractClientInner {
         let mut main_storage_arg_size = blob_metadata_list
             .iter()
             .fold(0, |acc, metadata| acc + metadata.encoded_size);
-        let main_storage_arg =
-            reserve_space_fn(&mut pt_builder, main_storage_arg_size, epochs_ahead).await?;
+
+        let main_storage_arg = if with_subsidies {
+            pt_builder
+                .reserve_space_with_subsidies(
+                    main_storage_arg_size,
+                    epochs_ahead,
+                    subsidies_package_id,
+                )
+                .await?
+        } else {
+            pt_builder
+                .reserve_space_without_subsidies(main_storage_arg_size, epochs_ahead)
+                .await?
+        };
 
         for blob_metadata in blob_metadata_list.into_iter() {
             // Split off a storage resource, unless the remainder is equal to the required size.
@@ -1648,14 +1637,26 @@ impl SuiContractClientInner {
             } else {
                 main_storage_arg
             };
-            pt_builder
-                .register_blob(storage_arg.into(), blob_metadata, persistence)
-                .await?;
+
+            if with_subsidies {
+                pt_builder
+                    .register_blob_with_subsidies(
+                        storage_arg.into(),
+                        blob_metadata,
+                        persistence,
+                        subsidies_package_id,
+                    )
+                    .await?
+            } else {
+                pt_builder
+                    .register_blob_without_subsidies(storage_arg.into(), blob_metadata, persistence)
+                    .await?
+            };
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_impl")
+            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_inner")
             .await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
@@ -2008,10 +2009,23 @@ impl SuiContractClientInner {
             .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.set_migration_epoch(new_package_id).await?;
+        let transaction: TransactionData =
+            pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "set_migration_epoch")
+            .await?;
+        Ok(())
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.migrate_contracts(new_package_id).await?;

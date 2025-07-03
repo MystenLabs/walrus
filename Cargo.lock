@@ -13007,6 +13007,7 @@ dependencies = [
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
+ "x509-cert",
 ]
 
 [[package]]
@@ -13016,6 +13017,7 @@ dependencies = [
  "anyhow",
  "bcs",
  "futures",
+ "itertools 0.13.0",
  "prometheus",
  "rand 0.8.5",
  "reqwest",

@@ -62,7 +62,7 @@ use crate::{
         UpdatePublicKeyParams,
         move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },
-    utils::{price_for_encoded_length, write_price_for_encoded_length},
+    utils::{TEN_THOUSAND_BASIS_POINTS, price_for_encoded_length, write_price_for_encoded_length},
 };
 
 const CLOCK_OBJECT_ARG: ObjectArg = ObjectArg::SharedObject {
@@ -168,9 +168,11 @@ impl WalrusPtbBuilder {
     /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance
     /// can be found.
     pub async fn fill_wal_balance(&mut self, min_balance: u64) -> SuiClientResult<()> {
-        if min_balance <= self.tx_wal_balance {
+        // If we already have a wal_coin_arg and sufficient balance, we're done
+        if min_balance <= self.tx_wal_balance && self.wal_coin_arg.is_some() {
             return Ok(());
         }
+
         let additional_balance = min_balance - self.tx_wal_balance;
         let mut coins = self
             .read_client
@@ -268,7 +270,7 @@ impl WalrusPtbBuilder {
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, false)
             .await?;
         self.fill_wal_balance(price).await?;
 
@@ -293,9 +295,10 @@ impl WalrusPtbBuilder {
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
         self.fill_wal_balance(price).await?;
+
         let reserve_arguments = vec![
             self.subsidies_arg(Mutability::Mutable).await?,
             self.system_arg(Mutability::Mutable).await?,
@@ -333,15 +336,16 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
-    pub async fn register_blob(
+    /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`]
+    /// without subsidies.
+    pub async fn register_blob_without_subsidies(
         &mut self,
         storage_resource: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .write_price_for_encoded_length(blob_metadata.encoded_size)
+            .write_price_for_encoded_length(blob_metadata.encoded_size, false)
             .await?;
         self.fill_wal_balance(price).await?;
 
@@ -360,6 +364,46 @@ impl WalrusPtbBuilder {
         ];
         let result_arg =
             self.walrus_move_call(contracts::system::register_blob, register_arguments)?;
+        self.reduce_wal_balance(price)?;
+        self.mark_arg_as_consumed(&storage_resource_arg);
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
+    /// with subsidies.
+    pub async fn register_blob_with_subsidies(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+        subsidies_package_id: ObjectID,
+    ) -> SuiClientResult<Argument> {
+        let price = self
+            .write_price_for_encoded_length(blob_metadata.encoded_size, true)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+
+        let register_arguments = vec![
+            self.subsidies_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            storage_resource_arg,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(persistence.is_deletable())?,
+            self.wal_coin_arg()?,
+        ];
+        let result_arg = self.move_call(
+            subsidies_package_id,
+            contracts::subsidies::register_blob,
+            register_arguments,
+        )?;
+
         self.reduce_wal_balance(price)?;
         self.mark_arg_as_consumed(&storage_resource_arg);
         self.add_result_to_be_consumed(result_arg);
@@ -632,7 +676,7 @@ impl WalrusPtbBuilder {
         encoded_size: u64,
     ) -> SuiClientResult<()> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_extended)
+            .storage_price_for_encoded_length(encoded_size, epochs_extended, false)
             .await?;
 
         self.fill_wal_balance(price).await?;
@@ -657,7 +701,7 @@ impl WalrusPtbBuilder {
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<()> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
 
         self.fill_wal_balance(price).await?;
@@ -1423,6 +1467,17 @@ impl WalrusPtbBuilder {
             .await
     }
 
+    /// Sets the migration epoch on the staking object to the following epoch.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let args = vec![self.staking_arg(Mutability::Mutable).await?];
+        self.move_call(
+            new_package_id,
+            contracts::staking::set_migration_epoch,
+            args,
+        )?;
+        Ok(())
+    }
+
     /// Migrates the staking and system contracts to the new package id.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let args = vec![
@@ -1543,19 +1598,60 @@ impl WalrusPtbBuilder {
         &self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
+        with_subsidies: bool,
     ) -> SuiClientResult<u64> {
-        Ok(price_for_encoded_length(
+        let full_price = price_for_encoded_length(
             encoded_size,
             self.read_client.storage_price_per_unit_size().await?,
             epochs_ahead,
-        ))
+        );
+        let buyer_pays = match self.read_client.get_subsidies_object_id() {
+            Some(subsidies_object_id) if with_subsidies => {
+                let subsidies_object = self
+                    .read_client
+                    .sui_client()
+                    .get_subsidies_object(subsidies_object_id)
+                    .await?;
+                let subsidy = full_price * u64::from(subsidies_object.buyer_subsidy_rate)
+                    / TEN_THOUSAND_BASIS_POINTS;
+                full_price - subsidy
+            }
+            Some(_) => full_price,
+            None => full_price,
+        };
+
+        Ok(buyer_pays)
     }
 
-    async fn write_price_for_encoded_length(&self, encoded_size: u64) -> SuiClientResult<u64> {
-        Ok(write_price_for_encoded_length(
+    async fn write_price_for_encoded_length(
+        &self,
+        encoded_size: u64,
+        with_subsidies: bool,
+    ) -> SuiClientResult<u64> {
+        let full_price = write_price_for_encoded_length(
             encoded_size,
             self.read_client.write_price_per_unit_size().await?,
-        ))
+        );
+        let buyer_pays = match self.read_client.get_subsidies_object_id() {
+            Some(subsidies_object_id) if with_subsidies => {
+                let buyer_subsidy_rate = self
+                    .read_client
+                    .sui_client()
+                    .get_subsidies_object(subsidies_object_id)
+                    .await?
+                    .buyer_subsidy_rate;
+                // TODO: (WAL-905) Hack until new subsidy is integrated with system contract
+                if u64::from(buyer_subsidy_rate) == TEN_THOUSAND_BASIS_POINTS {
+                    0
+                } else {
+                    full_price
+                }
+            }
+            Some(_) => full_price,
+            None => full_price,
+        };
+
+        Ok(buyer_pays)
     }
 
     async fn argument_from_arg_or_obj(

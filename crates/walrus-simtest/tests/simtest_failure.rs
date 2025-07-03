@@ -18,7 +18,6 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng, thread_rng};
-    use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
@@ -39,13 +38,6 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn walrus_with_single_node_crash_and_restart() {
-        let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
-            // TODO: remove once Sui simtest can work with these features.
-            config.set_enable_jwk_consensus_updates_for_testing(false);
-            config.set_random_beacon_for_testing(false);
-            config
-        });
-
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
@@ -92,6 +84,7 @@ mod tests {
                 false,
                 &mut blobs_written,
                 0,
+                None,
             )
             .await
             .expect("workload should not fail");
@@ -114,6 +107,7 @@ mod tests {
                     false,
                     &mut blobs_written,
                     0,
+                    None,
                 )
                 .await
                 .expect("workload should not fail");
@@ -239,7 +233,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -296,8 +290,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -437,7 +430,8 @@ mod tests {
         let client_arc = Arc::new(client);
 
         // Use a higher write retry limit given that the epoch duration is short.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), true, 5);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), true, 5, None);
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
@@ -497,7 +491,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                     .await;
             tracing::info!(
                 "event progress: persisted {:?}, pending {:?}",
@@ -516,7 +510,7 @@ mod tests {
 
         // And finally the node should be in Active state.
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                 .await
                 .get(0)
                 .unwrap()
@@ -568,7 +562,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
             tracing::info!(
                 "last checkpoint seq number in node 0: {:?}",
                 node_health_info[0].latest_checkpoint_sequence_number,
@@ -655,7 +649,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node is lagging behind.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0);
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -705,8 +699,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {

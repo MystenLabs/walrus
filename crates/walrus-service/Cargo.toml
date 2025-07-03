@@ -53,6 +53,7 @@ node = [
   "dep:tokio-stream",
   "dep:tokio-util",
   "dep:typed-store",
+  "dep:x509-cert",
 ]
 test-utils = [
   "client",
@@ -166,6 +167,7 @@ walrus-storage-node-client.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "log", "metrics", "tokio-metrics"] }
+x509-cert = { workspace = true, optional = true }
 
 [dev-dependencies]
 hex.workspace = true

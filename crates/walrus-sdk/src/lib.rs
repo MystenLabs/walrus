@@ -3,6 +3,8 @@
 
 //! The Walrus Rust SDK.
 
+#![recursion_limit = "256"]
+
 pub mod active_committees;
 pub mod blocklist;
 pub mod client;

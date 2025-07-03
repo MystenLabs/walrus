@@ -36,7 +36,7 @@ echo "starting staking client"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=full RUST_LOG=info /opt/walrus/bin/walrus-stress \
+RUST_BACKTRACE=full RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-stress \
     --config-path /opt/walrus/outputs/client_config_staking.yaml \
     --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
     staking
