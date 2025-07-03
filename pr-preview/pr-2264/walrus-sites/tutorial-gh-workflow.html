@@ -229,13 +229,17 @@
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="writing-your-workflow"><a class="header" href="#writing-your-workflow">Writing your workflow</a></h1>
-<p>Now that you have configured your secrets and variables, you can create GitHub workflows to automate your Walrus Site deployments using the official "Deploy Walrus Site" GitHub Action.</p>
+<p>Now that you have configured your secrets and variables, you can create GitHub workflows to automate
+your Walrus Site deployments using the official "Deploy Walrus Site" GitHub Action.</p>
 <h2 id="key-requirement-pre-built-site-directory"><a class="header" href="#key-requirement-pre-built-site-directory">Key Requirement: Pre-built Site Directory</a></h2>
-<p>The Deploy Walrus Site action operates on an <strong>already built site directory</strong>. The action does not build your site - it deploys existing static files to Walrus.</p>
+<p>The Deploy Walrus Site action operates on an <strong>already built site directory</strong>. The action does not
+build your site - it deploys existing static files to Walrus.</p>
 <p>This means:</p>
 <ul>
-<li>If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action directly</li>
-<li>If your site requires a build step (React, Vue, Svelte, etc.), you <strong>must</strong> include build steps in your workflow before calling the deploy action</li>
+<li>If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action
+directly</li>
+<li>If your site requires a build step (React, Vue, Svelte, etc.), you <strong>must</strong> include build steps in
+your workflow before calling the deploy action</li>
 </ul>
 <h2 id="using-the-deploy-walrus-site-github-action"><a class="header" href="#using-the-deploy-walrus-site-github-action">Using the Deploy Walrus Site GitHub Action</a></h2>
 <p>The action (<code>MystenLabs/walrus-sites/.github/actions/deploy</code>) requires these inputs:</p>
@@ -250,15 +254,20 @@
 <li><strong><code>EPOCHS</code></strong>: Number of epochs to keep the site stored (defaults to <code>5</code>)</li>
 <li><strong><code>WALRUS_CONFIG</code></strong>: Custom Walrus configuration (downloads default if not provided)</li>
 <li><strong><code>SITES_CONFIG</code></strong>: Custom sites configuration (downloads default if not provided)</li>
-<li><strong><code>WS_RESOURCES</code></strong>: Full path to the <code>ws-resources.json</code> file (defaults to <code>DIST/ws-resources.json</code>)</li>
+<li><strong><code>WS_RESOURCES</code></strong>: Full path to the <code>ws-resources.json</code> file (defaults to
+<code>DIST/ws-resources.json</code>)</li>
 <li><strong><code>GITHUB_TOKEN</code></strong>: Enables automatic pull request creation when site resources change</li>
 </ul>
 <h3 id="about-github_token"><a class="header" href="#about-github_token">About GITHUB_TOKEN</a></h3>
-<p>The <code>GITHUB_TOKEN</code> input is particularly useful for tracking changes to your site's resources. When you deploy a site, Walrus creates or updates a <code>ws-resources.json</code> file that tracks the site's data. If this file changes during deployment, the action can automatically create a pull request with the updated file.</p>
+<p>The <code>GITHUB_TOKEN</code> input is particularly useful for tracking changes to your site's resources. When
+you deploy a site, Walrus creates or updates a <code>ws-resources.json</code> file that tracks the site's data.
+If this file changes during deployment, the action can automatically create a pull request with the
+updated file.</p>
 <p>To use this feature:</p>
 <ol>
 <li>Set <code>GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}</code> in your workflow</li>
-<li>Add these <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token">permissions</a> to your workflow:
+<li>Add these <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token">permissions</a>
+to your workflow:
 <pre><code class="language-yaml">permissions:
   contents: write
   pull-requests: write
@@ -273,7 +282,8 @@
 <a class="admonition-anchor-link" href="#admonition-note"></a>
 </div>
 <div>
-<p>If you don't provide the <code>GITHUB_TOKEN</code>, the action will still deploy your site successfully but won't create pull requests for resource file changes.</p>
+<p>If you don't provide the <code>GITHUB_TOKEN</code>, the action will still deploy your site successfully but
+won't create pull requests for resource file changes.</p>
 </div>
 </div>
 <h3 id="first-run-vs-subsequent-runs"><a class="header" href="#first-run-vs-subsequent-runs">First Run vs Subsequent Runs</a></h3>
@@ -281,7 +291,8 @@
 <p><strong>First run (new site):</strong></p>
 <ul>
 <li>Creates a new Walrus Site on Sui</li>
-<li>Generates a <code>ws-resources.json</code> file in your <code>DIST</code> directory (or updates the file specified by <code>WS_RESOURCES</code>)</li>
+<li>Generates a <code>ws-resources.json</code> file in your <code>DIST</code> directory (or updates the file specified by
+<code>WS_RESOURCES</code>)</li>
 <li>This file contains the <code>object_id</code> of your newly created site</li>
 <li>If <code>GITHUB_TOKEN</code> is provided with correct permissions, creates a pull request with these changes</li>
 </ul>
@@ -298,7 +309,9 @@
 <a class="admonition-anchor-link" href="#admonition-tip"></a>
 </div>
 <div>
-<p>The <code>ws-resources.json</code> file is crucial - it tells the action which site to update. Make sure to merge the PR from the first run so future deployments update the same site instead of creating new ones.</p>
+<p>The <code>ws-resources.json</code> file is crucial - it tells the action which site to update. Make sure to
+merge the PR from the first run so future deployments update the same site instead of creating new
+ones.</p>
 </div>
 </div>
 <h2 id="creating-your-workflow"><a class="header" href="#creating-your-workflow">Creating Your Workflow</a></h2>
@@ -319,14 +332,16 @@
 </li>
 <li>Add the Deploy Walrus Site action with your configured secrets and variables</li>
 </ol>
-<p>The key is ensuring your <code>DIST</code> path points to a directory containing the final, deployable static files that should be published to Walrus.</p>
+<p>The key is ensuring your <code>DIST</code> path points to a directory containing the final, deployable static
+files that should be published to Walrus.</p>
 <h2 id="example-workflows"><a class="header" href="#example-workflows">Example Workflows</a></h2>
 <ul>
 <li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml">deploy-snake.yml</a> - Simple static site deployment</li>
 <li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml">deploy-vite-react-ts.yml</a> - React application with build step</li>
 </ul>
 <hr />
-<p>For more information about creating and configuring GitHub workflows, check the <a href="https://docs.github.com/en/actions/writing-workflows">official GitHub Actions documentation</a>.</p>
+<p>For more information about creating and configuring GitHub workflows, check the <a href="https://docs.github.com/en/actions/writing-workflows">official GitHub
+Actions documentation</a>.</p>
 
                     </main>
 

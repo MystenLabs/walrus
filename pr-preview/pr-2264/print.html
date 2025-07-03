@@ -3336,17 +3336,21 @@ it will fall back to checking the "Link to Wallet Address".</p>
 </div>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="deploying-your-site-via-github-actions"><a class="header" href="#deploying-your-site-via-github-actions">Deploying your site via GitHub Actions</a></h1>
-<p>Automate your Walrus Site deployments using GitHub Actions. This guide covers the essential steps to set up continuous deployment for your site.</p>
+<p>Automate your Walrus Site deployments using GitHub Actions. This guide covers the essential steps to
+set up continuous deployment for your site.</p>
 <h2 id="get-started"><a class="header" href="#get-started">Get started</a></h2>
 <p>Follow these tutorials in order:</p>
 <ol>
-<li><strong><a href="walrus-sites/./tutorial-gh-secrets-vars.html">Preparing Your Deployment Credentials</a></strong> - Set up the necessary secrets and variables in your GitHub repository</li>
-<li><strong><a href="walrus-sites/./tutorial-gh-workflow.html">Writing your workflow</a></strong> - Create and configure your GitHub Actions workflow file</li>
+<li><strong><a href="walrus-sites/./tutorial-gh-secrets-vars.html">Preparing Your Deployment Credentials</a></strong> - Set up the necessary
+secrets and variables in your GitHub repository</li>
+<li><strong><a href="walrus-sites/./tutorial-gh-workflow.html">Writing your workflow</a></strong> - Create and configure your GitHub Actions
+workflow file</li>
 </ol>
-<p>That's it! Once configured, your Walrus Site will automatically deploy on every push to your repository.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="preparing-your-deployment-credentials"><a class="header" href="#preparing-your-deployment-credentials">Preparing Your Deployment Credentials</a></h1>
-<p>To allow the GitHub Action to deploy your Walrus Site, it needs to be able to sign transactions on your behalf. This requires securely providing it with your private key and the corresponding public address.</p>
+<p>To allow the GitHub Action to deploy your Walrus Site, it needs to be able to sign transactions on
+your behalf. This requires securely providing it with your private key and the corresponding public
+address.</p>
 <p>This guide will show you how to:</p>
 <ol>
 <li>Export a private key from your Sui Wallet or CLI.</li>
@@ -3354,10 +3358,16 @@ it will fall back to checking the "Link to Wallet Address".</p>
 <li>Add the matching public address as a <code>SUI_ADDRESS</code> variable in your GitHub repository.</li>
 </ol>
 <h2 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h2>
-<p>Before you start, you must have the <code>sui</code> binary installed. If you haven't installed it yet, please follow the official <a href="https://docs.sui.io/guides/developer/getting-started/sui-install">Sui installation guide</a>.</p>
+<p>Before you start, you must have the <code>sui</code> binary installed. If you haven't installed it yet, please
+follow the official <a href="https://docs.sui.io/guides/developer/getting-started/sui-install">Sui installation
+guide</a>.</p>
 <h2 id="exporting-your-private-key"><a class="header" href="#exporting-your-private-key">Exporting Your Private Key</a></h2>
 <blockquote>
-<p><strong>Best Practice</strong>: It's recommended to use a dedicated Sui address for each GitHub workflow rather than reusing addresses across different projects or purposes. This provides better security isolation and helps avoid <a href="https://docs.sui.io/guides/developer/sui-101/avoid-equivocation">gas-coin equivocation</a> issues that can occur when multiple workflows try to use the same gas coins concurrently.</p>
+<p><strong>Best Practice</strong>: It's recommended to use a dedicated Sui address for each GitHub workflow rather
+than reusing addresses across different projects or purposes. This provides better security
+isolation and helps avoid <a href="https://docs.sui.io/guides/developer/sui-101/avoid-equivocation">gas-coin
+equivocation</a> issues that can
+occur when multiple workflows try to use the same gas coins concurrently.</p>
 </blockquote>
 <hr />
 <div class="mdbook-tabs-container">
@@ -3374,25 +3384,31 @@ it will fall back to checking the "Link to Wallet Address".</p>
 </code></pre>
 </li>
 <li>
-<p>This command creates a file in your current directory named <code>&lt;SUI_ADDRESS&gt;.key</code> (e.g., <code>0x123...abc.key</code>). The filename is your new Sui Address.</p>
+<p>This command creates a file in your current directory named <code>&lt;SUI_ADDRESS&gt;.key</code> (e.g.,
+<code>0x123...abc.key</code>). The filename is your new Sui Address.</p>
 </li>
 <li>
-<p>The content of this file is the private key in the <code>base64WithFlag</code> format. This is the value you need for the <code>SUI_KEYSTORE</code> secret.</p>
+<p>The content of this file is the private key in the <code>base64WithFlag</code> format. This is the value
+you need for the <code>SUI_KEYSTORE</code> secret.</p>
 </li>
 <li>
-<p>You now have both the address (from the filename) for the <code>SUI_ADDRESS</code> variable and the key (from the file's content) for the <code>SUI_KEYSTORE</code> secret.</p>
+<p>You now have both the address (from the filename) for the <code>SUI_ADDRESS</code> variable and the key
+(from the file's content) for the <code>SUI_KEYSTORE</code> secret.</p>
 </li>
 </ol>
 <blockquote>
 <p><strong>Note on existing keys</strong>
-If you wish to use a key you already own, you can find it in the <code>~/.sui/sui_config/sui.keystore</code> file. This file contains a JSON array of all your keys. To find the address for a specific key, you would need to use the <code>sui keytool unpack "&lt;the base64 key from sui.keystore&gt;"</code> command.</p>
+If you wish to use a key you already own, you can find it in the <code>~/.sui/sui_config/sui.keystore</code>
+file. This file contains a JSON array of all your keys. To find the address for a specific key,
+you would need to use the <code>sui keytool unpack "&lt;the base64 key from sui.keystore&gt;"</code> command.</p>
 </blockquote>
 </div>
 <div class="mdbook-tab-content hidden" data-tabname="From Slush Wallet">
 <p>This method is recommended if you manage your keys through the Slush browser extension.</p>
 <ol>
 <li>
-<p>Open your Slush extension and select the account you want to use for deployments. Make sure to copy the corresponding Sui Address, as you will need it later for the <code>SUI_ADDRESS</code> variable.</p>
+<p>Open your Slush extension and select the account you want to use for deployments. Make sure to
+copy the corresponding Sui Address, as you will need it later for the <code>SUI_ADDRESS</code> variable.</p>
 </li>
 <li>
 <p>Navigate to the account management screen and select <strong>Export Private Key</strong>.</p>
@@ -3401,7 +3417,8 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <p>Copy the provided private key (it will be in bech32 format, starting with <code>suiprivkey</code>).</p>
 </li>
 <li>
-<p>Use the <code>sui keytool convert &lt;suiprivkey...&gt;</code> command to transform your key into the required Base64 format. Paste your copied key in place of <code>suiprivkey...</code>:</p>
+<p>Use the <code>sui keytool convert &lt;suiprivkey...&gt;</code> command to transform your key into the required
+Base64 format. Paste your copied key in place of <code>suiprivkey...</code>:</p>
 <pre><code class="language-sh">sui keytool convert `suiprivkey...`
 </code></pre>
 </li>
@@ -3421,7 +3438,9 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 </div>
 <hr />
 <h2 id="funding-your-address"><a class="header" href="#funding-your-address">Funding Your Address</a></h2>
-<p>Before the GitHub Action can deploy your site, the address you generated needs to be funded with both SUI tokens (for network gas fees) and WAL tokens (for storing your site's data). The method for acquiring these tokens differs between Testnet and Mainnet.</p>
+<p>Before the GitHub Action can deploy your site, the address you generated needs to be funded with
+both SUI tokens (for network gas fees) and WAL tokens (for storing your site's data). The method for
+acquiring these tokens differs between Testnet and Mainnet.</p>
 <hr />
 <div class="mdbook-tabs-container">
 <nav class="mdbook-tabs">
@@ -3430,30 +3449,47 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 </nav>
 <div class="mdbook-tab-content" data-tabname="Testnet Funding">
 <ol>
-<li><strong>Get SUI tokens</strong>: Use the <a href="https://faucet.sui.io/">official Sui faucet</a> to get free Testnet SUI.</li>
-<li><strong>Get WAL tokens</strong>: Exchange your new Testnet SUI for Testnet WAL at a 1:1 rate by running the <code>walrus get-wal</code> command with the <code>walrus</code> CLI.</li>
+<li><strong>Get SUI tokens</strong>: Use the <a href="https://faucet.sui.io/">official Sui faucet</a> to get free Testnet
+SUI.</li>
+<li><strong>Get WAL tokens</strong>: Exchange your new Testnet SUI for Testnet WAL at a 1:1 rate by running the
+<code>walrus get-wal</code> command with the <code>walrus</code> CLI.</li>
 </ol>
 </div>
 <div class="mdbook-tab-content hidden" data-tabname="Mainnet Funding">
-<p>For a Mainnet deployment, you will need to acquire both SUI and WAL tokens from an exchange and transfer them to your deployment address.</p>
+<p>For a Mainnet deployment, you will need to acquire both SUI and WAL tokens from an exchange and
+transfer them to your deployment address.</p>
 </div>
 </div>
 <hr />
 <h2 id="adding-credentials-to-github"><a class="header" href="#adding-credentials-to-github">Adding credentials to GitHub</a></h2>
 <p>Now, let's add the key and address to your GitHub repository.</p>
 <ol>
-<li>Navigate to your GitHub repository in a web browser.</li>
-<li>Click on the <strong>Settings</strong> tab (located in the top navigation bar of your repository).</li>
-<li>In the left sidebar, click <strong>Secrets and variables</strong>, then select <strong>Actions</strong>.</li>
-<li>You'll see two tabs: <strong>Secrets</strong> and <strong>Variables</strong>. Start with the <strong>Secrets</strong> tab.</li>
-<li>Click the <strong>New repository secret</strong> button.</li>
-<li>Name the secret <code>SUI_KEYSTORE</code>.</li>
-<li>In the <strong>Value</strong> field, paste the <code>Base64 Key with Flag</code> you copied earlier. It must be formatted as a JSON array containing a single string:
+<li>
+<p>Navigate to your GitHub repository in a web browser.</p>
+</li>
+<li>
+<p>Click on the <strong>Settings</strong> tab (located in the top navigation bar of your repository).</p>
+</li>
+<li>
+<p>In the left sidebar, click <strong>Secrets and variables</strong>, then select <strong>Actions</strong>.</p>
+</li>
+<li>
+<p>You'll see two tabs: <strong>Secrets</strong> and <strong>Variables</strong>. Start with the <strong>Secrets</strong> tab.</p>
+</li>
+<li>
+<p>Click the <strong>New repository secret</strong> button.</p>
+</li>
+<li>
+<p>Name the secret <code>SUI_KEYSTORE</code>.</p>
+</li>
+<li>
+<p>In the <strong>Value</strong> field, paste the <code>Base64 Key with Flag</code> you copied earlier. It must be
+formatted as a JSON array containing a single string:</p>
 <pre><code class="language-json">["AXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
 </code></pre>
 </li>
-<li>Click <strong>Add secret</strong> to save it.</li>
-</ol>
+<li>
+<p>Click <strong>Add secret</strong> to save it.</p>
 <div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
 <div class="admonition-title">
 <div id="admonition-warning-title">
@@ -3462,14 +3498,25 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-gh-secrets-vars.html#admonition-warning"></a>
 </div>
 <div>
-<p>Make sure to format the keystore as a JSON array with a single string element, not just the raw key value. Include the square brackets and quotes exactly as shown above.</p>
+<pre><code>Make sure to format the keystore as a JSON array with a single string element, not just the raw
+</code></pre>
+<p>key value. Include the square brackets and quotes exactly as shown above.</p>
 </div>
 </div>
-<ol start="9">
-<li>Next, switch to the <strong>Variables</strong> tab and click <strong>New repository variable</strong>.</li>
-<li>Name the variable <code>SUI_ADDRESS</code>.</li>
-<li>In the <strong>Value</strong> field, paste the Sui address that corresponds to your private key (for example: <code>0x123abc...def789</code>).</li>
-<li>Click <strong>Add variable</strong> to save it.</li>
+</li>
+<li>
+<p>Next, switch to the <strong>Variables</strong> tab and click <strong>New repository variable</strong>.</p>
+</li>
+<li>
+<p>Name the variable <code>SUI_ADDRESS</code>.</p>
+</li>
+<li>
+<p>In the <strong>Value</strong> field, paste the Sui address that corresponds to your private key (for example:
+<code>0x123abc...def789</code>).</p>
+</li>
+<li>
+<p>Click <strong>Add variable</strong> to save it.</p>
+</li>
 </ol>
 <div id="admonition-security-reminder" class="admonition admonish-danger" role="note" aria-labelledby="admonition-security-reminder-title">
 <div class="admonition-title">
@@ -3479,24 +3526,30 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-gh-secrets-vars.html#admonition-security-reminder"></a>
 </div>
 <div>
-<p>Never share your private key or commit it to version control. GitHub secrets are encrypted and only accessible to your workflows, but always verify you're adding secrets correctly.</p>
+<p>Never share your private key or commit it to version control. GitHub secrets are encrypted and only
+accessible to your workflows, but always verify you're adding secrets correctly.</p>
 </div>
 </div>
 <hr />
-<p>For more information about managing secrets and variables in GitHub Actions, check the official GitHub documentation:</p>
+<p>For more information about managing secrets and variables in GitHub Actions, check the official
+GitHub documentation:</p>
 <ul>
 <li><a href="https://docs.github.com/en/actions/concepts/security/about-secrets">About secrets</a></li>
 <li><a href="https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions">Using secrets in GitHub Actions</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="writing-your-workflow"><a class="header" href="#writing-your-workflow">Writing your workflow</a></h1>
-<p>Now that you have configured your secrets and variables, you can create GitHub workflows to automate your Walrus Site deployments using the official "Deploy Walrus Site" GitHub Action.</p>
+<p>Now that you have configured your secrets and variables, you can create GitHub workflows to automate
+your Walrus Site deployments using the official "Deploy Walrus Site" GitHub Action.</p>
 <h2 id="key-requirement-pre-built-site-directory"><a class="header" href="#key-requirement-pre-built-site-directory">Key Requirement: Pre-built Site Directory</a></h2>
-<p>The Deploy Walrus Site action operates on an <strong>already built site directory</strong>. The action does not build your site - it deploys existing static files to Walrus.</p>
+<p>The Deploy Walrus Site action operates on an <strong>already built site directory</strong>. The action does not
+build your site - it deploys existing static files to Walrus.</p>
 <p>This means:</p>
 <ul>
-<li>If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action directly</li>
-<li>If your site requires a build step (React, Vue, Svelte, etc.), you <strong>must</strong> include build steps in your workflow before calling the deploy action</li>
+<li>If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action
+directly</li>
+<li>If your site requires a build step (React, Vue, Svelte, etc.), you <strong>must</strong> include build steps in
+your workflow before calling the deploy action</li>
 </ul>
 <h2 id="using-the-deploy-walrus-site-github-action"><a class="header" href="#using-the-deploy-walrus-site-github-action">Using the Deploy Walrus Site GitHub Action</a></h2>
 <p>The action (<code>MystenLabs/walrus-sites/.github/actions/deploy</code>) requires these inputs:</p>
@@ -3511,15 +3564,20 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <li><strong><code>EPOCHS</code></strong>: Number of epochs to keep the site stored (defaults to <code>5</code>)</li>
 <li><strong><code>WALRUS_CONFIG</code></strong>: Custom Walrus configuration (downloads default if not provided)</li>
 <li><strong><code>SITES_CONFIG</code></strong>: Custom sites configuration (downloads default if not provided)</li>
-<li><strong><code>WS_RESOURCES</code></strong>: Full path to the <code>ws-resources.json</code> file (defaults to <code>DIST/ws-resources.json</code>)</li>
+<li><strong><code>WS_RESOURCES</code></strong>: Full path to the <code>ws-resources.json</code> file (defaults to
+<code>DIST/ws-resources.json</code>)</li>
 <li><strong><code>GITHUB_TOKEN</code></strong>: Enables automatic pull request creation when site resources change</li>
 </ul>
 <h3 id="about-github_token"><a class="header" href="#about-github_token">About GITHUB_TOKEN</a></h3>
-<p>The <code>GITHUB_TOKEN</code> input is particularly useful for tracking changes to your site's resources. When you deploy a site, Walrus creates or updates a <code>ws-resources.json</code> file that tracks the site's data. If this file changes during deployment, the action can automatically create a pull request with the updated file.</p>
+<p>The <code>GITHUB_TOKEN</code> input is particularly useful for tracking changes to your site's resources. When
+you deploy a site, Walrus creates or updates a <code>ws-resources.json</code> file that tracks the site's data.
+If this file changes during deployment, the action can automatically create a pull request with the
+updated file.</p>
 <p>To use this feature:</p>
 <ol>
 <li>Set <code>GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}</code> in your workflow</li>
-<li>Add these <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token">permissions</a> to your workflow:
+<li>Add these <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token">permissions</a>
+to your workflow:
 <pre><code class="language-yaml">permissions:
   contents: write
   pull-requests: write
@@ -3534,7 +3592,8 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-gh-workflow.html#admonition-note"></a>
 </div>
 <div>
-<p>If you don't provide the <code>GITHUB_TOKEN</code>, the action will still deploy your site successfully but won't create pull requests for resource file changes.</p>
+<p>If you don't provide the <code>GITHUB_TOKEN</code>, the action will still deploy your site successfully but
+won't create pull requests for resource file changes.</p>
 </div>
 </div>
 <h3 id="first-run-vs-subsequent-runs"><a class="header" href="#first-run-vs-subsequent-runs">First Run vs Subsequent Runs</a></h3>
@@ -3542,7 +3601,8 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <p><strong>First run (new site):</strong></p>
 <ul>
 <li>Creates a new Walrus Site on Sui</li>
-<li>Generates a <code>ws-resources.json</code> file in your <code>DIST</code> directory (or updates the file specified by <code>WS_RESOURCES</code>)</li>
+<li>Generates a <code>ws-resources.json</code> file in your <code>DIST</code> directory (or updates the file specified by
+<code>WS_RESOURCES</code>)</li>
 <li>This file contains the <code>object_id</code> of your newly created site</li>
 <li>If <code>GITHUB_TOKEN</code> is provided with correct permissions, creates a pull request with these changes</li>
 </ul>
@@ -3559,7 +3619,9 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-gh-workflow.html#admonition-tip"></a>
 </div>
 <div>
-<p>The <code>ws-resources.json</code> file is crucial - it tells the action which site to update. Make sure to merge the PR from the first run so future deployments update the same site instead of creating new ones.</p>
+<p>The <code>ws-resources.json</code> file is crucial - it tells the action which site to update. Make sure to
+merge the PR from the first run so future deployments update the same site instead of creating new
+ones.</p>
 </div>
 </div>
 <h2 id="creating-your-workflow"><a class="header" href="#creating-your-workflow">Creating Your Workflow</a></h2>
@@ -3580,14 +3642,16 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 </li>
 <li>Add the Deploy Walrus Site action with your configured secrets and variables</li>
 </ol>
-<p>The key is ensuring your <code>DIST</code> path points to a directory containing the final, deployable static files that should be published to Walrus.</p>
+<p>The key is ensuring your <code>DIST</code> path points to a directory containing the final, deployable static
+files that should be published to Walrus.</p>
 <h2 id="example-workflows"><a class="header" href="#example-workflows">Example Workflows</a></h2>
 <ul>
 <li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml">deploy-snake.yml</a> - Simple static site deployment</li>
 <li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml">deploy-vite-react-ts.yml</a> - React application with build step</li>
 </ul>
 <hr />
-<p>For more information about creating and configuring GitHub workflows, check the <a href="https://docs.github.com/en/actions/writing-workflows">official GitHub Actions documentation</a>.</p>
+<p>For more information about creating and configuring GitHub workflows, check the <a href="https://docs.github.com/en/actions/writing-workflows">official GitHub
+Actions documentation</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="advanced-functionality"><a class="header" href="#advanced-functionality">Advanced functionality</a></h1>
 <p>Keep reading to learn about the advanced features of Walrus Sites, including configuring the site
