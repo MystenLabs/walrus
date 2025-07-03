@@ -236,7 +236,10 @@ impl ClientCommandRunner {
                         common_options.force,
                         common_options.ignore_resources,
                     ),
-                    BlobPersistence::from_deletable(common_options.deletable),
+                    BlobPersistence::from_deletable_and_permanent(
+                        common_options.deletable,
+                        common_options.permanent,
+                    )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                 )
@@ -257,7 +260,10 @@ impl ClientCommandRunner {
                         common_options.force,
                         common_options.ignore_resources,
                     ),
-                    BlobPersistence::from_deletable(common_options.deletable),
+                    BlobPersistence::from_deletable_and_permanent(
+                        common_options.deletable,
+                        common_options.permanent,
+                    )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                 )

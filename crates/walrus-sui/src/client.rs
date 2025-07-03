@@ -339,14 +339,32 @@ impl BlobPersistence {
     ///
     /// If `deletable` is true, returns [`Self::Deletable`], force otherwise returns
     /// [`Self::Permanent`].
-    pub fn from_deletable(deletable: bool) -> Self {
-        if deletable {
-            Self::Deletable
-        } else {
-            Self::Permanent
+    pub fn from_deletable_and_permanent(
+        deletable: bool,
+        permanent: bool,
+    ) -> Result<Self, InvalidBlobPersistenceError> {
+        match (deletable, permanent) {
+            (true, false) => Ok(Self::Deletable),
+            (false, true) => Ok(Self::Permanent),
+            (true, true) => Err(InvalidBlobPersistenceError),
+            (false, false) => {
+                // TODO(WAL-911): Change the default behavior to return `Deletable` after a few
+                // releases.
+                tracing::warn!(
+                    "blob is marked as neither deletable nor permanent; blobs are currently \
+                    permanent by default, but this behavior will change in the future; use \
+                    `--deletable` or `--permanent` to explicitly specify the desired behavior"
+                );
+                Ok(Self::Permanent)
+            }
         }
     }
 }
+
+/// Error returned when a blob is defined as both deletable and permanent.
+#[derive(Debug, thiserror::Error)]
+#[error("the blob cannot be defined as both deletable and permanent")]
+pub struct InvalidBlobPersistenceError;
 
 /// The action to be performed for newly-created blobs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
