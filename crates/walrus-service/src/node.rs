@@ -1010,6 +1010,7 @@ impl StorageNode {
         let (event_stream, event_cursor) = self
             .continue_event_stream(writer_cursor, storage_node_cursor, &mut event_blob_writer)
             .await?;
+        tracing::info!(?event_cursor, "starting to process events");
 
         let index_stream = stream::iter(event_cursor.element_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());

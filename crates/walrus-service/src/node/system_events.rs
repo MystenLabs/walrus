@@ -190,7 +190,7 @@ impl SuiSystemEventProvider {
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
-    /// Return a new stream over [`PositionedStreamEvent`]s starting from those
+    /// Returns a new stream over [`PositionedStreamEvent`]s starting from those
     /// specified by `from`.
     async fn events(
         &self,
@@ -212,7 +212,7 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     async fn init_state(&self, from: EventStreamCursor)
     -> Result<Option<InitState>, anyhow::Error>;
 
-    /// Return a reference to this provider as a [`EventProcessor`].
+    /// Returns a reference to this provider as a [`EventProcessor`].
     fn as_event_processor(&self) -> Option<&EventProcessor>;
 }
 
@@ -275,6 +275,15 @@ impl EventManager for SuiSystemEventProvider {
 
 #[async_trait]
 impl SystemEventProvider for EventProcessor {
+    /// Returns a new stream over [`PositionedStreamEvent`]s starting from those specified by
+    /// `from`.
+    ///
+    /// This expects a contiguous range of events present in the events store starting at the
+    /// provided `cursor`.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the event store contains a gap in the event sequence.
     async fn events<'life0>(
         &'life0 self,
         cursor: EventStreamCursor,
