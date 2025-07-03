@@ -797,11 +797,11 @@ pub struct QuiltPatchMetadata {
 /// ## Blobs with Walrus-native metadata
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-///   -F "contract-v2=@document.pdf" \
-///   -F "logo-2024=@image.png" \
+///   -F "quilt-manual=@document.pdf" \
+///   -F "logo-2025=@image.png" \
 ///   -F 'metadata=[
-///     {"identifier": "contract-v2", "tags": {"author": "alice", "version": "2.0"}},
-///     {"identifier": "logo-2024", "tags": {"type": "logo", "format": "png"}}
+///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
 /// ```
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
@@ -825,7 +825,7 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     multipart: Multipart,
 ) -> Response {
-    tracing::debug!("starting to process multipart quilt upload");
+    tracing::debug!("starting to process quilt upload");
 
     let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
         Ok(blobs) => blobs,
@@ -845,15 +845,13 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         .into_response();
     }
 
-    // Check authorization if present.
+    // Check size if authorization is present.
     if let Some(TypedHeader(header)) = bearer_header {
-        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
+        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.total_size()).sum();
         if let Err(error) = check_blob_size(header, total_size) {
             return error.into_response();
         }
     }
-
-    tracing::debug!("storing quilt with {} blobs", quilt_store_blobs.len());
 
     match client
         .write_quilt(
@@ -878,7 +876,7 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
 async fn parse_multipart_quilt(
     mut multipart: Multipart,
 ) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
-    let mut file_data_map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut blobs_with_identifiers = Vec::new();
     let mut metadata_map: BTreeMap<String, QuiltPatchMetadata> = BTreeMap::new();
 
     while let Some(field) = multipart.next_field().await? {
@@ -891,14 +889,14 @@ async fn parse_multipart_quilt(
             }
         } else {
             let data = field.bytes().await?.to_vec();
-            file_data_map.insert(field_name, data);
+            blobs_with_identifiers.push((field_name, data));
         }
     }
 
-    let mut res = Vec::with_capacity(file_data_map.len());
+    let mut res = Vec::with_capacity(blobs_with_identifiers.len());
 
     if !metadata_map.is_empty() {
-        for (identifier, data) in file_data_map {
+        for (identifier, data) in blobs_with_identifiers {
             let tags = if let Some(meta) = metadata_map.get(&identifier) {
                 meta.tags
                     .clone()
@@ -914,7 +912,7 @@ async fn parse_multipart_quilt(
         }
     } else {
         // No metadata provided - process files without metadata
-        for (identifier, data) in file_data_map {
+        for (identifier, data) in blobs_with_identifiers {
             res.push(QuiltStoreBlob::new_owned(data, identifier));
         }
     }

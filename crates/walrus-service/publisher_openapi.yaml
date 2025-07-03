@@ -147,11 +147,11 @@ paths:
         ## Blobs with Walrus-native metadata
         ```bash
         curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-          -F "contract-v2=@document.pdf" \
-          -F "logo-2024=@image.png" \
+          -F "quilt-manual=@document.pdf" \
+          -F "logo-2025=@image.png" \
           -F 'metadata=[
-            {"identifier": "contract-v2", "tags": {"author": "alice", "version": "2.0"}},
-            {"identifier": "logo-2024", "tags": {"type": "logo", "format": "png"}}
+            {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+            {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
           ]'
         ```
       operationId: put_quilt
