@@ -39,13 +39,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -90,13 +90,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -134,13 +134,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -176,13 +176,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
