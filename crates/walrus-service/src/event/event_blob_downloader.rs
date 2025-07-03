@@ -141,6 +141,7 @@ impl EventBlobDownloader {
             };
 
             if blob_status == BlobStatus::Nonexistent {
+                anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
                 tracing::info!(
                     "stopping downloading event blobs with expired blob {}",
                     event_blob_id

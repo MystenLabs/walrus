@@ -1551,7 +1551,7 @@ impl SystemContractService for StubContractService {
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        Ok(self.system_parameters.clone())
+        Ok(self.system_parameters)
     }
 
     async fn end_voting(&self) -> Result<(), anyhow::Error> {

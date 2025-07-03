@@ -12980,6 +12980,7 @@ dependencies = [
  "anyhow",
  "bcs",
  "futures",
+ "itertools 0.13.0",
  "prometheus",
  "rand 0.8.5",
  "reqwest",

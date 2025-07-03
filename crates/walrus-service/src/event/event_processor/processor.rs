@@ -268,6 +268,12 @@ impl EventProcessor {
         };
 
         let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        tracing::info!(
+            next_event_index,
+            next_checkpoint,
+            "starting to tail checkpoints"
+        );
+
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
         let mut rx = self

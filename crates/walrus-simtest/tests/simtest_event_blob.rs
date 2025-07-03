@@ -400,7 +400,8 @@ mod tests {
                 ));
             }
 
-            let node_health_infos = simtest_utils::get_nodes_health_info(&nodes_to_check).await;
+            let node_health_infos =
+                simtest_utils::get_nodes_health_info(nodes_to_check.clone()).await;
 
             let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
                 .iter()
@@ -493,7 +494,7 @@ mod tests {
 
         // Get the highest processed event and checkpoint for each storage node.
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_infos = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_infos = simtest_utils::get_nodes_health_info(node_refs.clone()).await;
 
         tracing::info!("node health infos: {:?}", node_health_infos);
 

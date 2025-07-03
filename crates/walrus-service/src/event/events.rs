@@ -8,9 +8,11 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufReader, BufWriter},
+    pin::Pin,
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, Epoch};
@@ -258,4 +260,14 @@ impl Ord for EventStreamCursor {
     fn cmp(&self, other: &Self) -> Ordering {
         self.element_index.cmp(&other.element_index)
     }
+}
+
+/// A stream of events with starting indices for event processing and the event-blob writer.
+pub(crate) struct EventStreamWithStartingIndices<'a> {
+    /// The event stream.
+    pub event_stream: Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'a>>,
+    /// The index of the first event in the stream.
+    pub processing_starting_index: u64,
+    /// The index of the first event in the writer's event stream.
+    pub writer_starting_index: u64,
 }

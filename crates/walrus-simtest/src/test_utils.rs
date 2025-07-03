@@ -12,6 +12,7 @@ pub mod simtest_utils {
     };
 
     use anyhow::Context;
+    use itertools::Itertools;
     use rand::{Rng, seq::IteratorRandom};
     use sui_types::base_types::ObjectID;
     use tokio::task::JoinHandle;
@@ -336,6 +337,7 @@ pub mod simtest_utils {
 
         /// Checks the consistency of the storage node for all epochs starting with `min_epoch`.
         pub fn check_storage_node_consistency_from_epoch(&self, min_epoch: Epoch) {
+            tracing::info!("checking storage node consistency starting with epoch {min_epoch}");
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
@@ -365,8 +367,9 @@ pub mod simtest_utils {
         /// Ensures that for all epochs, all nodes have the same certified blob digest.
         #[tracing::instrument(skip(self))]
         fn check_certified_blob_digest(&self, min_epoch: Epoch) {
+            tracing::info!("checking blob digest consistency starting with epoch {min_epoch}");
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
-            for (epoch, node_digest_map) in digest_map.iter() {
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
@@ -380,8 +383,11 @@ pub mod simtest_utils {
         /// Ensures that for all epochs, all nodes have the same per object blob digest.
         #[tracing::instrument(skip(self))]
         fn check_per_object_blob_digest(&self, min_epoch: Epoch) {
+            tracing::info!(
+                "checking per object blob digest consistency starting with epoch {min_epoch}"
+            );
             let digest_map = self.per_object_blob_digest_map.lock().unwrap();
-            for (epoch, node_digest_map) in digest_map.iter() {
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
@@ -413,8 +419,12 @@ pub mod simtest_utils {
 
         #[tracing::instrument(skip(self))]
         fn check_blob_existence(&self, min_epoch: Epoch) {
+            tracing::info!("checking blob existence starting with epoch {min_epoch}");
             let existence_check_map = self.blob_existence_check_map.lock().unwrap();
-            for (epoch, node_existence_check_map) in existence_check_map.iter() {
+            for (epoch, node_existence_check_map) in existence_check_map
+                .iter()
+                .sorted_by_key(|(epoch, _)| *epoch)
+            {
                 if *epoch < min_epoch {
                     tracing::info!(
                         "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
@@ -484,10 +494,23 @@ pub mod simtest_utils {
     }
 
     /// Helper function to get health info for a list of nodes.
-    pub async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
+    pub async fn get_nodes_health_info(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Vec<ServiceHealthInfo> {
+        try_get_nodes_health_info(nodes)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("get health info should succeed")
+    }
+
+    /// Helper function to get health info for a list of nodes.
+    pub async fn try_get_nodes_health_info(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Vec<anyhow::Result<ServiceHealthInfo>> {
         futures::future::join_all(
             nodes
-                .iter()
+                .into_iter()
                 .map(|node_handle| async {
                     let client = walrus_storage_node_client::StorageNodeClient::builder()
                         .authenticate_with_public_key(node_handle.network_public_key.clone())
@@ -495,14 +518,62 @@ pub mod simtest_utils {
                         .no_proxy()
                         .tls_built_in_root_certs(false)
                         .build_for_remote_ip(node_handle.rest_api_address)
-                        .expect("create node client failed");
+                        .context("create node client failed")?;
                     client
                         .get_server_health_info(true)
                         .await
-                        .expect("getting server health info should succeed")
+                        .context("get health info failed")
                 })
                 .collect::<Vec<_>>(),
         )
         .await
+    }
+
+    /// Gets the minimum epoch from a list of nodes by looking at the health info.
+    pub async fn get_min_epoch_from_nodes(
+        nodes: impl IntoIterator<Item = &SimStorageNodeHandle>,
+    ) -> Epoch {
+        try_get_nodes_health_info(nodes)
+            .await
+            .iter()
+            .map(|result| result.as_ref().map(|info| info.epoch).unwrap_or_default())
+            .min()
+            .expect("at least one node should be running")
+    }
+
+    /// Returns the current epoch of a node based on the health info.
+    pub async fn get_current_epoch_from_node(node: &SimStorageNodeHandle) -> Epoch {
+        get_min_epoch_from_nodes([node]).await
+    }
+
+    /// Waits until all nodes reach the given epoch based on their health info.
+    pub async fn wait_for_nodes_to_reach_epoch(
+        nodes: &[SimStorageNodeHandle],
+        target_epoch: Epoch,
+        timeout: Duration,
+    ) {
+        tokio::time::timeout(timeout, async {
+            loop {
+                let min_epoch = get_min_epoch_from_nodes(nodes).await;
+                if min_epoch >= target_epoch {
+                    break;
+                }
+                tracing::info!(
+                    "waiting for {} nodes to reach epoch {}, current min epoch: {}",
+                    nodes.len(),
+                    target_epoch,
+                    min_epoch
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        })
+        .await
+        .expect(
+            format!(
+                "timed out waiting for all nodes to reach epoch {}",
+                target_epoch
+            )
+            .as_str(),
+        );
     }
 }

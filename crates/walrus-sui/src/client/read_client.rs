@@ -108,7 +108,7 @@ pub struct CommitteesAndState {
 }
 
 /// Walrus parameters that do not change across epochs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FixedSystemParameters {
     /// The number of shards in the system.
     pub n_shards: NonZeroU16,
