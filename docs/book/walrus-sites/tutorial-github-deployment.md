@@ -1,10 +1,12 @@
-# Deploying your site via Github Action
+# Deploying your site via GitHub Actions
 
-Automating the deployment of your Walrus Site can be easily achieved using GitHub Actions. This guide will walk you through the necessary steps to set up a workflow that automatically publishes your site.
+Automate your Walrus Site deployments using GitHub Actions. This guide covers the essential steps to set up continuous deployment for your site.
 
-The process involves two main parts:
+## Get started
 
-1.  **Setting up secrets and variables in your GitHub repository:** To allow the GitHub Action to interact with the Sui network on your behalf, you need to securely store your private key. We'll show you how to export your private key from both the Sui CLI and the Sui wallet extension, convert it to base64 format, and save it as a GitHub secret named `SUI_KEYSTORE`. We will also configure a GitHub variable `SUI_ADDRESS` with the public address corresponding to your key.
+Follow these tutorials in order:
 
-2.  **Creating a GitHub workflow file:** We'll provide you with example workflow files that you can add to your repository. These examples will demonstrate how to use our dedicated GitHub Action to build and deploy your Walrus Site on demand.
+1. **[Preparing Your Deployment Credentials](./tutorial-gh-secrets-vars.md)** - Set up the necessary secrets and variables in your GitHub repository
+2. **[Writing your workflow](./tutorial-gh-workflow.md)** - Create and configure your GitHub Actions workflow file
 
+That's it! Once configured, your Walrus Site will automatically deploy on every push to your repository.

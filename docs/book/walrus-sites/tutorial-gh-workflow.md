@@ -4,7 +4,7 @@ Now that you have configured your secrets and variables, you can create GitHub w
 
 ## Key Requirement: Pre-built Site Directory
 
-**Important**: The Deploy Walrus Site action operates on an **already built site directory**. The action does not build your site - it deploys existing static files to Walrus.
+The Deploy Walrus Site action operates on an **already built site directory**. The action does not build your site - it deploys existing static files to Walrus.
 
 This means:
 - If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action directly
@@ -38,7 +38,9 @@ To use this feature:
      pull-requests: write
    ```
 
+```admonish note
 If you don't provide the `GITHUB_TOKEN`, the action will still deploy your site successfully but won't create pull requests for resource file changes.
+```
 
 ## Creating Your Workflow
 
