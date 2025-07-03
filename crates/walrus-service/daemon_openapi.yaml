@@ -303,59 +303,88 @@ paths:
       - routes
       summary: Store multiple files as a quilt using multipart/form-data.
       description: |-
-        Accepts a multipart form with files and their metadata to create a quilt.
-        Each file can have:
-        - The file itself (required)
-        - identifier: custom identifier (optional, defaults to filename)
-        - tags: JSON object with string key-value pairs (optional)
+        Accepts a multipart form with files and optional metadata to create a quilt.
+        The form must contain:
+        - Files identified by their identifiers as field names (required)
+        - A `metadata` field containing a JSON array with metadata for each file (optional)
 
         # Form Structure
 
         The multipart form should contain:
-        - `{name}`: The file data (required)
-        - `{name}_identifier`: Custom identifier for the file (optional)
-        - `{name}_tags`: JSON object with string key-value pairs (optional)
+        - `{identifier}`: The file data (required) - the identifier is used as the field name
+        - `metadata`: JSON array with metadata for each file (optional)
+
+        # Metadata Format
+
+        When provided, the metadata field must be a JSON array where each object contains:
+        - `identifier`: The identifier of the file (must match the field name)
+        - `tags`: JSON object with string key-value pairs (optional)
+
+        If metadata is provided, all files must have corresponding metadata entries.
+        Tag values are automatically converted to strings.
 
         # Tag Values
 
-        Tag values should be strings. Example:
+        Tag values are automatically converted to strings. Example:
         ```json
-        {
-          "author": "alice",
-          "project": "walrus-test",
-          "version": "1.0",
-          "environment": "production"
-        }
+        [
+          {
+            "identifier": "contract-v2",
+            "tags": {
+              "author": "alice",
+              "version": 2.0,
+              "status": true
+            }
+          },
+          {
+            "identifier": "logo-2024",
+            "tags": {
+              "type": "logo",
+              "format": "png"
+            }
+          }
+        ]
         ```
 
         # Examples
 
-        ## Simple Upload (curl)
+        ## Simple Upload (No Metadata)
         ```bash
         curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-          -F "file1=@document.pdf" \
-          -F "file2=@image.png"
+          -F "contract-v2=@document.pdf" \
+          -F "logo-2024=@image.png"
         ```
 
-        ## Upload with Custom Identifiers
+        ## Upload with Metadata
         ```bash
         curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-          -F "file1=@document.pdf" \
-          -F "file1_identifier=contract-v2" \
-          -F "file2=@image.png" \
-          -F "file2_identifier=logo-2024"
+          -F "contract-v2=@document.pdf" \
+          -F "logo-2024=@image.png" \
+          -F 'metadata=[
+            {"identifier": "contract-v2", "tags": {"author": "alice", "version": "2.0"}},
+            {"identifier": "logo-2024", "tags": {"type": "logo", "format": "png"}}
+          ]'
         ```
 
-        ## Upload with Tags
+        ## Upload with Mixed Tag Types
         ```bash
         curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-          -F "file1=@document.pdf" \
-          -F "file1_identifier=contract-v2" \
-          -F 'file1_tags={"author":"alice","version":"2.0","status":"validated","category":"legal"}' \
-          -F "file2=@image.png" \
-          -F "file2_identifier=logo-2024" \
-          -F 'file2_tags={"type":"logo","width":"1920","height":"1080","format":"png"}'
+          -F "contract-v2=@document.pdf" \
+          -F "logo-2024=@image.png" \
+          -F 'metadata=[
+            {"identifier": "contract-v2", "tags": {"author": "alice", "version": 2.0, "active": true}},
+            {"identifier": "logo-2024", "tags": {"type": "logo", "width": 1920, "height": 1080}}
+          ]'
         ```
+
+        # Error Handling
+
+        - If metadata is provided but a file referenced in metadata is not found in the form, an error
+        is returned.
+        - If metadata is provided but there are files in the form without corresponding metadata, an
+        error is returned.
+        - If the metadata JSON is invalid, an error is returned.
+        - If no files are provided, an error is returned.
 
         # Response
         Returns a `QuiltStoreResult` containing the quilt blob ID and metadata.

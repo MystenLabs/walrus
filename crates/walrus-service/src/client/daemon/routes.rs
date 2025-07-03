@@ -821,70 +821,97 @@ impl QuiltPublisherQuery {
     }
 }
 
-/// Structure to hold a file with its metadata from multipart form
-#[derive(Debug)]
-pub struct QuiltFileEntry {
-    pub filename: String,
-    pub identifier: Option<String>,
-    pub tags: BTreeMap<String, serde_json::Value>,
-    pub data: Vec<u8>,
+/// Structure to hold metadata for a file in the new format
+#[derive(Debug, Deserialize)]
+pub struct QuiltFileMetadata {
+    pub identifier: String,
+    pub tags: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// Store multiple files as a quilt using multipart/form-data.
 ///
-/// Accepts a multipart form with files and their metadata to create a quilt.
-/// Each file can have:
-/// - The file itself (required)
-/// - identifier: custom identifier (optional, defaults to filename)
-/// - tags: JSON object with string key-value pairs (optional)
+/// Accepts a multipart form with files and optional metadata to create a quilt.
+/// The form must contain:
+/// - Files identified by their identifiers as field names (required)
+/// - A `metadata` field containing a JSON array with metadata for each file (optional)
 ///
 /// # Form Structure
 ///
 /// The multipart form should contain:
-/// - `{name}`: The file data (required)
-/// - `{name}_identifier`: Custom identifier for the file (optional)
-/// - `{name}_tags`: JSON object with string key-value pairs (optional)
+/// - `{identifier}`: The file data (required) - the identifier is used as the field name
+/// - `metadata`: JSON array with metadata for each file (optional)
+///
+/// # Metadata Format
+///
+/// When provided, the metadata field must be a JSON array where each object contains:
+/// - `identifier`: The identifier of the file (must match the field name)
+/// - `tags`: JSON object with string key-value pairs (optional)
+///
+/// If metadata is provided, all files must have corresponding metadata entries.
+/// Tag values are automatically converted to strings.
 ///
 /// # Tag Values
 ///
-/// Tag values should be strings. Example:
+/// Tag values are automatically converted to strings. Example:
 /// ```json
-/// {
-///   "author": "alice",
-///   "project": "walrus-test",
-///   "version": "1.0",
-///   "environment": "production"
-/// }
+/// [
+///   {
+///     "identifier": "contract-v2",
+///     "tags": {
+///       "author": "alice",
+///       "version": 2.0,
+///       "status": true
+///     }
+///   },
+///   {
+///     "identifier": "logo-2024",
+///     "tags": {
+///       "type": "logo",
+///       "format": "png"
+///     }
+///   }
+/// ]
 /// ```
 ///
 /// # Examples
 ///
-/// ## Simple Upload (curl)
+/// ## Simple Upload (No Metadata)
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-///   -F "file1=@document.pdf" \
-///   -F "file2=@image.png"
+///   -F "contract-v2=@document.pdf" \
+///   -F "logo-2024=@image.png"
 /// ```
 ///
-/// ## Upload with Custom Identifiers
+/// ## Upload with Metadata
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-///   -F "file1=@document.pdf" \
-///   -F "file1_identifier=contract-v2" \
-///   -F "file2=@image.png" \
-///   -F "file2_identifier=logo-2024"
+///   -F "contract-v2=@document.pdf" \
+///   -F "logo-2024=@image.png" \
+///   -F 'metadata=[
+///     {"identifier": "contract-v2", "tags": {"author": "alice", "version": "2.0"}},
+///     {"identifier": "logo-2024", "tags": {"type": "logo", "format": "png"}}
+///   ]'
 /// ```
 ///
-/// ## Upload with Tags
+/// ## Upload with Mixed Tag Types
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-///   -F "file1=@document.pdf" \
-///   -F "file1_identifier=contract-v2" \
-///   -F 'file1_tags={"author":"alice","version":"2.0","status":"validated","category":"legal"}' \
-///   -F "file2=@image.png" \
-///   -F "file2_identifier=logo-2024" \
-///   -F 'file2_tags={"type":"logo","width":"1920","height":"1080","format":"png"}'
+///   -F "contract-v2=@document.pdf" \
+///   -F "logo-2024=@image.png" \
+///   -F 'metadata=[
+///     {"identifier": "contract-v2", "tags": {"author": "alice", "version": 2.0, "active": true}},
+///     {"identifier": "logo-2024", "tags": {"type": "logo", "width": 1920, "height": 1080}}
+///   ]'
 /// ```
+///
+/// # Error Handling
+///
+/// - If metadata is provided but a file referenced in metadata is not found in the form, an error
+/// is returned.
+/// - If metadata is provided but there are files in the form without corresponding metadata, an
+/// error is returned.
+/// - If the metadata JSON is invalid, an error is returned.
+/// - If no files are provided, an error is returned.
 ///
 /// # Response
 /// Returns a `QuiltStoreResult` containing the quilt blob ID and metadata.
@@ -913,50 +940,26 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
     tracing::debug!("starting to process multipart quilt upload");
 
     // Parse multipart form and extract files with metadata
-    let quilt_files = match parse_multipart_quilt(multipart).await {
-        Ok(files) => files,
+    let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
+        Ok(blobs) => blobs,
         Err(error) => {
             tracing::error!(?error, "failed to parse multipart form");
             return StoreBlobError::Internal(error).into_response();
         }
     };
 
-    if quilt_files.is_empty() {
+    if quilt_store_blobs.is_empty() {
         return StoreBlobError::Internal(anyhow!("no files provided in multipart form"))
             .into_response();
     }
 
     // Check authorization if present
     if let Some(TypedHeader(header)) = bearer_header {
-        let total_size: usize = quilt_files.iter().map(|f| f.data.len()).sum();
+        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
         if let Err(error) = check_blob_size(header, total_size) {
             return error.into_response();
         }
     }
-
-    // Convert to QuiltStoreBlob format
-    let quilt_store_blobs: Vec<QuiltStoreBlob<'static>> = quilt_files
-        .into_iter()
-        .map(|file| {
-            let identifier = file.identifier.unwrap_or(file.filename);
-            // Convert JSON values to strings for QuiltStoreBlob
-            let tags: BTreeMap<String, String> = file
-                .tags
-                .into_iter()
-                .map(|(k, v)| {
-                    let value_str = match v {
-                        serde_json::Value::String(s) => s,
-                        serde_json::Value::Number(n) => n.to_string(),
-                        serde_json::Value::Bool(b) => b.to_string(),
-                        serde_json::Value::Null => "null".to_string(),
-                        _ => v.to_string(), // For arrays and objects, serialize to JSON string
-                    };
-                    (k, value_str)
-                })
-                .collect();
-            QuiltStoreBlob::new_owned(file.data, identifier).with_tags(tags)
-        })
-        .collect();
 
     tracing::debug!("storing quilt with {} blobs", quilt_store_blobs.len());
 
@@ -979,76 +982,59 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
     }
 }
 
-/// Parse multipart form data and extract files with their metadata
+/// Parse multipart form data and extract files with their metadata.
 async fn parse_multipart_quilt(
     mut multipart: Multipart,
-) -> Result<Vec<QuiltFileEntry>, anyhow::Error> {
-    let mut file_data_map: BTreeMap<String, (String, Vec<u8>)> = BTreeMap::new();
-    let mut metadata_map: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
+) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
+    let mut file_data_map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut metadata_array: Option<Vec<QuiltFileMetadata>> = None;
 
-    // First pass: collect all fields
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or("").to_string();
-
-        tracing::info!("field_name: {}", field_name);
-        if field_name.ends_with("_identifier") {
-            // Handle identifier metadata
-            let base_name = field_name.trim_end_matches("_identifier");
-            let identifier = field.text().await?;
-            metadata_map.entry(base_name.to_string()).or_default().0 = Some(identifier);
-        } else if field_name.ends_with("_tags") {
-            // Handle tags metadata
-            let base_name = field_name.trim_end_matches("_tags");
-            let tags_json = field.text().await?;
-            metadata_map.entry(base_name.to_string()).or_default().1 = Some(tags_json);
+        if field_name == "metadata" {
+            let metadata_json = field.text().await?;
+            metadata_array = Some(serde_json::from_str::<Vec<QuiltFileMetadata>>(
+                &metadata_json,
+            )?);
         } else {
-            // Handle file data
-            let filename = field.file_name().unwrap_or(&field_name).to_string();
             let data = field.bytes().await?.to_vec();
-            file_data_map.insert(field_name, (filename, data));
+            file_data_map.insert(field_name, data);
         }
     }
 
-    // Second pass: combine file data with metadata
-    let mut files = Vec::new();
-    for (field_name, (filename, data)) in file_data_map {
-        tracing::info!("Processing file field: {}", field_name);
-        let (identifier, tags_json) = metadata_map.get(&field_name).cloned().unwrap_or_default();
-        tracing::info!(
-            "Found metadata for {}: identifier={:?}, tags={:?}",
-            field_name,
-            identifier,
-            tags_json
-        );
+    let mut res = Vec::with_capacity(file_data_map.len());
 
-        let tags = if let Some(tags_str) = tags_json {
-            match serde_json::from_str::<BTreeMap<String, serde_json::Value>>(&tags_str) {
-                Ok(parsed_tags) => parsed_tags,
-                Err(e) => {
-                    tracing::warn!("Failed to parse tags for {}: {}", field_name, e);
-                    BTreeMap::new()
-                }
-            }
-        } else {
-            BTreeMap::new()
-        };
+    if let Some(metadata_array) = metadata_array {
+        // Process files with metadata
+        for metadata in metadata_array {
+            let data = file_data_map.remove(&metadata.identifier).ok_or(anyhow!(
+                "file not found for identifier: {}",
+                metadata.identifier
+            ))?;
+            let tags = metadata.tags.unwrap_or_default();
+            let tags = tags
+                .into_iter()
+                .map(|(k, v)| (k, v.to_string()))
+                .collect::<BTreeMap<String, String>>();
+            res.push(QuiltStoreBlob::new_owned(data, metadata.identifier).with_tags(tags));
+        }
 
-        tracing::info!(
-            "Final QuiltFileEntry for {}: identifier={:?}, tags={:?}",
-            field_name,
-            identifier,
-            tags
-        );
-
-        files.push(QuiltFileEntry {
-            filename,
-            identifier,
-            tags,
-            data,
-        });
+        if !file_data_map.is_empty() {
+            let remaining_files: Vec<_> = file_data_map.keys().cloned().collect();
+            return Err(anyhow!(
+                "files without metadata found: {}. \
+                All files must have corresponding metadata when metadata is provided.",
+                remaining_files.join(", ")
+            ));
+        }
+    } else {
+        // Process files without metadata - use field names as identifiers
+        for (identifier, data) in file_data_map {
+            res.push(QuiltStoreBlob::new_owned(data, identifier));
+        }
     }
 
-    Ok(files)
+    Ok(res)
 }
 
 #[cfg(test)]
@@ -1195,5 +1181,38 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_quilt_file_metadata_deserialization() {
+        let json = r#"[
+            {
+                "identifier": "contract-v2",
+                "tags": {
+                    "author": "alice",
+                    "version": "2.0"
+                }
+            },
+            {
+                "identifier": "logo-2024",
+                "tags": {
+                    "type": "logo",
+                    "format": "png"
+                }
+            }
+        ]"#;
+
+        let metadata: Vec<QuiltFileMetadata> = serde_json::from_str(json).expect("should parse");
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata[0].identifier, "contract-v2");
+        assert_eq!(metadata[1].identifier, "logo-2024");
+        assert_eq!(
+            metadata[0].tags.as_ref().unwrap().get("author").unwrap(),
+            "alice"
+        );
+        assert_eq!(
+            metadata[1].tags.as_ref().unwrap().get("type").unwrap(),
+            "logo"
+        );
     }
 }
