@@ -258,7 +258,7 @@ your workflow before calling the deploy action</li>
 <code>DIST/ws-resources.json</code>)</li>
 <li><strong><code>GITHUB_TOKEN</code></strong>: Enables automatic pull request creation when site resources change</li>
 </ul>
-<h3 id="about-github_token"><a class="header" href="#about-github_token">About GITHUB_TOKEN</a></h3>
+<h3 id="about-github_token"><a class="header" href="#about-github_token">About <code>GITHUB_TOKEN</code></a></h3>
 <p>The <code>GITHUB_TOKEN</code> input is particularly useful for tracking changes to your site's resources. When
 you deploy a site, Walrus creates or updates a <code>ws-resources.json</code> file that tracks the site's data.
 If this file changes during deployment, the action can automatically create a pull request with the
@@ -339,8 +339,10 @@ ones.</p>
 files that should be published to Walrus.</p>
 <h2 id="example-workflows"><a class="header" href="#example-workflows">Example Workflows</a></h2>
 <ul>
-<li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml">deploy-snake.yml</a> - Simple static site deployment</li>
-<li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml">deploy-vite-react-ts.yml</a> - React application with build step</li>
+<li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml">deploy-snake.yml</a>
+- Simple static site deployment</li>
+<li><a href="https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml">deploy-vite-react-ts.yml</a>
+- React application with build step</li>
 </ul>
 <hr />
 <p>For more information about creating and configuring GitHub workflows, check the <a href="https://docs.github.com/en/actions/writing-workflows">official GitHub
