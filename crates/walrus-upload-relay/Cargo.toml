@@ -1,5 +1,5 @@
 [package]
-name = "fan-out-proxy"
+name = "walrus-upload-relay"
 publish = false
 authors.workspace = true
 version.workspace = true

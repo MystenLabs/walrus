@@ -428,7 +428,7 @@ mod tests {
     use super::FanOutConfig;
     use crate::tip::{TipConfig, TipKind};
 
-    const EXAMPLE_CONFIG_PATH: &str = "fan_out_config_example.yaml";
+    const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 
     #[test]
     fn keep_example_config_in_sync() {

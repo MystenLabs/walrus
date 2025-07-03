@@ -4,7 +4,7 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
-        exclude: "crates/fan-out-proxy/fan_out_config_example.yaml"
+        exclude: "crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml"
       - id: check-symlinks
       - id: end-of-file-fixer
       - id: mixed-line-ending

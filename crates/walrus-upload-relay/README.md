@@ -40,27 +40,27 @@ The store sequence is as follows:
 
 # Usage
 
-There are various ways to run the `fan-out-proxy`.
+There are various ways to run the `walrus-upload-relay`.
 
 ## Installation
 
 ### Download the Binary
 
-If you'd like to download a pre-built binary in order manually run `fan-out-proxy`, you'll need to download it from
-[here](https://github.com/MystenLabs/walrus/releases). Note that `fan-out-proxy` does not daemonize
+If you'd like to download a pre-built binary in order manually run `walrus-upload-relay`, you'll need to download it from
+[here](https://github.com/MystenLabs/walrus/releases). Note that `walrus-upload-relay` does not daemonize
 itself, and requires some supervisor process to ensure boot at startup, to restart in the event of
 failures, etc.
 
 ### Docker
 
-The docker image for `fan-out-proxy` is available on Docker Hub as `mysten/fan-out-proxy`.
+The docker image for `walrus-upload-relay` is available on Docker Hub as `mysten/walrus-upload-relay`.
 
 ```
-$ docker run -it --rm mysten/fan-out-proxy --help
+$ docker run -it --rm mysten/walrus-upload-relay --help
 
 Run the Walrus Fan-out Proxy
 
-Usage: fan-out-proxy proxy [OPTIONS] --walrus-config <WALRUS_CONFIG> --fan-out-config <FAN_OUT_CONFIG>
+Usage: walrus-upload-relay proxy [OPTIONS] --walrus-config <WALRUS_CONFIG> --fan-out-config <FAN_OUT_CONFIG>
 
 Options:
       --context <CONTEXT>
@@ -79,23 +79,23 @@ Options:
 ### Build from Source
 
 Of course, if you'd like to build from sources, that is always an option, as well. The sources for
-the `fan-out-proxy` are available on [GitHub](https://github.com/MystenLabs/walrus) in the
-`crates/fan-out-proxy` subdirectory. Running the following from the root of the Walrus repo should
+the `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLabs/walrus) in the
+`crates/walrus-upload-relay` subdirectory. Running the following from the root of the Walrus repo should
 get you a working binary.
 
 ```
-cargo build --release --bin fan-out-proxy
-./target/release/fan-out-proxy --help
+cargo build --release --bin walrus-upload-relay
+./target/release/walrus-upload-relay --help
 ```
 
 ## Configuration
 
-Notice that `fan-out-proxy` requires some configuration to get started. Below is an example of how
+Notice that `walrus-upload-relay` requires some configuration to get started. Below is an example of how
 you might place the configuration such that it is reachable when invoking Docker to run the proxy.
 For the sake of the example below, we're assuming that:
 
 - `$HOME/.config/walrus/fan-out-config.yaml` exists on the host machine and contains the specification for
-  the `fan-out-proxy` configuration, as described [here](about:blank).
+  the `walrus-upload-relay` configuration, as described [here](about:blank).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
   configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
 - Port 3000 is available for the proxy to bind to (change this to whichever port you'd like to
@@ -106,7 +106,7 @@ docker run \
   -p 3000:3000 \
   -v $HOME/.config/walrus/fan-out-config.yaml:/opt/walrus/fan-out-config.yaml \
   -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
-  mysten/fan-out-proxy \
+  mysten/walrus-upload-relay \
     proxy \
       --context testnet \
       --walrus-config /opt/walrus/client_config.yaml \
@@ -114,15 +114,15 @@ docker run \
       --fan-out-config /opt/walrus/fan-out-config.yaml
 ```
 
-### Tip Configuration
+### Configuration
 
-An example Tip configuration can be found
-[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/fan_out_config_example.yaml). The
+An example `walrus-upload-relay` configuration file can be found
+[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml). The
 various options are described
-[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/src/controller.rs#L63) and
-[here](https://github.com/MystenLabs/walrus/crates/fan-out-proxy/src/tip/config.rs#L57).
+[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/src/controller.rs#L63) and
+[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/src/tip/config.rs#L57).
 
 # Conclusion
 
-Setting up the `fan-out-proxy` should be straightforward. Please reach out to the Walrus team if you
+Setting up the `walrus-upload-relay` should be straightforward. Please reach out to the Walrus team if you
 encounter any difficulties or have questions/concerns.

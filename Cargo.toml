@@ -1,7 +1,7 @@
 [workspace]
 default-members = [
   "crates/checkpoint-downloader",
-  "crates/fan-out-proxy",
+  "crates/walrus-upload-relay",
   "crates/typed-store",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",

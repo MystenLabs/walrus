@@ -6,7 +6,7 @@ use walrus_sdk::core_utils::metrics::define_metric_set;
 
 define_metric_set! {
     #[namespace = "fan_out_proxy"]
-    /// Metrics exported by the fan-out-proxy.
+    /// Metrics exported by the walrus-upload-relay.
     pub(crate) struct FanOutProxyMetricSet {
         #[help = "The total count of blobs uploaded"]
         blobs_uploaded: IntCounter[],

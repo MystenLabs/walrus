@@ -21,7 +21,7 @@ else
 fi
 
 echo
-echo "Building fan-out-proxy docker images"
+echo "Building walrus-upload-relay docker images"
 echo "Dockerfile: \t$DOCKERFILE"
 echo "docker context: $REPO_ROOT"
 echo "build date: \t$BUILD_DATE"
@@ -34,5 +34,5 @@ docker build \
   --build-arg GIT_REVISION="$GIT_REVISION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg PROFILE="$PROFILE" \
-  --target fan-out-proxy \
+  --target walrus-upload-relay \
   "$@"
