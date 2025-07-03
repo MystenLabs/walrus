@@ -239,6 +239,8 @@ mod tests {
 
         kill_all_storage_nodes(&node_handles).await;
 
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
         for (i, node) in walrus_cluster.nodes.iter_mut().enumerate() {
             node.node_id = Some(
                 SimStorageNodeHandle::spawn_node(
@@ -271,7 +273,6 @@ mod tests {
     }
 
     /// This test verifies that the node can correctly recover from a forked event blob.
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
         let (_sui_cluster, mut walrus_cluster, client, _) =
@@ -314,7 +315,7 @@ mod tests {
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Verify recovery
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
         let recovered_blob = get_last_certified_event_blob_must_succeed(&client).await;
 
         // Event blob should make progress again.
@@ -324,7 +325,6 @@ mod tests {
     }
 
     /// This test verifies that the node can correctly recover from a forked event blob.
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_local_fork_recovery() {
         let (_sui_cluster, mut walrus_cluster, client, _) =
