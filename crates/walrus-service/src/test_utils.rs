@@ -463,6 +463,9 @@ impl SimStorageNodeHandle {
                                     10,
                                 )));
                             } else {
+                                // TODO(WAL-912): we need to alert the test if the node is stopped
+                                // unexpectedly. Currently, node crashing may not be noticed and
+                                // the test will hang.
                                 tracing::info!("node stopped with error: {e}");
                             }
                         }

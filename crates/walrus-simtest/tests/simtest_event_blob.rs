@@ -239,6 +239,12 @@ mod tests {
 
         kill_all_storage_nodes(&node_handles).await;
 
+        // Doing a short sleep so that the connection between the old nodes to the fullnodes are
+        // fully cleared. We've seen cases where when the new node is started, the old connection
+        // on the fullnode still exists and the new node will not be able to connect to the
+        //fullnode.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
         for (i, node) in walrus_cluster.nodes.iter_mut().enumerate() {
             node.node_id = Some(
                 SimStorageNodeHandle::spawn_node(
@@ -314,7 +320,7 @@ mod tests {
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Verify recovery
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(40)).await;
         let recovered_blob = get_last_certified_event_blob_must_succeed(&client).await;
 
         // Event blob should make progress again.
@@ -335,6 +341,10 @@ mod tests {
                     ..Default::default()
                 })
                 .with_num_checkpoints_per_blob(20)
+                // Low event_stream_catchup_min_checkpoint_lag may cause reading latest event blob
+                // fail since the event blob's certified events have not been processed yet.
+                // We can revisit this once we have more robust client read.
+                .with_event_stream_catchup_min_checkpoint_lag(Some(20000))
                 .with_communication_config(
                     ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                         Duration::from_secs(2),

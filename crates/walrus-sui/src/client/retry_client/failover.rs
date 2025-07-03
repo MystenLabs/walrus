@@ -212,7 +212,10 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 Err(error) => {
                     // Log the error and failover to the next client.
                     tracing::warn!(
-                        "Failed to get client from url: {}, failover to next client",
+                        "failed to get client from url {}, error: {}, failover to next client",
+                        self.lazy_client_builders[next_index]
+                            .get_rpc_url()
+                            .unwrap_or("unknown"),
                         error
                     );
                     next_index = (next_index + 1) % self.client_count();
