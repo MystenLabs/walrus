@@ -355,7 +355,7 @@ pub(crate) async fn blob_upload_relay_handler(
     tracing::info!(
         duration = ?start.elapsed(),
         ?blob_id,
-        "finished to process a fan-out request",
+        "finished processing a blob upload relay request",
     );
 
     Ok((StatusCode::OK, Json(response)).into_response())
