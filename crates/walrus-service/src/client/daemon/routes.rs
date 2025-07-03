@@ -389,6 +389,11 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
+    /// The request is malformed (e.g., invalid JSON in metadata).
+    #[error("the request is malformed: {message}")]
+    #[rest_api_error(reason = "MALFORMED_REQUEST", status = ApiStatusCode::InvalidArgument)]
+    MalformedRequest { message: String },
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -757,73 +762,9 @@ impl PublisherQuery {
     }
 }
 
-/// Query parameters for quilt upload
-#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
-#[into_params(parameter_in = Query, style = Form)]
-#[serde(deny_unknown_fields)]
-pub struct QuiltPublisherQuery {
-    /// The encoding type to use for the quilt.
-    #[serde(default)]
-    pub encoding_type: Option<EncodingType>,
-    /// The number of epochs, ahead of the current one, for which to store the quilt.
-    #[serde(default = "default_epochs")]
-    pub epochs: EpochCount,
-    /// If true, the publisher creates a deletable quilt instead of a permanent one.
-    #[serde(default)]
-    pub deletable: bool,
-    /// If true, the publisher will always store the quilt, creating a new quilt object.
-    #[serde(default)]
-    pub force: bool,
-    #[serde(flatten, default)]
-    #[param(inline)]
-    send_or_share: Option<SendOrShare>,
-}
-
-impl Default for QuiltPublisherQuery {
-    fn default() -> Self {
-        QuiltPublisherQuery {
-            encoding_type: None,
-            epochs: default_epochs(),
-            deletable: false,
-            force: false,
-            send_or_share: None,
-        }
-    }
-}
-
-impl QuiltPublisherQuery {
-    /// Returns the [`StoreOptimizations`] value based on the query parameters.
-    fn optimizations(&self) -> StoreOptimizations {
-        StoreOptimizations::none().with_check_status(!self.force)
-    }
-
-    /// Returns the [`BlobPersistence`] value based on the query parameters.
-    fn blob_persistence(&self) -> BlobPersistence {
-        BlobPersistence::from_deletable(self.deletable)
-    }
-
-    /// Returns the [`PostStoreAction`] value based on the query parameters.
-    fn post_store_action(&self, default_action: PostStoreAction) -> PostStoreAction {
-        if let Some(send_or_share) = &self.send_or_share {
-            match send_or_share {
-                SendOrShare::SendObjectTo(address) => PostStoreAction::TransferTo(*address),
-                SendOrShare::Share(share) => {
-                    if *share {
-                        PostStoreAction::Share
-                    } else {
-                        default_action
-                    }
-                }
-            }
-        } else {
-            default_action
-        }
-    }
-}
-
-/// Structure to hold metadata for a file in the new format
+/// Structure to hold metadata for a quilt patch.
 #[derive(Debug, Deserialize)]
-pub struct QuiltFileMetadata {
+pub struct QuiltPatchMetadata {
     pub identifier: String,
     pub tags: Option<BTreeMap<String, serde_json::Value>>,
 }
@@ -833,13 +774,7 @@ pub struct QuiltFileMetadata {
 /// Accepts a multipart form with files and optional metadata to create a quilt.
 /// The form must contain:
 /// - Files identified by their identifiers as field names (required)
-/// - A `metadata` field containing a JSON array with metadata for each file (optional)
-///
-/// # Form Structure
-///
-/// The multipart form should contain:
-/// - `{identifier}`: The file data (required) - the identifier is used as the field name
-/// - `metadata`: JSON array with metadata for each file (optional)
+/// - A `metadata` field containing a JSON array with metadata for some or all files (optional)
 ///
 /// # Metadata Format
 ///
@@ -847,31 +782,8 @@ pub struct QuiltFileMetadata {
 /// - `identifier`: The identifier of the file (must match the field name)
 /// - `tags`: JSON object with string key-value pairs (optional)
 ///
-/// If metadata is provided, all files must have corresponding metadata entries.
+/// Files without corresponding metadata entries will be stored with empty tags.
 /// Tag values are automatically converted to strings.
-///
-/// # Tag Values
-///
-/// Tag values are automatically converted to strings. Example:
-/// ```json
-/// [
-///   {
-///     "identifier": "contract-v2",
-///     "tags": {
-///       "author": "alice",
-///       "version": 2.0,
-///       "status": true
-///     }
-///   },
-///   {
-///     "identifier": "logo-2024",
-///     "tags": {
-///       "type": "logo",
-///       "format": "png"
-///     }
-///   }
-/// ]
-/// ```
 ///
 /// # Examples
 ///
@@ -893,37 +805,16 @@ pub struct QuiltFileMetadata {
 ///   ]'
 /// ```
 ///
-/// ## Upload with Mixed Tag Types
-/// ```bash
-/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
-///   -F "contract-v2=@document.pdf" \
-///   -F "logo-2024=@image.png" \
-///   -F 'metadata=[
-///     {"identifier": "contract-v2", "tags": {"author": "alice", "version": 2.0, "active": true}},
-///     {"identifier": "logo-2024", "tags": {"type": "logo", "width": 1920, "height": 1080}}
-///   ]'
-/// ```
-///
-/// # Error Handling
-///
-/// - If metadata is provided but a file referenced in metadata is not found in the form, an error
-/// is returned.
-/// - If metadata is provided but there are files in the form without corresponding metadata, an
-/// error is returned.
-/// - If the metadata JSON is invalid, an error is returned.
-/// - If no files are provided, an error is returned.
-///
 /// # Response
-/// Returns a `QuiltStoreResult` containing the quilt blob ID and metadata.
-/// Individual files can then be retrieved using the quilt ID and their identifiers.
+/// Returns a `QuiltStoreResult`.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
 #[utoipa::path(
     put,
     path = QUILT_PUT_ENDPOINT,
     request_body(
         content_type = "multipart/form-data",
-        description = "Multipart form with files and their metadata"),
-    params(QuiltPublisherQuery),
+        description = "Multipart form with blobs and their metadata"),
+    params(PublisherQuery),
     responses(
         (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
         (status = 400, description = "The request is malformed"),
@@ -933,24 +824,28 @@ pub struct QuiltFileMetadata {
 )]
 pub(super) async fn put_quilt<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
-    Query(query): Query<QuiltPublisherQuery>,
+    Query(query): Query<PublisherQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     multipart: Multipart,
 ) -> Response {
     tracing::debug!("starting to process multipart quilt upload");
 
-    // Parse multipart form and extract files with metadata
     let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
         Ok(blobs) => blobs,
         Err(error) => {
-            tracing::error!(?error, "failed to parse multipart form");
-            return StoreBlobError::Internal(error).into_response();
+            tracing::debug!(?error, "failed to parse multipart form");
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to parse multipart form: {error:?}"),
+            }
+            .into_response();
         }
     };
 
     if quilt_store_blobs.is_empty() {
-        return StoreBlobError::Internal(anyhow!("no files provided in multipart form"))
-            .into_response();
+        return StoreBlobError::MalformedRequest {
+            message: "no files provided in multipart form".to_string(),
+        }
+        .into_response();
     }
 
     // Check authorization if present
@@ -987,15 +882,16 @@ async fn parse_multipart_quilt(
     mut multipart: Multipart,
 ) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
     let mut file_data_map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    let mut metadata_array: Option<Vec<QuiltFileMetadata>> = None;
+    let mut metadata_map: BTreeMap<String, QuiltPatchMetadata> = BTreeMap::new();
 
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or("").to_string();
         if field_name == "metadata" {
             let metadata_json = field.text().await?;
-            metadata_array = Some(serde_json::from_str::<Vec<QuiltFileMetadata>>(
-                &metadata_json,
-            )?);
+            for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
+                let identifier = meta.identifier.clone();
+                metadata_map.insert(identifier, meta);
+            }
         } else {
             let data = field.bytes().await?.to_vec();
             file_data_map.insert(field_name, data);
@@ -1004,31 +900,23 @@ async fn parse_multipart_quilt(
 
     let mut res = Vec::with_capacity(file_data_map.len());
 
-    if let Some(metadata_array) = metadata_array {
-        // Process files with metadata
-        for metadata in metadata_array {
-            let data = file_data_map.remove(&metadata.identifier).ok_or(anyhow!(
-                "file not found for identifier: {}",
-                metadata.identifier
-            ))?;
-            let tags = metadata.tags.unwrap_or_default();
-            let tags = tags
-                .into_iter()
-                .map(|(k, v)| (k, v.to_string()))
-                .collect::<BTreeMap<String, String>>();
-            res.push(QuiltStoreBlob::new_owned(data, metadata.identifier).with_tags(tags));
-        }
+    if !metadata_map.is_empty() {
+        for (identifier, data) in file_data_map {
+            let tags = if let Some(meta) = metadata_map.get(&identifier) {
+                meta.tags
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.to_string()))
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
 
-        if !file_data_map.is_empty() {
-            let remaining_files: Vec<_> = file_data_map.keys().cloned().collect();
-            return Err(anyhow!(
-                "files without metadata found: {}. \
-                All files must have corresponding metadata when metadata is provided.",
-                remaining_files.join(", ")
-            ));
+            res.push(QuiltStoreBlob::new_owned(data, identifier).with_tags(tags));
         }
     } else {
-        // Process files without metadata - use field names as identifiers
+        // No metadata provided - process files without metadata
         for (identifier, data) in file_data_map {
             res.push(QuiltStoreBlob::new_owned(data, identifier));
         }
@@ -1202,7 +1090,7 @@ mod tests {
             }
         ]"#;
 
-        let metadata: Vec<QuiltFileMetadata> = serde_json::from_str(json).expect("should parse");
+        let metadata: Vec<QuiltPatchMetadata> = serde_json::from_str(json).expect("should parse");
         assert_eq!(metadata.len(), 2);
         assert_eq!(metadata[0].identifier, "contract-v2");
         assert_eq!(metadata[1].identifier, "logo-2024");
