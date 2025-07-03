@@ -9,6 +9,7 @@ The Deploy Walrus Site action operates on an **already built site directory**. T
 build your site - it deploys existing static files to Walrus.
 
 This means:
+
 - If your site consists of ready-to-deploy static files (HTML, CSS, JS), you can use the action
   directly
 - If your site requires a build step (React, Vue, Svelte, etc.), you **must** include build steps in
@@ -17,11 +18,13 @@ This means:
 ## Using the Deploy Walrus Site GitHub Action
 
 The action (`MystenLabs/walrus-sites/.github/actions/deploy`) requires these inputs:
+
 - **`SUI_ADDRESS`**: Your Sui address (GitHub variable)
 - **`SUI_KEYSTORE`**: Your private key in base64 format (GitHub secret)  
 - **`DIST`**: Path to your **built** site directory
 
 Optional inputs include:
+
 - **`SUI_NETWORK`**: Target network (`mainnet` or `testnet`, defaults to `mainnet`)
 - **`EPOCHS`**: Number of epochs to keep the site stored (defaults to `5`)
 - **`WALRUS_CONFIG`**: Custom Walrus configuration (downloads default if not provided)
@@ -30,7 +33,7 @@ Optional inputs include:
   `DIST/ws-resources.json`)
 - **`GITHUB_TOKEN`**: Enables automatic pull request creation when site resources change
 
-### About GITHUB_TOKEN
+### About `GITHUB_TOKEN`
 
 The `GITHUB_TOKEN` input is particularly useful for tracking changes to your site's resources. When
 you deploy a site, Walrus creates or updates a `ws-resources.json` file that tracks the site's data.
@@ -38,8 +41,9 @@ If this file changes during deployment, the action can automatically create a pu
 updated file.
 
 To use this feature:
+
 1. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` in your workflow
-2. Add these [permissions](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token)
+1. Add these [permissions](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token)
    to your workflow:
 
    ```yaml
@@ -58,6 +62,7 @@ won't create pull requests for resource file changes.
 Understanding how the workflow behaves differently on the first run is important:
 
 **First run (new site):**
+
 - Creates a new Walrus Site on Sui
 - Generates a `ws-resources.json` file in your `DIST` directory (or updates the file specified by
   `WS_RESOURCES`)
@@ -65,6 +70,7 @@ Understanding how the workflow behaves differently on the first run is important
 - If `GITHUB_TOKEN` is provided with correct permissions, creates a pull request with these changes
 
 **Subsequent runs (updates):**
+
 - Uses the existing `object_id` from `ws-resources.json` to update the same site
 - Only creates PRs if the resource file changes during deployment
 
@@ -77,22 +83,25 @@ ones.
 ## Creating Your Workflow
 
 1. Create `.github/workflows/deploy-site.yml` in your repository
-2. Add checkout step to get your repository files
-3. If your site needs building, add build steps:
+1. Add checkout step to get your repository files
+1. If your site needs building, add build steps:
    - Add build environment setup (Node.js, etc.)
    - Add build commands
-4. Set your `DIST` path:
+1. Set your `DIST` path:
    - For sites requiring build: Point to your build output directory (e.g., `dist/`, `build/`)
    - For static sites: Point directly to your static files directory
-5. Add the Deploy Walrus Site action with your configured secrets and variables
+1. Add the Deploy Walrus Site action with your configured secrets and variables
 
 The key is ensuring your `DIST` path points to a directory containing the final, deployable static
 files that should be published to Walrus.
 
 ## Example Workflows
 
-- [deploy-snake.yml](https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml) - Simple static site deployment
-- [deploy-vite-react-ts.yml](https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml) - React application with build step
+- [deploy-snake.yml](https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-snake.yml)
+  \- Simple static site deployment
+- [deploy-vite-react-ts.yml](
+  https://github.com/MystenLabs/walrus-sites/blob/main/.github/workflows/deploy-vite-react-ts.yml)
+  \- React application with build step
 
 ---
 
