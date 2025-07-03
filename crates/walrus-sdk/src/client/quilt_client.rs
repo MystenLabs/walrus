@@ -253,10 +253,10 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_identifiers(identifiers)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => quilt
                 .get_blobs_by_identifiers(identifiers)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
         }
     }
 
@@ -272,10 +272,10 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_tag(target_tag, target_value)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => quilt
                 .get_blobs_by_tag(target_tag, target_value)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
         }
     }
 
@@ -290,13 +290,13 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_patch_internal_ids(patch_internal_ids)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => patch_internal_ids
                 .iter()
                 .map(|patch_internal_id| {
                     quilt
                         .get_blob_by_patch_internal_id(patch_internal_id)
-                        .map_err(ClientError::other)
+                        .map_err(ClientError::from)
                 })
                 .collect::<Result<Vec<_>, _>>(),
         }
@@ -323,7 +323,7 @@ where
             QuiltCacheReader::FullQuilt(quilt) => quilt,
             _ => unreachable!(),
         };
-        quilt.get_all_blobs().map_err(ClientError::other)
+        quilt.get_all_blobs().map_err(ClientError::from)
     }
 }
 
@@ -519,10 +519,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         certified_epoch,
                     )
                     .await?;
-                quilt_reader
-                    .get_blobs_by_identifiers(identifiers)
-                    .await
-                    .map_err(ClientError::other)
+                quilt_reader.get_blobs_by_identifiers(identifiers).await
             }
         }
     }
@@ -565,7 +562,6 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 quilt_reader
                     .get_blobs_by_tag(target_tag, target_value)
                     .await
-                    .map_err(ClientError::other)
             }
         }
     }
@@ -672,10 +668,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let mut quilt_reader =
             QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
-        quilt_reader
-            .get_all_blobs(&metadata, certified_epoch)
-            .await
-            .map_err(ClientError::other)
+        quilt_reader.get_all_blobs(&metadata, certified_epoch).await
     }
 
     /// Retrieves the quilt from Walrus.
@@ -693,7 +686,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
 
-        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::other)
+        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::from)
     }
 }
 
@@ -710,7 +703,7 @@ impl QuiltClient<'_, SuiContractClient> {
             blobs,
         );
 
-        encoder.construct_quilt().map_err(ClientError::other)
+        encoder.construct_quilt().map_err(ClientError::from)
     }
 
     /// Constructs a quilt from a list of paths.
