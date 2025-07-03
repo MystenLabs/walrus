@@ -45,7 +45,7 @@ use walrus_sdk::{
 };
 
 use crate::{
-    controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
+    controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE, fan_out_blob_url},
     params::{AuthPackage, Params},
     tip::TipConfig,
 };
