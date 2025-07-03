@@ -32,9 +32,7 @@ pub fn compute_symbol_size_from_usize(
     required_alignment: u16,
 ) -> Result<NonZeroU16, DataTooLargeError> {
     compute_symbol_size(
-        data_length
-            .try_into()
-            .map_err(|_| DataTooLargeError)?,
+        data_length.try_into().map_err(|_| DataTooLargeError)?,
         n_symbols,
         required_alignment,
     )
