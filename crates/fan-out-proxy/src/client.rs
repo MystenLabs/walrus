@@ -11,7 +11,6 @@ use std::{
 };
 
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::Serialize;
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
@@ -45,7 +44,7 @@ use walrus_sdk::{
 };
 
 use crate::{
-    controller::{BLOB_FAN_OUT_ROUTE, ResponseType, TIP_CONFIG_ROUTE, fan_out_blob_url},
+    controller::{ResponseType, TIP_CONFIG_ROUTE, fan_out_blob_url},
     params::{AuthPackage, Params},
     tip::TipConfig,
 };
@@ -153,10 +152,7 @@ pub(crate) async fn run_client(
         result
     );
 
-    println!(
-        "Blob with ID {} and encoded size {} successfully stored",
-        computed_blob_id, encoded_size
-    );
+    println!("Blob with ID {computed_blob_id} and encoded size {encoded_size} successfully stored");
     Ok(())
 }
 

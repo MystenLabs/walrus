@@ -182,7 +182,7 @@ mod tests {
                 (FanOutError::InvalidNonceHash, FanOutError::InvalidNonceHash) => {}
                 (FanOutError::BlobDigestMismatch, FanOutError::BlobDigestMismatch) => {}
                 (FanOutError::BlobLengthMismatch, FanOutError::BlobLengthMismatch) => {}
-                _ => panic!("expected error {:?} but got {:?}", expected_err, err),
+                _ => panic!("expected error {expected_err:?} but got {err:?}"),
             },
             (Err(_), None) => panic!("expected an error but got Ok"),
             (Ok(_), Some(_)) => panic!("expected an error but got Ok"),
