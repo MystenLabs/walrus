@@ -211,8 +211,8 @@ mod tests {
     use walrus_sdk::{ObjectID, core::BlobId};
 
     use crate::{
-        controller::blob_upload_relay_url,
         params::{DIGEST_LEN, Params},
+        shared::blob_upload_relay_url,
     };
 
     #[test]

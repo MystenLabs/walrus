@@ -395,7 +395,7 @@ mod tests {
     use sui_types::base_types::SuiAddress;
 
     use super::WalrusUploadRelayConfig;
-    use crate::tip::{TipConfig, TipKind};
+    use crate::tip::config::{TipConfig, TipKind};
 
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 
