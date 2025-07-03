@@ -5,9 +5,10 @@ your behalf. This requires securely providing it with your private key and the c
 address.
 
 This guide will show you how to:
-1.  Export a private key from your Sui Wallet or CLI.
-2.  Correctly format the key and add it as a `SUI_KEYSTORE` secret in your GitHub repository.
-3.  Add the matching public address as a `SUI_ADDRESS` variable in your GitHub repository.
+
+1. Export a private key from your Sui Wallet or CLI.
+2. Correctly format the key and add it as a `SUI_KEYSTORE` secret in your GitHub repository.
+3. Add the matching public address as a `SUI_ADDRESS` variable in your GitHub repository.
 
 ## Prerequisites
 
@@ -30,19 +31,20 @@ guide](https://docs.sui.io/guides/developer/getting-started/sui-install).
 
 To export a private key using the command line:
 
-1.  Generate a new key by running the following command in your terminal:
-    ```sh
-    sui keytool generate ed25519 # Or secp256k1 or secp256r1
-    ```
+1. Generate a new key by running the following command in your terminal:
 
-2.  This command creates a file in your current directory named `<SUI_ADDRESS>.key` (e.g.,
-    `0x123...abc.key`). The filename is your new Sui Address.
+   ```sh
+   sui keytool generate ed25519 # Or secp256k1 or secp256r1
+   ```
 
-3.  The content of this file is the private key in the `base64WithFlag` format. This is the value
-    you need for the `SUI_KEYSTORE` secret.
+2. This command creates a file in your current directory named `<SUI_ADDRESS>.key` (e.g.,
+   `0x123...abc.key`). The filename is your new Sui Address.
 
-4.  You now have both the address (from the filename) for the `SUI_ADDRESS` variable and the key
-    (from the file's content) for the `SUI_KEYSTORE` secret.
+3. The content of this file is the private key in the `base64WithFlag` format. This is the value
+   you need for the `SUI_KEYSTORE` secret.
+
+4. You now have both the address (from the filename) for the `SUI_ADDRESS` variable and the key
+   (from the file's content) for the `SUI_KEYSTORE` secret.
 
 > **Note on existing keys**
 > If you wish to use a key you already own, you can find it in the `~/.sui/sui_config/sui.keystore`
@@ -66,6 +68,7 @@ This method is recommended if you manage your keys through the Slush browser ext
     ```
 
 5.  The command will produce an output similar to this:
+
     ```text
     ╭────────────────┬──────────────────────────────────────────────────────────────────────────╮
     │ bech32WithFlag │  suiprivkey............................................................  │
@@ -74,6 +77,7 @@ This method is recommended if you manage your keys through the Slush browser ext
     │ scheme         │  ed25519                                                                 │
     ╰────────────────┴──────────────────────────────────────────────────────────────────────────╯
     ```
+
     Copy the **`base64WithFlag`** value. This is what you will use for the `SUI_KEYSTORE` secret.
 
 {{#endtab }}
@@ -112,23 +116,27 @@ transfer them to your deployment address.
 
 Now, let's add the key and address to your GitHub repository.
 
-1.  Navigate to your GitHub repository in a web browser.
-2.  Click on the **Settings** tab (located in the top navigation bar of your repository).
-3.  In the left sidebar, click **Secrets and variables**, then select **Actions**.
-4.  You'll see two tabs: **Secrets** and **Variables**. Start with the **Secrets** tab.
-5.  Click the **New repository secret** button.
-6.  Name the secret `SUI_KEYSTORE`.
-7.  In the **Value** field, paste the `Base64 Key with Flag` you copied earlier. It must be
-    formatted as a JSON array containing a single string:
-    ```json
-    ["AXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
-    ```
-8.  Click **Add secret** to save it.
-    ```admonish warning
-    Make sure to format the keystore as a JSON array with a single string element, not just the raw
-    key value. Include the square brackets and quotes exactly as shown above.
-    ```
-9.  Next, switch to the **Variables** tab and click **New repository variable**.
+1. Navigate to your GitHub repository in a web browser.
+2. Click on the **Settings** tab (located in the top navigation bar of your repository).
+3. In the left sidebar, click **Secrets and variables**, then select **Actions**.
+4. You'll see two tabs: **Secrets** and **Variables**. Start with the **Secrets** tab.
+5. Click the **New repository secret** button.
+6. Name the secret `SUI_KEYSTORE`.
+7. In the **Value** field, paste the `Base64 Key with Flag` you copied earlier. It must be
+   formatted as a JSON array containing a single string:
+
+   ```json
+   ["AXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
+   ```
+
+8. Click **Add secret** to save it.
+
+   ```admonish warning
+   Make sure to format the keystore as a JSON array with a single string element, not just the raw
+   key value. Include the square brackets and quotes exactly as shown above.
+   ```
+
+9. Next, switch to the **Variables** tab and click **New repository variable**.
 10. Name the variable `SUI_ADDRESS`.
 11. In the **Value** field, paste the Sui address that corresponds to your private key (for example:
     `0x123abc...def789`).

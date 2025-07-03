@@ -41,6 +41,7 @@ To use this feature:
 1. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` in your workflow
 2. Add these [permissions](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token)
    to your workflow:
+
    ```yaml
    permissions:
      contents: write
