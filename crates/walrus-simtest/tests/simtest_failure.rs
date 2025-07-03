@@ -18,7 +18,6 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng, thread_rng};
-    use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
