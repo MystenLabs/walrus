@@ -3537,6 +3537,31 @@ If you wish to use a key you already own, you can find it in the <code>~/.sui/su
 <p>If you don't provide the <code>GITHUB_TOKEN</code>, the action will still deploy your site successfully but won't create pull requests for resource file changes.</p>
 </div>
 </div>
+<h3 id="first-run-vs-subsequent-runs"><a class="header" href="#first-run-vs-subsequent-runs">First Run vs Subsequent Runs</a></h3>
+<p>Understanding how the workflow behaves differently on the first run is important:</p>
+<p><strong>First run (new site):</strong></p>
+<ul>
+<li>Creates a new Walrus Site on Sui</li>
+<li>Generates a <code>ws-resources.json</code> file in your <code>DIST</code> directory (or updates the file specified by <code>WS_RESOURCES</code>)</li>
+<li>This file contains the <code>object_id</code> of your newly created site</li>
+<li>If <code>GITHUB_TOKEN</code> is provided with correct permissions, creates a pull request with these changes</li>
+</ul>
+<p><strong>Subsequent runs (updates):</strong></p>
+<ul>
+<li>Uses the existing <code>object_id</code> from <code>ws-resources.json</code> to update the same site</li>
+<li>Only creates PRs if the resource file changes during deployment</li>
+</ul>
+<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
+<div class="admonition-title">
+<div id="admonition-tip-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/tutorial-gh-workflow.html#admonition-tip"></a>
+</div>
+<div>
+<p>The <code>ws-resources.json</code> file is crucial - it tells the action which site to update. Make sure to merge the PR from the first run so future deployments update the same site instead of creating new ones.</p>
+</div>
+</div>
 <h2 id="creating-your-workflow"><a class="header" href="#creating-your-workflow">Creating Your Workflow</a></h2>
 <ol>
 <li>Create <code>.github/workflows/deploy-site.yml</code> in your repository</li>
