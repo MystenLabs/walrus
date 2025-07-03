@@ -19,7 +19,6 @@ use std::{
     time::Duration,
 };
 
-use indicatif::MultiProgress;
 use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};

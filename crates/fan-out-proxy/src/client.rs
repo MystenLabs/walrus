@@ -1,12 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+#![cfg(feature = "test-client")]
 
 //! A client for the fanout proxy.
-
-use std::num::NonZeroU16;
-#[cfg(feature = "test-client")]
 use std::{
     fs,
+    num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -52,6 +51,7 @@ use crate::{
 };
 
 /// Runs the test client.
+#[cfg(feature = "test-client")]
 pub(crate) async fn run_client(
     file: PathBuf,
     context: Option<String>,
@@ -161,6 +161,7 @@ pub(crate) async fn run_client(
 }
 
 /// Gets the tip configuration from the specified fanout proxy.
+#[cfg(feature = "test-client")]
 async fn get_tip_config(server_url: &Url) -> Result<TipConfig> {
     Ok(reqwest::get(server_url.join(TIP_CONFIG_ROUTE)?)
         .await?
@@ -169,6 +170,7 @@ async fn get_tip_config(server_url: &Url) -> Result<TipConfig> {
 }
 
 /// Gets a Walrus contract client from the configuration.
+#[cfg(feature = "test-client")]
 async fn contract_client_from_args(
     walrus_config: Option<impl AsRef<Path>>,
     context: Option<&str>,
@@ -195,7 +197,6 @@ async fn contract_client_from_args(
 
 /// Creates a [`Client<SuiContractClient>`](`WalrusClient<SuiContractClient>`) based on the provided
 /// [`WalrusConfig`] with write access to Sui.
-#[cfg(feature = "test-client")]
 pub async fn get_contract_client(
     walrus_config: WalrusConfig,
     wallet: Result<Wallet>,
@@ -342,13 +343,14 @@ impl FanOutClient<WalrusPtbBuilder> {
         epochs_ahead: EpochCount,
         encoded_size: u64,
     ) -> Result<Self> {
-        // TODO: add possibility to use subsidies.
+        // NB: this does not support usage subsidies as for now this module is primarily used for
+        // manual testing and development.
         let storage_argument = self
             .pt_builder
             .reserve_space_without_subsidies(encoded_size, epochs_ahead)
             .await?;
         self.pt_builder
-            .register_blob(
+            .register_blob_without_subsidies(
                 storage_argument.into(),
                 metadata.try_into()?,
                 BlobPersistence::Permanent,
@@ -456,31 +458,6 @@ impl FanOutClient<WalrusPtbBuilder> {
             signed_transaction,
         ))
     }
-}
-
-pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url> {
-    let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
-    {
-        let mut query_pairs = url.query_pairs_mut();
-
-        query_pairs.append_pair("blob_id", &params.blob_id.to_string());
-
-        if let Some(object_id) = params.deletable_blob_object {
-            query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
-        };
-
-        if let Some(tx_id) = params.tx_id {
-            query_pairs.append_pair("tx_id", &tx_id.to_string());
-        }
-
-        if let Some(nonce) = params.nonce {
-            query_pairs.append_pair("nonce", &URL_SAFE_NO_PAD.encode(nonce));
-        }
-    }
-
-    // TODO: add encoding type serialization.
-
-    Ok(url)
 }
 
 /// Returns the blob registration for the given blob ID.

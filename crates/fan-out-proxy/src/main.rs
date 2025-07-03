@@ -13,7 +13,7 @@ use reqwest::Url;
 use walrus_sdk::core::EpochCount;
 use walrus_sdk::core_utils::metrics::{Registry, monitored_scope};
 
-#[cfg(feature = "test-client")]
+#[cfg(any(test, feature = "test-client"))]
 mod client;
 
 mod controller;

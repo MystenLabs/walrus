@@ -20,6 +20,10 @@ use axum::{
     response::{IntoResponse, Json},
     routing::{get, post},
 };
+#[cfg(any(test, feature = "test-client"))]
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+#[cfg(any(test, feature = "test-client"))]
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use tokio::time::Instant;
@@ -390,6 +394,31 @@ pub(crate) async fn get_client(
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
+#[cfg(any(test, feature = "test-client"))]
+pub(crate) fn fan_out_blob_url(server_url: &Url, params: &Params) -> Result<Url> {
+    let mut url = server_url.join(BLOB_FAN_OUT_ROUTE)?;
+    let mut query_pairs = url.query_pairs_mut();
+
+    query_pairs.append_pair("blob_id", &params.blob_id.to_string());
+
+    if let Some(object_id) = params.deletable_blob_object {
+        query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
+    };
+
+    if let Some(tx_id) = params.tx_id {
+        query_pairs.append_pair("tx_id", &tx_id.to_string());
+    }
+
+    if let Some(nonce) = params.nonce {
+        query_pairs.append_pair("nonce", &URL_SAFE_NO_PAD.encode(nonce));
+    }
+    drop(query_pairs);
+
+    // TODO: add encoding type serialization.
+
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -397,7 +426,7 @@ mod tests {
     use sui_types::base_types::SuiAddress;
 
     use super::FanOutConfig;
-    use crate::{TipConfig, tip::TipKind};
+    use crate::tip::{TipConfig, TipKind};
 
     const EXAMPLE_CONFIG_PATH: &str = "fan_out_config_example.yaml";
 

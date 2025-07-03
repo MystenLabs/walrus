@@ -136,9 +136,9 @@ pub(crate) struct HashedAuthPackage {
     pub unencoded_length: u64,
 }
 
+#[cfg(feature = "test-client")]
 impl AuthPackage {
     /// Creates an authentication package for the blob.
-    #[cfg(feature = "test-client")]
     pub(crate) fn new(blob: &[u8]) -> Result<Self> {
         let blob_digest = compute_digest_sha256(blob);
         let mut std_rng = StdRng::from_rng(&mut rand::thread_rng())?;
@@ -154,7 +154,6 @@ impl AuthPackage {
     /// Creates a `HashedAuthPackage` by hashing the nonce.
     ///
     /// Does not consume self.
-    #[cfg(feature = "test-client")]
     pub(crate) fn to_hashed(&self) -> HashedAuthPackage {
         let nonce_digest = compute_digest_sha256(&self.nonce).digest;
         HashedAuthPackage {
@@ -212,7 +211,7 @@ mod tests {
     use walrus_sdk::{ObjectID, core::BlobId};
 
     use crate::{
-        client::fan_out_blob_url,
+        controller::fan_out_blob_url,
         params::{DIGEST_LEN, Params},
     };
 
