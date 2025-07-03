@@ -82,6 +82,7 @@ pub use read_client::{
     SuiReadClient,
 };
 pub mod retry_client;
+pub mod rpc_client;
 pub mod rpc_config;
 
 pub mod transaction_builder;
