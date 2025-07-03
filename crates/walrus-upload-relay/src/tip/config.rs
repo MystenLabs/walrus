@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! The configuration for the fan-out proxy's tipping system.
+//! The configuration for the Walrus Upload Relay's tipping system.
 
 use std::num::NonZeroU16;
 

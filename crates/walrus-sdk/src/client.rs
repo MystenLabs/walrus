@@ -30,13 +30,12 @@ use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
-#[cfg(any(test, feature = "test-utils"))]
-use walrus_core::ShardIndex;
 use walrus_core::{
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    ShardIndex,
     Sliver,
     SliverIndex,
     bft,

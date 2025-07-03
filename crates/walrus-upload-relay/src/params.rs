@@ -14,7 +14,7 @@ use walrus_sdk::{
     sui::ObjectIdSchema,
 };
 
-use crate::error::FanOutError;
+use crate::error::WalrusUploadRelayError;
 #[cfg(feature = "test-client")]
 use crate::utils::compute_digest_sha256;
 
@@ -43,7 +43,7 @@ pub(crate) struct TransactionDigestSchema(());
 )]
 pub(crate) struct DigestSchema(());
 
-/// The query parameters for the fanout proxy.
+/// The query parameters for the Walrus Upload Relay.
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, IntoParams)]
 #[into_params(parameter_in = Query, style = Form)]
@@ -85,7 +85,7 @@ pub(crate) struct Params {
 impl Params {
     /// Checks that the `Params` contain the `tx_id` and the `nonce`, and returns an instance of
     /// `PaidParams`.
-    pub(crate) fn to_paid_params(&self) -> Result<PaidTipParams, FanOutError> {
+    pub(crate) fn to_paid_params(&self) -> Result<PaidTipParams, WalrusUploadRelayError> {
         let Params {
             tx_id,
             nonce,
@@ -94,14 +94,14 @@ impl Params {
         } = *self;
 
         Ok(PaidTipParams {
-            tx_id: tx_id.ok_or(FanOutError::MissingTxIdOrNonce)?,
-            nonce: nonce.ok_or(FanOutError::MissingTxIdOrNonce)?,
+            tx_id: tx_id.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
+            nonce: nonce.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
             encoding_type,
         })
     }
 }
 
-/// The subset of query parameters of the fanout proxy, necessary to check the tip.
+/// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
 ///
 /// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
 /// `deletable_blob_object` are not necessary.
@@ -211,12 +211,12 @@ mod tests {
     use walrus_sdk::{ObjectID, core::BlobId};
 
     use crate::{
-        controller::fan_out_blob_url,
+        controller::blob_upload_relay_url,
         params::{DIGEST_LEN, Params},
     };
 
     #[test]
-    fn test_fanout_parse_query() {
+    fn test_upload_relay_parse_query() {
         let blob_id =
             BlobId::from_str("efshm0WcBczCA_GVtB0itHbbSXLT5VMeQDl0A1b2_0Y").expect("valid blob id");
         let tx_id = TransactionDigest::new([13; DIGEST_LEN]);
@@ -229,8 +229,9 @@ mod tests {
             encoding_type: None,
         };
 
-        let url = fan_out_blob_url(&Url::parse("http://localhost").expect("valid url"), &params)
-            .expect("valid parameters");
+        let url =
+            blob_upload_relay_url(&Url::parse("http://localhost").expect("valid url"), &params)
+                .expect("valid parameters");
 
         let uri = Uri::from_str(url.as_ref()).expect("valid conversion");
         let result = Query::<Params>::try_from_uri(&uri).expect("parsing the uri works");

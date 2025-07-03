@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Error type for the fan-out proxy.
+//! Error type for the Walrus Upload Relay.
 //!
 use axum::{
     http::StatusCode,
@@ -14,11 +14,11 @@ use walrus_sdk::{
     sui::client::SuiClientError,
 };
 
-use crate::tip::TipError;
+use crate::tip::error::TipError;
 
-/// Fan-out Proxy Errors.
+/// Walrus Upload Relay error type.
 #[derive(Debug, Error)]
-pub enum FanOutError {
+pub enum WalrusUploadRelayError {
     /// The provided blob ID and the blob ID resulting from the blob encoding do not match.
     #[error("the provided blob ID and the blob ID resulting from the blob encoding do not match")]
     BlobIdMismatch,
@@ -69,7 +69,7 @@ pub enum FanOutError {
     ClientError(#[from] ClientError),
 
     /// A Sui client error has occurred. Note that this is boxed to avoid the large size of the
-    /// SuiClientError type affecting the size of the FanOutError type.
+    /// SuiClientError type affecting the size of the WalrusUploadRelayError type.
     #[error(transparent)]
     SuiClientError(#[from] Box<SuiClientError>),
 
@@ -90,7 +90,7 @@ pub enum FanOutError {
     Other(#[from] anyhow::Error),
 }
 
-impl FanOutError {
+impl WalrusUploadRelayError {
     /// Creates a new error of `Other` kind, from the given message.
     pub(crate) fn other(msg: &'static str) -> Self {
         Self::Other(anyhow::anyhow!(msg))
@@ -98,34 +98,34 @@ impl FanOutError {
 }
 
 // TODO: Implement this using the `RestApiError` proc macro when fixed.
-impl IntoResponse for FanOutError {
+impl IntoResponse for WalrusUploadRelayError {
     fn into_response(self) -> Response {
         match self {
-            FanOutError::TipError(
+            WalrusUploadRelayError::TipError(
                 error @ (TipError::NoTipSent | TipError::InsufficientTip { .. }),
             ) => (StatusCode::PAYMENT_REQUIRED, error.to_string()).into_response(),
-            FanOutError::TipError(_)
-            | FanOutError::MissingTxIdOrNonce
-            | FanOutError::BlobIdMismatch
-            | FanOutError::DataTooLargeError(_)
-            | FanOutError::BlobIdParseError(_) => {
+            WalrusUploadRelayError::TipError(_)
+            | WalrusUploadRelayError::MissingTxIdOrNonce
+            | WalrusUploadRelayError::BlobIdMismatch
+            | WalrusUploadRelayError::DataTooLargeError(_)
+            | WalrusUploadRelayError::BlobIdParseError(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string()).into_response()
             }
-            FanOutError::ClientError(_) | FanOutError::SuiClientError(_) => {
-                tracing::error!(error = ?self, "client error during fan out");
+            WalrusUploadRelayError::ClientError(_) | WalrusUploadRelayError::SuiClientError(_) => {
+                tracing::error!(error = ?self, "client error during upload relay");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal client error").into_response()
             }
-            FanOutError::Other(error) => {
-                tracing::error!(?error, "unknown error during fan out");
+            WalrusUploadRelayError::Other(error) => {
+                tracing::error!(?error, "unknown error during upload relay");
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
             }
-            FanOutError::BlobDigestMismatch
-            | FanOutError::BlobLengthMismatch
-            | FanOutError::BlobIdNotRegistered(_)
-            | FanOutError::InvalidNonceHash
-            | FanOutError::InvalidAuthPackage
-            | FanOutError::InvalidTipTransaction
-            | FanOutError::MissingAuthPackage => {
+            WalrusUploadRelayError::BlobDigestMismatch
+            | WalrusUploadRelayError::BlobLengthMismatch
+            | WalrusUploadRelayError::BlobIdNotRegistered(_)
+            | WalrusUploadRelayError::InvalidNonceHash
+            | WalrusUploadRelayError::InvalidAuthPackage
+            | WalrusUploadRelayError::InvalidTipTransaction
+            | WalrusUploadRelayError::MissingAuthPackage => {
                 tracing::error!(error = ?self, "failure relating to authentication of payload");
                 (StatusCode::UNAUTHORIZED, self.to_string()).into_response()
             }

@@ -5,9 +5,9 @@ use prometheus::IntCounter;
 use walrus_sdk::core_utils::metrics::define_metric_set;
 
 define_metric_set! {
-    #[namespace = "fan_out_proxy"]
+    #[namespace = "walrus_upload_relay"]
     /// Metrics exported by the walrus-upload-relay.
-    pub(crate) struct FanOutProxyMetricSet {
+    pub(crate) struct WalrusUploadRelayMetricSet {
         #[help = "The total count of blobs uploaded"]
         blobs_uploaded: IntCounter[],
         #[help = "The count of blob id mismatches"]
