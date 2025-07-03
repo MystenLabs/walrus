@@ -710,7 +710,7 @@ impl QuiltClient<'_, SuiContractClient> {
             blobs,
         );
 
-        encoder.construct_quilt().map_err(ClientError::other)
+        encoder.construct_quilt().map_err(|e| ClientError::from(e))
     }
 
     /// Constructs a quilt from a list of paths.

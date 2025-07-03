@@ -389,7 +389,7 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
-    /// The request is malformed (e.g., invalid JSON in metadata).
+    /// The request is malformed.
     #[error("the request is malformed: {message}")]
     #[rest_api_error(reason = "MALFORMED_REQUEST", status = ApiStatusCode::InvalidArgument)]
     MalformedRequest { message: String },
@@ -404,6 +404,11 @@ impl From<ClientError> for StoreBlobError {
         match error.kind() {
             ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::QuiltError(_) => {
+                Self::MalformedRequest {
+                    message: format!("the quilt patch is not found: {}", error),
+                }
+            }
             _ => Self::Internal(anyhow!(error)),
         }
     }
@@ -762,7 +767,7 @@ impl PublisherQuery {
     }
 }
 
-/// Structure to hold metadata for a quilt patch.
+/// A helper structure to hold metadata for a quilt patch.
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
     pub identifier: String,
@@ -771,30 +776,27 @@ pub struct QuiltPatchMetadata {
 
 /// Store multiple blobs as a quilt using multipart/form-data.
 ///
-/// Accepts a multipart form with blobs and optional metadata to create a quilt.
-/// The form must contain:
+/// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+/// The form contains:
 /// - Blobs identified by their identifiers as field names (required)
-/// - A `metadata` field containing a JSON array with metadata for some or all blobs (optional)
+/// - A `metadata` field containing a JSON array with per blob metadata (optional)
 ///
-/// # Metadata Format
-///
-/// When provided, the metadata field must be a JSON array where each object contains:
-/// - `identifier`: The identifier of the blob (must match the field name)
+/// # Supported Walrus-native metadata fields
+/// - `identifier`: The identifier of the blob, must match the corresponding blob field name
 /// - `tags`: JSON object with string key-value pairs (optional)
 ///
 /// Blobs without corresponding metadata entries will be stored with empty tags.
-/// Tag values are automatically converted to strings.
 ///
 /// # Examples
 ///
-/// ## Simple Upload
+/// ## Blobs without Walrus-native metadata
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "contract-v2=@document.pdf" \
 ///   -F "logo-2024=@image.png"
 /// ```
 ///
-/// ## Upload with Walrus-native metadata, e.g., tags
+/// ## Blobs with Walrus-native metadata
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "contract-v2=@document.pdf" \
@@ -810,7 +812,7 @@ pub struct QuiltPatchMetadata {
     path = QUILT_PUT_ENDPOINT,
     request_body(
         content_type = "multipart/form-data",
-        description = "Multipart form with blobs and their metadata"),
+        description = "Multipart form with blobs and their Walrus-native metadata"),
     params(PublisherQuery),
     responses(
         (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
@@ -845,7 +847,7 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         .into_response();
     }
 
-    // Check authorization if present
+    // Check authorization if present.
     if let Some(TypedHeader(header)) = bearer_header {
         let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.data().len()).sum();
         if let Err(error) = check_blob_size(header, total_size) {
