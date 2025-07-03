@@ -17,6 +17,7 @@ pub struct ContractConfig {
     // TODO(WAL-908): Remove once the subsidies are no longer used client-side.
     // Kept for backwards compatibility until then.
     // For credits, the `credits_object` field should be used from the start.
+    // TODO(WAL-908): Update configs in `../../../../setup`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subsidies_object: Option<ObjectID>,
     /// Object ID of the credits object.

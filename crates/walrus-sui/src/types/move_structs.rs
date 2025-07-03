@@ -921,6 +921,14 @@ impl ExchangeRate {
 
 /// Sui type for a `subsidies::Subsidies` object. Called `Credits` here to avoid confusion with
 /// the new Walrus Subsidies contract.
+///
+// TODO(WAL-908): Add explanation of credits to the docs once they are no longer used as subsidies.
+// Currently, the "credits" are still just the initial version of the subsidies. They are already
+// renamed now to make it easier to actually add the calls to the new subsidies without naming
+// confusion. The reason that we need to keep it in the codebase instead of removing it once we've
+// changed to the new subsidies is that the DevRel team have developed/are developing a credit
+// system (with the same interfaces as the current subsidies contract) for partners to allow them
+// to store blobs on Walrus without the need to actually receive WAL coins directly.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Credits {
     /// The object ID of the object
