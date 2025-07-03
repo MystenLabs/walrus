@@ -239,6 +239,10 @@ mod tests {
 
         kill_all_storage_nodes(&node_handles).await;
 
+        // Doing a short sleep so that the connection between the old nodes to the fullnodes are
+        // fully cleared. We've seen cases where when the new node is started, the old connection
+        // on the fullnode still exists and the new node will not be able to connect to the
+        //fullnode.
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         for (i, node) in walrus_cluster.nodes.iter_mut().enumerate() {
@@ -273,6 +277,7 @@ mod tests {
     }
 
     /// This test verifies that the node can correctly recover from a forked event blob.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
         let (_sui_cluster, mut walrus_cluster, client, _) =
@@ -315,7 +320,7 @@ mod tests {
         restart_nodes_with_checkpoints(&mut walrus_cluster, |_| 20).await;
 
         // Verify recovery
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_secs(40)).await;
         let recovered_blob = get_last_certified_event_blob_must_succeed(&client).await;
 
         // Event blob should make progress again.
@@ -325,6 +330,7 @@ mod tests {
     }
 
     /// This test verifies that the node can correctly recover from a forked event blob.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_local_fork_recovery() {
         let (_sui_cluster, mut walrus_cluster, client, _) =
