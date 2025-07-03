@@ -404,11 +404,9 @@ impl From<ClientError> for StoreBlobError {
         match error.kind() {
             ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
-            ClientErrorKind::QuiltError(_) => {
-                Self::MalformedRequest {
-                    message: format!("the quilt patch is not found: {}", error),
-                }
-            }
+            ClientErrorKind::QuiltError(_) => Self::MalformedRequest {
+                message: format!("the quilt patch is not found: {error:?}"),
+            },
             _ => Self::Internal(anyhow!(error)),
         }
     }
