@@ -19,16 +19,22 @@ The store sequence is as follows:
 
 - On the client side:
   - The client creates a transaction:
-    - Mandatory: The first input, which is not used as the input of any actual contract call, contains the hash of the data `h = Hash(blob)`
+    - Mandatory: The first input, which is not used as the input of any actual contract call,
+      contains the hash of the data `h = Hash(blob)`
     - Optional: Any transaction that registers or extends blobs, in any order
-    - Mandatory per configuration: Any transaction that will result in the balance of the proxy’s tip address to increase by the tip amount.
+    - Mandatory per configuration: Any transaction that will result in the balance of the proxy’s
+      tip address to increase by the tip amount.
   - The client then executes the transaction, obtaining the transaction ID `tx_id`
   - The client sends the `blob` and `tx_id` to the proxy
 - On the proxy side:
-  - The proxy requests the effects and balance changes of the transaction `tx_id` from a trusted full node, then checks:
-    - that the balance changes for its address are sufficient to cover its tip (as described in its tip configuration) of storing the blob (possibly considering the length of the blob).
-    - that the data at input zero matches `Hash(blob)` of the received data, confirming that the received data is the data the tip was paid for.
-  - If everything matches, the proxy proceeds to storing the blobs, and if successful, in creating the certificate.
+  - The proxy requests the effects and balance changes of the transaction `tx_id` from a trusted
+    full node, then checks:
+    - that the balance changes for its address are sufficient to cover its tip (as described in its
+      tip configuration) of storing the blob (possibly considering the length of the blob).
+    - that the data at input zero matches `Hash(blob)` of the received data, confirming that the
+      received data is the data the tip was paid for.
+  - If everything matches, the proxy proceeds to storing the blobs, and if successful, in creating
+    the certificate.
   - The proxy returns the certificate to the client
 - Finally, the client certifies the blob
 
