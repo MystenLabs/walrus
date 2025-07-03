@@ -769,32 +769,32 @@ pub struct QuiltPatchMetadata {
     pub tags: Option<BTreeMap<String, serde_json::Value>>,
 }
 
-/// Store multiple files as a quilt using multipart/form-data.
+/// Store multiple blobs as a quilt using multipart/form-data.
 ///
-/// Accepts a multipart form with files and optional metadata to create a quilt.
+/// Accepts a multipart form with blobs and optional metadata to create a quilt.
 /// The form must contain:
-/// - Files identified by their identifiers as field names (required)
-/// - A `metadata` field containing a JSON array with metadata for some or all files (optional)
+/// - Blobs identified by their identifiers as field names (required)
+/// - A `metadata` field containing a JSON array with metadata for some or all blobs (optional)
 ///
 /// # Metadata Format
 ///
 /// When provided, the metadata field must be a JSON array where each object contains:
-/// - `identifier`: The identifier of the file (must match the field name)
+/// - `identifier`: The identifier of the blob (must match the field name)
 /// - `tags`: JSON object with string key-value pairs (optional)
 ///
-/// Files without corresponding metadata entries will be stored with empty tags.
+/// Blobs without corresponding metadata entries will be stored with empty tags.
 /// Tag values are automatically converted to strings.
 ///
 /// # Examples
 ///
-/// ## Simple Upload (No Metadata)
+/// ## Simple Upload
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "contract-v2=@document.pdf" \
 ///   -F "logo-2024=@image.png"
 /// ```
 ///
-/// ## Upload with Metadata
+/// ## Upload with Walrus-native metadata, e.g., tags
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "contract-v2=@document.pdf" \
@@ -804,9 +804,6 @@ pub struct QuiltPatchMetadata {
 ///     {"identifier": "logo-2024", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
 /// ```
-///
-/// # Response
-/// Returns a `QuiltStoreResult`.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
 #[utoipa::path(
     put,
