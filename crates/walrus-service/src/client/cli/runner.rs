@@ -814,7 +814,7 @@ impl ClientCommandRunner {
             anyhow::bail!("cannot provide both paths and blob_inputs");
         } else if !paths.is_empty() {
             let blobs = read_blobs_from_paths(paths)?;
-            Ok(assign_identifiers_with_paths(blobs))
+            Ok(assign_identifiers_with_paths(blobs)?)
         } else if !blob_inputs.is_empty() {
             let paths = blob_inputs
                 .iter()
@@ -835,9 +835,9 @@ impl ClientCommandRunner {
                             .clone()
                             .unwrap_or_else(|| generate_identifier_from_path(&path, i)),
                     )
-                    .with_tags(input.tags.clone())
+                    .map(|blob| blob.with_tags(input.tags.clone()))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(quilt_store_blobs)
         } else {
             anyhow::bail!("either paths or blob_inputs must be provided");

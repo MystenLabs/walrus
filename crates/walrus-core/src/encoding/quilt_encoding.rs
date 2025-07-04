@@ -477,22 +477,41 @@ pub struct QuiltStoreBlob<'a> {
 }
 
 impl<'a> QuiltStoreBlob<'a> {
+    /// Returns if an identifier is valid.
+    ///
+    /// Note an empty identifier is not valid.
+    pub fn is_valid_identifier(identifier: impl AsRef<str>) -> bool {
+        identifier
+            .as_ref()
+            .starts_with(|c: char| c.is_alphanumeric())
+    }
+
     /// Creates a new `QuiltStoreBlob` from a borrowed blob and an identifier.
-    pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Self {
-        Self {
-            blob: Cow::Borrowed(blob),
-            identifier: identifier.into(),
-            tags: BTreeMap::new(),
+    pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Result<Self, QuiltError> {
+        let identifier = identifier.into();
+        if !Self::is_valid_identifier(&identifier) {
+            return Err(QuiltError::InvalidIdentifier(identifier));
         }
+
+        Ok(Self {
+            blob: Cow::Borrowed(blob),
+            identifier,
+            tags: BTreeMap::new(),
+        })
     }
 
     /// Creates a new `QuiltStoreBlob` from an owned blob and an identifier.
-    pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Self {
-        Self {
-            blob: Cow::Owned(blob),
-            identifier: identifier.into(),
-            tags: BTreeMap::new(),
+    pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Result<Self, QuiltError> {
+        let identifier = identifier.into();
+        if !Self::is_valid_identifier(&identifier) {
+            return Err(QuiltError::InvalidIdentifier(identifier));
         }
+
+        Ok(Self {
+            blob: Cow::Owned(blob),
+            identifier,
+            tags: BTreeMap::new(),
+        })
     }
 
     /// Adds tags to the blob.
@@ -649,7 +668,7 @@ impl QuiltVersionV1 {
         let data_bytes = data_source.range_read_from_columns(start_col, offset, blob_bytes_size)?;
         assert!(data_bytes.len() == blob_bytes_size);
 
-        Ok(QuiltStoreBlob::new_owned(data_bytes, identifier).with_tags(tags))
+        Ok(QuiltStoreBlob::new_owned(data_bytes, identifier)?.with_tags(tags))
     }
 
     /// Decodes the blob identifier from a column data source.
@@ -1429,7 +1448,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
             .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("serialization should succeed"));
         assert_eq!(meta_blob_data.len(), index_total_size);
 
-        let meta_blob = QuiltStoreBlob::new(&meta_blob_data, "quilt_index");
+        let meta_blob = QuiltStoreBlob::new(&meta_blob_data, "quilt_index")?;
         // Add the index to the quilt.
         let index_cols_used = Self::add_blob_to_quilt(
             &mut data,
@@ -1959,7 +1978,7 @@ mod tests {
                     },
                     QuiltStoreBlob {
                         blob: Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..]),
-                        identifier: "".to_string(),
+                        identifier: "short".to_string(),
                         tags: BTreeMap::new(),
                     },
                     QuiltStoreBlob {
@@ -2131,9 +2150,10 @@ mod tests {
         let mut res = Vec::with_capacity(blob_data.len());
         let mut identifiers = HashSet::with_capacity(blob_data.len());
         while identifiers.len() < blob_data.len() {
-            identifiers.insert(hex::encode(walrus_test_utils::random_data(
-                rng.gen_range(1..100),
-            )));
+            identifiers.insert(
+                "a".to_string()
+                    + &hex::encode(walrus_test_utils::random_data(rng.gen_range(1..100))),
+            );
         }
         for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
             let mut tags = BTreeMap::new();
@@ -2149,7 +2169,8 @@ mod tests {
                     tags.insert(key.clone(), value.clone());
                 }
             }
-            let mut blob = QuiltStoreBlob::new_owned(data.to_vec(), identifier);
+            let mut blob =
+                QuiltStoreBlob::new_owned(data.to_vec(), identifier).expect("Should create blob");
             if !tags.is_empty() {
                 blob = blob.with_tags(tags);
             }
@@ -2406,11 +2427,11 @@ mod tests {
     }
 
     #[test]
-    fn test_quilt_store_blob_equality() {
+    fn test_quilt_store_blob_equality() -> Result<(), QuiltError> {
         // Create blobs with same content but different storage (borrowed vs owned)
         let data = vec![1, 2, 3, 4, 5];
-        let borrowed = QuiltStoreBlob::new(&data, "test-blob");
-        let owned = QuiltStoreBlob::new_owned(data.clone(), "test-blob");
+        let borrowed = QuiltStoreBlob::new(&data, "test-blob")?;
+        let owned = QuiltStoreBlob::new_owned(data.clone(), "test-blob")?;
 
         // They should be equal because content is the same
         assert_eq!(borrowed, owned);
@@ -2425,11 +2446,11 @@ mod tests {
         assert_eq!(borrowed_with_tags, owned_with_tags);
 
         // Different content should not be equal
-        let different = QuiltStoreBlob::new(&[1, 2, 3, 4, 6], "test-blob");
+        let different = QuiltStoreBlob::new(&[1, 2, 3, 4, 6], "test-blob")?;
         assert_ne!(borrowed, different);
 
         // Different identifier should not be equal
-        let different_id = QuiltStoreBlob::new(&data, "different-id");
+        let different_id = QuiltStoreBlob::new(&data, "different-id")?;
         assert_ne!(borrowed, different_id);
 
         // Different tags should not be equal
@@ -2437,5 +2458,7 @@ mod tests {
         different_tags.insert("key1".to_string(), "different-value".to_string());
         let borrowed_different_tags = borrowed.with_tags(different_tags);
         assert_ne!(borrowed_with_tags, borrowed_different_tags);
+
+        Ok(())
     }
 }
