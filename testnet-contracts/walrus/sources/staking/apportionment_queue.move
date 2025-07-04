@@ -22,8 +22,8 @@ public struct ApportionmentQueue<T> has drop {
 }
 
 public struct Entry<T> has drop {
-    priority: UQ64_64, // higher value means higher priority and will be popped first
-    tie_breaker: u64, // used to break ties when priorities are equal
+    priority: UQ64_64, // Higher value means higher priority and will be popped first
+    tie_breaker: u64, // Used to break ties when priorities are equal
     value: T,
 }
 
@@ -62,7 +62,7 @@ fun bubble_down<T>(elements: &mut vector<Entry<T>>) {
         let left = i * 2 + 1;
         let right = left + 1;
         let mut max = i;
-        // Find the node with the highest priority betweenthe node and its children.
+        // Find the node with the highest priority between the node and its children.
         if (left < len && elements[left].higher_priority_than(&elements[max])) {
             max = left;
         };
