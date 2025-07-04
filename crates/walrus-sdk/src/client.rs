@@ -1194,7 +1194,7 @@ impl Client<SuiContractClient> {
             .chain(to_be_certified.iter())
             .map(|blob| {
                 blob.get_certify_and_extend_params()
-                    .expect("Should be a CertifyAndExtendBlobParams")
+                    .expect("should be a CertifyAndExtendBlobParams")
             })
             .collect();
 
@@ -1204,10 +1204,12 @@ impl Client<SuiContractClient> {
             .sui_client
             .certify_and_extend_blobs(&cert_and_extend_params, post_store)
             .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "Failure occurred while certifying and extending \
-                blobs on Sui");
-                ClientError::from(ClientErrorKind::CertificationFailed(e))
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    "failure occurred while certifying and extending blobs on Sui"
+                );
+                ClientError::from(ClientErrorKind::CertificationFailed(error))
             })?;
         let sui_cert_timer_duration = sui_cert_timer.elapsed();
         tracing::info!(

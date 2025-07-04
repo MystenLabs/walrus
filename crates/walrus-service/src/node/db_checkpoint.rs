@@ -174,7 +174,7 @@ impl DelayedTask {
         time::sleep_until(start_time).await;
 
         {
-            let mut status_guard = status.lock().expect("Failed to lock status");
+            let mut status_guard = status.lock().expect("mutex should not be poisoned");
             *status_guard = TaskStatus::Running(start_time);
         }
 
@@ -186,17 +186,17 @@ impl DelayedTask {
             result = worker_task => {
                 match result {
                     Ok(Ok(_)) => {
-                        let mut status_guard = status.lock().expect("Failed to lock status");
+                        let mut status_guard = status.lock().expect("mutex should not be poisoned");
                         *status_guard = TaskStatus::Success;
                         let _ = response.send(TaskResult::Success);
                     }
                     Ok(Err(e)) => {
-                        let mut status_guard = status.lock().expect("Failed to lock status");
+                        let mut status_guard = status.lock().expect("mutex should not be poisoned");
                         *status_guard = TaskStatus::Failed(format!("Task failed: {e:?}"));
                         let _ = response.send(TaskResult::Failed(e));
                     }
                     Err(e) => {
-                        let mut status_guard = status.lock().expect("Failed to lock status");
+                        let mut status_guard = status.lock().expect("mutex should not be poisoned");
                         *status_guard = TaskStatus::TaskError(format!("Task panicked: {e}"));
                         let _ = response.send(
                             TaskResult::TaskError(format!("Task panicked: {e}"))
@@ -206,7 +206,7 @@ impl DelayedTask {
             }
 
             _ = tokio::time::sleep(timeout_duration) => {
-                let mut status_guard = status.lock().expect("Failed to lock status");
+                let mut status_guard = status.lock().expect("mutex should not be poisoned");
                 *status_guard = TaskStatus::Timeout;
             }
         }
@@ -461,8 +461,12 @@ impl DbCheckpointManager {
                                                     &db_checkpoint_dir, config.max_db_checkpoints
                                                 );
                                             },
-                                            Err(e) =>
-                                                tracing::error!(?e, "Failed to create checkpoint"),
+                                            Err(error) => {
+                                                tracing::error!(
+                                                    ?error,
+                                                    "failed to create DB checkpoint"
+                                                );
+                                            }
                                         }
                                         result
                                     },
@@ -539,12 +543,15 @@ impl DbCheckpointManager {
                 _ = time::sleep_until(next_db_checkpoint_time) => {
                     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
-                    if let Err(e) = command_tx.send(DbCheckpointRequest::CreateDbCheckpoint {
+                    if let Err(error) = command_tx.send(DbCheckpointRequest::CreateDbCheckpoint {
                         response: response_tx,
                         db_checkpoint_dir: db_checkpoint_dir.to_path_buf(),
                         delay: None,
                     }).await {
-                        tracing::error!(?e, "Failed to send db_checkpoint creation request");
+                        tracing::error!(
+                            ?error,
+                            "failed to send db_checkpoint creation request"
+                        );
                         next_db_checkpoint_time = time::Instant::now() +
                             Self::CHECKPOINT_CREATION_RETRY_DELAY;
                         continue;
@@ -552,8 +559,11 @@ impl DbCheckpointManager {
 
                     let result = match response_rx.await {
                         Ok(r) => r,
-                        Err(e) => {
-                            tracing::error!(?e, "Failed to receive db_checkpoint creation result");
+                        Err(error) => {
+                            tracing::error!(
+                                ?error,
+                                "failed to receive db_checkpoint creation result"
+                            );
                             next_db_checkpoint_time = time::Instant::now() +
                                 StdDuration::from_secs(300);
                             continue;
@@ -644,19 +654,16 @@ impl DbCheckpointManager {
         }
 
         let Ok(mut engine) = Self::create_backup_engine(db_checkpoint_dir, None) else {
-            tracing::error!("Failed to create backup engine");
+            tracing::error!("failed to create backup engine");
             return;
         };
-        let result = engine
-            .purge_old_backups(max_db_checkpoints)
-            .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("Purge error: {}", e)));
 
-        match result {
-            Ok(_) => tracing::info!(
+        match engine.purge_old_backups(max_db_checkpoints) {
+            Ok(()) => tracing::info!(
                 "purged old db_checkpoints, keeping {} most recent",
                 max_db_checkpoints
             ),
-            Err(e) => tracing::error!(?e, "Failed to purge old db_checkpoints"),
+            Err(error) => tracing::error!(?error, "failed to purge old db_checkpoints"),
         }
     }
 
@@ -735,15 +742,15 @@ impl DbCheckpointManager {
 
     /// Join the background tasks and clean up resources.
     pub async fn join(&mut self) -> Result<(), DbCheckpointError> {
-        if let Err(e) = (&mut self.execution_loop).await {
-            tracing::warn!(?e, "Error joining execution loop");
-            return Err(DbCheckpointError::Other(e.into()));
+        if let Err(error) = (&mut self.execution_loop).await {
+            tracing::warn!(?error, "error joining execution loop");
+            return Err(DbCheckpointError::Other(error.into()));
         }
 
         if let Some(handle) = self.schedule_loop_handle.take() {
-            if let Err(e) = handle.await {
-                tracing::warn!(?e, "Error joining schedule loop");
-                return Err(DbCheckpointError::Other(e.into()));
+            if let Err(error) = handle.await {
+                tracing::warn!(?error, "error joining schedule loop");
+                return Err(DbCheckpointError::Other(error.into()));
             }
         }
 

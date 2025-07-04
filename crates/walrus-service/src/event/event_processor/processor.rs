@@ -28,7 +28,7 @@ use crate::event::{
         config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
         db::EventProcessorStores,
     },
-    events::{InitState, PositionedStreamEvent, StreamEventWithInitState},
+    events::{IndexedStreamEvent, InitState, StreamEventWithInitState},
 };
 
 /// The maximum number of events to poll per poll.
@@ -138,17 +138,19 @@ impl EventProcessor {
 
         event_processor
             .checkpoint_processor
-            .update_checkpoint_seq_number(current_checkpoint);
+            .update_cached_latest_checkpoint_seq_number(current_checkpoint);
 
         let clients = client_manager.into_client_set();
 
-        let catchup_manager =
-            EventBlobCatchupManager::new(event_processor.stores.clone(), clients, system_config);
+        let catchup_manager = EventBlobCatchupManager::new(
+            event_processor.stores.clone(),
+            clients,
+            system_config,
+            runtime_config.db_path.join("recovery"),
+            metrics_registry,
+        );
         catchup_manager
-            .catchup(
-                config.event_stream_catchup_min_checkpoint_lag,
-                &runtime_config.db_path.join("recovery"),
-            )
+            .catchup(config.event_stream_catchup_min_checkpoint_lag)
             .await?;
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -170,7 +172,7 @@ impl EventProcessor {
             // Also update the cache with the bootstrap checkpoint sequence number.
             event_processor
                 .checkpoint_processor
-                .update_checkpoint_seq_number(*verified_checkpoint.sequence_number());
+                .update_cached_latest_checkpoint_seq_number(*verified_checkpoint.sequence_number());
         }
 
         Ok(event_processor)
@@ -207,12 +209,12 @@ impl EventProcessor {
     }
 
     /// Polls the event store for new events starting from the given sequence number.
-    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
+    pub fn poll(&self, from: u64) -> Result<Vec<IndexedStreamEvent>, TypedStoreError> {
         self.stores
             .event_store
             .safe_iter_with_bounds(Some(from), None)?
             .take(MAX_EVENTS_PER_POLL)
-            .map(|result| result.map(|(_, event)| event))
+            .map(|result| result.map(IndexedStreamEvent::from_index_and_element))
             .collect()
     }
 
@@ -234,7 +236,7 @@ impl EventProcessor {
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
-        tracing::info!("Starting event processor");
+        tracing::info!("starting event processor");
         let pruning_task = self.start_pruning_events(cancellation_token.clone());
         let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
         select! {
@@ -266,6 +268,12 @@ impl EventProcessor {
         };
 
         let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        tracing::info!(
+            next_event_index,
+            next_checkpoint,
+            "starting to tail checkpoints"
+        );
+
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
         let mut rx = self
@@ -288,7 +296,7 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
-            tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
+            tracing_sampled::info!("30s", "processing checkpoint {}", next_checkpoint);
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint.try_into()?);

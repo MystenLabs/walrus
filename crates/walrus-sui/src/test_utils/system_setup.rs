@@ -37,7 +37,9 @@ use crate::{
     wallet::Wallet,
 };
 
-const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
+/// The default value for the maximum number of epochs for which blobs can be stored.
+pub const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 53;
+
 const ONE_WAL: u64 = 1_000_000_000;
 const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 
@@ -329,6 +331,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 pub async fn initialize_contract_and_wallet_for_testing(
     epoch_duration: Duration,
     with_subsidies: bool,
+    subsidy_rate: u16,
     n_nodes: usize,
 ) -> anyhow::Result<(
     Arc<tokio::sync::Mutex<TestClusterHandle>>,
@@ -357,6 +360,7 @@ pub async fn initialize_contract_and_wallet_for_testing(
                     &bls_keys,
                     epoch_duration,
                     with_subsidies,
+                    subsidy_rate,
                 )
                 .await
             },
@@ -389,6 +393,7 @@ async fn publish_with_default_system_with_epoch_duration(
     bls_keys: &[ProtocolKeyPair],
     epoch_duration: Duration,
     with_subsidies: bool,
+    subsidy_rate: u16,
 ) -> anyhow::Result<(SystemContext, SuiContractClient)> {
     let system_context = create_and_init_system_for_test(
         &mut admin_wallet,
@@ -421,9 +426,6 @@ async fn publish_with_default_system_with_epoch_duration(
     let contract_client = system_context
         .new_contract_client(admin_wallet, rpc_urls, Default::default(), None)
         .await?;
-
-    // We only care about gas cost, so the actual subsidy rate can be zero to make it cheap to fund.
-    let subsidy_rate = 0;
 
     if let Some(subsidies_pkg_id) = system_context.subsidies_pkg_id {
         let (subsidies_object_id, _admin_cap_id) = contract_client

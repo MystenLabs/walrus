@@ -390,7 +390,7 @@ impl MetricConf {
     /// Create a new metric configuration
     pub fn new(db_name: &str) -> Self {
         if db_name.is_empty() {
-            tracing::error!("A meaningful db name should be used for metrics reporting.")
+            tracing::error!("a meaningful DB name should be used for metrics reporting")
         }
         Self {
             db_name: db_name.to_string(),
@@ -462,16 +462,16 @@ impl<K, V> DBMap<K, V> {
                             let db = db_cloned.clone();
                             let cf = cf.clone();
                             let db_metrics = db_metrics.clone();
-                            if let Err(e) = tokio::task::spawn_blocking(move || {
+                            if let Err(error) = tokio::task::spawn_blocking(move || {
                                 Self::report_metrics(&db, &cf, &db_metrics);
                             }).await {
-                                tracing::error!("Failed to log metrics with error: {}", e);
+                                tracing::error!(?error, "failed to log metrics");
                             }
                         }
                         _ = &mut recv => break,
                     }
                 }
-                tracing::debug!("Returning the cf metric logging task for DBMap: {}", &cf);
+                tracing::debug!(cf, "returning the CF metric logging task for DBMap");
             });
         }
         DBMap {
@@ -1042,12 +1042,12 @@ impl<K, V> DBMap<K, V> {
         match lower_bound {
             Bound::Included(lower_bound) => {
                 // Rocksdb lower bound is inclusive by default so nothing to do
-                let key_buf = be_fix_int_ser(&lower_bound).expect("Serialization must not fail");
+                let key_buf = be_fix_int_ser(&lower_bound).expect("serialization must not fail");
                 readopts.set_iterate_lower_bound(key_buf);
             }
             Bound::Excluded(lower_bound) => {
                 let mut key_buf =
-                    be_fix_int_ser(&lower_bound).expect("Serialization must not fail");
+                    be_fix_int_ser(&lower_bound).expect("serialization must not fail");
 
                 // Since we want exclusive, we need to increment the key to exclude the previous
                 big_endian_saturating_add_one(&mut key_buf);
@@ -1059,7 +1059,7 @@ impl<K, V> DBMap<K, V> {
         match upper_bound {
             Bound::Included(upper_bound) => {
                 let mut key_buf =
-                    be_fix_int_ser(&upper_bound).expect("Serialization must not fail");
+                    be_fix_int_ser(&upper_bound).expect("serialization must not fail");
 
                 // If the key is already at the limit, there's nowhere else to go, so no upper bound
                 if !is_max(&key_buf) {
@@ -1070,7 +1070,7 @@ impl<K, V> DBMap<K, V> {
             }
             Bound::Excluded(upper_bound) => {
                 // Rocksdb upper bound is inclusive by default so nothing to do
-                let key_buf = be_fix_int_ser(&upper_bound).expect("Serialization must not fail");
+                let key_buf = be_fix_int_ser(&upper_bound).expect("serialization must not fail");
                 readopts.set_iterate_upper_bound(key_buf);
             }
             Bound::Unbounded => (),
@@ -1710,7 +1710,7 @@ pub fn default_db_options() -> DBOptions {
         let limit = match outcome {
             fdlimit::Outcome::LimitRaised { to, .. } => to,
             fdlimit::Outcome::Unsupported => {
-                tracing::warn!("Failed to raise fdlimit, defaulting to 1024");
+                tracing::warn!("failed to raise fdlimit, defaulting to 1024");
                 1024
             }
         };

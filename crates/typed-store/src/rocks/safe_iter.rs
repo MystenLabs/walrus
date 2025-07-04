@@ -83,11 +83,11 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for SafeIter<'_, K, V> {
             let raw_key = self
                 .db_iter
                 .key()
-                .expect("Valid iterator failed to get key");
+                .expect("valid iterator should be able to get key");
             let raw_value = self
                 .db_iter
                 .value()
-                .expect("Valid iterator failed to get value");
+                .expect("valid iterator should be able to get value");
             self.bytes_scanned_counter += raw_key.len() + raw_value.len();
             self.keys_returned_counter += 1;
             let key = config.deserialize(raw_key).ok();

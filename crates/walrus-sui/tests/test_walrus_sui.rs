@@ -46,7 +46,16 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     SystemContext,
     TestNodeKeys,
 )> {
-    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 1).await
+    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 0, 1).await
+}
+
+async fn initialize_contract_and_wallet_with_subsidies_with_single_node() -> anyhow::Result<(
+    Arc<tokio::sync::Mutex<TestClusterHandle>>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+    TestNodeKeys,
+)> {
+    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), true, 10_000, 1).await
 }
 
 #[tokio::test]
@@ -54,6 +63,51 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
 async fn test_initialize_contract() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
     initialize_contract_and_wallet_with_single_node().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_register_certify_blob_100_percent_buyer_subsidies() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let encoding_type = EncodingType::RS2;
+
+    let (_sui_cluster_handle, walrus_client, _, _) =
+        initialize_contract_and_wallet_with_subsidies_with_single_node().await?;
+
+    // used to calculate the encoded size of the blob
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
+
+    let size = 10_000;
+    // Send all WAL coins from admin wallet to a random wallet to ensure that we have a zero coin
+    let admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    if admin_balance > 0 {
+        let random_address = SuiAddress::random_for_testing_only();
+
+        // Send all WAL balance to random wallet
+        walrus_client
+            .as_ref()
+            .send_wal(admin_balance, random_address)
+            .await?;
+
+        // Verify admin wallet now has zero balance
+        let new_admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+        assert_eq!(new_admin_balance, 0);
+    }
+
+    // Call the reserve_space method with zero coin
+    let resource_size = encoding_config
+        .get_for_type(encoding_type)
+        .encoded_blob_length(size)
+        .unwrap();
+    let storage_resource = walrus_client
+        .as_ref()
+        .reserve_space(resource_size, 3)
+        .await?;
+    assert_eq!(storage_resource.start_epoch, 1);
+    assert_eq!(storage_resource.end_epoch, 4);
+    assert_eq!(storage_resource.storage_size, resource_size);
+
     Ok(())
 }
 
@@ -421,7 +475,7 @@ async fn test_collect_commission() -> anyhow::Result<()> {
 
     // Set zero duration, s.t. we can change the epoch whenever we need to.
     let (_sui_cluster_handle, walrus_client, _, _) =
-        initialize_contract_and_wallet_for_testing(Duration::ZERO, false, 1).await?;
+        initialize_contract_and_wallet_for_testing(Duration::ZERO, false, 0, 1).await?;
 
     let cap = walrus_client
         .as_ref()

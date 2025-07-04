@@ -202,7 +202,7 @@ mod tests {
                     && &remote_config.public_key == local_config.protocol_key_pair().public());
 
             if configs_match {
-                tracing::info!("Node config is now in sync with on-chain state\n");
+                tracing::info!("node config is now in sync with on-chain state");
                 return Ok(());
             }
             // Release the read lock explicitly before sleeping.
@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(metadata, metadata_on_chain);
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[5]])
                 .await
                 .get(0)
                 .unwrap()

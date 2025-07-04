@@ -886,16 +886,11 @@ impl RetriableSuiClient {
     }
 
     /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
-    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
+    pub(crate) async fn get_subsidies_object(
         &self,
         subsidies_object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
-        let subsidies_object = self
-            .get_sui_object::<Subsidies>(subsidies_object_id)
-            .await?;
-
-        let pkg_id = subsidies_object.package_id;
-        Ok(pkg_id)
+    ) -> SuiClientResult<Subsidies> {
+        self.get_sui_object::<Subsidies>(subsidies_object_id).await
     }
 
     /// Returns the package ID from the type of the given object.
