@@ -332,7 +332,7 @@ impl From<CompletedReasonWeight> for CompletedReason {
 pub fn string_prefix<T: ToString>(s: &T) -> String {
     let mut string = s.to_string();
     string.truncate(8);
-    format!("{}...", string)
+    format!("{string}...")
 }
 
 // TODO: See WAL-763. Move these helpers back into the `walrus-service` crate once we've created an

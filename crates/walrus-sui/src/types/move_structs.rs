@@ -413,8 +413,8 @@ pub enum Authorized {
 impl Display for Authorized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Address(address) => write!(f, "sui address {}", address),
-            Self::Object(object) => write!(f, "object id {}", object),
+            Self::Address(address) => write!(f, "sui address {address}"),
+            Self::Object(object) => write!(f, "object id {object}"),
         }
     }
 }
@@ -851,12 +851,11 @@ impl Display for StakedWalState {
             StakedWalState::Withdrawing(epoch, Some(amount)) => {
                 write!(
                     f,
-                    "Withdrawing: epoch={}, pool token amount={:?}",
-                    epoch, amount
+                    "Withdrawing: epoch={epoch}, pool token amount={amount:?}"
                 )
             }
             StakedWalState::Withdrawing(epoch, None) => {
-                write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
+                write!(f, "Withdrawing: epoch={epoch}, pool token amount=Unknown")
             }
         }
     }

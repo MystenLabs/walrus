@@ -124,10 +124,10 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
 
         let mut parts = Vec::new();
         if newly_certified > 0 {
-            parts.push(format!("{} newly certified", newly_certified));
+            parts.push(format!("{newly_certified} newly certified"));
         }
         if reuse_and_extend_count > 0 {
-            parts.push(format!("{} extended", reuse_and_extend_count));
+            parts.push(format!("{reuse_and_extend_count} extended"));
         }
 
         if !parts.is_empty() {
@@ -224,7 +224,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     operation_str,
                     blob_object.storage.end_epoch,
                     shared_blob_object
-                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id)),
+                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {id}")),
                     blob_object.encoding_type,
                 )
             }
@@ -375,7 +375,7 @@ impl CliOutput for BlobStatusOutput {
                     },
             } => {
                 let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!(", initially certified in epoch {}", epoch)
+                    format!(", initially certified in epoch {epoch}")
                 } else {
                     "".to_string()
                 };
@@ -405,7 +405,7 @@ impl CliOutput for BlobStatusOutput {
                 })
                 .bold();
                 let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!("\nInitially certified in epoch: {}", epoch,)
+                    format!("\nInitially certified in epoch: {epoch}",)
                 } else {
                     "".to_string()
                 };
@@ -494,7 +494,7 @@ impl CliOutput for InfoEpochOutput {
                 let end_time = *start_time
                     + chrono::Duration::from_std(*epoch_duration)
                         .expect("any practical epoch duration fits into a chrono::Duration");
-                format!("Start time: {}\nEnd time: {}", start_time, end_time)
+                format!("Start time: {start_time}\nEnd time: {end_time}")
             }
             EpochTimeOrMessage::Message(msg) => msg.clone(),
         };
@@ -1000,9 +1000,8 @@ impl NodeHealthOutput {
                                     checkpoint_seq, latest_seq - checkpoint_seq
                                 )
                             } else {
-                                format!("Latest checkpoint sequence number: {}\
-                                \nCheckpoint: up-to-date",
-                                    checkpoint_seq
+                                format!("Latest checkpoint sequence number: {checkpoint_seq}\
+                                \nCheckpoint: up-to-date"
                                 )
                             }
                         },
@@ -1011,8 +1010,8 @@ impl NodeHealthOutput {
                             \nLatest sui checkpoint: {}",
                                 health_info
                                     .latest_checkpoint_sequence_number
-                                    .map_or("N/A".to_string(), |seq| format!("{}", seq)),
-                                latest_seq.map_or("N/A".to_string(), |seq| format!("{}", seq))
+                                    .map_or("N/A".to_string(), |seq| format!("{seq}")),
+                                latest_seq.map_or("N/A".to_string(), |seq| format!("{seq}"))
                             )
                         },
                     },
@@ -1077,12 +1076,12 @@ impl CliOutput for ServiceHealthInfoOutput {
             println!("\n{}\n", "Summary".bold().walrus_purple());
             table.printstd();
             println!("\nTotal nodes: {}", self.health_info.len());
-            println!("Owned shards: {}", owned_shards);
-            println!("Read-only shards: {}", read_only_shards);
+            println!("Owned shards: {owned_shards}");
+            println!("Read-only shards: {read_only_shards}");
 
             println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
             for (status, count) in &node_statuses {
-                println!("{}: {}", status, count);
+                println!("{status}: {count}");
             }
         }
     }
@@ -1107,7 +1106,7 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
     if let Some(file) = file {
         format!("{} (file: {})", blob_id, file.display())
     } else {
-        format!("{}", blob_id)
+        format!("{blob_id}")
     }
 }
 
@@ -1194,7 +1193,7 @@ impl CliOutput for GetBlobAttributeOutput {
         if let Some(attribute) = &self.attribute {
             println!("\n{}", "Attribute".bold().walrus_purple());
             for (key, value) in attribute.iter() {
-                println!("{}: {}", key, value);
+                println!("{key}: {value}");
             }
         } else {
             println!("No attribute found");
@@ -1245,7 +1244,7 @@ impl CliOutput for ReadQuiltOutput {
                 } else {
                     println!("   Tags:");
                     for (key, value) in blob.tags() {
-                        println!("     {}: {}", key, value);
+                        println!("     {key}: {value}");
                     }
                 }
                 println!();

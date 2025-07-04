@@ -1234,7 +1234,7 @@ impl std::fmt::Display for BlobIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut identity = String::new();
         if let Some(blob_id) = &self.blob_id {
-            identity = format!("blob ID: {}", blob_id);
+            identity = format!("blob ID: {blob_id}");
         }
         if let Some(file) = &self.file {
             if !identity.is_empty() {
@@ -1246,9 +1246,9 @@ impl std::fmt::Display for BlobIdentity {
             if !identity.is_empty() {
                 identity.push(' ');
             }
-            identity.push_str(&format!("object ID: {}", object_id));
+            identity.push_str(&format!("object ID: {object_id}"));
         }
-        write!(f, "{}", identity)
+        write!(f, "{identity}")
     }
 }
 
@@ -1704,9 +1704,8 @@ mod tests {
         format!(
             r#"{{
                 "config": "path/to/client_config.yaml",
-                "command": {}
-            }}"#,
-            command
+                "command": {command}
+            }}"#
         )
     }
 

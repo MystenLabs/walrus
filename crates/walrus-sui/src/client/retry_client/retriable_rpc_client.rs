@@ -147,14 +147,12 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                     .await
                     .map_err(|_| {
                         FailoverError::FailedToGetClient(format!(
-                            "Client validation timed out for {:?}",
-                            rpc_url
+                            "Client validation timed out for {rpc_url:?}"
                         ))
                     })?
                     .map_err(|e| {
                         FailoverError::FailedToGetClient(format!(
-                            "Client validation failed for {:?}: {:?}",
-                            rpc_url, e
+                            "Client validation failed for {rpc_url:?}: {e:?}"
                         ))
                     })?;
                 }
@@ -355,7 +353,7 @@ impl RetriableRpcClient {
                 self.handle_primary_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::DirectFallback => {
-                tracing_sampled::info!("30s", "Direct fallback for checkpoint {}", sequence_number);
+                tracing_sampled::info!("30s", "direct fallback for checkpoint {}", sequence_number);
                 self.handle_fallback_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::FallbackUponPrimaryFailure(_err) => {

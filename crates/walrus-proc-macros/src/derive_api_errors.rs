@@ -493,6 +493,6 @@ fn get_docstring(attrs: &[Attribute]) -> TokenStream {
     });
 
     quote! {
-        concat!(#(#description),*)
+        concat!(#(#description),*).trim()
     }
 }

@@ -72,7 +72,7 @@ pub fn load_configuration(
     tracing::info!(
         "using Walrus configuration from '{}' with {} context",
         path.display(),
-        context.map_or("default".to_string(), |c| format!("'{}'", c))
+        context.map_or("default".to_string(), |c| format!("'{c}'"))
     );
     Ok(config)
 }

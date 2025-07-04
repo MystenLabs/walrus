@@ -54,7 +54,7 @@ pub struct AwsClient {
 
 impl Display for AwsClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AWS EC2 client v{}", PKG_VERSION)
+        write!(f, "AWS EC2 client v{PKG_VERSION}")
     }
 }
 

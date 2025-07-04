@@ -49,7 +49,7 @@ fn main() {
 
     generate_error_defs_for_contracts(contracts_dir_path, Path::new(&out_dir));
     // Tell cargo to rerun if relevant files change
-    println!("cargo::rerun-if-changed={}", contracts_dir);
+    println!("cargo::rerun-if-changed={contracts_dir}");
 }
 
 fn generate_error_defs_for_contracts(contracts_dir: &Path, out_dir: &Path) {
@@ -144,7 +144,7 @@ fn generate_error_kind_defs(module_error_defs: &[ModuleErrorDefs]) -> String {
             module_error.fully_qualified_module
         ));
         for (error_name, error_code) in module_error.error_defs.iter() {
-            code.push_str(&format!("    {}, {},\n", error_name, error_code));
+            code.push_str(&format!("    {error_name}, {error_code},\n"));
         }
         code.push_str(");\n\n");
     }

@@ -207,14 +207,14 @@ enum StakingModeAtEpoch {
 }
 
 async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyhow::Result<()> {
-    tracing::info!("Starting the staking stress runner.");
+    tracing::info!("starting the staking stress runner");
     // Start the re-staking machine.
     let restaking_period = Duration::from_secs(15);
     let wallet = WalletConfig::load_wallet(
         config.wallet_config.as_ref(),
         config.communication_config.sui_client_request_timeout,
     )
-    .context("Failed to load wallet context")?;
+    .context("failed to load wallet context")?;
     let contract_client: SuiContractClient = config.new_contract_client(wallet, None).await?;
 
     // The Staked Wal at any given time.

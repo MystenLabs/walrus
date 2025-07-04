@@ -1169,7 +1169,7 @@ impl ClientCommandRunner {
                 Ok(client) => client,
                 Err(e) => {
                     if !self.json {
-                        eprintln!("Error connecting to client: {}", e);
+                        eprintln!("Error connecting to client: {e}");
                     }
                     return Err(e);
                 }
@@ -1366,7 +1366,7 @@ impl ClientCommandRunner {
                 println!(
                     "{} Voted for package upgrade with digest 0x{}",
                     success(),
-                    digest.iter().map(|b| format!("{:02x}", b)).join("")
+                    digest.iter().map(|b| format!("{b:02x}")).join("")
                 );
             }
             NodeAdminCommands::SetCommissionAuthorized {
@@ -1413,7 +1413,7 @@ impl ClientCommandRunner {
                     "{} Digest for package '{}':\n  Hex: 0x{}\n  Base64: {}",
                     success(),
                     package_path.display(),
-                    digest.iter().map(|b| format!("{:02x}", b)).join(""),
+                    digest.iter().map(|b| format!("{b:02x}")).join(""),
                     fastcrypto::encoding::Base64::encode(digest)
                 );
             }
@@ -1443,9 +1443,9 @@ impl ClientCommandRunner {
                 };
 
                 let new_filename = if let Some(ext) = extension {
-                    format!("{}_{}.{}", stem, counter, ext)
+                    format!("{stem}_{counter}.{ext}")
                 } else {
-                    format!("{}_{}", stem, counter)
+                    format!("{stem}_{counter}")
                 };
 
                 out_dir.join(new_filename)
@@ -1525,7 +1525,7 @@ async fn delete_blob(
             {
                 Ok(status) => Some(status),
                 Err(e) => {
-                    result.error = Some(format!("Failed to get post-deletion status: {}", e));
+                    result.error = Some(format!("Failed to get post-deletion status: {e}"));
                     None
                 }
             };

@@ -204,8 +204,7 @@ where
     let name: String = Deserialize::deserialize(deserializer)?;
     if name.len() > MAX_NODE_NAME_LENGTH {
         return Err(D::Error::custom(format!(
-            "Node name must not exceed {} characters",
-            MAX_NODE_NAME_LENGTH
+            "Node name must not exceed {MAX_NODE_NAME_LENGTH} characters"
         )));
     }
     Ok(name)
@@ -709,33 +708,6 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber(None)?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
-}
-
-/// Returns whether a node cursor should be repositioned.
-///
-/// The node cursor should be repositioned if it is behind the actual event index and it is at
-/// the beginning of the event stream.
-///
-/// - `event_index`: The index of the next event the node needs to process.
-/// - `actual_event_index`: The index of the first event available in the current event stream.
-///
-/// Usually, these indices match up, meaning the node picks up processing right where it left
-/// off. However, there's a special case during node bootstrapping (when starting with no
-/// previous state) and event processor bootstrapping itself from event blobs:
-///
-/// When a node starts up for the first time, older event blobs might have expired due to the
-/// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
-/// 0).
-///
-/// In this case, the event stream can only provide events starting from index N. But the node,
-/// being brand new, wants to start processing from index 0. In this scenario, we actually want
-/// to reposition the node's cursor to index N. This is safe because those events are no longer
-/// available in the system anyway (they've expired), and marking them as completed prevents the
-/// event tracking system from flagging this natural gap as an error.
-pub fn should_reposition_cursor(event_index: u64, actual_event_index: u64) -> bool {
-    let is_behind = event_index < actual_event_index;
-    let is_at_beginning = event_index == 0;
-    is_behind && is_at_beginning
 }
 
 /// Wait for SIGINT and SIGTERM (unix only).

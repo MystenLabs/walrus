@@ -364,8 +364,7 @@ impl TryFrom<u8> for QuiltVersionEnum {
         match value {
             QuiltVersionV1::QUILT_VERSION_BYTE => Ok(QuiltVersionEnum::V1),
             _ => Err(QuiltError::Other(format!(
-                "Invalid quilt version byte: {}",
-                value
+                "Invalid quilt version byte: {value}"
             ))),
         }
     }
@@ -373,7 +372,7 @@ impl TryFrom<u8> for QuiltVersionEnum {
 
 impl fmt::Display for QuiltVersionEnum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -594,19 +593,18 @@ impl QuiltVersionV1 {
     /// Returns the total size of the serialized blob.
     pub fn serialized_blob_size(blob: &QuiltStoreBlob) -> Result<usize, QuiltError> {
         let identifier_size = bcs::serialized_size(&blob.identifier)
-            .map_err(|e| QuiltError::Other(format!("Failed to compute identifier size: {}", e)))?;
+            .map_err(|e| QuiltError::Other(format!("Failed to compute identifier size: {e}")))?;
 
         if identifier_size >= MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
             return Err(QuiltError::InvalidIdentifier(format!(
-                "identifier size exceeds maximum allowed value: {}",
-                MAX_BLOB_IDENTIFIER_BYTES_LENGTH
+                "identifier size exceeds maximum allowed value: {MAX_BLOB_IDENTIFIER_BYTES_LENGTH}"
             )));
         }
         let mut prefix_size = identifier_size as usize + BLOB_IDENTIFIER_SIZE_BYTES_LENGTH;
 
         if !blob.tags.is_empty() {
             let tags_size = bcs::serialized_size(&blob.tags)
-                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {}", e)))?;
+                .map_err(|e| QuiltError::Other(format!("Failed to compute tags size: {e}")))?;
             prefix_size += tags_size + TAGS_SIZE_BYTES_LENGTH;
         }
 
@@ -1084,7 +1082,7 @@ impl fmt::Debug for DebugRow<'_> {
                 write!(f, "    ")?;
             }
 
-            write!(f, "{:width$}", entry, width = hex_width)?;
+            write!(f, "{entry:hex_width$}")?;
 
             if i < self.entries.len() - 1 {
                 write!(f, ", ")?;
@@ -1184,28 +1182,27 @@ impl<'a> QuiltEncoderV1<'a> {
 
         let identifier_size =
             u16::try_from(bcs::serialized_size(&blob.identifier).map_err(|e| {
-                QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
+                QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {e}"))
             })?)
             .map_err(|e| {
                 QuiltError::InvalidIdentifier(format!(
-                    "Failed to convert identifier size to u16: {}",
-                    e
+                    "Failed to convert identifier size to u16: {e}"
                 ))
             })?;
         identifier_bytes.extend_from_slice(&identifier_size.to_le_bytes());
         identifier_bytes.extend_from_slice(&bcs::to_bytes(&blob.identifier).map_err(|e| {
-            QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {}", e))
+            QuiltError::InvalidIdentifier(format!("Failed to serialize identifier: {e}"))
         })?);
         extension_bytes.push(identifier_bytes);
 
         if !blob.tags.is_empty() {
             header.set_has_tags(true);
             let serialized_tags = bcs::to_bytes(&blob.tags)
-                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {}", e)))?;
+                .map_err(|e| QuiltError::Other(format!("Failed to serialize tags: {e}")))?;
 
             // This must be the same as TAGS_SIZE_BYTES_LENGTH.
             let tags_size = u16::try_from(serialized_tags.len()).map_err(|e| {
-                QuiltError::Other(format!("Failed to convert tags size to u16: {}", e))
+                QuiltError::Other(format!("Failed to convert tags size to u16: {e}"))
             })?;
 
             let mut result_bytes = Vec::with_capacity(tags_size as usize + serialized_tags.len());
@@ -1429,7 +1426,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
         meta_blob_data.push(QuiltVersionV1::quilt_version_byte());
         meta_blob_data.extend_from_slice(&serialized_index_size.to_le_bytes());
         meta_blob_data
-            .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("Serialization should succeed"));
+            .extend_from_slice(&bcs::to_bytes(&quilt_index).expect("serialization should succeed"));
         assert_eq!(meta_blob_data.len(), index_total_size);
 
         let meta_blob = QuiltStoreBlob::new(&meta_blob_data, "quilt_index");
@@ -1585,7 +1582,7 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
                 *self
                     .slivers
                     .get(&SliverIndex::new(col as u16))
-                    .expect("Sliver exists")
+                    .expect("sliver exists")
             })
             .collect();
 
@@ -1760,9 +1757,8 @@ mod utils {
         let max_symbol_size = usize::from(encoding_type.max_symbol_size());
         if symbol_size > max_symbol_size {
             return Err(QuiltError::QuiltOversize(format!(
-                "the resulting symbol size {} is larger than the maximum symbol size {}; \
-                remove some blobs",
-                symbol_size, max_symbol_size
+                "the resulting symbol size {symbol_size} is larger than the maximum symbol size \
+                {max_symbol_size}; remove some blobs"
             )));
         }
 
@@ -2078,11 +2074,8 @@ mod tests {
             let min_blob_size = rng.gen_range(1..100);
             let max_blob_size = rng.gen_range(min_blob_size..1000);
             std::println!(
-                "test_quilt_with_random_blobs: {}, {}, {}, {}",
-                num_blobs,
-                min_blob_size,
-                max_blob_size,
-                n_shards
+                "test_quilt_with_random_blobs: \
+                {num_blobs}, {min_blob_size}, {max_blob_size}, {n_shards}"
             );
             // test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);
             test_quilt_encoder_and_decoder(num_blobs, min_blob_size, max_blob_size, n_shards);

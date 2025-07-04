@@ -170,7 +170,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         blobs.into_iter().next().ok_or_else(|| {
             use walrus_sdk::error::ClientErrorKind;
             ClientError::from(ClientErrorKind::Other(
-                format!("blob with identifier '{}' not found in quilt", identifier).into(),
+                format!("blob with identifier '{identifier}' not found in quilt").into(),
             ))
         })
     }

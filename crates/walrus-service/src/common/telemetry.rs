@@ -30,6 +30,7 @@ use axum::{
 };
 use opentelemetry::propagation::Extractor;
 use prometheus::{
+    Gauge,
     Histogram,
     HistogramVec,
     IntGaugeVec,
@@ -111,7 +112,10 @@ walrus_utils::metrics::define_metric_set! {
                 "http_response_status_code",
             ],
             buckets: walrus_utils::metrics::default_buckets_for_bytes()
-        }
+        },
+
+        #[help = "The seconds since UNIX epoch after which the TLS certificate is not valid."]
+        tls_certificate_not_after_seconds: Gauge[],
     }
 }
 
@@ -341,13 +345,21 @@ impl MetricsMiddlewareState {
         }
     }
 
+    /// Exports the expiration time of the TLS certificate as a duration since UNIX epoch.
+    pub fn set_tls_certificate_expiration_time(&self, duration_since_unix_epoch: Duration) {
+        self.inner
+            .metrics
+            .tls_certificate_not_after_seconds
+            .set(duration_since_unix_epoch.as_secs_f64());
+    }
+
     /// Returns the task monitor for the route and request, where `http_route` should be a
     /// known route or `UNMATCHED_ROUTE`.
     fn task_monitor(&self, method: Method, http_route: &str) -> TaskMonitor {
         self.inner
             .task_monitors
             .get_or_insert_with_task_name(&(method.clone(), http_route.to_owned()), || {
-                format!("{} {}", method, http_route)
+                format!("{method} {http_route}")
             })
     }
 

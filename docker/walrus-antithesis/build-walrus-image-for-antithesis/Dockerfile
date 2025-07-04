@@ -8,7 +8,7 @@
 
 # Stage 1: Base Build Environment + Builder
 # -------------------------------------
-FROM rust:1.87-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/walrus"
@@ -57,7 +57,8 @@ RUN LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
     --bin walrus-stress
 RUN find /walrus/target
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS setup
+
 RUN apt-get update && apt-get install -y ca-certificates curl git
 WORKDIR "$WORKDIR/walrus"
 COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus

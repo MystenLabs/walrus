@@ -108,7 +108,7 @@ pub struct CommitteesAndState {
 }
 
 /// Walrus parameters that do not change across epochs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FixedSystemParameters {
     /// The number of shards in the system.
     pub n_shards: NonZeroU16,
@@ -319,8 +319,9 @@ impl SuiReadClient {
         let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
         let subsidies = if let Some(subsidies_object_id) = contract_config.subsidies_object {
             let subsidies_package_id = sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
-                .await?;
+                .get_subsidies_object(subsidies_object_id)
+                .await?
+                .package_id;
             Some(Subsidies {
                 package_id: subsidies_package_id,
                 object_id: subsidies_object_id,
@@ -804,8 +805,9 @@ impl SuiReadClient {
     pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
         let subsidies_package_id = self
             .sui_client
-            .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
-            .await?;
+            .get_subsidies_object(subsidies_object_id)
+            .await?
+            .package_id;
         *self.subsidies_mut() = Some(Subsidies {
             package_id: subsidies_package_id,
             object_id: subsidies_object_id,
@@ -1170,8 +1172,9 @@ impl ReadClient for SuiReadClient {
         if let Some(subsidies) = subsidies {
             let new_package_id = self
                 .sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies.object_id)
-                .await?;
+                .get_subsidies_object(subsidies.object_id)
+                .await?
+                .package_id;
 
             // Update the package_id if it has changed
             if new_package_id != subsidies.package_id {

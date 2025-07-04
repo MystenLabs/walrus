@@ -160,6 +160,13 @@ impl ShardSyncProgress {
             sliver_type,
         })
     }
+
+    #[cfg(test)]
+    fn last_synced_blob_id(&self) -> Option<BlobId> {
+        match self {
+            ShardSyncProgress::V1(p) => Some(p.last_synced_blob_id),
+        }
+    }
 }
 
 // Represents the last synced status of the shard after restart.
@@ -1349,6 +1356,13 @@ impl ShardStorage {
             .safe_iter()?
             .map(|r| r.map(|(k, _)| k))
             .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get_last_synced_blob_id(&self) -> Result<Option<BlobId>, TypedStoreError> {
+        self.shard_sync_progress
+            .get(&())
+            .map(|progress| progress.and_then(|p| p.last_synced_blob_id()))
     }
 }
 

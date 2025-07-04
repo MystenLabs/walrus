@@ -95,6 +95,17 @@ impl BlobInfoTable {
         })
     }
 
+    pub fn clear(&self) -> Result<(), TypedStoreError> {
+        self.aggregate_blob_info.schedule_delete_all()?;
+        self.per_object_blob_info.schedule_delete_all()?;
+        self.latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned")
+            .schedule_delete_all()?;
+
+        Ok(())
+    }
+
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
         vec![
             (
@@ -136,6 +147,7 @@ impl BlobInfoTable {
         tracing::debug!(?operation, "updating blob info");
 
         let mut batch = self.aggregate_blob_info.batch();
+
         batch.partial_merge_batch(
             &self.aggregate_blob_info,
             [(event.blob_id(), operation.to_bytes())],
@@ -149,6 +161,122 @@ impl BlobInfoTable {
                 [(object_id, per_object_operation.to_bytes())],
             )?;
         }
+
+        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+        batch.write()
+    }
+
+    /// Updates the blob info for a blob based on the [`BlobEvent`] when the node is in recovery
+    /// with incomplete history.
+    ///
+    /// Only updates the info if the provided `event_index` hasn't been processed yet.
+    #[tracing::instrument(skip(self))]
+    pub fn update_blob_info_during_recovery_with_incomplete_history(
+        &self,
+        event_index: u64,
+        event: &BlobEvent,
+        epoch_at_start: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        tracing::debug!("updating blob info during recovery with incomplete history");
+        let extension_event = match event {
+            BlobEvent::Registered(BlobRegistered { end_epoch, .. })
+            | BlobEvent::Certified(BlobCertified { end_epoch, .. })
+            | BlobEvent::Deleted(BlobDeleted { end_epoch, .. })
+                if end_epoch <= &epoch_at_start =>
+            {
+                tracing::debug!(
+                    "skip updating blob info for event with end epoch before epoch at start"
+                );
+                return Ok(());
+            }
+            BlobEvent::Registered(_)
+            // The registration event related to this certification must have the same end epoch, so
+            // it must also be included in our incomplete event history. This means we have already
+            // processed the registration event and can process the certification event normally.
+            | BlobEvent::Certified(BlobCertified {
+                is_extension: false,
+                ..
+            })
+            | BlobEvent::Deleted(_)
+            | BlobEvent::InvalidBlobID(_)
+            | BlobEvent::DenyListBlobDeleted(_) => {
+                tracing::debug!("performing standard blob-info update for event");
+                return self.update_blob_info(event_index, event);
+            }
+            BlobEvent::Certified(event) => {
+                // Extensions need special handling.
+                event.clone()
+            }
+        };
+
+        debug_assert!(
+            extension_event.end_epoch > epoch_at_start,
+            "checked end epoch in match above"
+        );
+        debug_assert!(
+            extension_event.is_extension,
+            "checked is_extension in match above"
+        );
+
+        if let Some(per_object_blob_info) =
+            self.per_object_blob_info.get(&extension_event.object_id)?
+        {
+            assert!(per_object_blob_info.is_registered(epoch_at_start));
+            tracing::debug!(
+                ?per_object_blob_info,
+                "perform standard blob-info update for extension event of tracked blob"
+            );
+            return self.update_blob_info(event_index, event);
+        }
+
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
+        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
+            tracing::info!("skip updating blob info for already handled event");
+            return Ok(());
+        }
+
+        tracing::info!(
+            ?extension_event,
+            "handling blob extension during recovery with incomplete history"
+        );
+
+        let mut batch = self.aggregate_blob_info.batch();
+        let blob_id = extension_event.blob_id;
+        let object_id = extension_event.object_id;
+        let change_info = BlobStatusChangeInfo {
+            blob_id,
+            deletable: extension_event.deletable,
+            epoch: extension_event.epoch,
+            end_epoch: extension_event.end_epoch,
+            status_event: extension_event.event_id,
+        };
+        let operations: Vec<_> = [
+            BlobStatusChangeType::Register,
+            BlobStatusChangeType::Certify,
+        ]
+        .into_iter()
+        .map(|change_type| BlobInfoMergeOperand::ChangeStatus {
+            change_type,
+            change_info: change_info.clone(),
+        })
+        .collect();
+        let aggregate_blob_operations = operations
+            .iter()
+            .map(|operation| (blob_id, operation.to_bytes()));
+        let per_object_operations = operations.clone().into_iter().map(|operation| {
+            (
+                object_id,
+                PerObjectBlobInfoMergeOperand::from_blob_info_merge_operand(operation)
+                    .expect("we know this is a registered or certified event")
+                    .to_bytes(),
+            )
+        });
+
+        batch.partial_merge_batch(&self.aggregate_blob_info, aggregate_blob_operations)?;
+        batch.partial_merge_batch(&self.per_object_blob_info, per_object_operations)?;
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
@@ -604,17 +732,25 @@ impl From<ValidBlobInfoV1> for BlobInfoV1 {
 impl ValidBlobInfoV1 {
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
         // TODO: The following should be adjusted/simplified when we have proper cleanup (WAL-473).
+        let count_deletable_total = if self
+            .latest_seen_deletable_registered_epoch
+            .is_some_and(|e| e > current_epoch)
+        {
+            self.count_deletable_total
+        } else {
+            Default::default()
+        };
+        let count_deletable_certified = if self
+            .latest_seen_deletable_certified_epoch
+            .is_some_and(|e| e > current_epoch)
+        {
+            self.count_deletable_certified
+        } else {
+            Default::default()
+        };
         let deletable_counts = DeletableCounts {
-            count_deletable_total: self
-                .latest_seen_deletable_registered_epoch
-                .is_some_and(|e| e > current_epoch)
-                .then_some(self.count_deletable_total)
-                .unwrap_or_default(),
-            count_deletable_certified: self
-                .latest_seen_deletable_certified_epoch
-                .is_some_and(|e| e > current_epoch)
-                .then_some(self.count_deletable_certified)
-                .unwrap_or_default(),
+            count_deletable_total,
+            count_deletable_certified,
         };
 
         let initial_certified_epoch = self.initial_certified_epoch;
@@ -1412,19 +1548,24 @@ mod per_object_blob_info {
                 // we see a duplicated registered or certified event for the some object, this is a
                 // serious bug somewhere.
                 BlobStatusChangeType::Register => {
-                    panic!("cannot register an already registered blob");
+                    panic!(
+                        "cannot register an already registered blob {}",
+                        self.blob_id
+                    );
                 }
                 BlobStatusChangeType::Certify => {
                     assert!(
                         self.certified_epoch.is_none(),
-                        "cannot certify an already certified blob"
+                        "cannot certify an already certified blob {}",
+                        self.blob_id
                     );
                     self.certified_epoch = Some(change_info.epoch);
                 }
                 BlobStatusChangeType::Extend => {
                     assert!(
                         self.certified_epoch.is_some(),
-                        "cannot extend an uncertified blob"
+                        "cannot extend an uncertified blob {}",
+                        self.blob_id
                     );
                     self.end_epoch = change_info.end_epoch;
                 }

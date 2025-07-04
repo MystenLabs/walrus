@@ -429,7 +429,7 @@ impl<'a> ResourceManager<'a> {
 
                 // Get the vec of (blob, op) pairs for this blob ID
                 let Some(entries) = blob_id_map.get_mut(&blob_id) else {
-                    panic!("missing blob ID: {}", blob_id);
+                    panic!("missing blob ID: {blob_id}");
                 };
 
                 // Pop one (blob, op) pair from the vec
@@ -442,7 +442,7 @@ impl<'a> ResourceManager<'a> {
                     blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
                         .expect("should succeed on a Ok result")
                 } else {
-                    panic!("missing blob ID: {}", blob_id);
+                    panic!("missing blob ID: {blob_id}");
                 }
             })
             .collect())

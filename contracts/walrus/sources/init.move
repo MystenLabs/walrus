@@ -66,6 +66,9 @@ public fun initialize_walrus(
 /// This must be called in the new package after an upgrade is committed
 /// to emit an event that informs all storage nodes and prevent previous package
 /// versions from being used.
+///
+/// Requires the migration epoch to be set first on the staking object, which then
+/// enables the migration at the start of the next epoch.
 public fun migrate(staking: &mut Staking, system: &mut System) {
     staking.migrate();
     system.migrate();

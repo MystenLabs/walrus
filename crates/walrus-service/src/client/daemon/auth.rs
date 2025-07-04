@@ -503,7 +503,7 @@ mod tests {
     }
 
     fn correct_auth_header(token: String) -> Option<(String, String)> {
-        Some(("authorization".to_string(), format!("Bearer {}", token)))
+        Some(("authorization".to_string(), format!("Bearer {token}")))
     }
 
     // Test bodies.
@@ -583,7 +583,7 @@ mod tests {
             (
                 RequestHeadersAndData::new(
                     // The send_object_to field is does not match.
-                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    &format!("/v1/blobs?epochs=1&send_object_to={OTHER_ADDRESS}"),
                     correct_auth_header(token.clone()),
                     None,
                 ),
@@ -693,7 +693,7 @@ mod tests {
             ),
             (
                 RequestHeadersAndData::new(
-                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    &format!("/v1/blobs?epochs=1&send_object_to={OTHER_ADDRESS}"),
                     correct_auth_header(token_invalid_sig.clone()),
                     None,
                 ),

@@ -132,7 +132,7 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
             .expect("this is smaller than `u16::MAX`")
             + 1
     };
-    format!("dryrun-node-{node_index:00$}", width)
+    format!("dryrun-node-{node_index:0width$}")
 }
 
 /// Generates deterministic keypairs for the benchmark purposes.
@@ -287,8 +287,8 @@ pub async fn deploy_walrus_contract(
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
     let collocated = hosts_set.len() != hosts.len();
 
-    tracing::debug!("Storage nodes collocated on same machine: {}", collocated);
-    tracing::debug!("Deploying contract to Sui network: {}", sui_network);
+    tracing::debug!("storage nodes collocated on same machine: {}", collocated);
+    tracing::debug!("deploying contract to Sui network '{}'", sui_network);
 
     // Build one Sui storage node config for each storage node.
     let committee_size = hosts.len();
@@ -330,7 +330,7 @@ pub async fn deploy_walrus_contract(
 
         // The first half of the nodes will have a protocol key pair path, the second half will not.
         let protocol_key_pair_path = if i < mid {
-            Some(working_dir.join(format!("node-{}.key", node_index)))
+            Some(working_dir.join(format!("node-{node_index}.key")))
         } else {
             None
         };
@@ -354,19 +354,19 @@ pub async fn deploy_walrus_contract(
     );
 
     // Create the working directory if it does not exist
-    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+    fs::create_dir_all(working_dir).context("failed to create working directory")?;
 
-    tracing::debug!("Creating working directory at {}", working_dir.display());
+    tracing::debug!("creating working directory at {}", working_dir.display());
 
     // Load or create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
         tracing::debug!(
-            "Loading existing admin wallet from path: {}",
+            "loading existing admin wallet from '{}'",
             admin_wallet_path.display()
         );
         load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
-        tracing::debug!("Creating new admin wallet in working directory");
+        tracing::debug!("creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
@@ -422,7 +422,7 @@ pub async fn deploy_walrus_contract(
 
     let contract_config = system_ctx.contract_config();
 
-    tracing::debug!("Retrieved contract configuration from system context");
+    tracing::debug!("retrieved contract configuration from system context");
 
     let rpc_urls = &[admin_wallet.get_rpc_url()?];
 
@@ -474,11 +474,11 @@ pub async fn deploy_walrus_contract(
             tracing::debug!(
                 subsidies_id = %subsidies_id,
                 admin_cap_id = %admin_cap_id,
-                "Successfully created subsidies objects"
+                "successfully created subsidies objects"
             );
         }
         None => {
-            tracing::debug!("Subsidies creation skipped");
+            tracing::debug!("subsidies creation skipped");
         }
     }
 
@@ -526,14 +526,14 @@ pub async fn create_client_config(
     sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
-    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+    fs::create_dir_all(working_dir).context("failed to create working directory")?;
 
     // Create wallet for the client
-    let sui_client_wallet_path = working_dir.join(format!("{}.yaml", wallet_name));
+    let sui_client_wallet_path = working_dir.join(format!("{wallet_name}.yaml"));
     let mut sui_client_wallet_context = create_wallet(
         &sui_client_wallet_path,
         sui_network.env(),
-        Some(&format!("{}.keystore", wallet_name)),
+        Some(&format!("{wallet_name}.keystore")),
         sui_client_request_timeout,
     )?;
 
@@ -800,7 +800,7 @@ pub async fn create_storage_node_configs(
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
-            admin_socket_path: Some(working_dir.join(format!("admin-{}.sock", node_index))),
+            admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
         });
@@ -896,11 +896,11 @@ async fn create_storage_node_wallets(
     let mut storage_node_wallets = (0..n_nodes.get())
         .map(|index| {
             let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{}-sui.yaml", name));
+            let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
             create_wallet(
                 &wallet_path,
                 sui_network.env(),
-                Some(&format!("{}.keystore", name)),
+                Some(&format!("{name}.keystore")),
                 None,
             )
         })
