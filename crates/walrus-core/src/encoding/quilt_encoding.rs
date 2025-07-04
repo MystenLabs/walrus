@@ -481,9 +481,8 @@ impl<'a> QuiltStoreBlob<'a> {
     ///
     /// Note an empty identifier is not valid.
     pub fn is_valid_identifier(identifier: impl AsRef<str>) -> bool {
-        identifier
-            .as_ref()
-            .starts_with(|c: char| c.is_alphanumeric())
+        let id = identifier.as_ref();
+        id.starts_with(|c: char| c.is_alphanumeric()) && id == id.trim_end()
     }
 
     /// Creates a new `QuiltStoreBlob` from a borrowed blob and an identifier.
@@ -2460,5 +2459,35 @@ mod tests {
         assert_ne!(borrowed_with_tags, borrowed_different_tags);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_identifier_validation() {
+        // Valid identifiers.
+        assert!(QuiltStoreBlob::is_valid_identifier("test"));
+        assert!(QuiltStoreBlob::is_valid_identifier("test123"));
+        assert!(QuiltStoreBlob::is_valid_identifier("123test"));
+        assert!(QuiltStoreBlob::is_valid_identifier("a"));
+        assert!(QuiltStoreBlob::is_valid_identifier("A123"));
+
+        // Invalid identifiers - doesn't start with alphanumeric.
+        assert!(!QuiltStoreBlob::is_valid_identifier("_test"));
+        assert!(!QuiltStoreBlob::is_valid_identifier("-test"));
+        assert!(!QuiltStoreBlob::is_valid_identifier(" test"));
+        assert!(!QuiltStoreBlob::is_valid_identifier(".test"));
+        assert!(!QuiltStoreBlob::is_valid_identifier(""));
+
+        // Invalid identifiers - has trailing whitespace.
+        assert!(!QuiltStoreBlob::is_valid_identifier("test "));
+        assert!(!QuiltStoreBlob::is_valid_identifier("test\t"));
+        assert!(!QuiltStoreBlob::is_valid_identifier("test\n"));
+        assert!(!QuiltStoreBlob::is_valid_identifier("test\r"));
+        assert!(!QuiltStoreBlob::is_valid_identifier("test   "));
+
+        // Valid identifiers with spaces/special chars in the middle
+        assert!(QuiltStoreBlob::is_valid_identifier("test blob"));
+        assert!(QuiltStoreBlob::is_valid_identifier("test-blob"));
+        assert!(QuiltStoreBlob::is_valid_identifier("test_blob"));
+        assert!(QuiltStoreBlob::is_valid_identifier("test.blob"));
     }
 }
