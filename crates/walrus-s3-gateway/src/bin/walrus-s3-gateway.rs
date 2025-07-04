@@ -1,0 +1,180 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+//! Main binary for the Walrus S3 Gateway.
+
+use clap::{Arg, Command};
+use std::path::PathBuf;
+use tracing::{error, info};
+use walrus_s3_gateway::{Config, S3GatewayServer};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    // Parse command line arguments
+    let matches = Command::new("walrus-s3-gateway")
+        .version("1.29.0")
+        .author("Mysten Labs <build@mystenlabs.com>")
+        .about("S3-compatible gateway for Walrus storage")
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config")
+                .value_name("FILE")
+                .help("Configuration file path")
+                .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            Arg::new("bind")
+                .short('b')
+                .long("bind")
+                .value_name("ADDRESS")
+                .help("Address to bind the server to")
+                .default_value("0.0.0.0:8080"),
+        )
+        .arg(
+            Arg::new("access-key")
+                .long("access-key")
+                .value_name("KEY")
+                .help("S3 access key")
+                .default_value("walrus-access-key"),
+        )
+        .arg(
+            Arg::new("secret-key")
+                .long("secret-key")
+                .value_name("SECRET")
+                .help("S3 secret key")
+                .default_value("walrus-secret-key"),
+        )
+        .arg(
+            Arg::new("region")
+                .long("region")
+                .value_name("REGION")
+                .help("S3 region")
+                .default_value("us-east-1"),
+        )
+        .arg(
+            Arg::new("walrus-config")
+                .long("walrus-config")
+                .value_name("FILE")
+                .help("Walrus client configuration file")
+                .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            Arg::new("enable-tls")
+                .long("enable-tls")
+                .help("Enable TLS/HTTPS")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("tls-cert")
+                .long("tls-cert")
+                .value_name("FILE")
+                .help("TLS certificate file")
+                .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            Arg::new("tls-key")
+                .long("tls-key")
+                .value_name("FILE")
+                .help("TLS private key file")
+                .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .get_matches();
+
+    // Load or create configuration
+    let mut config = if let Some(config_path) = matches.get_one::<PathBuf>("config") {
+        info!("Loading configuration from: {}", config_path.display());
+        Config::from_file(config_path)?
+    } else {
+        info!("Using default configuration");
+        Config::default()
+    };
+
+    // Override config with command line arguments
+    if let Some(bind_addr) = matches.get_one::<String>("bind") {
+        config.bind_address = bind_addr.parse()?;
+    }
+
+    if let Some(access_key) = matches.get_one::<String>("access-key") {
+        config.access_key = access_key.clone();
+    }
+
+    if let Some(secret_key) = matches.get_one::<String>("secret-key") {
+        config.secret_key = secret_key.clone();
+    }
+
+    if let Some(region) = matches.get_one::<String>("region") {
+        config.region = region.clone();
+    }
+
+    if let Some(walrus_config) = matches.get_one::<PathBuf>("walrus-config") {
+        config.walrus_config_path = Some(walrus_config.clone());
+    }
+
+    if matches.get_flag("enable-tls") {
+        config.enable_tls = true;
+    }
+
+    if let Some(tls_cert) = matches.get_one::<PathBuf>("tls-cert") {
+        config.tls_cert_path = Some(tls_cert.clone());
+    }
+
+    if let Some(tls_key) = matches.get_one::<PathBuf>("tls-key") {
+        config.tls_key_path = Some(tls_key.clone());
+    }
+
+    // Validate configuration
+    if let Err(e) = config.validate() {
+        error!("Configuration validation failed: {}", e);
+        std::process::exit(1);
+    }
+
+    info!("Configuration:");
+    info!("  Bind address: {}", config.bind_address);
+    info!("  Access key: {}", config.access_key);
+    info!("  Region: {}", config.region);
+    info!("  TLS enabled: {}", config.enable_tls);
+    if let Some(ref walrus_config) = config.walrus_config_path {
+        info!("  Walrus config: {}", walrus_config.display());
+    }
+
+    // Create Walrus client
+    info!("Creating Walrus client...");
+    
+    // TODO: Implement proper Walrus client creation
+    // For now, we'll show an error message with instructions
+    error!("Walrus client creation is not yet implemented.");
+    error!("To complete the implementation, you need to:");
+    error!("1. Configure the Sui client with proper RPC endpoints and wallet");
+    error!("2. Set up the Walrus client configuration");
+    error!("3. Handle authentication and committee management");
+    error!("");
+    error!("Example configuration would include:");
+    error!("- Sui RPC endpoint URL");
+    error!("- Wallet configuration (private key or keystore)");
+    error!("- Walrus storage node endpoints");
+    error!("- Committee refresh settings");
+    
+    std::process::exit(1);
+
+    // The actual implementation would look like this:
+    /*
+    let walrus_client = walrus_s3_gateway::server::create_walrus_client(&config).await?;
+
+    // Create and start the server
+    info!("Starting S3 gateway server...");
+    let server = S3GatewayServer::new(config, walrus_client).await?;
+    
+    if let Err(e) = server.serve().await {
+        error!("Server error: {}", e);
+        std::process::exit(1);
+    }
+    */
+
+    Ok(())
+}

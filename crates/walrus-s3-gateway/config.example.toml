@@ -1,0 +1,28 @@
+# Walrus S3 Gateway Configuration
+
+# Server binding address
+bind_address = "0.0.0.0:8080"
+
+# S3 authentication credentials
+access_key = "walrus-access-key"
+secret_key = "walrus-secret-key"
+
+# S3 region
+region = "us-east-1"
+
+# Maximum request body size in bytes (64MB)
+max_body_size = 67108864
+
+# Request timeout in seconds
+request_timeout = 300
+
+# Enable CORS headers
+enable_cors = true
+
+# TLS configuration
+enable_tls = false
+# tls_cert_path = "/path/to/certificate.pem"
+# tls_key_path = "/path/to/private_key.pem"
+
+# Path to Walrus client configuration (optional)
+# walrus_config_path = "/path/to/walrus_config.yaml"
