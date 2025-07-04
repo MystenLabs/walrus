@@ -201,7 +201,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
         let client = self.client_pool.next_client().await;
-        tracing::debug!("submitting write request to client in pool");
+        tracing::debug!("submitting write quilt request to client in pool");
 
         let result = client
             .write_quilt(

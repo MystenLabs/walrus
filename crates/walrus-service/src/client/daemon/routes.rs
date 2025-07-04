@@ -777,7 +777,8 @@ pub struct QuiltPatchMetadata {
 /// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
 /// The form contains:
 /// - Blobs identified by their identifiers as field names (required)
-/// - A `metadata` field containing a JSON array with per blob metadata (optional)
+/// - A `_metadata` field containing a JSON array with per blob metadata (optional).
+///   This field must be valid JSON in array format.
 ///
 /// # Supported Walrus-native metadata fields
 /// - `identifier`: The identifier of the blob, must match the corresponding blob field name
@@ -799,7 +800,7 @@ pub struct QuiltPatchMetadata {
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "quilt-manual=@document.pdf" \
 ///   -F "logo-2025=@image.png" \
-///   -F 'metadata=[
+///   -F '_metadata=[
 ///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
 ///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
@@ -881,7 +882,7 @@ async fn parse_multipart_quilt(
 
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or("").to_string();
-        if field_name == "metadata" {
+        if field_name == "_metadata" {
             let metadata_json = field.text().await?;
             for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
                 let identifier = meta.identifier.clone();
@@ -911,7 +912,6 @@ async fn parse_multipart_quilt(
             res.push(QuiltStoreBlob::new_owned(data, identifier).with_tags(tags));
         }
     } else {
-        // No metadata provided - process files without metadata
         for (identifier, data) in blobs_with_identifiers {
             res.push(QuiltStoreBlob::new_owned(data, identifier));
         }
