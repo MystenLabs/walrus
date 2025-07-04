@@ -1163,42 +1163,42 @@ pub struct QuiltPatchQuery {
 
 impl QuiltPatchQuery {
     /// Returns a QuiltPatchSelector from the command line arguments.
-    pub fn to_selector(&self) -> Result<QuiltPatchSelector> {
+    pub fn into_selector(mut self) -> Result<QuiltPatchSelector> {
         match (
             !self.identifiers.is_empty(),
             !self.tag.is_empty(),
             !self.quilt_patch_ids.is_empty(),
-            self.quilt_id.is_some(),
+            self.quilt_id,
         ) {
             // quilt_id and identifiers provided.
-            (true, false, false, true) => {
+            (true, false, false, Some(quilt_id)) => {
                 Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
-                    quilt_id: self.quilt_id.expect("quilt_id should be present"),
-                    identifiers: self.identifiers.clone(),
+                    quilt_id,
+                    identifiers: self.identifiers,
                 }))
             }
 
             // quilt_id and tags provided.
-            (false, true, false, true) => {
+            (false, true, false, Some(quilt_id)) => {
                 if self.tag.len() != 2 {
                     return Err(anyhow!("Only one tag is supported for now."));
                 }
+                let value = self.tag.pop().expect("value should be present");
+                let tag = self.tag.pop().expect("tag should be present");
                 Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
-                    quilt_id: self.quilt_id.expect("quilt_id should be present"),
-                    tag: self.tag[0].clone(),
-                    value: self.tag[1].clone(),
+                    quilt_id,
+                    tag,
+                    value,
                 }))
             }
 
             // quilt_patch_ids provided.
-            (false, false, true, false) => Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
-                quilt_patch_ids: self.quilt_patch_ids.clone(),
+            (false, false, true, None) => Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+                quilt_patch_ids: self.quilt_patch_ids,
             })),
 
             // Only quilt_id provided.
-            (false, false, false, true) => Ok(QuiltPatchSelector::All(
-                self.quilt_id.expect("quilt_id should be present"),
-            )),
+            (false, false, false, Some(quilt_id)) => Ok(QuiltPatchSelector::All(quilt_id)),
 
             // All other combinations are invalid
             _ => Err(Self::invalid_query_error()),

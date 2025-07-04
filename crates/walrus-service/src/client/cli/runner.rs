@@ -201,7 +201,7 @@ impl ClientCommandRunner {
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(quilt_patch_query.to_selector()?, out, rpc_url)
+                self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
                     .await
             }
 
