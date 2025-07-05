@@ -6,7 +6,7 @@
 use clap::{Arg, Command};
 use std::path::PathBuf;
 use tracing::{error, info};
-use walrus_s3_gateway::{Config, S3GatewayServer};
+use walrus_s3_gateway::Config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -146,35 +146,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Walrus client
     info!("Creating Walrus client...");
     
-    // TODO: Implement proper Walrus client creation
-    // For now, we'll show an error message with instructions
-    error!("Walrus client creation is not yet implemented.");
-    error!("To complete the implementation, you need to:");
-    error!("1. Configure the Sui client with proper RPC endpoints and wallet");
-    error!("2. Set up the Walrus client configuration");
-    error!("3. Handle authentication and committee management");
-    error!("");
-    error!("Example configuration would include:");
-    error!("- Sui RPC endpoint URL");
-    error!("- Wallet configuration (private key or keystore)");
-    error!("- Walrus storage node endpoints");
-    error!("- Committee refresh settings");
-    
-    std::process::exit(1);
-
-    // The actual implementation would look like this:
-    /*
-    let walrus_client = walrus_s3_gateway::server::create_walrus_client(&config).await?;
+    let walrus_client = match walrus_s3_gateway::server::create_walrus_client(&config).await {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Failed to create Walrus client: {}", e);
+            error!("Make sure you have:");
+            error!("1. Configured the Sui client with proper RPC endpoints");
+            error!("2. Network connectivity to Sui testnet");
+            error!("3. Valid Walrus contract object IDs");
+            std::process::exit(1);
+        }
+    };
 
     // Create and start the server
     info!("Starting S3 gateway server...");
-    let server = S3GatewayServer::new(config, walrus_client).await?;
+    let server = match walrus_s3_gateway::server::S3GatewayServer::new(config, walrus_client).await {
+        Ok(server) => server,
+        Err(e) => {
+            error!("Failed to create server: {}", e);
+            std::process::exit(1);
+        }
+    };
     
     if let Err(e) = server.serve().await {
         error!("Server error: {}", e);
         std::process::exit(1);
     }
-    */
 
     Ok(())
 }

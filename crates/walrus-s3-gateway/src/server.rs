@@ -7,23 +7,20 @@ use crate::auth::SigV4Authenticator;
 use crate::config::Config;
 use crate::error::{S3Error, S3Result};
 use crate::handlers::{bucket, object, S3State};
-use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Query, State};
-use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, Method, Uri};
 use axum::response::Response;
 use axum::routing::{delete, get, head, post, put};
-use axum::{middleware, Router};
+use axum::Router;
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::info;
 use walrus_sdk::{client::Client, config::{ClientConfig, ClientCommunicationConfig, CommitteesRefreshConfig}};
-use walrus_sui::{client::{SuiContractClient, retry_client::RetriableSuiClient, contract_config::ContractConfig}, wallet::Wallet};
+use walrus_sui::client::{retry_client::RetriableSuiClient, contract_config::ContractConfig};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 /// S3 gateway server.
@@ -65,17 +62,17 @@ impl S3GatewayServer {
             .route("/", get(bucket::list_buckets))
             
             // Bucket operations
-            .route("/:bucket", get(Self::handle_bucket_get))
-            .route("/:bucket", put(bucket::create_bucket))
-            .route("/:bucket", delete(bucket::delete_bucket))
-            .route("/:bucket", head(bucket::head_bucket))
+            .route("/{bucket}", get(Self::handle_bucket_get))
+            .route("/{bucket}", put(bucket::create_bucket))
+            .route("/{bucket}", delete(bucket::delete_bucket))
+            .route("/{bucket}", head(bucket::head_bucket))
             
             // Object operations
-            .route("/:bucket/*key", get(object::get_object))
-            .route("/:bucket/*key", put(Self::handle_object_put))
-            .route("/:bucket/*key", delete(object::delete_object))
-            .route("/:bucket/*key", head(object::head_object))
-            .route("/:bucket/*key", post(Self::handle_object_post))
+            .route("/{bucket}/{*key}", get(object::get_object))
+            .route("/{bucket}/{*key}", put(Self::handle_object_put))
+            .route("/{bucket}/{*key}", delete(object::delete_object))
+            .route("/{bucket}/{*key}", head(object::head_object))
+            .route("/{bucket}/{*key}", post(Self::handle_object_post))
             
             // Add state
             .with_state(state)
@@ -210,7 +207,7 @@ pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui
     info!("Setting up Walrus client...");
     
     // Load Walrus client configuration
-    let walrus_config = if let Some(config_path) = &config.walrus_config_path {
+    let walrus_config = if let Some(_config_path) = &config.walrus_config_path {
         // Load from file (we'll implement this later)
         create_default_walrus_config(&config)?
     } else {
@@ -248,20 +245,29 @@ pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui
 fn create_default_walrus_config(config: &Config) -> S3Result<ClientConfig> {
     use sui_types::base_types::ObjectID;
     use std::str::FromStr;
-    use std::time::Duration;
     
-    // Create default contract configuration for testnet
-    // Note: These are placeholder values - in production, use actual deployed contract IDs
+    // Use actual testnet contract configuration
     let contract_config = ContractConfig {
-        system_object: ObjectID::from_str("0x4bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc3")
+        system_object: ObjectID::from_str("0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af")
             .map_err(|e| S3Error::InternalError(format!("Invalid system object ID: {}", e)))?,
-        staking_object: ObjectID::from_str("0x7bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc5")
+        staking_object: ObjectID::from_str("0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3")
             .map_err(|e| S3Error::InternalError(format!("Invalid staking object ID: {}", e)))?,
-        subsidies_object: Some(ObjectID::from_str("0x5bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc2")
+        subsidies_object: Some(ObjectID::from_str("0xda799d85db0429765c8291c594d334349ef5bc09220e79ad397b30106161a0af")
             .map_err(|e| S3Error::InternalError(format!("Invalid subsidies object ID: {}", e)))?),
-        credits_object: Some(ObjectID::from_str("0x6bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc4")
-            .map_err(|e| S3Error::InternalError(format!("Invalid credits object ID: {}", e)))?),
+        credits_object: None, // Not used in testnet
     };
+    
+    // Create exchange objects for testnet
+    let exchange_objects = vec![
+        ObjectID::from_str("0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073")
+            .map_err(|e| S3Error::InternalError(format!("Invalid exchange object ID: {}", e)))?,
+        ObjectID::from_str("0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862")
+            .map_err(|e| S3Error::InternalError(format!("Invalid exchange object ID: {}", e)))?,
+        ObjectID::from_str("0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5")
+            .map_err(|e| S3Error::InternalError(format!("Invalid exchange object ID: {}", e)))?,
+        ObjectID::from_str("0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1")
+            .map_err(|e| S3Error::InternalError(format!("Invalid exchange object ID: {}", e)))?,
+    ];
     
     // Create communication configuration  
     let communication_config = ClientCommunicationConfig::default();
@@ -271,7 +277,7 @@ fn create_default_walrus_config(config: &Config) -> S3Result<ClientConfig> {
     
     Ok(ClientConfig {
         contract_config,
-        exchange_objects: vec![],
+        exchange_objects,
         wallet_config: config.walrus.wallet_config.clone(),
         rpc_urls: config.walrus.sui_rpc_urls.clone(),
         communication_config,

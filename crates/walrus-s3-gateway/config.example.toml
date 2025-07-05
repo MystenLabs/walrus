@@ -1,28 +1,50 @@
-# Walrus S3 Gateway Configuration
+# Walrus S3 Gateway Configuration Example
 
-# Server binding address
+# Server settings
 bind_address = "0.0.0.0:8080"
-
-# S3 authentication credentials
 access_key = "walrus-access-key"
 secret_key = "walrus-secret-key"
-
-# S3 region
 region = "us-east-1"
 
-# Maximum request body size in bytes (64MB)
-max_body_size = 67108864
+# Request handling
+max_body_size = 67108864  # 64MB
+request_timeout = 300     # 5 minutes
+enable_cors = true        # Enable CORS for web applications
 
-# Request timeout in seconds
-request_timeout = 300
-
-# Enable CORS headers
-enable_cors = true
-
-# TLS configuration
+# TLS/HTTPS (optional)
 enable_tls = false
-# tls_cert_path = "/path/to/certificate.pem"
-# tls_key_path = "/path/to/private_key.pem"
+# tls_cert_path = "/path/to/cert.pem"
+# tls_key_path = "/path/to/key.pem"
 
-# Path to Walrus client configuration (optional)
-# walrus_config_path = "/path/to/walrus_config.yaml"
+# Optional: Path to external Walrus client configuration
+# walrus_config_path = "/path/to/walrus-client-config.yaml"
+
+# Walrus-specific configuration
+[walrus]
+# Sui RPC endpoints (testnet)
+sui_rpc_urls = [
+    "https://sui-testnet-rpc.mystenlabs.com:443",
+    "https://sui-testnet.publicnode.com:443"
+]
+
+# Walrus storage node endpoints (testnet)
+storage_nodes = [
+    "https://walrus-testnet.nodes.guru:11444",
+    "https://walrus-testnet-storage.stakin-nodes.com:11444"
+]
+
+# Committee refresh interval in seconds
+committee_refresh_interval = 300  # 5 minutes
+
+# Request timeout for Walrus operations in seconds
+request_timeout = 30
+
+# Metrics (optional)
+enable_metrics = false
+# metrics_port = 9090
+
+# Wallet configuration (required for write operations)
+# [walrus.wallet_config]
+# keystore_path = "/path/to/sui/keystore"
+# active_address = "0x..."
+# active_env = "testnet"
