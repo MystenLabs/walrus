@@ -10,7 +10,7 @@ contexts:
       - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
     wallet_config:
       # For testing, use a minimal configuration without external dependencies
-      path: null
+      path: ~/.sui/sui_config/client.yaml
       active_env: testnet
     rpc_urls:
       - https://fullnode.testnet.sui.io:443

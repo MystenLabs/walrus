@@ -5,7 +5,7 @@
 
 use crate::error::{S3Error, S3Result};
 use axum::http::{HeaderMap, Method, Uri};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -169,9 +169,20 @@ impl SigV4Authenticator {
             .ok_or(S3Error::InvalidRequest("Missing x-amz-date header".to_string()))?;
         
         // Parse AWS timestamp format: YYYYMMDDTHHMMSSZ
-        DateTime::parse_from_str(timestamp_str, "%Y%m%dT%H%M%SZ")
-            .map(|dt| dt.with_timezone(&Utc))
-            .map_err(|_| S3Error::InvalidRequest("Invalid timestamp format".to_string()))
+        // First try the UTC format with Z
+        if let Ok(dt) = DateTime::parse_from_str(timestamp_str, "%Y%m%dT%H%M%SZ") {
+            return Ok(dt.with_timezone(&Utc));
+        }
+        
+        // Fallback: strip the Z and parse as naive datetime, then assume UTC
+        if timestamp_str.ends_with('Z') {
+            let timestamp_without_z = &timestamp_str[..timestamp_str.len() - 1];
+            if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(timestamp_without_z, "%Y%m%dT%H%M%S") {
+                return Ok(Utc.from_utc_datetime(&naive_dt));
+            }
+        }
+        
+        Err(S3Error::InvalidRequest("Invalid timestamp format".to_string()))
     }
     
     /// Calculate the expected signature.

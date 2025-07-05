@@ -1,9 +1,9 @@
 # Walrus S3 Gateway Configuration for Client-Side Signing
 # Default configuration file - modify as needed for your setup
 
-access_key = "test-access-key"
-secret_key = "test-secret-key"
-bind_address = "127.0.0.1:9200"
+access_key = "walrus-access-key"
+secret_key = "walrus-secret-key"
+bind_address = "127.0.0.1:8080"
 region = "us-east-1"
 enable_tls = false
 walrus_config_path = "client_config.yaml"
@@ -13,10 +13,23 @@ enable_cors = true
 
 # Client-side signing configuration
 [client_signing]
-require_signatures = true
-validate_signatures = true
+require_signatures = false
+validate_signatures = false
 sui_rpc_url = "https://fullnode.testnet.sui.io:443"
+
+# Server-side wallet configuration (used when client_signing.require_signatures = false)
+[server_wallet]
+wallet_path = "server_wallet.yaml"
+min_wal_balance = 1000000000  # 1 WAL token in FROST
+gas_budget = 10000000  # 0.01 SUI
+
+[server_wallet.auto_funding]
+enabled = true
+funding_amount = 5000000000  # 5 WAL tokens in FROST
+create_wallet_if_missing = true
+# exchange_id = "0x..."  # Optional: specific exchange object to use
 
 # Client credentials
 [client_credentials]
 "test-access-key" = { sui_address = "0x0000000000000000000000000000000000000000000000000000000000000000", permissions = ["read", "write"], description = "Test credential", active = true }
+"walrus-access-key" = { sui_address = "0x0000000000000000000000000000000000000000000000000000000000000000", permissions = ["read", "write"], description = "Default test credential", active = true }

@@ -1,0 +1,34 @@
+# Configurazione completa per test server-side signing
+access_key = "test-server-access-key"
+secret_key = "test-server-secret-key"
+bind_address = "127.0.0.1:8080"
+region = "us-east-1"
+enable_tls = false
+walrus_config_path = "client_config.yaml"
+request_timeout = 300
+max_body_size = 67108864  # 64MB
+enable_cors = true
+
+# Client-side signing DISABILITATO per attivare server-side signing
+[client_signing]
+require_signatures = false  # ✅ Abilita server-side signing
+validate_signatures = false
+sui_rpc_url = "https://fullnode.testnet.sui.io:443"
+
+# Configurazione server-side wallet
+[server_wallet]
+wallet_path = "test_server_wallet.yaml"
+min_wal_balance = 1000000000  # 1 WAL token in FROST
+gas_budget = 10000000  # 0.01 SUI
+
+# Configurazione auto-funding
+[server_wallet.auto_funding]
+enabled = true
+funding_amount = 5000000000  # 5 WAL tokens in FROST
+create_wallet_if_missing = true
+# exchange_id = "0x..."  # Opzionale: oggetto exchange specifico
+
+# Credenziali client - aggiorna anche test-access-key per compatibilità
+[client_credentials]
+"test-server-access-key" = { sui_address = "0xe86ee4e17286675a30d9251bb9100a6787caec9a8c4fe90e611937e4c0e81497", permissions = ["read", "write"], description = "Test credential for server-side signing", active = true }
+"test-access-key" = { sui_address = "0xe86ee4e17286675a30d9251bb9100a6787caec9a8c4fe90e611937e4c0e81497", permissions = ["read", "write"], description = "Test credential for compatibility", active = true }

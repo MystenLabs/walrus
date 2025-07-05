@@ -131,11 +131,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // Ensure server wallet is ready if needed
+    info!("Checking server wallet configuration...");
+    match config.ensure_server_wallet_ready().await {
+        Ok(wallet_created) => {
+            if wallet_created {
+                info!("✅ Server wallet is ready for server-side transaction signing");
+            } else {
+                info!("✅ Client-side signing enabled, no server wallet needed");
+            }
+        }
+        Err(e) => {
+            error!("Failed to prepare server wallet: {}", e);
+            error!("This is required when client-side signing is disabled");
+            error!("Please check your wallet configuration or enable client-side signing");
+            std::process::exit(1);
+        }
+    }
+
     info!("Configuration:");
     info!("  Bind address: {}", config.bind_address);
     info!("  Access key: {}", config.access_key);
     info!("  Region: {}", config.region);
     info!("  TLS enabled: {}", config.enable_tls);
+    info!("  Client-side signing required: {}", config.client_signing.require_signatures);
+    if config.needs_server_wallet() {
+        info!("  Server wallet enabled: {}", config.server_wallet.auto_funding.enabled);
+        if let Ok(wallet_path) = config.get_server_wallet_path() {
+            info!("  Server wallet path: {}", wallet_path.display());
+        }
+    }
     if let Some(ref walrus_config) = config.walrus_config_path {
         info!("  Walrus config: {}", walrus_config.display());
     }

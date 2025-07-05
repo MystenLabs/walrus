@@ -15,6 +15,7 @@ use crate::credentials::{CredentialManager, ClientSigningManager, SignedTransact
 use axum::http::{HeaderMap, Method, Uri};
 use std::sync::Arc;
 use walrus_sdk::client::Client;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 /// Shared state for S3 handlers with Client-Side Signing support.
 #[derive(Clone)]
@@ -173,15 +174,95 @@ impl S3State {
         Ok(tx_hash)
     }
 
-    /// Create a write client (for client-side signing, this returns a read client)
+    /// Create a write client
     pub async fn create_write_client(
         &self,
         _access_key: &str,
         _secret_key: &str,
         _authorization_header: Option<&str>,
-    ) -> S3Result<Client<walrus_sui::client::SuiReadClient>> {
-        // For client-side signing, we only support read operations on the server side
-        // Write operations require client-signed transactions
-        Ok((*self.read_client).clone())
+    ) -> S3Result<walrus_sdk::client::Client<walrus_sui::client::SuiContractClient>> {
+        // If client signing is required, we cannot perform server-side operations
+        if self.config.client_signing.require_signatures {
+            return Err(S3Error::BadRequest("Server-side operations not allowed when client signing is required".to_string()));
+        }
+
+        // For server-side operations, we need to create a contract client with a server wallet
+        // For now, create a temporary wallet for testing
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| S3Error::InternalError(format!("Failed to create temp dir: {}", e)))?;
+        
+        let wallet_path = temp_dir.path().join("server_wallet.yaml");
+        
+        // Create a wallet for the server
+        let wallet = walrus_sui::utils::create_wallet(
+            &wallet_path,
+            walrus_sui::utils::SuiNetwork::Testnet.env(),
+            Some("server.keystore"),
+            Some(std::time::Duration::from_secs(30)),
+        ).map_err(|e| S3Error::InternalError(format!("Failed to create wallet: {}", e)))?;
+
+        // Create contract client configuration from the read client's configuration
+        let contract_config = self.read_client.config().contract_config.clone();
+        
+        // Get RPC URLs from the Walrus config if available, otherwise use default
+        let rpc_urls = if let Some(walrus_config_path) = &self.config.walrus_config_path {
+            // Try to read Walrus client config
+            if let Ok(content) = std::fs::read_to_string(walrus_config_path) {
+                if let Ok(walrus_config) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    if let Some(rpc_urls) = walrus_config.get("contexts")
+                        .and_then(|c| c.get("testnet"))
+                        .and_then(|t| t.get("rpc_urls"))
+                        .and_then(|r| r.as_sequence())
+                    {
+                        rpc_urls.iter()
+                            .filter_map(|url| url.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    } else {
+                        vec!["https://fullnode.testnet.sui.io:443".to_string()]
+                    }
+                } else {
+                    vec!["https://fullnode.testnet.sui.io:443".to_string()]
+                }
+            } else {
+                vec!["https://fullnode.testnet.sui.io:443".to_string()]
+            }
+        } else {
+            vec!["https://fullnode.testnet.sui.io:443".to_string()]
+        };
+
+        // Create the SuiContractClient
+        let contract_client = walrus_sui::client::SuiContractClient::new(
+            wallet,
+            &rpc_urls,
+            &contract_config,
+            ExponentialBackoffConfig::default(),
+            None, // gas_budget
+        ).await.map_err(|e| S3Error::InternalError(format!("Failed to create contract client: {}", e)))?;
+
+        // Create the Walrus SDK client with a default config
+        let client_config = walrus_sdk::config::ClientConfig {
+            contract_config,
+            exchange_objects: vec![],
+            wallet_config: None,
+            rpc_urls,
+            communication_config: walrus_sdk::config::ClientCommunicationConfig::default(),
+            refresh_config: walrus_sdk::config::CommitteesRefreshConfig::default(),
+        };
+
+        // Create the committees refresher handle
+        let committees_handle = client_config
+            .refresh_config
+            .build_refresher_and_run(contract_client.read_client().clone())
+            .await
+            .map_err(|e| S3Error::InternalError(format!("Failed to create committees refresher: {}", e)))?;
+
+        // Create the final Walrus client
+        let client = walrus_sdk::client::Client::new_contract_client(
+            client_config,
+            committees_handle,
+            contract_client,
+        ).await.map_err(|e| S3Error::InternalError(format!("Failed to create Walrus client: {}", e)))?;
+
+        Ok(client)
     }
 }

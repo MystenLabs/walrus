@@ -234,7 +234,6 @@ pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui
     
     // Create Sui client using default endpoints
     let sui_rpc_urls = vec![
-        "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
         "https://sui-testnet.publicnode.com:443".to_string(),
     ];
     
@@ -302,7 +301,6 @@ fn create_default_walrus_config(_config: &Config) -> S3Result<ClientConfig> {
         exchange_objects,
         wallet_config: None, // No wallet config for client-side signing
         rpc_urls: vec![
-            "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
             "https://sui-testnet.publicnode.com:443".to_string(),
         ],
         communication_config,

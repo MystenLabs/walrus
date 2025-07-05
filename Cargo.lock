@@ -6971,9 +6971,9 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.104"
+version = "0.9.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45abf306cbf99debc8195b66b7346498d7b10c210de50418b5ccd7ceba08c741"
+checksum = "90096e2e47630d78b7d1c20952dc621f957103f8bc2c8359ec81290d75238571"
 dependencies = [
  "cc",
  "libc",
@@ -13045,6 +13045,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml 0.9.34+deprecated",
  "sha2 0.10.9",
  "sui-types",
  "tempfile",

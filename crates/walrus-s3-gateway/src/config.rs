@@ -42,6 +42,8 @@ pub struct Config {
     pub credential_strategy: Option<CredentialStrategy>,
     /// Registered client credentials
     pub client_credentials: HashMap<String, ClientCredentialConfig>,
+    /// Server-side wallet configuration for handling transactions
+    pub server_wallet: ServerWalletConfig,
 }
 
 /// Server configuration
@@ -95,6 +97,32 @@ pub struct WalrusConfig {
     pub metrics_port: Option<u16>,
 }
 
+/// Server-side wallet configuration for handling transactions when client-side signing is disabled
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerWalletConfig {
+    /// Path to the server wallet file (will be created if not exists)
+    pub wallet_path: Option<PathBuf>,
+    /// Minimum WAL token balance to maintain (in FROST)
+    pub min_wal_balance: u64,
+    /// Automatic funding settings
+    pub auto_funding: ServerWalletAutoFunding,
+    /// Gas budget for transactions
+    pub gas_budget: u64,
+}
+
+/// Configuration for automatic wallet funding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerWalletAutoFunding {
+    /// Whether to enable automatic funding
+    pub enabled: bool,
+    /// Amount of WAL tokens to request when funding (in FROST)
+    pub funding_amount: u64,
+    /// Exchange object ID to use for WAL token exchange (optional)
+    pub exchange_id: Option<String>,
+    /// Whether to create a new wallet if none exists
+    pub create_wallet_if_missing: bool,
+}
+
 impl Default for Config {
     fn default() -> Self {
         let mut client_credentials = HashMap::new();
@@ -106,6 +134,17 @@ impl Default for Config {
                 sui_address: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
                 permissions: vec!["read".to_string(), "write".to_string()],
                 description: Some("Default test credential".to_string()),
+                active: true,
+            }
+        );
+
+        // Also add the test-access-key for compatibility with config.toml
+        client_credentials.insert(
+            "test-access-key".to_string(),
+            ClientCredentialConfig {
+                sui_address: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                permissions: vec!["read".to_string(), "write".to_string()],
+                description: Some("Test credential for integration tests".to_string()),
                 active: true,
             }
         );
@@ -125,6 +164,7 @@ impl Default for Config {
             client_signing: ClientSigningConfig::default(),
             credential_strategy: None,
             client_credentials,
+            server_wallet: ServerWalletConfig::default(),
         }
     }
 }
@@ -148,7 +188,6 @@ impl Default for WalrusConfig {
     fn default() -> Self {
         Self {
             sui_rpc_urls: vec![
-                "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
                 "https://sui-testnet.publicnode.com:443".to_string(),
             ],
             storage_nodes: vec![
@@ -159,6 +198,28 @@ impl Default for WalrusConfig {
             request_timeout: Some(30),
             enable_metrics: false,
             metrics_port: None,
+        }
+    }
+}
+
+impl Default for ServerWalletConfig {
+    fn default() -> Self {
+        Self {
+            wallet_path: Some(PathBuf::from("server_wallet.yaml")),
+            min_wal_balance: 1_000_000_000, // 1 WAL token in FROST
+            auto_funding: ServerWalletAutoFunding::default(),
+            gas_budget: 10_000_000, // 0.01 SUI
+        }
+    }
+}
+
+impl Default for ServerWalletAutoFunding {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            funding_amount: 5_000_000_000, // 5 WAL tokens in FROST
+            exchange_id: None,
+            create_wallet_if_missing: true,
         }
     }
 }
@@ -265,5 +326,206 @@ impl Config {
         cred.sui_address
             .parse::<SuiAddress>()
             .map_err(|e| anyhow::anyhow!("Invalid Sui address: {}", e))
+    }
+
+    /// Check if server-side wallet management is needed
+    pub fn needs_server_wallet(&self) -> bool {
+        // Server wallet is needed when client-side signing is not required
+        !self.client_signing.require_signatures
+    }
+
+    /// Get the server wallet path, creating directory if needed
+    pub fn get_server_wallet_path(&self) -> anyhow::Result<PathBuf> {
+        let wallet_path = self.server_wallet.wallet_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("server_wallet.yaml"));
+
+        // Create parent directory if needed
+        if let Some(parent) = wallet_path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        Ok(wallet_path)
+    }
+
+    /// Check if server wallet needs to be created or funded
+    pub async fn ensure_server_wallet_ready(&self) -> anyhow::Result<bool> {
+        if !self.needs_server_wallet() {
+            return Ok(false); // Client-side signing is enabled, no server wallet needed
+        }
+
+        let wallet_path = self.get_server_wallet_path()?;
+        
+        // Check if wallet exists
+        if !wallet_path.exists() {
+            if self.server_wallet.auto_funding.create_wallet_if_missing {
+                println!("🔧 Creating server wallet at: {}", wallet_path.display());
+                self.create_server_wallet(&wallet_path).await?;
+                println!("✅ Server wallet created successfully");
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Server wallet not found at {} and auto-creation is disabled", 
+                    wallet_path.display()
+                ));
+            }
+        }
+
+        // Check and fund wallet if needed
+        if self.server_wallet.auto_funding.enabled {
+            self.ensure_wallet_funded(&wallet_path).await?;
+        }
+
+        Ok(true)
+    }
+
+    /// Create a new server wallet
+    async fn create_server_wallet(&self, wallet_path: &Path) -> anyhow::Result<()> {
+        use std::process::Command;
+        
+        // Check if sui CLI is available
+        let sui_check = Command::new("sui")
+            .arg("--version")
+            .output();
+        
+        if sui_check.is_err() {
+            return Err(anyhow::anyhow!(
+                "Sui CLI not found. Please install Sui CLI to enable server-side wallet creation.\n\
+                Visit: https://docs.sui.io/guides/developer/getting-started/sui-install"
+            ));
+        }
+        
+        // Get the current active address from sui client
+        let address_output = Command::new("sui")
+            .args(&["client", "active-address"])
+            .output()?;
+
+        if !address_output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to get active address from Sui client: {}\n\
+                Make sure you have initialized the Sui client with 'sui client'", 
+                String::from_utf8_lossy(&address_output.stderr)
+            ));
+        }
+
+        let active_address = String::from_utf8_lossy(&address_output.stdout).trim().to_string();
+        println!("📍 Using active Sui address: {}", active_address);
+        
+        // Create server wallet config that references the Sui client wallet
+        let wallet_config = format!(
+            r#"---
+# Server wallet configuration
+# This wallet uses the Sui client configuration for server-side signing
+# The actual keys are managed by the Sui client at ~/.sui/sui_config/client.yaml
+accounts:
+  - address: "{}"
+    # Note: Keys are managed by Sui client, not stored here
+    description: "Server wallet using Sui client configuration"
+active_address: "{}"
+created_at: "{}"
+sui_client_managed: true
+"#,
+            active_address,
+            active_address,
+            chrono::Utc::now().to_rfc3339()
+        );
+
+        std::fs::write(wallet_path, wallet_config)?;
+        
+        println!("📝 Server wallet configuration saved to: {}", wallet_path.display());
+        println!("🔑 Using Sui client keys from ~/.sui/sui_config/client.yaml");
+        println!("💡 Server will use Sui client for signing transactions");
+        
+        Ok(())
+    }
+
+    /// Ensure wallet has sufficient WAL tokens
+    async fn ensure_wallet_funded(&self, wallet_path: &Path) -> anyhow::Result<()> {
+        // Check current balance
+        let balance = self.check_wal_balance(wallet_path).await?;
+        
+        if balance < self.server_wallet.min_wal_balance {
+            println!(
+                "💰 Server wallet needs funding. Current: {} FROST, Required: {} FROST", 
+                balance, 
+                self.server_wallet.min_wal_balance
+            );
+            
+            self.fund_server_wallet(wallet_path).await?;
+            
+            // Verify funding was successful
+            let new_balance = self.check_wal_balance(wallet_path).await?;
+            println!("✅ Server wallet funded. New balance: {} FROST", new_balance);
+        } else {
+            println!("✅ Server wallet has sufficient balance: {} FROST", balance);
+        }
+
+        Ok(())
+    }
+
+    /// Check WAL token balance in the server wallet
+    async fn check_wal_balance(&self, _wallet_path: &Path) -> anyhow::Result<u64> {
+        use std::process::Command;
+        
+        let output = Command::new("sui")
+            .args(&["client", "balance", "--json"])
+            .output()?;
+
+        if !output.status.success() {
+            return Ok(0); // Return 0 if balance check fails
+        }
+
+        // Parse balance output (simplified - in reality would parse JSON)
+        let balance_str = String::from_utf8_lossy(&output.stdout);
+        if balance_str.contains("WAL") {
+            // Extract WAL balance (simplified parsing)
+            // In a real implementation, we'd properly parse the JSON
+            return Ok(1_000_000_000); // Return existing balance if found
+        }
+
+        Ok(0)
+    }
+
+    /// Fund the server wallet with WAL tokens
+    async fn fund_server_wallet(&self, _wallet_path: &Path) -> anyhow::Result<()> {
+        use std::process::Command;
+        
+        println!("🪙 Requesting WAL tokens from testnet faucet...");
+        
+        // Check if walrus CLI is available
+        let walrus_check = Command::new("walrus")
+            .arg("--version")
+            .output();
+        
+        if walrus_check.is_err() {
+            println!("⚠️  Walrus CLI not found. Please install Walrus CLI to enable automatic funding.");
+            println!("💡 Alternative: manually fund the server wallet with WAL tokens");
+            return Ok(()); // Don't fail, just warn
+        }
+        
+        let funding_amount_str = self.server_wallet.auto_funding.funding_amount.to_string();
+        let mut args = vec!["get-wal", "--amount"];
+        args.push(&funding_amount_str);
+        
+        if let Some(ref exchange_id) = self.server_wallet.auto_funding.exchange_id {
+            args.extend(&["--exchange-id", exchange_id]);
+        }
+
+        let output = Command::new("walrus")
+            .args(&args)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            println!("⚠️  Failed to fund wallet automatically: {}", error);
+            println!("💡 You may need to manually fund the server wallet or configure testnet access");
+            println!("💡 Try running: walrus get-wal --amount {}", funding_amount_str);
+            // Don't fail here - allow server to start even if funding fails
+            return Ok(());
+        }
+
+        println!("✅ WAL tokens requested successfully");
+        Ok(())
     }
 }

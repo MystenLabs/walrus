@@ -29,6 +29,7 @@ regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = "0.9"
 sha2 = { workspace = true }
 hmac = { workspace = true }
 time = { workspace = true }
@@ -44,6 +45,7 @@ quick-xml = { workspace = true }
 toml = { workspace = true }
 md5 = "0.7"
 bcs = { workspace = true }
+tempfile = "3.10"
 
 # Walrus dependencies
 walrus-core = { workspace = true }
@@ -61,3 +63,10 @@ serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 assert_matches = "1.5"
 urlencoding = "2.1"
+reqwest = { workspace = true, features = ["json"] }
+base64 = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
