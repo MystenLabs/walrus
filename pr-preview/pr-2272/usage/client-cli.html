@@ -473,7 +473,7 @@ inside a quilt; they must be applied to the entire quilt.</li>
 </ul>
 </div>
 </div>
-<p>For efficiently storing large numbers of small blobs, Walrus provides the Quilt feature. It batches
+<p>For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches
 multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find
 a more detailed overview of the feature <a href="./quilt.html">Quilt</a>.</p>
 <p>You can interact with quilts using a dedicated set of <code>walrus</code> subcommands.</p>
@@ -521,13 +521,12 @@ walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
 </code></pre>
 <p>You can also read a blob using its QuiltPatchId, which can be retrieved using
-<code>list-patches-in-quilt</code>. The <code>--quilt-patch-ids</code> flag can also be repeated:</p>
+<code>list-patches-in-quilt</code>.</p>
 <pre><code class="language-sh">walrus read-quilt --out &lt;download dir&gt; \
   --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
   GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
 </code></pre>
-<p>You can specify the output directory with <code>--out &lt;DIRECTORY&gt;</code>.</p>
-<h3 id="listing-patches-in-a-quilt"><a class="header" href="#listing-patches-in-a-quilt">Listing patches in a Quilt</a></h3>
+<h3 id="list-patches-in-a-quilt"><a class="header" href="#list-patches-in-a-quilt">List patches in a Quilt</a></h3>
 <p>To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
 the <code>list-patches-in-quilt</code> command.</p>
 <pre><code class="language-sh">walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
