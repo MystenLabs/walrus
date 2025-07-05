@@ -213,7 +213,7 @@ impl Settings {
     {
         let mut s = s.to_string();
         for (name, value) in env::vars() {
-            s = s.replace(&format!("${{{}}}", name), &value);
+            s = s.replace(&format!("${{{name}}}"), &value);
         }
         if s.contains("${") {
             let error = SettingsError::InvalidSettings {

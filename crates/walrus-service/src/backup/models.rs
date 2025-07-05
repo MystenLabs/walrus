@@ -12,7 +12,7 @@ use diesel::{
 };
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
-use crate::node::events::{CheckpointEventPosition, EventStreamCursor, EventStreamElement};
+use crate::event::events::{CheckpointEventPosition, EventStreamCursor, EventStreamElement};
 
 #[derive(Debug, Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::backup::schema::stream_event)]

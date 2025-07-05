@@ -354,8 +354,8 @@ impl<'a> SubClientLoader<'a> {
     fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<Wallet> {
         let wallet_config_path = self
             .sub_wallets_dir
-            .join(format!("sui_client_{}.yaml", sub_wallet_idx));
-        let keystore_filename = format!("sui_{}.keystore", sub_wallet_idx);
+            .join(format!("sui_client_{sub_wallet_idx}.yaml"));
+        let keystore_filename = format!("sui_{sub_wallet_idx}.keystore");
 
         if wallet_config_path.exists() {
             tracing::debug!(?wallet_config_path, "loading sub-wallet from file");

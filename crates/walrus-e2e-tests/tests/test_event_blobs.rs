@@ -67,8 +67,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             .read_blob::<Primary>(&prev_event_blob)
             .await
             .context("should be able to read blob we just stored")?;
-        let event_blob =
-            walrus_service::node::events::event_blob::EventBlob::new(&read_blob_primary)?;
+        let event_blob = walrus_service::event::event_blob::EventBlob::new(&read_blob_primary)?;
         prev_event_blob = event_blob.prev_blob_id();
         for i in event_blob {
             tracing::debug!("element: {:?}", i);
@@ -101,7 +100,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
         .await
         .unwrap()
     {
-        panic!("Event blob should not be written: {:?}", blob);
+        panic!("Event blob should not be written: {blob:?}");
     };
     Ok(())
 }

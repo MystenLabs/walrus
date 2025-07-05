@@ -43,7 +43,8 @@ use walrus_sui::types::{
 use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
-    node::{db_checkpoint::DbCheckpointConfig, events::EventProcessorConfig},
+    event::event_processor::config::EventProcessorConfig,
+    node::db_checkpoint::DbCheckpointConfig,
 };
 
 /// Configuration for the config synchronizer.
@@ -1024,6 +1025,7 @@ pub struct RestServerConfig {
 
 /// Configuration of the HTTP/2 connections established by the REST API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Http2Config {
     /// The maximum number of concurrent streams that a client can open
     /// over a connection to the server.
@@ -1122,11 +1124,10 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig {
-            system_object: ObjectID::random_from_rng(&mut rng),
-            staking_object: ObjectID::random_from_rng(&mut rng),
-            subsidies_object: None,
-        };
+        let contract_config = ContractConfig::new(
+            ObjectID::random_from_rng(&mut rng),
+            ObjectID::random_from_rng(&mut rng),
+        );
         let config = StorageNodeConfig {
             sui: Some(SuiConfig {
                 rpc: "https://fullnode.testnet.sui.io:443".to_string(),

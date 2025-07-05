@@ -3,7 +3,10 @@
 
 //! Responsible for downloading and managing event blobs
 
-use std::path::Path;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch};
@@ -14,11 +17,8 @@ use walrus_sui::{
     types::move_structs::EventBlob,
 };
 
-use crate::node::events::{
-    EventStreamCursor,
-    event_blob::EventBlob as LocalEventBlob,
-    event_processor::EventProcessorMetrics,
-};
+use super::event_processor::metrics::EventCatchupManagerMetrics;
+use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
 
 /// A struct that contains the metadata of an event blob.
 #[derive(Debug, Clone)]
@@ -86,10 +86,9 @@ impl EventBlobDownloader {
         let blob = LocalEventBlob::new(&result)?;
         let blob_epoch = blob.ending_epoch()?;
         let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();
-        let blob_iter = blob.into_iter();
-        let blob_event = blob_iter
-            .last()
-            .ok_or(anyhow::anyhow!("No events in blob"))?;
+        let blob_event = blob.into_iter().last().ok_or(anyhow::anyhow!(
+            "last certified event blob does not contain any events"
+        ))?;
         Ok(Some(EventBlobWithMetadata {
             blob_id,
             event_stream_cursor: EventStreamCursor::new(
@@ -107,100 +106,138 @@ impl EventBlobDownloader {
     /// Returns a vector of blob IDs in reverse chronological order (newest to oldest).
     pub async fn download(
         &self,
-        upto_checkpoint: Option<u64>,
+        starting_checkpoint_to_process: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
-        metrics: Option<&EventProcessorMetrics>,
+        metrics: &EventCatchupManagerMetrics,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
-        let mut prev_event_blob = match from_blob {
+        let mut event_blob_id = match from_blob {
             Some(blob) => blob,
             None => match self.sui_read_client.last_certified_event_blob().await? {
                 Some(blob) => blob.blob_id,
-                None => return Ok(vec![]),
+                None => {
+                    tracing::info!("no certified event blobs found");
+                    return Ok(vec![]);
+                }
             },
         };
 
         tracing::info!(
             "starting download of event blobs from latest blob ID {} and going backwards",
-            prev_event_blob
+            event_blob_id
         );
 
-        while prev_event_blob != BlobId::ZERO {
-            let blob_status = match self
-                .walrus_client
-                .get_blob_status_with_retries(&prev_event_blob, &self.sui_read_client)
-                .await
-            {
-                Ok(blob_status) => blob_status,
-                Err(err) => {
-                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
-                        // We've reached an expired blob, safe to terminate
-                        break;
-                    } else {
-                        return Err(err.into());
-                    }
-                }
-            };
+        // When reading the first certified event blob, it may be the case that the event blob is
+        // just certified, and the storage nodes may not know it yet. Therefore, upon encountering
+        // a nonexistent blob, we will retry and wait for the blob to be certified.
+        // For all the earlier blobs, they must have been seen by the storage nodes, since
+        // otherwise, no new certified event blobs would be created.
+        let mut reading_first_event_blob = true;
 
-            if blob_status == BlobStatus::Nonexistent {
-                // We've reached an expired blob, safe to terminate
+        loop {
+            if event_blob_id == BlobId::ZERO {
+                tracing::info!("reached the beginning of the event history",);
                 break;
             }
 
-            let blob_path = path.join(prev_event_blob.to_string());
+            // Timer for waiting for the first certified event blob to be certified.
+            let start_time = Instant::now();
+
+            let blob_status = loop {
+                let blob_status = match self
+                    .walrus_client
+                    .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
+                    .await
+                {
+                    Ok(blob_status) => blob_status,
+                    Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
+                        BlobStatus::Nonexistent
+                    }
+                    Err(err) => return Err(err.into()),
+                };
+
+                if blob_status == BlobStatus::Nonexistent && reading_first_event_blob {
+                    tracing::debug!(
+                        "reading first certified event blob {} encountered a nonexistent \
+                    blob, waiting for it to be certified",
+                        event_blob_id
+                    );
+
+                    if start_time.elapsed() > Duration::from_secs(30) {
+                        tracing::warn!(
+                            "waiting for first certified event blob to be certified timed out"
+                        );
+                        break blob_status;
+                    }
+                    // Short sleep since we expect storage nodes to keep up with Sui events in most
+                    // of the time.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+
+                break blob_status;
+            };
+            reading_first_event_blob = false;
+
+            if blob_status == BlobStatus::Nonexistent {
+                anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
+                tracing::info!(
+                    "stopping downloading event blobs with expired blob {}",
+                    event_blob_id
+                );
+                break;
+            }
+
+            let blob_path = path.join(event_blob_id.to_string());
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
             } else {
                 match self
                     .walrus_client
                     .read_blob_with_status::<walrus_core::encoding::Primary>(
-                        &prev_event_blob,
+                        &event_blob_id,
                         blob_status,
                     )
                     .await
                 {
                     Ok(blob) => (blob, "network"),
                     Err(err) => {
-                        metrics.inspect(|&m| {
-                            m.event_processor_event_blob_fetched
-                                .with_label_values(&["network"])
-                                .inc()
-                        });
                         return Err(err.into());
                     }
                 }
             };
 
-            metrics.inspect(|&m| {
-                m.event_processor_event_blob_fetched
-                    .with_label_values(&[blob_source])
-                    .inc()
-            });
+            metrics
+                .event_catchup_manager_event_blob_fetched
+                .with_label_values(&[blob_source])
+                .inc();
 
-            tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
+            tracing::info!(blob_id = %event_blob_id, "finished reading event blob");
 
             let mut event_blob = LocalEventBlob::new(&blob)?;
 
-            let should_store = match upto_checkpoint {
-                Some(next_cp) => event_blob.end_checkpoint_sequence_number() >= next_cp,
+            let should_store = match starting_checkpoint_to_process {
+                Some(starting_checkpoint_to_process) => {
+                    event_blob.end_checkpoint_sequence_number() >= starting_checkpoint_to_process
+                }
                 None => true,
             };
 
             if should_store {
-                blobs.push(prev_event_blob);
+                blobs.push(event_blob_id);
                 let num_checkpoints_stored = event_blob.end_checkpoint_sequence_number()
                     - event_blob.start_checkpoint_sequence_number()
                     + 1;
                 tracing::info!(
                     "storing event blob {} with {} checkpoints",
-                    prev_event_blob,
+                    event_blob_id,
                     num_checkpoints_stored
                 );
             } else {
                 tracing::info!(
                     "skipping event blob {} as it contains events only before the next checkpoint",
-                    prev_event_blob
+                    event_blob_id
                 );
                 break;
             }
@@ -209,13 +246,13 @@ impl EventBlobDownloader {
                 event_blob.store_as_file(&blob_path)?;
             }
 
-            if let Some(max_cp) = upto_checkpoint {
-                if event_blob.start_checkpoint_sequence_number() <= max_cp {
+            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process {
+                if event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process {
                     break;
                 }
             }
 
-            prev_event_blob = event_blob.prev_blob_id();
+            event_blob_id = event_blob.prev_blob_id();
         }
 
         Ok(blobs)

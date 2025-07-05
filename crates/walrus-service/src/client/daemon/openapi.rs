@@ -21,7 +21,12 @@ use crate::common::api::Binary;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Aggregator"),
-    paths(routes::get_blob, routes::get_blob_by_object_id),
+    paths(
+        routes::get_blob,
+        routes::get_blob_by_object_id,
+        routes::get_blob_by_quilt_patch_id,
+        routes::get_blob_by_quilt_id_and_identifier,
+    ),
     components(schemas(BlobId, Status,))
 )]
 pub(super) struct AggregatorApiDoc;
@@ -50,7 +55,13 @@ pub(super) struct PublisherApiDoc;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Daemon"),
-    paths(routes::get_blob, routes::put_blob, routes::get_blob_by_object_id),
+    paths(
+        routes::get_blob,
+        routes::put_blob,
+        routes::get_blob_by_object_id,
+        routes::get_blob_by_quilt_patch_id,
+        routes::get_blob_by_quilt_id_and_identifier,
+    ),
     components(schemas(
         Blob,
         BlobId,

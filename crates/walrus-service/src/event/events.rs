@@ -8,56 +8,15 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufReader, BufWriter},
-    time::Duration,
+    pin::Pin,
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use checkpoint_downloader::AdaptiveDownloaderConfig;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
-use serde_with::{DurationSeconds, serde_as};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{BlobEvent, ContractEvent};
-
-pub mod event_blob;
-pub mod event_blob_writer;
-pub mod event_processor;
-pub mod event_processor_runtime;
-
-/// Configuration for event processing.
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct EventProcessorConfig {
-    /// Event pruning interval.
-    #[serde_as(as = "DurationSeconds")]
-    #[serde(rename = "pruning_interval_secs")]
-    pub pruning_interval: Duration,
-    /// The timeout for the RPC client.
-    #[serde_as(as = "DurationSeconds")]
-    #[serde(rename = "checkpoint_request_timeout_secs")]
-    pub checkpoint_request_timeout: Duration,
-    /// Configuration options for the pipelined checkpoint fetcher.
-    pub adaptive_downloader_config: AdaptiveDownloaderConfig,
-    /// Minimum checkpoint lag threshold for event blob based catch-up.
-    ///
-    /// Specifies the minimum number of checkpoints the system must be behind
-    /// the latest checkpoint before initiating catch-up using event blobs.
-    /// This helps balance between catchup for small lags using checkpoints vs
-    /// using event streams for longer checkpoint lags.
-    pub event_stream_catchup_min_checkpoint_lag: u64,
-}
-
-impl Default for EventProcessorConfig {
-    fn default() -> Self {
-        Self {
-            pruning_interval: Duration::from_secs(3600),
-            checkpoint_request_timeout: Duration::from_secs(60),
-            adaptive_downloader_config: Default::default(),
-            event_stream_catchup_min_checkpoint_lag: 20_000,
-        }
-    }
-}
 
 /// The position of an event in the event stream. This is a combination of the sequence
 /// number of the Sui checkpoint the event belongs to and the index of the event in the checkpoint.
@@ -184,6 +143,11 @@ impl IndexedStreamEvent {
     pub fn new(element: PositionedStreamEvent, index: u64) -> Self {
         Self { element, index }
     }
+
+    /// Creates a new indexed stream element from an index and an element.
+    pub fn from_index_and_element((index, element): (u64, PositionedStreamEvent)) -> Self {
+        Self { element, index }
+    }
 }
 
 /// An indexed element in the event stream with an initialization state.
@@ -296,4 +260,14 @@ impl Ord for EventStreamCursor {
     fn cmp(&self, other: &Self) -> Ordering {
         self.element_index.cmp(&other.element_index)
     }
+}
+
+/// A stream of events with starting indices for event processing and the event-blob writer.
+pub(crate) struct EventStreamWithStartingIndices<'a> {
+    /// The event stream.
+    pub event_stream: Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'a>>,
+    /// The index of the first event in the stream.
+    pub processing_starting_index: u64,
+    /// The index of the first event in the writer's event stream.
+    pub writer_starting_index: u64,
 }

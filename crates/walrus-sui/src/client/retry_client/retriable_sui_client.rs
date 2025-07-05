@@ -72,7 +72,7 @@ use super::{
 use crate::{
     client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
+    types::move_structs::{Credits, Key, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
 };
 
@@ -844,9 +844,8 @@ impl RetriableSuiClient {
         K: DeserializeOwned + Serialize,
     {
         let key_tag = key_type.to_canonical_string(true);
-        let key_tag =
-            TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
-                .expect("valid type tag");
+        let key_tag = TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{key_tag}>"))
+            .expect("valid type tag");
         let inner_object_id = self.get_dynamic_field(parent, key_tag, key).await?;
         let inner = self.get_sui_object(inner_object_id).await?;
         Ok(inner)
@@ -886,17 +885,10 @@ impl RetriableSuiClient {
         Ok(pkg_id)
     }
 
-    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
-    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
-        &self,
-        subsidies_object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
-        let subsidies_object = self
-            .get_sui_object::<Subsidies>(subsidies_object_id)
-            .await?;
-
-        let pkg_id = subsidies_object.package_id;
-        Ok(pkg_id)
+    /// Checks if the credits object (`subsidies::Subsidies` in Move) exist on chain and returns
+    /// the object.
+    pub(crate) async fn get_credits_object(&self, object_id: ObjectID) -> SuiClientResult<Credits> {
+        self.get_sui_object::<Credits>(object_id).await
     }
 
     /// Returns the package ID from the type of the given object.

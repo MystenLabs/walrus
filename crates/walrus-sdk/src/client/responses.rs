@@ -37,7 +37,7 @@ impl Display for EventOrObjectId {
                 )
             }
             EventOrObjectId::Object(object_id) => {
-                write!(f, "Owned Blob registration object ID: {}", object_id)
+                write!(f, "Owned Blob registration object ID: {object_id}")
             }
         }
     }

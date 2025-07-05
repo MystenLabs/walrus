@@ -11,13 +11,7 @@ use tokio::{
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, InvalidBlobId};
 use walrus_utils::metrics::monitored_scope;
 
-use super::{
-    NodeStatus,
-    StorageNodeInner,
-    blob_sync::BlobSyncHandler,
-    metrics,
-    system_events::EventHandle,
-};
+use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
 use crate::node::{
     storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     system_events::CompletableHandle,
@@ -109,7 +103,7 @@ impl BackgroundEventProcessor {
             // For blob extension events, the original blob certified event should already recover
             // the entire blob, and we can skip the recovery.
             || event.is_extension
-            || self.node.storage.node_status()? == NodeStatus::RecoveryCatchUp
+            || self.node.storage.node_status()?.is_catching_up()
             || self
                 .node
                 .is_stored_at_all_shards_at_epoch(&event.blob_id, self.node.current_event_epoch())

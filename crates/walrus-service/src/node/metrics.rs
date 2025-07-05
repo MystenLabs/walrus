@@ -19,11 +19,12 @@ use walrus_sui::types::{
     DenyListEvent,
     EpochChangeEvent,
     PackageEvent,
+    ProtocolEvent,
 };
 
 use crate::{
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
-    node::events::EventStreamElement,
+    event::events::EventStreamElement,
 };
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
@@ -271,6 +272,14 @@ impl TelemetryLabel for DenyListEvent {
     }
 }
 
+impl TelemetryLabel for ProtocolEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(_) => "protocol-version-updated",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -278,6 +287,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),
+            ContractEvent::ProtocolEvent(event) => event.label(),
         }
     }
 }

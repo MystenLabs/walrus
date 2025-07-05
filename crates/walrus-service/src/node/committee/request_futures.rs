@@ -1002,7 +1002,7 @@ where
                 certificate
             }
             Err(CertificateError::SignatureAggregation(err)) => {
-                panic!("attestations must be verified beforehand: {:?}", err)
+                panic!("attestations must be verified beforehand: {err:?}")
             }
             Err(CertificateError::MessageMismatch) => {
                 panic!("messages must be verified against the same epoch and blob id")

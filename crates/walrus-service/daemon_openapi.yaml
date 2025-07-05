@@ -39,7 +39,18 @@ paths:
         style: form
       - name: deletable
         in: query
-        description: If true, the publisher creates a deletable blob instead of a permanent one.
+        description: |-
+          If true, the publisher creates a deletable blob instead of a permanent one. *This will
+          become the default behavior in the future.*
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: permanent
+        in: query
+        description: |-
+          If true, the publisher creates a permanent blob. This is currently the default behavior;
+          but *in the future, blobs will be deletable by default*.
         required: false
         schema:
           type: boolean
@@ -93,11 +104,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/BlobStoreResult'
         '400':
-          description: The request is malformed
+          description: The blob cannot be defined as both deletable and permanent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '413':
           description: The blob is too large
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as it has been blocked.
           content:
             application/json:
               schema:
@@ -109,7 +124,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         '504':
-          description: ' The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.'
+          description: The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.
           content:
             application/json:
               schema:
@@ -143,13 +158,108 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/blobs/by-quilt-id/{quilt_id}/{identifier}:
+    get:
+      tags:
+      - routes
+      summary: Get blob from quilt by ID and identifier
+      description: Retrieve a specific blob from a quilt using the quilt ID and its identifier. Returns the raw blob bytes, the identifier and other attributes are returned as headers. If the quilt ID or identifier is not found, the response is 404.
+      operationId: get_blob_by_quilt_id_and_identifier
+      parameters:
+      - name: quilt_id
+        in: path
+        description: The quilt ID encoded as URL-safe base64
+        required: true
+        schema:
+          type: string
+        example: rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU
+      - name: identifier
+        in: path
+        description: The identifier of the blob within the quilt
+        required: true
+        schema:
+          type: string
+        example: my-file.txt
+      responses:
+        '200':
+          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '404':
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/blobs/by-quilt-patch-id/{quilt_patch_id}:
+    get:
+      tags:
+      - routes
+      summary: Get blob from quilt
+      description: Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+      operationId: get_blob_by_quilt_patch_id
+      parameters:
+      - name: quilt_patch_id
+        in: path
+        description: The QuiltPatchId encoded as URL-safe base64
+        required: true
+        schema:
+          type: string
+        example: DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw
+      responses:
+        '200':
+          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '404':
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -185,13 +295,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested blob has not yet been stored on Walrus.'
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:

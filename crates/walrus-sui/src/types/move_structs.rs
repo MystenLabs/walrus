@@ -413,8 +413,8 @@ pub enum Authorized {
 impl Display for Authorized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Address(address) => write!(f, "sui address {}", address),
-            Self::Object(object) => write!(f, "object id {}", object),
+            Self::Address(address) => write!(f, "sui address {address}"),
+            Self::Object(object) => write!(f, "object id {object}"),
         }
     }
 }
@@ -851,12 +851,11 @@ impl Display for StakedWalState {
             StakedWalState::Withdrawing(epoch, Some(amount)) => {
                 write!(
                     f,
-                    "Withdrawing: epoch={}, pool token amount={:?}",
-                    epoch, amount
+                    "Withdrawing: epoch={epoch}, pool token amount={amount:?}"
                 )
             }
             StakedWalState::Withdrawing(epoch, None) => {
-                write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
+                write!(f, "Withdrawing: epoch={epoch}, pool token amount=Unknown")
             }
         }
     }
@@ -920,10 +919,19 @@ impl ExchangeRate {
     }
 }
 
-/// Sui type for a subsidies object.
+/// Sui type for a `subsidies::Subsidies` object. Called `Credits` here to avoid confusion with
+/// the new Walrus Subsidies contract.
+///
+// TODO(WAL-908): Add explanation of credits to the docs once they are no longer used as subsidies.
+// Currently, the "credits" are still just the initial version of the subsidies. They are already
+// renamed now to make it easier to actually add the calls to the new subsidies without naming
+// confusion. The reason that we need to keep it in the codebase instead of removing it once we've
+// changed to the new subsidies is that the DevRel team have developed/are developing a credit
+// system (with the same interfaces as the current subsidies contract) for partners to allow them
+// to store blobs on Walrus without the need to actually receive WAL coins directly.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Subsidies {
-    /// The object ID of the subsidies object
+pub struct Credits {
+    /// The object ID of the object
     pub id: ObjectID,
     /// The subsidy rate for blob storage buyers
     pub buyer_subsidy_rate: u16,
@@ -931,14 +939,14 @@ pub struct Subsidies {
     pub system_subsidy_rate: u16,
     /// The total amount of WAL available for subsidies
     pub subsidy_pool: u64,
-    /// The package ID of the subsidies contract
+    /// The package ID of the contract
     pub package_id: ObjectID,
-    /// The version of the subsidies object
+    /// The version of the object
     pub version: u64,
 }
 
-impl AssociatedContractStruct for Subsidies {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::subsidies::Subsidies;
+impl AssociatedContractStruct for Credits {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::credits::Subsidies;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

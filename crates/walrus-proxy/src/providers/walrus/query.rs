@@ -73,7 +73,7 @@ pub fn load_allowlist_from_file(allowlist_path: &Option<PathBuf>) -> Result<Vec<
         tracing::info!("loading allowlist from file: {:?}", path);
         // Read file in yaml format which stores a list of name, network_address, network_public_key
         let nodes: Vec<NodeInfo> = serde_yaml::from_reader(
-            std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
+            std::fs::File::open(path).context(format!("cannot open {path:?}"))?,
         )?;
         for node in nodes.iter() {
             tracing::info!(
@@ -97,10 +97,9 @@ pub async fn get_walrus_nodes(
     staking_object_id: &str,
     allowlist_path: &Option<PathBuf>,
 ) -> Result<Vec<NodeInfo>, Error> {
-    let contract_config = ContractConfig::new_with_subsidies(
+    let contract_config = ContractConfig::new(
         ObjectID::from_hex_literal(system_object_id)?,
         ObjectID::from_hex_literal(staking_object_id)?,
-        None,
     );
     let backoff_config = ExponentialBackoffConfig::default();
     let c: walrus_sui::client::SuiReadClient = walrus_sui::client::SuiReadClient::new_for_rpc_urls(

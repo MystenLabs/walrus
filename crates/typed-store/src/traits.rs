@@ -53,17 +53,20 @@ where
     fn is_empty(&self) -> bool;
 
     /// Same as `iter` but performs status check.
-    fn safe_iter(&'a self) -> Self::SafeIterator;
+    fn safe_iter(&'a self) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Same as `iter_with_bounds` but performs status check.
     fn safe_iter_with_bounds(
         &'a self,
         lower_bound: Option<K>,
         upper_bound: Option<K>,
-    ) -> Self::SafeIterator;
+    ) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Same as `range_iter` but performs status check.
-    fn safe_range_iter(&'a self, range: impl RangeBounds<K>) -> Self::SafeIterator;
+    fn safe_range_iter(
+        &'a self,
+        range: impl RangeBounds<K>,
+    ) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Returns a vector of values corresponding to the keys provided, non-atomically.
     fn multi_get<J>(&self, keys: impl IntoIterator<Item = J>) -> Result<Vec<Option<V>>, Self::Error>

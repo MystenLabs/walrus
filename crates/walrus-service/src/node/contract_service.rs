@@ -642,8 +642,7 @@ fn calculate_protocol_key_action(
         let error_msg = format!(
             "Local protocol key pair does not match remote protocol key pair, \
             please update the protocol key pair to match the remote protocol public key: \
-            local public key: {}, remote public key: {}",
-            local_public_key, remote_public_key
+            local public key: {local_public_key}, remote public key: {remote_public_key}"
         );
 
         let Some(local_next) = &local_next_public_key else {

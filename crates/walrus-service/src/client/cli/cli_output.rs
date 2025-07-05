@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::stdout, num::NonZeroU16, path::PathBuf};
+use std::{
+    io::{Write, stdout},
+    num::NonZeroU16,
+    path::PathBuf,
+};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -9,11 +13,17 @@ use indoc::printdoc;
 use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
-use walrus_core::{BlobId, ShardIndex};
+use walrus_core::{
+    BlobId,
+    ShardIndex,
+    encoding::quilt_encoding::QuiltPatchApi,
+    metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1},
+};
 use walrus_sdk::{
     client::{
+        client_types::StoredQuiltPatch,
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
     format_event_id,
 };
@@ -53,10 +63,12 @@ use crate::client::{
         InfoStorageOutput,
         NodeHealthOutput,
         ReadOutput,
+        ReadQuiltOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
+        StoreQuiltDryRunOutput,
         WalletOutput,
     },
 };
@@ -112,10 +124,10 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
 
         let mut parts = Vec::new();
         if newly_certified > 0 {
-            parts.push(format!("{} newly certified", newly_certified));
+            parts.push(format!("{newly_certified} newly certified"));
         }
         if reuse_and_extend_count > 0 {
-            parts.push(format!("{} extended", reuse_and_extend_count));
+            parts.push(format!("{reuse_and_extend_count} extended"));
         }
 
         if !parts.is_empty() {
@@ -212,7 +224,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     operation_str,
                     blob_object.storage.end_epoch,
                     shared_blob_object
-                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id)),
+                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {id}")),
                     blob_object.encoding_type,
                 )
             }
@@ -236,6 +248,19 @@ impl CliOutput for BlobStoreResultWithPath {
                 )
             }
         }
+    }
+}
+
+impl CliOutput for QuiltStoreResult {
+    fn print_cli_output(&self) {
+        let blob_store_result = BlobStoreResultWithPath {
+            blob_store_result: self.blob_store_result.clone(),
+            path: PathBuf::from("path(s) ignored for quilt store result"),
+        };
+        blob_store_result.print_cli_output();
+
+        let table_output = construct_stored_quilt_patch_table(&self.stored_quilt_blobs);
+        table_output.printstd();
     }
 }
 
@@ -289,6 +314,48 @@ impl CliOutput for DryRunOutput {
     }
 }
 
+/// Get the stored quilt patches from a quilt index.
+fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<StoredQuiltPatch> {
+    quilt_index
+        .patches()
+        .iter()
+        .map(|patch| {
+            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
+        })
+        .collect()
+}
+
+impl CliOutput for StoreQuiltDryRunOutput {
+    fn print_cli_output(&self) {
+        self.quilt_blob_output.print_cli_output();
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.quilt_index,
+            self.quilt_blob_output.blob_id,
+        ))
+        .printstd();
+    }
+}
+
+fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Table {
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(row![
+        b->"Index",
+        b->"QuiltPatchId",
+        b->"Identifier"
+    ]);
+
+    for (i, quilt_patch) in quilt_patches.iter().enumerate() {
+        table.add_row(row![
+            bFc->format!("{i}"),
+            quilt_patch.quilt_patch_id,
+            quilt_patch.identifier
+        ]);
+    }
+
+    table
+}
+
 impl CliOutput for BlobStatusOutput {
     fn print_cli_output(&self) {
         let blob_str = blob_and_file_str(&self.blob_id, &self.file);
@@ -308,7 +375,7 @@ impl CliOutput for BlobStatusOutput {
                     },
             } => {
                 let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!(", initially certified in epoch {}", epoch)
+                    format!(", initially certified in epoch {epoch}")
                 } else {
                     "".to_string()
                 };
@@ -338,7 +405,7 @@ impl CliOutput for BlobStatusOutput {
                 })
                 .bold();
                 let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!("\nInitially certified in epoch: {}", epoch,)
+                    format!("\nInitially certified in epoch: {epoch}",)
                 } else {
                     "".to_string()
                 };
@@ -427,7 +494,7 @@ impl CliOutput for InfoEpochOutput {
                 let end_time = *start_time
                     + chrono::Duration::from_std(*epoch_duration)
                         .expect("any practical epoch duration fits into a chrono::Duration");
-                format!("Start time: {}\nEnd time: {}", start_time, end_time)
+                format!("Start time: {start_time}\nEnd time: {end_time}")
             }
             EpochTimeOrMessage::Message(msg) => msg.clone(),
         };
@@ -933,9 +1000,8 @@ impl NodeHealthOutput {
                                     checkpoint_seq, latest_seq - checkpoint_seq
                                 )
                             } else {
-                                format!("Latest checkpoint sequence number: {}\
-                                \nCheckpoint: up-to-date",
-                                    checkpoint_seq
+                                format!("Latest checkpoint sequence number: {checkpoint_seq}\
+                                \nCheckpoint: up-to-date"
                                 )
                             }
                         },
@@ -944,8 +1010,8 @@ impl NodeHealthOutput {
                             \nLatest sui checkpoint: {}",
                                 health_info
                                     .latest_checkpoint_sequence_number
-                                    .map_or("N/A".to_string(), |seq| format!("{}", seq)),
-                                latest_seq.map_or("N/A".to_string(), |seq| format!("{}", seq))
+                                    .map_or("N/A".to_string(), |seq| format!("{seq}")),
+                                latest_seq.map_or("N/A".to_string(), |seq| format!("{seq}"))
                             )
                         },
                     },
@@ -1010,12 +1076,12 @@ impl CliOutput for ServiceHealthInfoOutput {
             println!("\n{}\n", "Summary".bold().walrus_purple());
             table.printstd();
             println!("\nTotal nodes: {}", self.health_info.len());
-            println!("Owned shards: {}", owned_shards);
-            println!("Read-only shards: {}", read_only_shards);
+            println!("Owned shards: {owned_shards}");
+            println!("Read-only shards: {read_only_shards}");
 
             println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
             for (status, count) in &node_statuses {
-                println!("{}: {}", status, count);
+                println!("{status}: {count}");
             }
         }
     }
@@ -1040,7 +1106,7 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
     if let Some(file) = file {
         format!("{} (file: {})", blob_id, file.display())
     } else {
-        format!("{}", blob_id)
+        format!("{blob_id}")
     }
 }
 
@@ -1127,10 +1193,69 @@ impl CliOutput for GetBlobAttributeOutput {
         if let Some(attribute) = &self.attribute {
             println!("\n{}", "Attribute".bold().walrus_purple());
             for (key, value) in attribute.iter() {
-                println!("{}: {}", key, value);
+                println!("{key}: {value}");
             }
         } else {
             println!("No attribute found");
+        }
+    }
+}
+
+impl CliOutput for QuiltMetadata {
+    fn print_cli_output(&self) {
+        match self {
+            QuiltMetadata::V1(metadata_v1) => metadata_v1.print_cli_output(),
+        }
+    }
+}
+
+impl CliOutput for QuiltMetadataV1 {
+    fn print_cli_output(&self) {
+        println!(
+            "{}: {}",
+            "Quilt Metadata V1".bold().walrus_purple(),
+            self.quilt_id
+        );
+
+        construct_stored_quilt_patch_table(&get_stored_quilt_patches(
+            &self.index.clone().into(),
+            self.quilt_id,
+        ))
+        .printstd();
+    }
+}
+
+impl CliOutput for ReadQuiltOutput {
+    fn print_cli_output(&self) {
+        if let Some(out) = &self.out {
+            println!(
+                "Retrieved {} blobs and saved to directory: {}",
+                self.retrieved_blobs
+                    .len()
+                    .to_string()
+                    .bold()
+                    .walrus_purple(),
+                out.display().to_string().bold().walrus_purple()
+            );
+            for (i, blob) in self.retrieved_blobs.iter().enumerate() {
+                println!("{}. Identifier: {}", i + 1, blob.identifier().bold());
+                if blob.tags().is_empty() {
+                    println!("   Tags: (none)");
+                } else {
+                    println!("   Tags:");
+                    for (key, value) in blob.tags() {
+                        println!("     {key}: {value}");
+                    }
+                }
+                println!();
+            }
+        } else {
+            // TODO(WAL-858): Find a better way to print the blobs to stdout.
+            for blob in &self.retrieved_blobs {
+                if let Err(e) = std::io::stdout().write_all(blob.data()) {
+                    eprintln!("Error writing {} to stdout: {e}", blob.identifier());
+                }
+            }
         }
     }
 }

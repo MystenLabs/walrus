@@ -72,7 +72,7 @@ pub fn load_configuration(
     tracing::info!(
         "using Walrus configuration from '{}' with {} context",
         path.display(),
-        context.map_or("default".to_string(), |c| format!("'{}'", c))
+        context.map_or("default".to_string(), |c| format!("'{c}'"))
     );
     Ok(config)
 }
@@ -247,11 +247,10 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "client_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig {
-            system_object: ObjectID::random_from_rng(&mut rng),
-            staking_object: ObjectID::random_from_rng(&mut rng),
-            subsidies_object: Some(ObjectID::random_from_rng(&mut rng)),
-        };
+        let contract_config = ContractConfig::new(
+            ObjectID::random_from_rng(&mut rng),
+            ObjectID::random_from_rng(&mut rng),
+        );
         let config = ClientConfig {
             contract_config,
             exchange_objects: vec![

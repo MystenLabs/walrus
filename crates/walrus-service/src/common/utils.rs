@@ -48,15 +48,15 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_core::{PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
-    client::{SuiReadClient, contract_config::ContractConfig, retry_client::RetriableSuiClient},
+    client::{contract_config::ContractConfig, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
+use crate::node::config::MetricsPushConfig;
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -89,8 +89,6 @@ macro_rules! version {
     }};
 }
 pub use version;
-
-use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
@@ -206,8 +204,7 @@ where
     let name: String = Deserialize::deserialize(deserializer)?;
     if name.len() > MAX_NODE_NAME_LENGTH {
         return Err(D::Error::custom(format!(
-            "Node name must not exceed {} characters",
-            MAX_NODE_NAME_LENGTH
+            "Node name must not exceed {MAX_NODE_NAME_LENGTH} characters"
         )));
     }
     Ok(name)
@@ -711,77 +708,6 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber(None)?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
-}
-
-/// Downloads event blobs for catchup purposes.
-///
-/// This function creates a client to download event blobs up to a specified
-/// checkpoint. The blobs are stored in the provided recovery path.
-#[cfg(feature = "client")]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    use walrus_sui::client::contract_config::ContractConfig;
-
-    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
-    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let walrus_client =
-        create_walrus_client_with_refresher(contract_config.clone(), sui_read_client.clone())
-            .await?;
-
-    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
-    let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path, metrics)
-        .await?;
-
-    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
-    Ok(blob_ids)
-}
-
-/// Placeholder function for when the client feature is not enabled.
-#[cfg(not(feature = "client"))]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    _metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    Ok(vec![])
-}
-
-/// Returns whether a node cursor should be repositioned.
-///
-/// The node cursor should be repositioned if it is behind the actual event index and it is at
-/// the beginning of the event stream.
-///
-/// - `event_index`: The index of the next event the node needs to process.
-/// - `actual_event_index`: The index of the first event available in the current event stream.
-///
-/// Usually, these indices match up, meaning the node picks up processing right where it left
-/// off. However, there's a special case during node bootstrapping (when starting with no
-/// previous state) and event processor bootstrapping itself from event blobs:
-///
-/// When a node starts up for the first time, older event blobs might have expired due to the
-/// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
-/// 0).
-///
-/// In this case, the event stream can only provide events starting from index N. But the node,
-/// being brand new, wants to start processing from index 0. In this scenario, we actually want
-/// to reposition the node's cursor to index N. This is safe because those events are no longer
-/// available in the system anyway (they've expired), and marking them as completed prevents the
-/// event tracking system from flagging this natural gap as an error.
-pub fn should_reposition_cursor(event_index: u64, actual_event_index: u64) -> bool {
-    let is_behind = event_index < actual_event_index;
-    let is_at_beginning = event_index == 0;
-    is_behind && is_at_beginning
 }
 
 /// Wait for SIGINT and SIGTERM (unix only).

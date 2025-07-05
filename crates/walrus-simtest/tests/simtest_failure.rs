@@ -18,8 +18,6 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng, thread_rng};
-    use sui_macros::{clear_fail_point, register_fail_point_async, register_fail_point_if};
-    use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
@@ -40,13 +38,6 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn walrus_with_single_node_crash_and_restart() {
-        let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
-            // TODO: remove once Sui simtest can work with these features.
-            config.set_enable_jwk_consensus_updates_for_testing(false);
-            config.set_random_beacon_for_testing(false);
-            config
-        });
-
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
@@ -92,6 +83,8 @@ mod tests {
                 false,
                 false,
                 &mut blobs_written,
+                0,
+                None,
             )
             .await
             .expect("workload should not fail");
@@ -113,6 +106,8 @@ mod tests {
                     false,
                     false,
                     &mut blobs_written,
+                    0,
+                    None,
                 )
                 .await
                 .expect("workload should not fail");
@@ -237,7 +232,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -294,8 +290,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -406,7 +401,7 @@ mod tests {
         // certified blob events require blob recovery, and mix with epoch change.
         let cause_target_shard_slow_processing_event = thread_rng().gen_bool(0.5);
         if cause_target_shard_slow_processing_event {
-            register_fail_point_async("epoch_change_start_entry", move || async move {
+            sui_macros::register_fail_point_async("epoch_change_start_entry", move || async move {
                 if sui_simulator::current_simnode_id() == target_fail_node_id {
                     tokio::time::sleep(Duration::from_secs(
                         rand::rngs::StdRng::from_entropy().gen_range(2..=7),
@@ -416,36 +411,27 @@ mod tests {
             });
         }
 
-        let client_arc = Arc::new(client);
-        let client_clone = client_arc.clone();
-
-        // First, we inject some data into the cluster. Note that to control the test duration, we
-        // stopped the workload once started crashing the node.
-        let mut data_length = 64;
-        let workload_start_time = Instant::now();
-        let mut blobs_written = HashSet::new();
-        loop {
-            if workload_start_time.elapsed() > Duration::from_secs(20) {
-                tracing::info!("generated 60s of data; stopping workload");
-                break;
-            }
-            tracing::info!("writing data with size {data_length}");
-
-            // TODO(#995): use stress client for better coverage of the workload.
-            simtest_utils::write_read_and_check_random_blob(
-                client_clone.as_ref(),
-                data_length,
-                true,
-                false,
-                &mut blobs_written,
-            )
-            .await
-            .expect("workload should not fail");
-
-            tracing::info!("finished writing data with size {data_length}");
-
-            data_length += 1;
+        // 20% of the test cases, we trigger a fail point to make blob recovery slower.
+        if rand::thread_rng().gen_bool(0.2) {
+            tracing::info!(
+                "triggering fail point fail_point_recover_sliver_before_put_sliver, make \
+                blob recovery slower"
+            );
+            sui_macros::register_fail_point_async(
+                "fail_point_recover_sliver_before_put_sliver",
+                move || async move {
+                    if sui_simulator::current_simnode_id() == target_fail_node_id {
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                    }
+                },
+            );
         }
+
+        let client_arc = Arc::new(client);
+
+        // Use a higher write retry limit given that the epoch duration is short.
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), true, 5, None);
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
@@ -460,19 +446,29 @@ mod tests {
         });
 
         // We probabilistically trigger a shard move to the crashed node to test the recovery.
-        // The additional stake assigned are randomly chosen between 2 and 5 times of the original
+        // The additional stake assigned are randomly chosen between 2 and 10 times of the original
         // stake the per-node.
-        let shard_move_weight = rand::thread_rng().gen_range(2..=5);
+        let shard_move_weight = rand::thread_rng().gen_range(2..=10);
+
+        // 30% of the time, we move shards to the crashed node. The other 70% of the time, we move
+        // shards to a different node.
+        let node_index_to_move = if thread_rng().gen_bool(0.3) {
+            node_index_to_crash
+        } else {
+            thread_rng().gen_range(0..walrus_cluster.nodes.len())
+        };
+
         tracing::info!(
-            "triggering shard move with stake weight {}",
-            shard_move_weight
+            "triggering shard move with stake weight {}, target node {}",
+            shard_move_weight,
+            node_index_to_move
         );
 
         client_arc
             .as_ref()
             .as_ref()
             .stake_with_node_pool(
-                walrus_cluster.nodes[node_index_to_crash]
+                walrus_cluster.nodes[node_index_to_move]
                     .storage_node_capability
                     .as_ref()
                     .unwrap()
@@ -484,6 +480,8 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(3 * 60)).await;
 
+        workload_handle.abort();
+
         // Check the final state of storage node after a few crash and recovery.
         let mut last_persist_event_index = 0;
         let mut last_persisted_event_time = Instant::now();
@@ -493,7 +491,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                     .await;
             tracing::info!(
                 "event progress: persisted {:?}, pending {:?}",
@@ -502,7 +500,7 @@ mod tests {
             );
             if last_persist_event_index == node_health_info[0].event_progress.persisted {
                 // We expect that there shouldn't be any stuck event progress.
-                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(15));
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(30));
             } else {
                 last_persist_event_index = node_health_info[0].event_progress.persisted;
                 last_persisted_event_time = Instant::now();
@@ -512,7 +510,7 @@ mod tests {
 
         // And finally the node should be in Active state.
         assert_eq!(
-            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[node_index_to_crash]])
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[node_index_to_crash]])
                 .await
                 .get(0)
                 .unwrap()
@@ -523,7 +521,7 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
 
         if cause_target_shard_slow_processing_event {
-            clear_fail_point("epoch_change_start_entry");
+            sui_macros::clear_fail_point("epoch_change_start_entry");
         }
     }
 
@@ -553,7 +551,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(20)).await;
 
-        register_fail_point_if("fail_point_current_checkpoint_lag_error", move || true);
+        sui_macros::register_fail_point_if("fail_point_current_checkpoint_lag_error", move || true);
 
         // Make sure that checkpoint downloader is continuing making progress.
         let mut last_checkpoint_seq_number = 0;
@@ -564,7 +562,7 @@ mod tests {
                 break;
             }
             let node_health_info =
-                simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
+                simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
             tracing::info!(
                 "last checkpoint seq number in node 0: {:?}",
                 node_health_info[0].latest_checkpoint_sequence_number,
@@ -650,7 +648,8 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node is lagging behind.
-        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -700,8 +699,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
-        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -744,7 +742,144 @@ mod tests {
         );
 
         blob_info_consistency_check.check_storage_node_consistency();
-        clear_fail_point("before-process-event-impl");
-        clear_fail_point("fail-point-enter-recovery-mode");
+        sui_macros::clear_fail_point("before-process-event-impl");
+        sui_macros::clear_fail_point("fail-point-enter-recovery-mode");
+    }
+
+    /// Waits for all nodes to download checkpoints up to the specified sequence number
+    async fn wait_for_nodes_at_checkpoint(
+        node_refs: &[&SimStorageNodeHandle],
+        target_sequence_number: u64,
+        timeout: Duration,
+    ) -> Result<(), anyhow::Error> {
+        let start_time = Instant::now();
+        let poll_interval = Duration::from_secs(1);
+        let mut nodes_to_check: Vec<&SimStorageNodeHandle> = node_refs.iter().copied().collect();
+
+        tracing::info!(
+            "Waiting for all nodes to download checkpoint up to sequence number: {}",
+            target_sequence_number
+        );
+
+        while !nodes_to_check.is_empty() {
+            if start_time.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout waiting for nodes to download checkpoint.",
+                ));
+            }
+
+            let node_health_infos =
+                simtest_utils::get_nodes_health_info(nodes_to_check.clone()).await;
+
+            let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
+                .iter()
+                .zip(nodes_to_check.iter())
+                .filter_map(
+                    |(info, node)| match info.latest_checkpoint_sequence_number {
+                        Some(seq) if seq < target_sequence_number => Some(*node),
+                        None => Some(*node),
+                        _ => None,
+                    },
+                )
+                .collect();
+
+            nodes_to_check = lagging_nodes;
+
+            tokio::time::sleep(poll_interval).await;
+        }
+
+        Ok(())
+    }
+
+    /// This test verifies that the node can correctly download checkpoints from
+    /// additional fullnodes.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_checkpoint_downloader_with_additional_fullnodes() {
+        let checkpoints_per_event_blob = 20;
+        let (sui_cluster, mut walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(15))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![2, 2, 3, 3, 3],
+                ..Default::default()
+            })
+            .with_num_checkpoints_per_blob(checkpoints_per_event_blob)
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_additional_fullnodes(4)
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        // Register a fail point that will fail the first attempt.
+        sui_macros::register_fail_point_if("fallback_client_inject_error", move || true);
+        let primary_rpc_url = sui_cluster.lock().await.rpc_url();
+        let primary_rpc_url_clone = primary_rpc_url.clone();
+
+        // Always fail sui client creation for the primary rpc node.
+        sui_macros::register_fail_point_arg(
+            "failpoint_sui_client_build_client",
+            move || -> Option<String> { Some(primary_rpc_url.clone()) },
+        );
+
+        // Always fail rpc client creation for the primary rpc node.
+        sui_macros::register_fail_point_arg(
+            "failpoint_rpc_client_build_client",
+            move || -> Option<String> { Some(primary_rpc_url_clone.clone()) },
+        );
+
+        tracing::info!(
+            "Additional fullnodes: {:?}",
+            sui_cluster.lock().await.additional_rpc_urls()
+        );
+        let client_arc = Arc::new(client);
+
+        // Restart all nodes, this should still form a cluster with all nodes running.
+        simtest_utils::restart_nodes_with_checkpoints(&mut walrus_cluster, |_| {
+            checkpoints_per_event_blob
+        })
+        .await;
+
+        // Wait for the cluster to process some events.
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        // Get the latest checkpoint from Sui.
+        let rpc_client =
+            sui_rpc_api::Client::new(sui_cluster.lock().await.additional_rpc_urls()[0].clone())
+                .expect("Failed to create RPC client");
+        let latest_sui_checkpoint = rpc_client
+            .get_latest_checkpoint()
+            .await
+            .expect("Failed to get latest checkpoint from Sui");
+
+        let latest_sui_checkpoint_seq = latest_sui_checkpoint.sequence_number;
+        tracing::info!(
+            "Latest Sui checkpoint sequence number: {}",
+            latest_sui_checkpoint_seq
+        );
+        workload_handle.abort();
+
+        // Get the highest processed event and checkpoint for each storage node.
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_infos = simtest_utils::get_nodes_health_info(node_refs.clone()).await;
+
+        tracing::info!("Node health infos: {:?}", node_health_infos);
+
+        wait_for_nodes_at_checkpoint(
+            &node_refs,
+            latest_sui_checkpoint_seq,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("All nodes should have downloaded the checkpoint");
+
+        sui_macros::clear_fail_point("fallback_client_inject_error");
+        sui_macros::clear_fail_point("failpoint_sui_client_build_client");
+        sui_macros::clear_fail_point("failpoint_rpc_client_build_client");
     }
 }

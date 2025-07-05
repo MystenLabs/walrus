@@ -298,7 +298,7 @@ async fn new_committee_unavailable_for_reads_until_transition_completes() -> Tes
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_and_verify_metadata(*expected_metadata.blob_id(), 0);
     let mut pending_request = std::pin::pin!(pending_request);
 
@@ -544,7 +544,7 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request = committee_service.recover_sliver(
+    let pending_request = committee_service.recover_sliver(
         metadata.into(),
         target_sliver_index.into(),
         SliverType::Primary,
@@ -621,7 +621,7 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
     let mut pending_request = std::pin::pin!(pending_request);
 
@@ -686,7 +686,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
     let mut pending_request = std::pin::pin!(pending_request);
 

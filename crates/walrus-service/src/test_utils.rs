@@ -24,6 +24,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{StreamExt, future, stream::FuturesUnordered};
+use itertools::izip;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -37,6 +38,7 @@ use typed_store::{Map, rocks::MetricConf};
 use walrus_core::{
     BlobId,
     Epoch,
+    EpochCount,
     InconsistencyProof as InconsistencyProofEnum,
     NetworkPublicKey,
     PublicKey,
@@ -61,7 +63,7 @@ use walrus_sui::{
         SuiClientError,
         retry_client::RetriableRpcClient,
     },
-    test_utils::system_setup::SystemContext,
+    test_utils::system_setup::{DEFAULT_MAX_EPOCHS_AHEAD, SystemContext},
     types::{
         Committee,
         ContractEvent,
@@ -79,39 +81,40 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
 #[cfg(msim)]
-use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
-use crate::node::{
-    DatabaseConfig,
-    Storage,
-    StorageNode,
-    committee::{
-        BeginCommitteeChangeError,
-        CommitteeLookupService,
-        CommitteeService,
-        DefaultNodeServiceFactory,
-        EndCommitteeChangeError,
-        NodeCommitteeService,
+use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
+#[cfg(msim)]
+use crate::node::ConfigLoader;
+use crate::{
+    event::{
+        event_processor::{config::EventProcessorConfig, processor::EventProcessor},
+        events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
-    config::{
-        self,
-        BlobEventProcessorConfig,
-        ConfigSynchronizerConfig,
-        NodeRecoveryConfig,
-        ShardSyncConfig,
-        StorageNodeConfig,
+    node::{
+        DatabaseConfig,
+        Storage,
+        StorageNode,
+        committee::{
+            BeginCommitteeChangeError,
+            CommitteeLookupService,
+            CommitteeService,
+            DefaultNodeServiceFactory,
+            EndCommitteeChangeError,
+            NodeCommitteeService,
+        },
+        config::{
+            self,
+            BlobEventProcessorConfig,
+            ConfigSynchronizerConfig,
+            NodeRecoveryConfig,
+            ShardSyncConfig,
+            StorageNodeConfig,
+        },
+        consistency_check::StorageNodeConsistencyCheckConfig,
+        contract_service::SystemContractService,
+        errors::{SyncNodeConfigError, SyncShardClientError},
+        server::{RestApiConfig, RestApiServer},
+        system_events::{EventManager, EventRetentionManager, SystemEventProvider},
     },
-    consistency_check::StorageNodeConsistencyCheckConfig,
-    contract_service::SystemContractService,
-    errors::{SyncNodeConfigError, SyncShardClientError},
-    events::{
-        CheckpointEventPosition,
-        EventStreamCursor,
-        InitState,
-        PositionedStreamEvent,
-        event_processor::EventProcessor,
-    },
-    server::{RestApiConfig, RestApiServer},
-    system_events::{EventManager, EventRetentionManager, SystemEventProvider},
 };
 
 /// Default buyer subsidy rate (5%)
@@ -461,6 +464,9 @@ impl SimStorageNodeHandle {
                                     10,
                                 )));
                             } else {
+                                // TODO(WAL-912): we need to alert the test if the node is stopped
+                                // unexpectedly. Currently, node crashing may not be noticed and
+                                // the test will hang.
                                 tracing::info!("node stopped with error: {e}");
                             }
                         }
@@ -528,7 +534,7 @@ impl SimStorageNodeHandle {
                 rpc_fallback_config: None,
                 db_config: DatabaseConfig::default(),
             };
-            let system_config = crate::node::events::event_processor::SystemConfig {
+            let system_config = SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
                 staking_object_id: sui_config.contract_config.staking_object,
                 system_pkg_id: sui_read_client.get_system_package_id(),
@@ -606,7 +612,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
     }
 
     fn storage_node(&self) -> &Arc<StorageNode> {
-        // Storage node state changes everytime the node restarts.
+        // Storage node state changes every time the node restarts.
         unimplemented!("simulation test does not have a stable internal state.")
     }
 
@@ -682,6 +688,8 @@ pub struct StorageNodeHandleBuilder {
     num_checkpoints_per_blob: Option<u32>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    max_epochs_ahead: Option<u32>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -837,6 +845,21 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the event stream catchup min checkpoint lag for the node.
+    pub fn with_event_stream_catchup_min_checkpoint_lag(
+        mut self,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    ) -> Self {
+        self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
+        self
+    }
+
+    /// Specify the max epochs ahead for the node.
+    pub fn with_max_epochs_ahead(mut self, max_epochs_ahead: EpochCount) -> Self {
+        self.max_epochs_ahead = Some(max_epochs_ahead);
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -890,7 +913,7 @@ impl StorageNodeHandleBuilder {
             Arc::new(StubContractService {
                 system_parameters: FixedSystemParameters {
                     n_shards: committee_service.active_committees().n_shards(),
-                    max_epochs_ahead: 200,
+                    max_epochs_ahead: self.max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
                 },
@@ -920,6 +943,16 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
+            event_processor_config: if let Some(event_stream_catchup_min_checkpoint_lag) =
+                self.event_stream_catchup_min_checkpoint_lag
+            {
+                EventProcessorConfig {
+                    event_stream_catchup_min_checkpoint_lag,
+                    ..Default::default()
+                }
+            } else {
+                Default::default()
+            },
             ..storage_node_config().inner
         };
 
@@ -939,7 +972,7 @@ impl StorageNodeHandleBuilder {
             );
             wait_for_event_processor_to_start(
                 event_processor.clone(),
-                event_processor.client.clone(),
+                event_processor.client_manager.rpc_client.clone(),
             )
             .await?;
         }
@@ -1062,7 +1095,20 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
             public_port: node_info.rest_api_address.port(),
-            event_processor_config: Default::default(),
+            event_processor_config: EventProcessorConfig {
+                event_stream_catchup_min_checkpoint_lag: if let Some(
+                    event_stream_catchup_min_checkpoint_lag,
+                ) =
+                    self.event_stream_catchup_min_checkpoint_lag
+                {
+                    event_stream_catchup_min_checkpoint_lag
+                } else {
+                    // Use low checkpoint lag so that we can exercise using event blobs to catch up
+                    // in simtest.
+                    200
+                },
+                ..Default::default()
+            },
             use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
@@ -1154,6 +1200,8 @@ impl Default for StorageNodeHandleBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            event_stream_catchup_min_checkpoint_lag: None,
+            max_epochs_ahead: None,
         }
     }
 }
@@ -1503,7 +1551,7 @@ impl SystemContractService for StubContractService {
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        Ok(self.system_parameters.clone())
+        Ok(self.system_parameters)
     }
 
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
@@ -1707,6 +1755,8 @@ pub struct TestClusterBuilder {
     disable_event_blob_writer: Vec<bool>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    max_epochs_ahead: Option<EpochCount>,
 }
 
 impl TestClusterBuilder {
@@ -1896,6 +1946,21 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the event stream catchup min checkpoint lag for all storage nodes.
+    pub fn with_event_stream_catchup_min_checkpoint_lag(
+        mut self,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
+    ) -> Self {
+        self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
+        self
+    }
+
+    /// Sets the max epochs ahead for the cluster.
+    pub fn with_max_epochs_ahead(mut self, max_epochs_ahead: EpochCount) -> Self {
+        self.max_epochs_ahead = Some(max_epochs_ahead);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let committee_members: Vec<_> = self
@@ -1915,66 +1980,88 @@ impl TestClusterBuilder {
         let mut lookup_service_and_handle = None;
         let mut node_futures = vec![];
 
-        for (
-            idx,
-            (
-                (
-                    (
-                        (
-                            ((((config, event_provider), service), contract_service), capability),
-                            node_wallet_dir,
-                        ),
-                        start_node_from_beginning,
-                    ),
-                    blocklist_file,
-                ),
+        // Helper struct to extract per node setup configurations from the builder.
+        struct NodeSetup {
+            storage_node_config: StorageNodeTestConfig,
+            event_provider: Option<Box<dyn SystemEventProvider>>,
+            committee_service: Option<Arc<dyn CommitteeService>>,
+            contract_service: Option<Arc<dyn SystemContractService>>,
+            storage_capability: Option<StorageNodeCap>,
+            node_wallet_dir: Option<PathBuf>,
+            start_node_from_beginning: bool,
+            blocklist_file: Option<PathBuf>,
+            disable_event_blob_writer: bool,
+        }
+
+        let node_setups = izip!(
+            self.storage_node_configs.into_iter(),
+            self.event_providers.into_iter(),
+            self.committee_services.into_iter(),
+            self.contract_services.into_iter(),
+            self.storage_capabilities.into_iter(),
+            self.node_wallet_dirs.into_iter(),
+            self.start_node_from_beginning.into_iter(),
+            self.blocklist_files.into_iter(),
+            self.disable_event_blob_writer.into_iter()
+        )
+        .map(
+            |(
+                storage_node_config,
+                event_provider,
+                committee_service,
+                contract_service,
+                storage_capability,
+                node_wallet_dir,
+                start_node_from_beginning,
+                blocklist_file,
                 disable_event_blob_writer,
-            ),
-        ) in self
-            .storage_node_configs
-            .into_iter()
-            .zip(self.event_providers.into_iter())
-            .zip(self.committee_services.into_iter())
-            .zip(self.contract_services.into_iter())
-            .zip(self.storage_capabilities.into_iter())
-            .zip(self.node_wallet_dirs.into_iter())
-            .zip(self.start_node_from_beginning.into_iter())
-            .zip(self.blocklist_files.into_iter())
-            .zip(self.disable_event_blob_writer.into_iter())
-            .enumerate()
-        {
-            let storage = empty_storage_with_shards(&config.shards).await;
-            let local_identity = config.key_pair.public().clone();
-            let builder = StorageNodeHandle::builder()
+            )| NodeSetup {
+                storage_node_config,
+                event_provider,
+                committee_service,
+                contract_service,
+                storage_capability,
+                node_wallet_dir,
+                start_node_from_beginning,
+                blocklist_file,
+                disable_event_blob_writer,
+            },
+        )
+        .collect::<Vec<_>>();
+
+        for (idx, node_setup) in node_setups.into_iter().enumerate() {
+            let storage = empty_storage_with_shards(&node_setup.storage_node_config.shards).await;
+            let local_identity = node_setup.storage_node_config.key_pair.public().clone();
+            let mut builder = StorageNodeHandle::builder()
                 .with_storage(storage)
-                .with_test_config(config)
+                .with_test_config(node_setup.storage_node_config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
-                .with_storage_node_capability(capability)
-                .with_node_wallet_dir(node_wallet_dir)
-                .with_blocklist_file(blocklist_file)
+                .with_storage_node_capability(node_setup.storage_capability)
+                .with_node_wallet_dir(node_setup.node_wallet_dir)
+                .with_blocklist_file(node_setup.blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
-                .with_disabled_event_blob_writer(disable_event_blob_writer)
+                .with_disabled_event_blob_writer(node_setup.disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
-                .with_name(format!("node-{}", idx));
+                .with_event_stream_catchup_min_checkpoint_lag(
+                    self.event_stream_catchup_min_checkpoint_lag,
+                )
+                .with_name(format!("node-{idx}"));
             tracing::info!(
                 "test cluster builder build enable_node_config_synchronizer: {}",
                 self.enable_node_config_synchronizer
             );
 
-            let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
-            {
-                builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
-            } else {
-                builder
-            };
+            if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
+                builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+            }
 
-            if let Some(provider) = event_provider {
+            if let Some(provider) = node_setup.event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
             }
 
-            builder = if let Some(service) = service {
+            builder = if let Some(service) = node_setup.committee_service {
                 builder.with_committee_service(service)
             } else {
                 let (lookup_service, _) = lookup_service_and_handle.get_or_insert_with(|| {
@@ -1994,8 +2081,12 @@ impl TestClusterBuilder {
                 builder.with_committee_service(Arc::new(service))
             };
 
-            if let Some(service) = contract_service {
+            if let Some(service) = node_setup.contract_service {
                 builder = builder.with_system_contract_service(service);
+            }
+
+            if let Some(max_epochs_ahead) = self.max_epochs_ahead {
+                builder = builder.with_max_epochs_ahead(max_epochs_ahead);
             }
 
             // Build and run the storage nodes in parallel.
@@ -2006,8 +2097,8 @@ impl TestClusterBuilder {
                 nondeterministic!(
                     tempfile::tempdir().expect("temporary directory creation must succeed")
                 ),
-                start_node_from_beginning,
-                disable_event_blob_writer,
+                node_setup.start_node_from_beginning,
+                node_setup.disable_event_blob_writer,
             ));
         }
 
@@ -2017,7 +2108,7 @@ impl TestClusterBuilder {
             .into_iter()
             .enumerate()
             .map(|(idx, result)| {
-                result.with_context(|| format!("Failed to start storage node {}", idx))
+                result.with_context(|| format!("Failed to start storage node {idx}"))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -2142,6 +2233,8 @@ impl Default for TestClusterBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            event_stream_catchup_min_checkpoint_lag: None,
+            max_epochs_ahead: None,
         }
     }
 }
@@ -2294,13 +2387,12 @@ pub mod test_cluster {
     };
 
     use super::*;
-    use crate::node::{
-        committee::DefaultNodeServiceFactory,
-        contract_service::SuiSystemContractService,
-        events::{
-            EventProcessorConfig,
-            event_processor::{EventProcessorRuntimeConfig, SystemConfig},
+    use crate::{
+        event::event_processor::{
+            config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
         },
+        node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
 
     /// The weight of each storage node in the test cluster.
@@ -2316,12 +2408,14 @@ pub mod test_cluster {
         test_nodes_config: Option<TestNodesConfig>,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: Option<ClientCommunicationConfig>,
-        with_subsidies: bool,
+        with_credits: bool,
         deploy_directory: Option<PathBuf>,
         delegate_governance_to_admin_wallet: bool,
         #[allow(unused)]
         num_additional_fullnodes: Option<usize>,
         contract_directory: Option<PathBuf>,
+        event_stream_catchup_min_checkpoint_lag: Option<u64>,
+        max_epochs_ahead: Option<u32>,
     }
 
     impl Default for E2eTestSetupBuilder {
@@ -2329,13 +2423,15 @@ pub mod test_cluster {
             Self {
                 epoch_duration: None,
                 test_nodes_config: None,
-                num_checkpoints_per_blob: Some(10),
+                num_checkpoints_per_blob: Some(100),
                 communication_config: None,
-                with_subsidies: false,
+                with_credits: false,
                 deploy_directory: None,
                 delegate_governance_to_admin_wallet: false,
                 num_additional_fullnodes: None,
                 contract_directory: None,
+                event_stream_catchup_min_checkpoint_lag: None,
+                max_epochs_ahead: None,
             }
         }
     }
@@ -2422,8 +2518,8 @@ pub mod test_cluster {
                 Duration::from_secs(0),
                 self.epoch_duration
                     .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
-                None,
-                self.with_subsidies,
+                self.max_epochs_ahead,
+                self.with_credits,
                 self.deploy_directory,
                 self.contract_directory,
             )
@@ -2480,11 +2576,11 @@ pub mod test_cluster {
                 })
                 .await?;
 
-            if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
-                let (subsidies_object_id, _) = admin_contract_client
+            if let Some(pkg_id) = system_ctx.credits_pkg_id {
+                let (credits_object_id, _) = admin_contract_client
                     .as_ref()
-                    .create_and_fund_subsidies(
-                        subsidies_pkg_id,
+                    .create_and_fund_credits(
+                        pkg_id,
                         DEFAULT_BUYER_SUBSIDY_RATE,
                         DEFAULT_SYSTEM_SUBSIDY_RATE,
                         DEFAULT_SUBSIDY_FUNDS,
@@ -2494,7 +2590,7 @@ pub mod test_cluster {
                 admin_contract_client
                     .inner
                     .read_client()
-                    .set_subsidies_object(subsidies_object_id)
+                    .set_credits_object(credits_object_id)
                     .await?;
             }
 
@@ -2557,7 +2653,7 @@ pub mod test_cluster {
                 .with_system_contract_services(node_contract_services);
 
             let event_processor_config = Default::default();
-            let cluster_builder = if test_nodes_config.use_legacy_event_processor {
+            let mut cluster_builder = if test_nodes_config.use_legacy_event_processor {
                 setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
             } else {
                 setup_checkpoint_based_event_processors(
@@ -2571,21 +2667,16 @@ pub mod test_cluster {
                 .await?
             };
 
-            let cluster_builder =
-                if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
-                    cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
-                } else {
-                    cluster_builder
-                };
+            if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
+                cluster_builder =
+                    cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+            }
 
-            let cluster_builder =
-                if let Some(node_recovery_config) = test_nodes_config.node_recovery_config {
-                    cluster_builder.with_node_recovery_config(node_recovery_config)
-                } else {
-                    cluster_builder
-                };
+            if let Some(node_recovery_config) = test_nodes_config.node_recovery_config {
+                cluster_builder = cluster_builder.with_node_recovery_config(node_recovery_config);
+            }
 
-            let cluster_builder = cluster_builder
+            cluster_builder = cluster_builder
                 .with_system_context(system_ctx.clone())
                 .with_sui_rpc_urls(sui_rpc_urls)
                 .with_storage_capabilities(storage_capabilities)
@@ -2600,6 +2691,9 @@ pub mod test_cluster {
                 .with_blocklist_files(blocklist_files)
                 .with_enable_node_config_synchronizer(
                     test_nodes_config.enable_node_config_synchronizer,
+                )
+                .with_event_stream_catchup_min_checkpoint_lag(
+                    self.event_stream_catchup_min_checkpoint_lag,
                 );
             let cluster = {
                 // Lock to avoid race conditions.
@@ -2665,9 +2759,9 @@ pub mod test_cluster {
             self
         }
 
-        /// Deploy the system with subsidies.
-        pub fn with_subsidies(mut self) -> Self {
-            self.with_subsidies = true;
+        /// Deploy the system with credits.
+        pub fn with_credits(mut self) -> Self {
+            self.with_credits = true;
             self
         }
 
@@ -2694,6 +2788,21 @@ pub mod test_cluster {
         /// Set the source directory of the contracts to be deployed.
         pub fn with_contract_directory(mut self, contract_directory: PathBuf) -> Self {
             self.contract_directory = Some(contract_directory);
+            self
+        }
+
+        /// Set the event stream catchup min checkpoint lag for the nodes in the cluster.
+        pub fn with_event_stream_catchup_min_checkpoint_lag(
+            mut self,
+            event_stream_catchup_min_checkpoint_lag: Option<u64>,
+        ) -> Self {
+            self.event_stream_catchup_min_checkpoint_lag = event_stream_catchup_min_checkpoint_lag;
+            self
+        }
+
+        /// Set the max epochs ahead for the cluster.
+        pub fn with_max_epochs_ahead(mut self, max_epochs_ahead: EpochCount) -> Self {
+            self.max_epochs_ahead = Some(max_epochs_ahead);
             self
         }
     }

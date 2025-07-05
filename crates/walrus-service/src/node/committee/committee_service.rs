@@ -265,8 +265,7 @@ where
                 .set_committee_for_next_epoch(next_committee)
                 .unwrap_or_else(|error| {
                     panic!(
-                        "committee for the next epoch cannot change after being fetched: {}",
-                        error
+                        "committee for the next epoch cannot change after being fetched: {error}"
                     );
                 });
 
