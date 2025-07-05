@@ -709,6 +709,7 @@ pub struct PublisherQuery {
     /// The quilt version to use (for quilt endpoints only).
     /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_quilt_version")]
     pub quilt_version: Option<QuiltVersionEnum>,
 
     #[serde(flatten, default)]
@@ -796,9 +797,9 @@ pub struct QuiltPatchMetadata {
 ///
 /// # Examples
 ///
-/// ## Blobs without Walrus-native metadata
+/// ## Blobs without Walrus-native metadata, with quilt version V1
 /// ```bash
-/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=v1" \
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
 ///   -F "contract-v2=@document.pdf" \
 ///   -F "logo-2024=@image.png"
 /// ```
@@ -946,6 +947,15 @@ async fn parse_multipart_quilt(
     }
 
     Ok(res)
+}
+
+/// Custom deserializer for QuiltVersionEnum that uses From<String>
+fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_str: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt_str.map(QuiltVersionEnum::from))
 }
 
 #[cfg(test)]

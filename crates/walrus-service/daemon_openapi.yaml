@@ -330,9 +330,9 @@ paths:
 
         # Examples
 
-        ## Blobs without Walrus-native metadata
+        ## Blobs without Walrus-native metadata, with quilt version V1
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=v1" \
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
           -F "contract-v2=@document.pdf" \
           -F "logo-2024=@image.png"
         ```
