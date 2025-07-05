@@ -441,7 +441,7 @@ public(package) fun destroy_empty_pool(
     self.pools.remove(node_id).destroy_empty()
 }
 
-/// Stakes the given amount of `T` with the pool, returning the `StakedWal`.
+/// Stakes the given amount of `WAL` with the pool, returning the `StakedWal`.
 public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
     to_stake: Coin<WAL>,
@@ -703,6 +703,17 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
+/// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+public(package) fun add_commission_to_pools(
+    self: &mut StakingInnerV1,
+    node_ids: vector<ID>,
+    commissions: vector<Balance<WAL>>,
+) {
+    node_ids.zip_do!(commissions, |node_id, commission| {
+        self.pools[node_id].add_commission(commission)
+    });
+}
+
 // === Accessors ===
 
 /// Returns the metadata of the node with the given `ID`.
@@ -837,6 +848,11 @@ public(package) fun borrow(self: &StakingInnerV1, node_id: ID): &StakingPool {
 /// Get mutable reference to the pool with the given `ID`.
 public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut StakingPool {
     &mut self.pools[node_id]
+}
+
+#[test_only]
+public(package) fun pool_commission(self: &StakingInnerV1, node_id: ID): u64 {
+    self.pools[node_id].commission_amount()
 }
 
 #[test_only]

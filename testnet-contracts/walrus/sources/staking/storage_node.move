@@ -107,7 +107,7 @@ public fun last_epoch_sync_done(cap: &StorageNodeCap): u32 {
     cap.last_epoch_sync_done
 }
 
-/// Return the latest event blob attestion.
+/// Return the latest event blob attestation.
 public fun last_event_blob_attestation(cap: &mut StorageNodeCap): Option<EventBlobAttestation> {
     cap.last_event_blob_attestation
 }
@@ -191,7 +191,7 @@ public(package) fun set_deny_list_properties(
 // === Testing ===
 
 #[test_only]
-/// Create a storage node with dummy name & address
+/// Create a storage node with dummy name & address.
 public fun new_for_testing(public_key: vector<u8>): StorageNodeInfo {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
