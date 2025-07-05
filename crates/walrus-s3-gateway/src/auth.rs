@@ -304,7 +304,6 @@ struct AuthorizationParts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::{HeaderMap, HeaderValue, Method, Uri};
     
     #[test]
     fn test_parse_authorization_header() {

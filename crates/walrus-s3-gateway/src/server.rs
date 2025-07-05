@@ -312,13 +312,11 @@ fn create_default_walrus_config(_config: &Config) -> S3Result<ClientConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::Config;
-    use std::net::SocketAddr;
     
     #[tokio::test]
     async fn test_server_creation() {
-        let config = Config::default();
+        let _config = Config::default();
         
         // Note: This test would need a mock Walrus client
         // let client = create_mock_walrus_client().await;

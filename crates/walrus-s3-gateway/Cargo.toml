@@ -55,3 +55,9 @@ sui-types = { workspace = true }
 [dev-dependencies]
 tempfile = "3.10"
 tokio-test = "0.4"
+tower = { workspace = true, features = ["util"] }
+axum-test = "14.0"
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+assert_matches = "1.5"
+urlencoding = "2.1"

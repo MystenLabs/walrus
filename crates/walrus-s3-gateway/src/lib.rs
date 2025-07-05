@@ -61,7 +61,7 @@ mod tests {
     fn test_s3_error_codes() {
         assert_eq!(S3Error::NoSuchBucket.error_code(), "NoSuchBucket");
         assert_eq!(S3Error::NoSuchKey.error_code(), "NoSuchKey");
-        assert_eq!(S3Error::AccessDenied.error_code(), "AccessDenied");
+        assert_eq!(S3Error::AccessDenied("test".to_string()).error_code(), "AccessDenied");
         assert_eq!(S3Error::InvalidAccessKeyId.error_code(), "InvalidAccessKeyId");
         assert_eq!(S3Error::SignatureDoesNotMatch.error_code(), "SignatureDoesNotMatch");
     }
@@ -72,7 +72,7 @@ mod tests {
         
         assert_eq!(S3Error::NoSuchBucket.status_code(), StatusCode::NOT_FOUND);
         assert_eq!(S3Error::NoSuchKey.status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(S3Error::AccessDenied.status_code(), StatusCode::FORBIDDEN);
+        assert_eq!(S3Error::AccessDenied("test".to_string()).status_code(), StatusCode::FORBIDDEN);
         assert_eq!(S3Error::InvalidAccessKeyId.status_code(), StatusCode::FORBIDDEN);
         assert_eq!(S3Error::SignatureDoesNotMatch.status_code(), StatusCode::FORBIDDEN);
         assert_eq!(S3Error::InternalError("test".to_string()).status_code(), StatusCode::INTERNAL_SERVER_ERROR);

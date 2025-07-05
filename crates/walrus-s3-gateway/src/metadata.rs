@@ -252,9 +252,10 @@ mod tests {
         assert!(store.bucket_exists("test-bucket").await);
         
         // Test object storage
-        let blob_id = BlobId::new([1u8; 32]);
+        let blob_id = BlobId([1u8; 32]);
+        let blob_id_string = blob_id.to_string();
         let metadata = ObjectMetadata::new(
-            blob_id,
+            blob_id_string.clone(),
             "test-key".to_string(),
             "test-bucket".to_string(),
             Some("text/plain".to_string()),
@@ -268,7 +269,7 @@ mod tests {
         // Test object retrieval
         let retrieved = store.get_object("test-bucket", "test-key").await.unwrap();
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().blob_id, blob_id);
+        assert_eq!(retrieved.unwrap().blob_id, blob_id_string);
         
         // Test object listing
         let (objects, truncated) = store.list_objects("test-bucket", None, 10, None).await.unwrap();
