@@ -1,6 +1,6 @@
 # Configurazione completa per test server-side signing
-access_key = "test-server-access-key"
-secret_key = "test-server-secret-key"
+access_key = "walrus-access-key"
+secret_key = "walrus-secret-key"
 bind_address = "127.0.0.1:8080"
 region = "us-east-1"
 enable_tls = false
@@ -32,3 +32,4 @@ create_wallet_if_missing = true
 [client_credentials]
 "test-server-access-key" = { sui_address = "0xe86ee4e17286675a30d9251bb9100a6787caec9a8c4fe90e611937e4c0e81497", permissions = ["read", "write"], description = "Test credential for server-side signing", active = true }
 "test-access-key" = { sui_address = "0xe86ee4e17286675a30d9251bb9100a6787caec9a8c4fe90e611937e4c0e81497", permissions = ["read", "write"], description = "Test credential for compatibility", active = true }
+"walrus-access-key" = { sui_address = "0xe86ee4e17286675a30d9251bb9100a6787caec9a8c4fe90e611937e4c0e81497", permissions = ["read", "write"], description = "Test credential for integration tests", active = true }
