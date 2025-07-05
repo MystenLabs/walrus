@@ -33,7 +33,10 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
-    encoding::{QuiltError, quilt_encoding::QuiltStoreBlob},
+    encoding::{
+        QuiltError,
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
+    },
 };
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
@@ -682,7 +685,7 @@ pub enum SendOrShare {
 }
 
 /// The query parameters for a publisher.
-#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
 #[into_params(parameter_in = Query, style = Form)]
 #[serde(deny_unknown_fields)]
 pub struct PublisherQuery {
@@ -703,6 +706,10 @@ pub struct PublisherQuery {
     /// number of epochs.
     #[serde(default)]
     pub force: bool,
+    /// The quilt version to use (for quilt endpoints only).
+    /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+    #[serde(default)]
+    pub quilt_version: Option<QuiltVersionEnum>,
 
     #[serde(flatten, default)]
     #[param(inline)]
@@ -720,6 +727,7 @@ impl Default for PublisherQuery {
             epochs: default_epochs(),
             deletable: false,
             force: false,
+            quilt_version: None,
             send_or_share: None,
         }
     }
@@ -790,12 +798,12 @@ pub struct QuiltPatchMetadata {
 ///
 /// ## Blobs without Walrus-native metadata
 /// ```bash
-/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=v1" \
 ///   -F "contract-v2=@document.pdf" \
 ///   -F "logo-2024=@image.png"
 /// ```
 ///
-/// ## Blobs with Walrus-native metadata
+/// ## Blobs with Walrus-native metadata, with default quilt version
 /// ```bash
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "quilt-manual=@document.pdf" \
@@ -828,6 +836,9 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
 ) -> Response {
     tracing::debug!("starting to process quilt upload");
 
+    // Parse the quilt version, defaulting to V1 if not specified.
+    let quilt_version = query.quilt_version.clone().unwrap_or(QuiltVersionEnum::V1);
+
     let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
         Ok(blobs) => blobs,
         Err(error) => {
@@ -846,25 +857,42 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         .into_response();
     }
 
-    // Check size if authorization is present.
-    if let Some(TypedHeader(header)) = bearer_header {
-        let total_size: usize = quilt_store_blobs.iter().map(|blob| blob.total_size()).sum();
-        if let Err(error) = check_blob_size(header, total_size) {
-            return error.into_response();
-        }
-    }
+    // For now, we only support V1 quilts.
+    let result = match quilt_version {
+        QuiltVersionEnum::V1 => {
+            let quilt = match client
+                .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, query.encoding_type)
+                .await
+            {
+                Ok(quilt) => quilt,
+                Err(e) => {
+                    return StoreBlobError::MalformedRequest {
+                        message: format!("failed to construct quilt: {e:?}"),
+                    }
+                    .into_response();
+                }
+            };
 
-    match client
-        .write_quilt(
-            quilt_store_blobs,
-            query.encoding_type,
-            query.epochs,
-            query.optimizations(),
-            query.blob_persistence(),
-            query.post_store_action(client.default_post_store_action()),
-        )
-        .await
-    {
+            if let Some(TypedHeader(header)) = bearer_header {
+                if let Err(error) = check_blob_size(header, quilt.data().len()) {
+                    return error.into_response();
+                }
+            }
+
+            client
+                .write_quilt::<QuiltVersionV1>(
+                    quilt,
+                    query.encoding_type,
+                    query.epochs,
+                    query.optimizations(),
+                    query.blob_persistence(),
+                    query.post_store_action(client.default_post_store_action()),
+                )
+                .await
+        }
+    };
+
+    match result {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(error) => {
             tracing::error!(?error, "error storing quilt");
@@ -938,7 +966,7 @@ mod tests {
             &[
                 Token::Struct {
                     name: "PublisherQuery",
-                    len: 4,
+                    len: 5,
                 },
                 Token::Str("encoding_type"),
                 Token::None,
@@ -948,6 +976,8 @@ mod tests {
                 Token::Bool(false),
                 Token::Str("force"),
                 Token::Bool(false),
+                Token::Str("quilt_version"),
+                Token::None,
                 Token::StructEnd,
             ],
         );

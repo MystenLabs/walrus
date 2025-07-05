@@ -13,7 +13,12 @@ use std::{
 
 use sui_sdk::{sui_client_config::SuiEnv, types::base_types::SuiAddress};
 use sui_types::base_types::ObjectID;
-use walrus_core::{BlobId, EncodingType, EpochCount, encoding::quilt_encoding::QuiltStoreBlob};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    EpochCount,
+    encoding::quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+};
 use walrus_sdk::{
     client::{
         Client,
@@ -191,9 +196,21 @@ impl WalrusWriteClient for ClientMultiplexer {
         .await
     }
 
-    async fn write_quilt(
+    async fn construct_quilt<V: QuiltVersion>(
         &self,
-        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> ClientResult<V::Quilt> {
+        let client = self.client_pool.next_client().await;
+        tracing::debug!("submitting construct quilt request to client in pool");
+
+        let result = client.construct_quilt::<V>(blobs, encoding_type).await?;
+        Ok(result)
+    }
+
+    async fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -204,8 +221,8 @@ impl WalrusWriteClient for ClientMultiplexer {
         tracing::debug!("submitting write quilt request to client in pool");
 
         let result = client
-            .write_quilt(
-                quilt_store_blobs,
+            .write_quilt::<V>(
+                quilt,
                 encoding_type,
                 epochs_ahead,
                 store_optimizations,

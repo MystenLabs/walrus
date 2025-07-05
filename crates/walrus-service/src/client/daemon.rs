@@ -50,7 +50,7 @@ use walrus_core::{
     QuiltPatchId,
     encoding::{
         Primary,
-        quilt_encoding::{QuiltStoreBlob, QuiltVersionV1},
+        quilt_encoding::{QuiltStoreBlob, QuiltVersion},
     },
 };
 use walrus_sdk::{
@@ -140,10 +140,17 @@ pub trait WalrusWriteClient: WalrusReadClient {
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
-    /// Writes a quilt to Walrus.
-    fn write_quilt(
+    /// Constructs a quilt from blobs.
+    fn construct_quilt<V: QuiltVersion>(
         &self,
-        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> impl std::future::Future<Output = ClientResult<V::Quilt>> + Send;
+
+    /// Writes a quilt to Walrus.
+    fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -225,9 +232,21 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .expect("there is only one blob, as store was called with one blob"))
     }
 
-    async fn write_quilt(
+    async fn construct_quilt<V: QuiltVersion>(
         &self,
-        quilt_store_blobs: Vec<QuiltStoreBlob<'static>>,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> ClientResult<V::Quilt> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        self.quilt_client(QuiltClientConfig::default())
+            .construct_quilt::<V>(blobs, encoding_type)
+            .await
+    }
+
+    async fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_optimizations: StoreOptimizations,
@@ -236,13 +255,8 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     ) -> ClientResult<QuiltStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
-        let quilt_client = self.quilt_client(QuiltClientConfig::default());
-        let quilt = quilt_client
-            .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
-            .await?;
-
-        quilt_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(
+        self.quilt_client(QuiltClientConfig::default())
+            .reserve_and_store_quilt::<V>(
                 &quilt,
                 encoding_type,
                 epochs_ahead,

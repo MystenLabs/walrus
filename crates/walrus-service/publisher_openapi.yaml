@@ -55,6 +55,15 @@ paths:
         schema:
           type: boolean
         style: form
+      - name: quilt_version
+        in: query
+        description: |-
+          The quilt version to use (for quilt endpoints only).
+          Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+        required: false
+        schema:
+          $ref: '#/components/schemas/QuiltVersionEnum'
+        style: form
       - name: send_or_share
         in: query
         required: false
@@ -140,12 +149,12 @@ paths:
 
         ## Blobs without Walrus-native metadata
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=v1" \
           -F "contract-v2=@document.pdf" \
           -F "logo-2024=@image.png"
         ```
 
-        ## Blobs with Walrus-native metadata
+        ## Blobs with Walrus-native metadata, with default quilt version
         ```bash
         curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
           -F "quilt-manual=@document.pdf" \
@@ -191,6 +200,15 @@ paths:
         required: false
         schema:
           type: boolean
+        style: form
+      - name: quilt_version
+        in: query
+        description: |-
+          The quilt version to use (for quilt endpoints only).
+          Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+        required: false
+        schema:
+          $ref: '#/components/schemas/QuiltVersionEnum'
         style: form
       - name: send_or_share
         in: query
