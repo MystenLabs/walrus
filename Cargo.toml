@@ -50,6 +50,7 @@ diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
+event-streaming = { path = "crates/event-streaming" }
 eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
 fdlimit = "0.3.0"
@@ -86,6 +87,10 @@ pin-project = "1.1.10"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.95"
 prometheus = "0.13.4"
+prost = "0.13"
+prost-build = "0.13"
+prost-types = "0.13"
+protox = "0.7"
 quote = "1.0"
 rand = "0.8.5"
 rayon = "1.10.0"
@@ -128,6 +133,7 @@ tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
 tonic = { version = "0.13.1", default-features = false }
+tonic-build = "0.13"
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.41"

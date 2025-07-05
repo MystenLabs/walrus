@@ -1,0 +1,20 @@
+[package]
+name = "event-streaming"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic = { workspace = true, features = ["codegen", "prost", "transport"] }
+# Example of how to use other workspace crates in the future:
+# walrus-sui.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protox.workspace = true
