@@ -171,7 +171,7 @@ check_gateway_status() {
     else
         print_error "❌ Gateway is not accessible at $GATEWAY_URL"
         print_error "Please start the gateway with:"
-        print_error "cargo run --bin walrus-s3-gateway -- --config test-config.toml"
+        print_error "cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml --bind 127.0.0.1:9200"
         exit 1
     fi
 }

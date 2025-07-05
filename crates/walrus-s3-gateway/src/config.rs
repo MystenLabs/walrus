@@ -166,8 +166,31 @@ impl Default for WalrusConfig {
 impl Config {
     /// Load configuration from file
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
+        let config_path = path.as_ref();
+        let content = fs::read_to_string(config_path)?;
+        let mut config: Config = toml::from_str(&content)?;
+        
+        // Resolve relative paths based on config file location
+        if let Some(parent) = config_path.parent() {
+            if let Some(ref walrus_config) = config.walrus_config_path {
+                if walrus_config.is_relative() {
+                    config.walrus_config_path = Some(parent.join(walrus_config));
+                }
+            }
+            
+            if let Some(ref tls_cert) = config.tls_cert_path {
+                if tls_cert.is_relative() {
+                    config.tls_cert_path = Some(parent.join(tls_cert));
+                }
+            }
+            
+            if let Some(ref tls_key) = config.tls_key_path {
+                if tls_key.is_relative() {
+                    config.tls_key_path = Some(parent.join(tls_key));
+                }
+            }
+        }
+        
         config.validate()?;
         Ok(config)
     }

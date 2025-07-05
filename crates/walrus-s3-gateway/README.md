@@ -8,12 +8,14 @@ For a quick test of the Walrus S3 Gateway with client-side signing:
 # Option 1: Standard configuration
 cargo run --bin walrus-s3-gateway -- --config test-config.toml
 
-# Option 2: Minimal configuration (fewer dependencies)
-cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml
+# Option 2: Minimal configuration (fewer dependencies)  
+cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml --bind 127.0.0.1:9200
 
 # Test the client-side signing workflow
 ./test-complete.sh
 ```
+
+**Note**: The gateway now defaults to `info` level logging. You can still override this with `RUST_LOG` environment variable if needed.
 
 See [QUICK-START.md](QUICK-START.md) for detailed instructions and troubleshooting.ay
 
@@ -115,8 +117,14 @@ You'll also need `client_config.yaml` (copy from `../../setup/client_config.yaml
 ### 2. Start the Gateway
 
 ```bash
-cargo run --bin walrus-s3-gateway -- --config config.toml
+# Start with minimal configuration
+cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml --bind 127.0.0.1:9200
+
+# Or with full configuration
+cargo run --bin walrus-s3-gateway -- --config test-config.toml
 ```
+
+**Note**: The gateway now shows `info` level logs by default. For debug logs, use `RUST_LOG=debug`.
 
 ### 3. Test Client-Side Signing
 
