@@ -1,53 +1,64 @@
 # Walrus S3 Gateway
 
-A fully functional S3-compatible gateway that allows applications to interact with Walrus storage using standard S3 APIs. This enables existing S3-based applications to seamlessly use Walrus as their storage backend without code changes.
+Una gateway S3-compatibile completamente funzionale che permette alle applicazioni di interagire con lo storage Walrus utilizzando API S3 standard. Questo abilita le applicazioni esistenti basate su S3 a utilizzare seamlessly Walrus come backend di storage senza modifiche al codice.
+
+## 🔑 **Caratteristica Principale: Client-Side Signing**
+
+Questa implementazione introduce il **client-side signing**, una funzionalità di sicurezza avanzata che mantiene il controllo delle chiavi private sul lato client mentre fornisce piena compatibilità S3.
+
+### ✅ **Architettura Client-Side Signing**
+
+```
+┌─────────────┐    ┌─────────────────┐    ┌─────────────┐    ┌─────────────┐
+│   S3 Client │───▶│ Walrus S3       │───▶│ Sui Wallet  │───▶│   Walrus    │
+│             │    │   Gateway       │    │ (Local)     │    │  Network    │
+│             │    │ (Client-Side    │    │             │    │             │
+└─────────────┘    │  Signing Mode)  │    └─────────────┘    └─────────────┘
+                   └─────────────────┘
+```
+
+### 🔄 **Workflow**
+
+1. **S3 PUT Request**: Il client invia un'operazione S3 PUT standard
+2. **Transaction Template**: Il gateway risponde con HTTP 202 + transazione non firmata
+3. **Local Signing**: Il client firma la transazione con il proprio wallet Sui
+4. **Transaction Submission**: Il client sottomette la transazione firmata tramite nuovo endpoint
+5. **Execution**: Il gateway esegue la transazione firmata sulla rete Walrus
 
 ## Features
 
-### ✅ **Currently Implemented**
-- **Complete S3 API Compatibility**
-  - List buckets (`GET /`)
-  - Bucket operations (GET, PUT, DELETE, HEAD)
-  - Object operations (GET, DELETE, HEAD)
-  - List objects with pagination and filtering
-  - Multipart upload initiation and completion (read-only mode)
-  - Object copying and metadata operations
+### ✅ **Implementazione Corrente**
 
-- **Authentication & Security**
+- **🔐 Client-Side Signing**
+  - Generazione di template di transazione non firmati
+  - Endpoint per la sottomissione di transazioni firmate
+  - Controllo completo delle chiavi private lato client
+  - Trasparenza totale delle transazioni blockchain
+
+- **🌐 Compatibilità S3 Completa**
+  - List buckets (`GET /`)
+  - Operazioni bucket (GET, PUT, DELETE, HEAD)
+  - Operazioni oggetti (GET, DELETE, HEAD, PUT)
+  - List objects con paginazione e filtri
+  - Supporto metadata e copying oggetti
+
+- **🔒 Autenticazione & Sicurezza**
   - AWS Signature Version 4 (SigV4) authentication
-  - Configurable access keys and secrets
-  - CORS support for web applications
+  - Chiavi di accesso configurabili
+  - CORS support per applicazioni web
   - TLS/HTTPS support
 
-- **Walrus Integration**
-  - Read-only access to Walrus testnet
-  - Automatic Sui client configuration with failover
-  - Real testnet contract object IDs
-  - Committee refresh and connection management
+- **⚙️ Integrazione Walrus**
+  - Connessione diretta alla rete Walrus
+  - Configurazione automatica client Sui
+  - Gestione committee refresh e connessioni
 
-- **Production-Ready Features**
-  - Structured logging with configurable levels
-  - Graceful shutdown handling
-  - Comprehensive error handling with S3-compatible error codes
-  - Configuration file support (TOML format)
-  - CLI argument parsing and validation
-
-### 🚧 **Write Support - Now Available!**
-- **Object Storage (PUT/POST operations)**
-  - Per-request client creation with user credentials
-  - Automatic wallet configuration mapping from S3 credentials
-  - Blob storage with encoding/compression
-  - Metadata storage and retrieval
-  - Namespace isolation using bucket prefixes
-
-### 🎯 **New Architecture - Per-Request Authentication**
-- **Dynamic Client Creation**: Each write operation creates a new Walrus client with user-specific credentials
-- **Credential Mapping**: S3 access keys are mapped to Walrus wallet configurations
-- **Secure Isolation**: Each user's operations are isolated using their own authentication context
-- **No Global State**: No shared client state - each request is independent
-
-### 🔮 **Future Enhancements**
-- Advanced multipart upload with resumable uploads
+- **🚀 Funzionalità Production-Ready**
+  - Logging strutturato con livelli configurabili
+  - Gestione graceful shutdown
+  - Error handling completo con codici S3-compatibili
+  - Supporto file di configurazione (formato TOML)
+  - Parsing e validazione argomenti CLI
 - Object versioning and lifecycle management
 - Bucket policies and access control
 - Metrics and monitoring integration
@@ -66,77 +77,112 @@ cargo run --bin walrus-s3-gateway
 
 # Or with custom configuration
 cargo run --bin walrus-s3-gateway -- --bind 0.0.0.0:8080 --access-key mykey --secret-key mysecret
-```
+## Quick Start
 
-### 2. Test Basic Functionality
+### 1. Configurazione
 
-```bash
-# List buckets (with proper S3 authentication)
-curl -H "Authorization: AWS walrus-access-key:signature" http://localhost:8080/
-
-# Get object (read-only - if object exists in Walrus)
-curl -H "Authorization: AWS walrus-access-key:signature" http://localhost:8080/bucket/object.txt
-```
-
-### 3. Use with AWS CLI
-
-Configure AWS CLI to use the gateway:
-
-```bash
-# Configure AWS CLI
-aws configure set aws_access_key_id walrus-access-key
-aws configure set aws_secret_access_key walrus-secret-key
-aws configure set region us-east-1
-
-# List buckets through the gateway
-aws --endpoint-url http://localhost:8080 s3 ls
-
-# List objects in a bucket
-aws --endpoint-url http://localhost:8080 s3 ls s3://mybucket/
-```
-
-## Configuration
-
-### Command Line Options
-
-```bash
-walrus-s3-gateway [OPTIONS]
-
-Options:
-  -c, --config <FILE>         Configuration file path
-  -b, --bind <ADDRESS>        Address to bind the server to [default: 0.0.0.0:8080]
-      --access-key <KEY>      S3 access key [default: walrus-access-key]
-      --secret-key <SECRET>   S3 secret key [default: walrus-secret-key]
-      --region <REGION>       S3 region [default: us-east-1]
-      --walrus-config <FILE>  Walrus client configuration file
-      --enable-tls            Enable TLS/HTTPS
-      --tls-cert <FILE>       TLS certificate file
-      --tls-key <FILE>        TLS private key file
-  -h, --help                  Print help
-  -V, --version               Print version
-```
-
-### Configuration File (config.toml)
+Crea un file di configurazione `config.toml`:
 
 ```toml
-bind_address = "0.0.0.0:8080"
-access_key = "your-access-key"
-secret_key = "your-secret-key"
-region = "us-east-1"
-max_body_size = 67108864  # 64MB
-request_timeout = 300
-enable_cors = true
-enable_tls = false
+listen_address = "127.0.0.1:9200"
+
+[client_signing]
+require_signatures = true
+sui_rpc_url = "https://fullnode.testnet.sui.io:443"
 
 [walrus]
-sui_rpc_urls = [
-    "https://sui-testnet-rpc.mystenlabs.com:443",
-    "https://sui-testnet.publicnode.com:443"
-]
-storage_nodes = [
-    "https://walrus-testnet.nodes.guru:11444",
-    "https://walrus-testnet-storage.stakin-nodes.com:11444"
-]
+publisher_url = "https://publisher.walrus-testnet.walrus.space"
+aggregator_url = "https://aggregator.walrus-testnet.walrus.space"
+
+[aws]
+access_key_id = "your-access-key"
+secret_access_key = "your-secret-key"
+region = "us-east-1"
+
+[metadata]
+storage_type = "file"
+storage_path = "./s3_metadata"
+
+[logging]
+level = "info"
+```
+
+### 2. Avviare il Gateway
+
+```bash
+# Build del progetto
+cargo build --release --bin walrus-s3-gateway
+
+# Avvio con configurazione
+./target/release/walrus-s3-gateway --config config.toml
+```
+
+### 3. Test del Client-Side Signing
+
+```bash
+# Esegui il test script
+./test-client-signing.sh
+```
+
+## API Endpoints
+
+### Standard S3 Operations
+
+Le operazioni S3 standard ora richiedono client-side signing:
+
+```bash
+# PUT Object - restituisce template di transazione (HTTP 202)
+curl -X PUT http://localhost:9200/bucket/object \
+  -H "Authorization: AWS4-HMAC-SHA256 ..." \
+  -H "Content-Type: text/plain" \
+  --data-binary @file.txt
+```
+
+**Risposta (HTTP 202):**
+```json
+{
+  "action": "client_signing_required",
+  "transaction_template": {
+    "transaction_data": "...",
+    "gas_budget": 1000000,
+    "gas_price": 1000
+  },
+  "instructions": "Sign this transaction with your Sui wallet and submit via POST to /_walrus/submit-transaction",
+  "bucket": "bucket",
+  "key": "object"
+}
+```
+
+### Client-Side Signing Endpoints
+
+#### Generate Transaction Template
+```bash
+POST /_walrus/generate-transaction
+Content-Type: application/json
+Authorization: AWS4-HMAC-SHA256 ...
+
+{
+  "access_key": "user_access_key",
+  "purpose": {
+    "StoreBlob": {
+      "size": 1024
+    }
+  }
+}
+```
+
+#### Submit Signed Transaction
+```bash
+POST /_walrus/submit-transaction
+Content-Type: application/json
+
+{
+  "signed_transaction": "base64_encoded_signed_transaction",
+  "bucket": "bucket",
+  "key": "object",
+  "blob_data": "base64_encoded_blob_data"
+}
+```
 committee_refresh_interval = 300
 request_timeout = 30
 enable_metrics = false
