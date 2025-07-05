@@ -64,22 +64,36 @@ Client ──PUT──> Gateway ──202+Template──> Client ──Sign─�
 
 ### 1. Configuration
 
-Create `config.toml`:
+Create `test-config.toml` (or copy from the repository):
 ```toml
-listen_address = "127.0.0.1:9200"
+# Walrus S3 Gateway Configuration for Client-Side Signing
+access_key = "test-access-key"
+secret_key = "test-secret-key"
+bind_address = "127.0.0.1:9200"
+region = "us-east-1"
+enable_tls = false
+walrus_config_path = "client_config.yaml"
+request_timeout = 300
+max_body_size = 67108864  # 64MB
+enable_cors = true
 
+# Client-side signing configuration
 [client_signing]
 require_signatures = true
+validate_signatures = true
 sui_rpc_url = "https://fullnode.testnet.sui.io:443"
 
+# Walrus configuration
 [walrus]
 publisher_url = "https://publisher.walrus-testnet.walrus.space"
 aggregator_url = "https://aggregator.walrus-testnet.walrus.space"
 
-[metadata]
-storage_type = "file"
-storage_path = "./s3_metadata"
+# Client credentials
+[client_credentials]
+"test-access-key" = { sui_address = "0x0000000000000000000000000000000000000000000000000000000000000000", permissions = ["read", "write"], description = "Test credential", active = true }
 ```
+
+You'll also need `client_config.yaml` (copy from `../../setup/client_config.yaml`)
 
 ### 2. Start the Gateway
 
@@ -181,11 +195,42 @@ cargo check
 cargo clippy
 ```
 
+## Troubleshooting
+
+### Gateway not starting
+
+If the gateway appears to hang during startup, it may be trying to connect to Walrus services. Common issues:
+
+1. **Missing configuration files**: Ensure both `test-config.toml` and `client_config.yaml` exist
+2. **Walrus network connectivity**: The gateway needs to connect to Walrus testnet services
+3. **Sui RPC connectivity**: Verify connection to Sui testnet RPC endpoint
+
+### Gateway not accessible
+
+If the gateway fails to respond:
+- Check that it bound to the correct address (`127.0.0.1:9200`)
+- Verify no other service is using port 9200
+- Check the console output for error messages
+
+### Test script issues
+
+If `./test-complete.sh` fails:
+- Ensure Sui CLI is installed and working: `sui --version`
+- Check that curl and jq are available
+- Verify you have internet connectivity for testnet faucet
+
+### Configuration validation
+
+For configuration issues, check:
+- All required fields are present in `test-config.toml`
+- File paths are correct (relative to gateway binary location)
+- Sui addresses and URLs are valid
+
 ## Documentation
 
 - [CLIENT-SIDE-SIGNING.md](CLIENT-SIDE-SIGNING.md) - Detailed implementation guide
 - [IMPLEMENTATION-SUMMARY.md](IMPLEMENTATION-SUMMARY.md) - Technical summary
-- [config.example.toml](config.example.toml) - Configuration examples
+- [QUICK-START.md](QUICK-START.md) - Quick setup guide
 
 ## Next Steps
 
