@@ -1,4 +1,21 @@
-# Walrus S3 Gateway
+# Wa## 🚀 Quick Start
+
+**Note**: The gateway requires connectivity to Walrus testnet services and may experience startup delays.
+
+For a quick test of the Walrus S3 Gateway with client-side signing:
+
+```bash
+# Option 1: Standard configuration
+cargo run --bin walrus-s3-gateway -- --config test-config.toml
+
+# Option 2: Minimal configuration (fewer dependencies)
+cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml
+
+# Test the client-side signing workflow
+./test-complete.sh
+```
+
+See [QUICK-START.md](QUICK-START.md) for detailed instructions and troubleshooting.ay
 
 A fully functional S3-compatible gateway that allows applications to interact with Walrus storage using standard S3 APIs with **client-side signing** for enhanced security.
 

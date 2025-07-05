@@ -18,13 +18,18 @@
 
 ## Quick Test
 
-The easiest way to test the Walrus S3 Gateway with client-side signing is to use the comprehensive test script:
+**Note**: The gateway may require specific network connectivity to Walrus services and may hang during startup if services are unavailable.
+
+For testing the Walrus S3 Gateway with client-side signing:
 
 ```bash
-# 1. Start the gateway in one terminal
+# Option 1: Standard configuration (may hang if Walrus services unavailable)
 cargo run --bin walrus-s3-gateway -- --config test-config.toml
 
-# 2. Run the complete test in another terminal
+# Option 2: Minimal configuration (fewer external dependencies)
+cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml
+
+# Run the test script (works even if gateway isn't fully functional)
 ./test-complete.sh
 ```
 
@@ -80,6 +85,19 @@ You'll also need `client_config.yaml` - copy it from `../../setup/client_config.
 - **Gateway hangs during startup**: This usually indicates connection issues with Walrus services
 - **Configuration errors**: Ensure both `test-config.toml` and `client_config.yaml` exist
 - **Port conflicts**: Make sure port 9200 is not in use by another service
+
+### Known Issues
+
+The current implementation may experience connectivity issues when:
+- Walrus testnet services are unavailable or slow
+- Network connectivity to Sui RPC endpoints is limited
+- External wallet configuration files are missing
+
+### Workarounds
+
+1. **Use minimal configuration**: Try `test-config-minimal.toml` which has fewer external dependencies
+2. **Test script independence**: The `test-complete.sh` script can demonstrate client-side signing concepts even when the gateway is not fully operational
+3. **Local development**: Focus on testing the transaction template generation and signing workflow
 
 ### Common fixes
 
