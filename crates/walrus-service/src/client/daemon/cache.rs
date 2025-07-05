@@ -290,7 +290,7 @@ where
 }
 
 /// A handle to the cache, used to send requests to the cache.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CacheHandle<T> {
     /// The channel used to send requests to the cache.
     request_tx: mpsc::Sender<CacheRequest<T>>,

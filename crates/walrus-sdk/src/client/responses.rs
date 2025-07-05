@@ -142,7 +142,7 @@ impl BlobStoreResult {
 }
 
 /// Result when attempting to store a quilt.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QuiltStoreResult {
     /// The result of storing the quilt data as a blob.
