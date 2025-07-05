@@ -3,7 +3,7 @@
 
 //! Configuration for the Walrus S3 Gateway with Client-Side Signing.
 
-use crate::credentials::ClientSigningConfig;
+use crate::credentials::{ClientSigningConfig, CredentialStrategy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -14,14 +14,32 @@ use sui_types::base_types::SuiAddress;
 /// Main configuration for the S3 Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Server configuration
-    pub server: ServerConfig,
+    /// S3 access key (for backwards compatibility)
+    pub access_key: String,
+    /// S3 secret key (for backwards compatibility) 
+    pub secret_key: String,
+    /// Server bind address
+    pub bind_address: SocketAddr,
+    /// S3 region identifier
+    pub region: String,
+    /// Enable TLS
+    pub enable_tls: bool,
+    /// TLS certificate file path
+    pub tls_cert_path: Option<PathBuf>,
+    /// TLS private key file path
+    pub tls_key_path: Option<PathBuf>,
+    /// Walrus client configuration path
+    pub walrus_config_path: Option<PathBuf>,
+    /// Request timeout in seconds
+    pub request_timeout: u64,
+    /// Maximum request body size in bytes
+    pub max_body_size: usize,
+    /// Enable CORS headers
+    pub enable_cors: bool,
     /// Client-side signing configuration
     pub client_signing: ClientSigningConfig,
-    /// Walrus client configuration path
-    pub walrus_client_config: Option<PathBuf>,
-    /// Walrus-specific configuration
-    pub walrus: WalrusConfig,
+    /// Credential strategy for authentication
+    pub credential_strategy: Option<CredentialStrategy>,
     /// Registered client credentials
     pub client_credentials: HashMap<String, ClientCredentialConfig>,
 }
@@ -93,10 +111,19 @@ impl Default for Config {
         );
 
         Self {
-            server: ServerConfig::default(),
+            access_key: "walrus-access-key".to_string(),
+            secret_key: "walrus-secret-key".to_string(),
+            bind_address: "0.0.0.0:8080".parse().unwrap(),
+            region: "us-east-1".to_string(),
+            enable_tls: false,
+            tls_cert_path: None,
+            tls_key_path: None,
+            walrus_config_path: None,
+            request_timeout: 300, // 5 minutes
+            max_body_size: 64 * 1024 * 1024, // 64MB
+            enable_cors: true,
             client_signing: ClientSigningConfig::default(),
-            walrus_client_config: None,
-            walrus: WalrusConfig::default(),
+            credential_strategy: None,
             client_credentials,
         }
     }
@@ -154,14 +181,22 @@ impl Config {
 
     /// Validate the configuration
     pub fn validate(&self) -> anyhow::Result<()> {
-        // Validate server config
-        if self.server.region.is_empty() {
+        // Validate basic S3 config
+        if self.access_key.is_empty() {
+            return Err(anyhow::anyhow!("access_key cannot be empty"));
+        }
+        
+        if self.secret_key.is_empty() {
+            return Err(anyhow::anyhow!("secret_key cannot be empty"));
+        }
+        
+        if self.region.is_empty() {
             return Err(anyhow::anyhow!("region cannot be empty"));
         }
 
         // Validate TLS configuration
-        if self.server.enable_tls {
-            if self.server.tls_cert_path.is_none() || self.server.tls_key_path.is_none() {
+        if self.enable_tls {
+            if self.tls_cert_path.is_none() || self.tls_key_path.is_none() {
                 return Err(anyhow::anyhow!("TLS enabled but cert or key not provided"));
             }
         }
@@ -186,9 +221,6 @@ impl Config {
             }
         }
 
-        // Validate Walrus config
-        self.walrus.validate()?;
-
         Ok(())
     }
 
@@ -210,57 +242,5 @@ impl Config {
         cred.sui_address
             .parse::<SuiAddress>()
             .map_err(|e| anyhow::anyhow!("Invalid Sui address: {}", e))
-    }
-}
-
-/// Configuration for the Walrus storage system.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalrusConfig {
-    /// Sui RPC endpoint URLs.
-    /// Example: ["https://sui-testnet-rpc.mystenlabs.com:443"]
-    pub sui_rpc_urls: Vec<String>,
-    
-    /// Walrus storage node URLs.
-    /// These are the storage node endpoints for reading/writing data.
-    pub storage_nodes: Vec<String>,
-    
-    /// Committee refresh interval in seconds.
-    /// How often to refresh the committee information from Sui.
-    pub committee_refresh_interval: Option<u64>,
-    
-    /// Request timeout in seconds.
-    pub request_timeout: Option<u64>,
-    
-    /// Whether to enable metrics collection.
-    pub enable_metrics: bool,
-    
-    /// Metrics port (if metrics are enabled).
-    pub metrics_port: Option<u16>,
-}
-
-impl WalrusConfig {
-    /// Validate the Walrus configuration.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.sui_rpc_urls.is_empty() {
-            return Err(anyhow::anyhow!("At least one Sui RPC URL must be provided"));
-        }
-        
-        for url in &self.sui_rpc_urls {
-            if url.is_empty() {
-                return Err(anyhow::anyhow!("Sui RPC URL cannot be empty"));
-            }
-        }
-        
-        if self.storage_nodes.is_empty() {
-            return Err(anyhow::anyhow!("At least one storage node URL must be provided"));
-        }
-        
-        for url in &self.storage_nodes {
-            if url.is_empty() {
-                return Err(anyhow::anyhow!("Storage node URL cannot be empty"));
-            }
-        }
-        
-        Ok(())
     }
 }

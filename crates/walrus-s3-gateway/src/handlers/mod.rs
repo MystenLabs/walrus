@@ -5,20 +5,18 @@
 
 pub mod bucket;
 pub mod object;
+pub mod signing;
 
 use crate::auth::SigV4Authenticator;
 use crate::metadata::MetadataStore;
 use crate::config::Config;
 use crate::error::{S3Error, S3Result};
-use crate::credentials::{ClientSigningManager, SignedTransactionRequest, UnsignedTransactionTemplate};
+use crate::credentials::{CredentialManager, ClientSigningManager, SignedTransactionRequest, UnsignedTransactionTemplate};
 use axum::http::{HeaderMap, Method, Uri};
 use std::sync::Arc;
 use walrus_sdk::client::Client;
-use walrus_sdk::config::ClientConfig;
-use walrus_sui::client::{SuiContractClient, retry_client::RetriableSuiClient};
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
-/// Shared state for S3 handlers with Client-Side Signing.
+/// Shared state for S3 handlers with Client-Side Signing support.
 #[derive(Clone)]
 pub struct S3State {
     /// Read-only Walrus client for operations that don't require authentication.
@@ -36,30 +34,11 @@ pub struct S3State {
     /// Gateway configuration.
     pub config: Arc<Config>,
     
+    /// Credential manager for authentication strategies.
+    pub credential_manager: Arc<CredentialManager>,
+    
     /// Client-side signing manager.
     pub signing_manager: Arc<tokio::sync::RwLock<ClientSigningManager>>,
-}
-
-/// Shared state for S3 handlers.
-#[derive(Clone)]
-pub struct S3State {
-    /// Read-only Walrus client for operations that don't require authentication.
-    pub read_client: Arc<Client<walrus_sui::client::SuiReadClient>>,
-    
-    /// SigV4 authenticator.
-    pub authenticator: SigV4Authenticator,
-    
-    /// Default bucket name (since Walrus doesn't have bucket concept).
-    pub default_bucket: String,
-    
-    /// Metadata store for S3 objects.
-    pub metadata_store: MetadataStore,
-    
-    /// Gateway configuration for creating per-request clients.
-    pub config: Arc<Config>,
-    
-    /// Credential manager for secure authentication strategies.
-    pub credential_manager: Arc<CredentialManager>,
 }
 
 impl S3State {
@@ -69,8 +48,9 @@ impl S3State {
         authenticator: SigV4Authenticator,
         default_bucket: String,
         config: Config,
+        credential_manager: CredentialManager,
     ) -> S3Result<Self> {
-        let metadata_store = MetadataStore::new()?;
+        let metadata_store = MetadataStore::new();
         
         // Initialize client signing manager
         let signing_manager = ClientSigningManager::new(config.client_signing.clone());
@@ -81,6 +61,7 @@ impl S3State {
             default_bucket,
             metadata_store,
             config: Arc::new(config),
+            credential_manager: Arc::new(credential_manager),
             signing_manager: Arc::new(tokio::sync::RwLock::new(signing_manager)),
         })
     }
@@ -120,14 +101,41 @@ impl S3State {
         Ok(())
     }
 
-    /// Authenticate a request and return the access key
+    /// Authenticate a request and extract access key
     pub fn authenticate_request(
         &self,
         method: &Method,
         uri: &Uri,
         headers: &HeaderMap,
+        body: &[u8],
     ) -> S3Result<String> {
-        self.authenticator.authenticate_request(method, uri, headers)
+        // Extract the access key from the authorization header
+        let auth_header = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| S3Error::AccessDenied("Missing authorization header".to_string()))?;
+        
+        // Parse AWS4-HMAC-SHA256 Credential=ACCESS_KEY/...
+        if let Some(credential_part) = auth_header.split("Credential=").nth(1) {
+            if let Some(access_key) = credential_part.split('/').next() {
+                // Verify the signature
+                self.authenticator.authenticate(method, uri, headers, body)?;
+                return Ok(access_key.to_string());
+            }
+        }
+        
+        Err(S3Error::AccessDenied("Missing access key".to_string()))
+    }
+
+    /// Authenticate a request (wrapper for backwards compatibility)
+    pub fn authenticate(
+        &self,
+        method: &Method,
+        uri: &Uri,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> S3Result<()> {
+        self.authenticate_request(method, uri, headers, body).map(|_| ())
     }
 
     /// Validate a signed transaction from a client
@@ -154,35 +162,26 @@ impl S3State {
         manager.generate_transaction_template(purpose, credential.sui_address)
     }
 
-    /// Create a Walrus client for read operations (doesn't require credentials)
-    pub fn create_read_client(&self) -> S3Result<Client<walrus_sui::client::SuiReadClient>> {
-        // Use the already initialized read client
-        Ok((*self.read_client).clone())
-    }
-
-    /// Submit a signed transaction to the Sui network
+    /// Submit a signed transaction to the Sui network (placeholder implementation)
     pub async fn submit_signed_transaction(
         &self,
-        signed_tx: &SignedTransactionRequest,
+        _signed_tx: &SignedTransactionRequest,
     ) -> S3Result<String> {
-        // Create a client for transaction submission
-        let config = ClientConfig {
-            sui_rpc_url: self.config.walrus.sui_rpc_urls[0].clone(),
-            storage_nodes: self.config.walrus.storage_nodes.clone(),
-            committee_refresh_interval: self.config.walrus.committee_refresh_interval,
-            backoff_config: ExponentialBackoffConfig::default(),
-        };
-
-        let client = Client::new(config)
-            .map_err(|e| S3Error::ServiceUnavailable(format!("Failed to create client: {}", e)))?;
-
-        // Submit the transaction
-        // Note: This is a simplified implementation
-        // In reality, you'd need to properly handle the transaction submission
-        
         // For now, we'll return a placeholder transaction hash
+        // In a real implementation, this would submit the transaction to Sui
         let tx_hash = format!("tx_{}", uuid::Uuid::new_v4());
-        
         Ok(tx_hash)
+    }
+
+    /// Create a write client (for client-side signing, this returns a read client)
+    pub async fn create_write_client(
+        &self,
+        _access_key: &str,
+        _secret_key: &str,
+        _authorization_header: Option<&str>,
+    ) -> S3Result<Client<walrus_sui::client::SuiReadClient>> {
+        // For client-side signing, we only support read operations on the server side
+        // Write operations require client-signed transactions
+        Ok((*self.read_client).clone())
     }
 }

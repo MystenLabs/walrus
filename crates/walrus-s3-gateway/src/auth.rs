@@ -45,7 +45,7 @@ impl SigV4Authenticator {
         let auth_header = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
-            .ok_or(S3Error::AccessDenied)?;
+            .ok_or_else(|| S3Error::AccessDenied("Missing authorization header".to_string()))?;
         
         // Parse the authorization header
         let auth_parts = self.parse_authorization_header(auth_header)?;
@@ -91,7 +91,7 @@ impl SigV4Authenticator {
         let auth_header = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
-            .ok_or(S3Error::AccessDenied)?;
+            .ok_or_else(|| S3Error::AccessDenied("Missing authorization header".to_string()))?;
         
         let auth_parts = self.parse_authorization_header(auth_header)?;
         

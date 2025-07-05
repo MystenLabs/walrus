@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sui_types::base_types::SuiAddress;
 use sui_types::transaction::Transaction;
+use walrus_sui::config::WalletConfig;
 
 /// Client-side signing credential strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,9 +189,13 @@ impl ClientSigningManager {
         let credential = self.get_credential(access_key)
             .ok_or_else(|| S3Error::AccessDenied("Invalid access key".to_string()))?;
 
+        // Clone the address to avoid borrowing conflicts
+        let sui_address = credential.sui_address;
+        let permissions = credential.permissions.clone();
+
         // Check rate limit
         let rate_limit = self.rate_limits
-            .entry(credential.sui_address)
+            .entry(sui_address)
             .or_insert_with(|| RateLimitState::new(
                 self.config.rate_limit_per_address.unwrap_or(100)
             ));
@@ -212,11 +217,11 @@ impl ClientSigningManager {
 
         // Validate signature if required
         if self.config.validate_signatures {
-            self.validate_transaction_signature(&request.transaction, &credential.sui_address)?;
+            self.validate_transaction_signature(&request.transaction, &sui_address)?;
         }
 
         // Check permissions based on transaction purpose
-        self.validate_permissions(&credential.permissions, &request.metadata.purpose)?;
+        self.validate_permissions(&permissions, &request.metadata.purpose)?;
 
         Ok(())
     }
@@ -400,7 +405,7 @@ impl CredentialManager {
         _issuer: &str,
     ) -> S3Result<ResolvedCredential> {
         let _auth_header = authorization_header
-            .ok_or_else(|| S3Error::AccessDenied)?;
+            .ok_or_else(|| S3Error::AccessDenied("Missing authorization header".to_string()))?;
 
         // TODO: Implement JWT validation
         // For now, return an error indicating this is not implemented
@@ -467,6 +472,42 @@ impl ResolvedCredential {
     pub fn supports_server_signing(&self) -> bool {
         matches!(self.signing_mode, SigningMode::ServerSide) && self.wallet_config.is_some()
     }
+}
+
+/// Credential strategy for resolving S3 credentials to Walrus operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CredentialStrategy {
+    /// Direct mapping from S3 access keys to user credentials
+    DirectMapping { 
+        mapping: HashMap<String, UserCredential> 
+    },
+    /// JWT-based authentication
+    JwtBased { 
+        jwt_secret: String, 
+        issuer: String 
+    },
+    /// Client-side signing - clients sign their own transactions
+    ClientSigning { 
+        require_signatures: bool 
+    },
+    /// Delegated signing service
+    DelegatedSigning { 
+        signing_service_url: String, 
+        api_key: String 
+    },
+}
+
+/// User credential configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCredential {
+    /// User's Sui address
+    pub sui_address: String,
+    /// Optional wallet configuration for server-side signing
+    pub wallet_config: Option<WalletConfig>,
+    /// Environment variable containing keystore path
+    pub keystore_env: Option<String>,
+    /// User permissions
+    pub permissions: Vec<String>,
 }
 
 #[cfg(test)]

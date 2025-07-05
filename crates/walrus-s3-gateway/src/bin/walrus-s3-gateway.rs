@@ -86,14 +86,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.bind_address = bind_addr.parse()?;
     }
 
-    if let Some(access_key) = matches.get_one::<String>("access-key") {
-        config.access_key = access_key.clone();
-    }
-
-    if let Some(secret_key) = matches.get_one::<String>("secret-key") {
-        config.secret_key = secret_key.clone();
-    }
-
     if let Some(region) = matches.get_one::<String>("region") {
         config.region = region.clone();
     }

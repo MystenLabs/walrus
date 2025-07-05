@@ -5,19 +5,15 @@
 
 use crate::error::{S3Error, S3Result};
 use crate::handlers::S3State;
-use crate::metadata::ObjectMetadata;
 use crate::s3_types::{ListObjectsResponse, S3Object};
 use crate::utils;
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, Method, Uri};
+use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::Response;
 use bytes::Bytes;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
-use walrus_core::EncodingType;
-use walrus_sdk::client::responses::BlobStoreResult;
-use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
 /// List objects in a bucket.
 pub async fn list_objects(
@@ -172,99 +168,38 @@ pub async fn put_object(
     
     // Create a write client for this user
     let authorization_header = headers.get("authorization").and_then(|v| v.to_str().ok());
-    let write_client = state.create_write_client(&access_key, &secret_key, authorization_header).await?;
+    let _write_client = state.create_write_client(&access_key, &secret_key, authorization_header).await?;
     
     // Parse headers
-    let content_type = utils::parse_content_type(&headers);
-    let metadata = utils::extract_metadata(&headers);
+    let _content_type = utils::parse_content_type(&headers);
+    let _metadata = utils::extract_metadata(&headers);
     
-    // Store the blob in Walrus
-    let blob_data = body.as_ref();
-    let blob_slice = [blob_data];
-    
-    // Store the blob using the user's authenticated client
-    match write_client.reserve_and_store_blobs_retry_committees(
-        &blob_slice,
-        EncodingType::RS2,
-        1, // epochs_ahead
-        walrus_sdk::store_optimizations::StoreOptimizations::none(),
-        BlobPersistence::Permanent,
-        PostStoreAction::Keep,
-        None, // metrics
-    ).await {
-        Ok(mut results) => {
-            if let Some(result) = results.pop() {
-                match result {
-                    BlobStoreResult::NewlyCreated { blob_object, .. } => {
-                        let blob_id = blob_object.blob_id;
-                        
-                        // Store metadata
-                        let object_metadata = ObjectMetadata {
-                            bucket: bucket_name.clone(),
-                            key: key.clone(),
-                            blob_id: blob_id.to_string(),
-                            size: blob_data.len() as u64,
-                            content_type,
-                            etag: format!("\"{}\"", blob_id.to_string()),
-                            last_modified: chrono::Utc::now(),
-                            user_metadata: metadata,
-                        };
-                        
-                        state.metadata_store.put_object(object_metadata).await?;
-                        
-                        info!("Successfully stored object '{}' in bucket '{}' with blob ID: {}", 
-                             key, bucket_name, blob_id);
-                        
-                        Ok(Response::builder()
-                            .status(200)
-                            .header("ETag", format!("\"{}\"", blob_id.to_string()))
-                            .header("Content-Length", "0")
-                            .body(Body::empty())
-                            .unwrap())
-                    }
-                    BlobStoreResult::AlreadyCertified { blob_id, .. } => {
-                        // Update metadata for existing blob
-                        let object_metadata = ObjectMetadata {
-                            bucket: bucket_name.clone(),
-                            key: key.clone(),
-                            blob_id: blob_id.to_string(),
-                            size: blob_data.len() as u64,
-                            content_type,
-                            etag: format!("\"{}\"", blob_id.to_string()),
-                            last_modified: chrono::Utc::now(),
-                            user_metadata: metadata,
-                        };
-                        
-                        state.metadata_store.put_object(object_metadata).await?;
-                        
-                        info!("Updated metadata for existing object '{}' in bucket '{}' with blob ID: {}", 
-                             key, bucket_name, blob_id);
-                        
-                        Ok(Response::builder()
-                            .status(200)
-                            .header("ETag", format!("\"{}\"", blob_id.to_string()))
-                            .header("Content-Length", "0")
-                            .body(Body::empty())
-                            .unwrap())
-                    }
-                    BlobStoreResult::Error { error_msg, .. } => {
-                        error!("Failed to store blob: {}", error_msg);
-                        Err(S3Error::InternalError(format!("Failed to store blob: {}", error_msg)))
-                    }
-                    BlobStoreResult::MarkedInvalid { blob_id, .. } => {
-                        error!("Blob {} was marked as invalid", blob_id);
-                        Err(S3Error::InternalError("Blob was marked as invalid".to_string()))
-                    }
-                }
-            } else {
-                Err(S3Error::InternalError("No result returned from blob store".to_string()))
-            }
-        }
-        Err(e) => {
-            error!("Failed to store blob in Walrus: {}", e);
-            Err(S3Error::InternalError(format!("Failed to store blob: {}", e)))
-        }
+    // For client-side signing, we need to check if client signing is required
+    if state.config.client_signing.require_signatures {
+        // Generate an unsigned transaction template for the client to sign
+        let blob_size = body.len() as u64;
+        let purpose = crate::credentials::TransactionPurpose::StoreBlob { size: blob_size };
+        
+        let template = state.generate_transaction_template(&access_key, purpose).await?;
+        
+        // Return a special response indicating client signing is required
+        return Ok(Response::builder()
+            .status(StatusCode::ACCEPTED) // 202 indicates client action required
+            .header("Content-Type", "application/json")
+            .header("X-Walrus-Signing-Required", "true")
+            .body(Body::from(serde_json::to_string(&serde_json::json!({
+                "action": "client_signing_required",
+                "transaction_template": template,
+                "instructions": "Sign this transaction with your Sui wallet and submit via POST to /_walrus/submit-transaction",
+                "bucket": bucket_name,
+                "key": key
+            })).map_err(|e| S3Error::InternalError(format!("Failed to serialize response: {}", e)))?))
+            .unwrap());
     }
+    
+    // If client signing is not required (fallback to server-side operations)
+    // For now, we'll return an error since we're focusing on client-side signing
+    Err(S3Error::NotImplemented("Server-side storage requires client-side signing to be disabled".to_string()))
 }
 
 /// Delete an object.
@@ -411,7 +346,7 @@ pub async fn copy_object(
     // 4. Creating a new mapping for the destination key
     
     // For now, return an error as it's not implemented
-    Err(S3Error::NotImplemented)
+    Err(S3Error::NotImplemented("Copy object not implemented".to_string()))
 }
 
 /// Initiate multipart upload.

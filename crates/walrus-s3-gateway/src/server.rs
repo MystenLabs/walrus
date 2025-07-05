@@ -45,8 +45,8 @@ impl S3GatewayServer {
         
         // Create credential manager from configuration
         let credential_strategy = config.credential_strategy.clone()
-            .unwrap_or_else(|| CredentialStrategy::DirectMapping { 
-                mapping: HashMap::new() 
+            .unwrap_or_else(|| CredentialStrategy::ClientSigning { 
+                require_signatures: config.client_signing.require_signatures 
             });
         let credential_manager = CredentialManager::new(credential_strategy);
         
@@ -57,7 +57,10 @@ impl S3GatewayServer {
             "walrus-bucket".to_string(), // Default bucket name
             config.clone(),
             credential_manager,
-        );
+        )?;
+        
+        // Initialize client credentials
+        state.initialize_credentials().await?;
         
         // Build the router
         let app = Self::build_router(state, &config).await?;
@@ -71,13 +74,17 @@ impl S3GatewayServer {
             // Root endpoint - list buckets
             .route("/", get(bucket::list_buckets))
             
+            // Walrus client-side signing endpoints
+            .route("/_walrus/generate-transaction", post(crate::handlers::signing::generate_transaction_template))
+            .route("/_walrus/submit-transaction", post(crate::handlers::signing::submit_signed_transaction))
+            
             // Bucket operations
             .route("/{bucket}", get(Self::handle_bucket_get))
             .route("/{bucket}", put(bucket::create_bucket))
             .route("/{bucket}", delete(bucket::delete_bucket))
             .route("/{bucket}", head(bucket::head_bucket))
             
-            // Object operations
+            // Object operations with client-side signing support
             .route("/{bucket}/{*key}", get(object::get_object))
             .route("/{bucket}/{*key}", put(Self::handle_object_put))
             .route("/{bucket}/{*key}", delete(object::delete_object))
@@ -225,12 +232,17 @@ pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui
         create_default_walrus_config(&config)?
     };
     
-    // Create Sui client
-    info!("Setting up Sui client with endpoints: {:?}", config.walrus.sui_rpc_urls);
+    // Create Sui client using default endpoints
+    let sui_rpc_urls = vec![
+        "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
+        "https://sui-testnet.publicnode.com:443".to_string(),
+    ];
+    
+    info!("Setting up Sui client with endpoints: {:?}", sui_rpc_urls);
     let sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &config.walrus.sui_rpc_urls,
+        &sui_rpc_urls,
         ExponentialBackoffConfig::default(),
-        config.walrus.request_timeout.map(std::time::Duration::from_secs),
+        Some(std::time::Duration::from_secs(30)),
     )
     .await
     .map_err(|e| S3Error::InternalError(format!("Failed to create Sui client: {}", e)))?;
@@ -288,8 +300,11 @@ fn create_default_walrus_config(config: &Config) -> S3Result<ClientConfig> {
     Ok(ClientConfig {
         contract_config,
         exchange_objects,
-        wallet_config: config.walrus.wallet_config.clone(),
-        rpc_urls: config.walrus.sui_rpc_urls.clone(),
+        wallet_config: None, // No wallet config for client-side signing
+        rpc_urls: vec![
+            "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
+            "https://sui-testnet.publicnode.com:443".to_string(),
+        ],
         communication_config,
         refresh_config,
     })
