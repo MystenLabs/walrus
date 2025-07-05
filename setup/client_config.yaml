@@ -5,8 +5,8 @@ contexts:
     subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: mainnet
       # Optional override for the Sui address to use.
@@ -23,8 +23,8 @@ contexts:
       - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
       - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: testnet
       # Optional override for the Sui address to use.
