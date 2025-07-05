@@ -1010,12 +1010,25 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub ignore_resources: bool,
+    // TODO(WAL-911): Change the docstrings when the default behavior changes.
     /// Mark the blob/quilt as deletable.
     ///
     /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
-    #[arg(long)]
+    ///
+    /// *This will become the default behavior in the future.*
+    #[arg(long, conflicts_with = "permanent")]
     #[serde(default)]
     pub deletable: bool,
+    /// Mark the blob/quilt as permanent.
+    ///
+    /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
+    /// beneficial if strong availability guarantees are required.
+    ///
+    /// This is currently the default behavior; but *in the future, blobs will be deletable by
+    /// default*.
+    #[arg(long)]
+    #[serde(default)]
+    pub permanent: bool,
     /// Whether to put the blob/quilt into a shared object.
     #[arg(long)]
     #[serde(default)]
@@ -1723,6 +1736,7 @@ mod tests {
                 force: false,
                 ignore_resources: false,
                 deletable: false,
+                permanent: false,
                 share: false,
                 encoding_type: Default::default(),
             },

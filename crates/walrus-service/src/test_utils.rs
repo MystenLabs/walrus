@@ -2408,7 +2408,7 @@ pub mod test_cluster {
         test_nodes_config: Option<TestNodesConfig>,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: Option<ClientCommunicationConfig>,
-        with_subsidies: bool,
+        with_credits: bool,
         deploy_directory: Option<PathBuf>,
         delegate_governance_to_admin_wallet: bool,
         #[allow(unused)]
@@ -2425,7 +2425,7 @@ pub mod test_cluster {
                 test_nodes_config: None,
                 num_checkpoints_per_blob: Some(100),
                 communication_config: None,
-                with_subsidies: false,
+                with_credits: false,
                 deploy_directory: None,
                 delegate_governance_to_admin_wallet: false,
                 num_additional_fullnodes: None,
@@ -2519,7 +2519,7 @@ pub mod test_cluster {
                 self.epoch_duration
                     .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
                 self.max_epochs_ahead,
-                self.with_subsidies,
+                self.with_credits,
                 self.deploy_directory,
                 self.contract_directory,
             )
@@ -2576,11 +2576,11 @@ pub mod test_cluster {
                 })
                 .await?;
 
-            if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
-                let (subsidies_object_id, _) = admin_contract_client
+            if let Some(pkg_id) = system_ctx.credits_pkg_id {
+                let (credits_object_id, _) = admin_contract_client
                     .as_ref()
-                    .create_and_fund_subsidies(
-                        subsidies_pkg_id,
+                    .create_and_fund_credits(
+                        pkg_id,
                         DEFAULT_BUYER_SUBSIDY_RATE,
                         DEFAULT_SYSTEM_SUBSIDY_RATE,
                         DEFAULT_SUBSIDY_FUNDS,
@@ -2590,7 +2590,7 @@ pub mod test_cluster {
                 admin_contract_client
                     .inner
                     .read_client()
-                    .set_subsidies_object(subsidies_object_id)
+                    .set_credits_object(credits_object_id)
                     .await?;
             }
 
@@ -2759,9 +2759,9 @@ pub mod test_cluster {
             self
         }
 
-        /// Deploy the system with subsidies.
-        pub fn with_subsidies(mut self) -> Self {
-            self.with_subsidies = true;
+        /// Deploy the system with credits.
+        pub fn with_credits(mut self) -> Self {
+            self.with_credits = true;
             self
         }
 

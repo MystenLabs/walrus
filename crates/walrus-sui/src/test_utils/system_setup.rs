@@ -74,10 +74,10 @@ pub struct SystemContext {
     pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
-    /// The ID of the subsidies Object.
-    pub subsidies_object: Option<ObjectID>,
-    /// The ID of the subsidies package.
-    pub subsidies_pkg_id: Option<ObjectID>,
+    /// The ID of the credits Object.
+    pub credits_object: Option<ObjectID>,
+    /// The ID of the credits package.
+    pub credits_pkg_id: Option<ObjectID>,
 }
 
 impl SystemContext {
@@ -102,11 +102,12 @@ impl SystemContext {
 
     /// Returns the contract config for the system.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new_with_subsidies(
-            self.system_object,
-            self.staking_object,
-            self.subsidies_object,
-        )
+        ContractConfig {
+            system_object: self.system_object,
+            staking_object: self.staking_object,
+            credits_object: self.credits_object,
+            subsidies_object: None,
+        }
     }
 }
 
@@ -121,7 +122,7 @@ pub async fn create_and_init_system_for_test(
     epoch_zero_duration: Duration,
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,
-    with_subsidies: bool,
+    with_credits: bool,
     deploy_directory: Option<PathBuf>,
     contract_dir: Option<PathBuf>,
 ) -> Result<SystemContext> {
@@ -148,7 +149,7 @@ pub async fn create_and_init_system_for_test(
             deploy_directory,
             with_wal_exchange: true,
             use_existing_wal_token: false,
-            with_subsidies,
+            with_credits,
         },
         None,
     )
@@ -158,7 +159,7 @@ pub async fn create_and_init_system_for_test(
 /// Publishes the contracts and initializes the system with the provided parameters.
 ///
 /// Returns a `SystemContext` containing the package ID and object IDs for the system, staking,
-/// upgrade manager, and optionally subsidies and WAL exchange objects.
+/// upgrade manager, and optionally credits and WAL exchange objects.
 ///
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
@@ -173,14 +174,14 @@ pub async fn create_and_init_system(
         init_cap_id,
         upgrade_cap_id,
         wal_exchange_pkg_id,
-        subsidies_pkg_id,
+        credits_pkg_id,
     } = system_setup::publish_coin_and_system_package(
         admin_wallet,
         init_system_params_cloned.contract_dir,
         init_system_params_cloned.deploy_directory,
         init_system_params_cloned.with_wal_exchange,
         init_system_params_cloned.use_existing_wal_token,
-        init_system_params_cloned.with_subsidies,
+        init_system_params_cloned.with_credits,
         gas_budget,
     )
     .await?;
@@ -201,9 +202,9 @@ pub async fn create_and_init_system(
         system_object,
         staking_object,
         upgrade_manager_object,
-        subsidies_object: None,
+        credits_object: None,
         wal_exchange_pkg_id,
-        subsidies_pkg_id,
+        credits_pkg_id,
     })
 }
 
@@ -330,7 +331,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 /// they have equal weight in the committee.
 pub async fn initialize_contract_and_wallet_for_testing(
     epoch_duration: Duration,
-    with_subsidies: bool,
+    with_credits: bool,
     subsidy_rate: u16,
     n_nodes: usize,
 ) -> anyhow::Result<(
@@ -359,7 +360,7 @@ pub async fn initialize_contract_and_wallet_for_testing(
                     rpc_urls,
                     &bls_keys,
                     epoch_duration,
-                    with_subsidies,
+                    with_credits,
                     subsidy_rate,
                 )
                 .await
@@ -392,7 +393,7 @@ async fn publish_with_default_system_with_epoch_duration(
     rpc_urls: &[String],
     bls_keys: &[ProtocolKeyPair],
     epoch_duration: Duration,
-    with_subsidies: bool,
+    with_credits: bool,
     subsidy_rate: u16,
 ) -> anyhow::Result<(SystemContext, SuiContractClient)> {
     let system_context = create_and_init_system_for_test(
@@ -401,7 +402,7 @@ async fn publish_with_default_system_with_epoch_duration(
         Duration::from_secs(0),
         epoch_duration,
         None,
-        with_subsidies,
+        with_credits,
         None,
         None,
     )
@@ -427,14 +428,14 @@ async fn publish_with_default_system_with_epoch_duration(
         .new_contract_client(admin_wallet, rpc_urls, Default::default(), None)
         .await?;
 
-    if let Some(subsidies_pkg_id) = system_context.subsidies_pkg_id {
-        let (subsidies_object_id, _admin_cap_id) = contract_client
-            .create_and_fund_subsidies(subsidies_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
+    if let Some(credits_pkg_id) = system_context.credits_pkg_id {
+        let (credits_object_id, _admin_cap_id) = contract_client
+            .create_and_fund_credits(credits_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
             .await?;
 
         contract_client
             .read_client()
-            .set_subsidies_object(subsidies_object_id)
+            .set_credits_object(credits_object_id)
             .await?;
     }
 

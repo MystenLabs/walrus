@@ -78,7 +78,7 @@ pub mod simtest_utils {
                     DEFAULT_ENCODING,
                     epoch_ahead,
                     StoreOptimizations::none(),
-                    BlobPersistence::from_deletable(deletable),
+                    BlobPersistence::from_deletable_and_permanent(deletable, !deletable)?,
                     PostStoreAction::Keep,
                     None,
                 )
