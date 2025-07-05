@@ -247,7 +247,7 @@ See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension
   inside a quilt; they must be applied to the entire quilt.
 ```
 
-For efficiently storing large numbers of small blobs, Walrus provides the Quilt feature. It batches
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches
 multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find
 a more detailed overview of the feature [Quilt](./quilt.md).
 
@@ -309,7 +309,7 @@ walrus read-quilt --out <download dir> \
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using
-`list-patches-in-quilt`. The `--quilt-patch-ids` flag can also be repeated:
+`list-patches-in-quilt`.
 
 ```sh
 walrus read-quilt --out <download dir> \
@@ -317,9 +317,7 @@ walrus read-quilt --out <download dir> \
   GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
 ```
 
-You can specify the output directory with `--out <DIRECTORY>`.
-
-### Listing patches in a Quilt
+### List patches in a Quilt
 
 To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
 the `list-patches-in-quilt` command.
