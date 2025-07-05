@@ -998,7 +998,8 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .iter()
         .enumerate()
         .map(|(i, blob)| {
-            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1));
+            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1))
+                .expect("Should create blob");
             if i == 0 {
                 blob = blob.with_tags(vec![("tag1".to_string(), "value1".to_string())]);
             }
