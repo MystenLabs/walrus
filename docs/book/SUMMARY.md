@@ -34,6 +34,7 @@
   - [Storage costs](./dev-guide/costs.md)
   - [Sui structures](./dev-guide/sui-struct.md)
   - [Data security](./dev-guide/data-security.md)
+  - [Quilt](./usage/quilt.md)
 - [Operator guide](./operator-guide/operator-guide.md)
   - [Operating an aggregator or publisher](./operator-guide/aggregator.md)
     - [The authenticated publisher](./operator-guide/auth-publisher.md)
