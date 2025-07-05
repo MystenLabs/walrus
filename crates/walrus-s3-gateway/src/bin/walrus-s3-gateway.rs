@@ -4,7 +4,7 @@
 //! Main binary for the Walrus S3 Gateway with Client-Side Signing.
 
 use clap::{Arg, Command};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info};
 use walrus_s3_gateway::Config;
 
@@ -36,8 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('b')
                 .long("bind")
                 .value_name("ADDRESS")
-                .help("Address to bind the server to")
-                .default_value("0.0.0.0:8080"),
+                .help("Address to bind the server to (overrides config file)"),
         )
         .arg(
             Arg::new("region")
@@ -80,8 +79,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Loading configuration from: {}", config_path.display());
         Config::from_file(config_path)?
     } else {
-        info!("Using default configuration");
-        Config::default()
+        // Always look for config.toml relative to this main binary file location
+        // Get the directory containing this source file
+        let main_file_path = PathBuf::from(file!());
+        let gateway_dir = main_file_path
+            .parent() // src/bin/
+            .and_then(|p| p.parent()) // src/
+            .and_then(|p| p.parent()) // crates/walrus-s3-gateway/
+            .unwrap_or_else(|| Path::new("."));
+        
+        let default_config_path = gateway_dir.join("config.toml");
+        
+        if default_config_path.exists() {
+            info!("Loading configuration from default file: {}", default_config_path.display());
+            Config::from_file(&default_config_path)?
+        } else {
+            info!("No configuration file found at: {}", default_config_path.display());
+            info!("Create a config.toml file in the walrus-s3-gateway directory to customize settings");
+            Config::default()
+        }
     };
 
     // Override config with command line arguments

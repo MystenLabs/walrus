@@ -1,6 +1,5 @@
 # Walrus S3 Gateway Configuration for Client-Side Signing
-# This configuration enables client-side signing mode where clients must
-# sign transactions before submission.
+# Default configuration file - modify as needed for your setup
 
 access_key = "test-access-key"
 secret_key = "test-secret-key"
@@ -17,11 +16,6 @@ enable_cors = true
 require_signatures = true
 validate_signatures = true
 sui_rpc_url = "https://fullnode.testnet.sui.io:443"
-
-# Walrus configuration
-[walrus]
-publisher_url = "https://publisher.walrus-testnet.walrus.space"
-aggregator_url = "https://aggregator.walrus-testnet.walrus.space"
 
 # Client credentials
 [client_credentials]

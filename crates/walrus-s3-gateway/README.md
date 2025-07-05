@@ -5,17 +5,17 @@
 For a quick test of the Walrus S3 Gateway with client-side signing:
 
 ```bash
-# Option 1: Standard configuration
-cargo run --bin walrus-s3-gateway -- --config test-config.toml
+# Simple start (uses config.toml automatically)
+cargo run --bin walrus-s3-gateway
 
-# Option 2: Minimal configuration (fewer dependencies)  
-cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml --bind 127.0.0.1:9200
+# With custom configuration file
+cargo run --bin walrus-s3-gateway -- --config my-config.toml
 
 # Test the client-side signing workflow
 ./test-complete.sh
 ```
 
-**Note**: The gateway now defaults to `info` level logging. You can still override this with `RUST_LOG` environment variable if needed.
+**Note**: The gateway now defaults to `info` level logging and automatically loads `config.toml` if present. You can still override logging with `RUST_LOG` environment variable if needed.
 
 See [QUICK-START.md](QUICK-START.md) for detailed instructions and troubleshooting.ay
 
@@ -117,14 +117,14 @@ You'll also need `client_config.yaml` (copy from `../../setup/client_config.yaml
 ### 2. Start the Gateway
 
 ```bash
-# Start with minimal configuration
-cargo run --bin walrus-s3-gateway -- --config test-config-minimal.toml --bind 127.0.0.1:9200
+# Start with default config.toml
+cargo run --bin walrus-s3-gateway
 
-# Or with full configuration
-cargo run --bin walrus-s3-gateway -- --config test-config.toml
+# Or with custom configuration
+cargo run --bin walrus-s3-gateway -- --config my-config.toml
 ```
 
-**Note**: The gateway now shows `info` level logs by default. For debug logs, use `RUST_LOG=debug`.
+**Note**: The gateway automatically loads `config.toml` from the current directory if no configuration file is specified. For debug logs, use `RUST_LOG=debug`.
 
 ### 3. Test Client-Side Signing
 
