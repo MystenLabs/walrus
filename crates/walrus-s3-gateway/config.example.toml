@@ -44,7 +44,21 @@ enable_metrics = false
 # metrics_port = 9090
 
 # Wallet configuration (required for write operations)
+# Note: With the new per-request client architecture, each write operation
+# will create a client using credentials extracted from the S3 request.
+# The gateway maps S3 access keys to Walrus wallet configurations.
+
+# Example wallet mapping strategy:
+# 1. S3 access key -> Sui wallet keystore path
+# 2. S3 secret key -> used for signature validation
+# 3. Each user needs their own Sui wallet for write operations
+
 # [walrus.wallet_config]
 # keystore_path = "/path/to/sui/keystore"
 # active_address = "0x..."
 # active_env = "testnet"
+
+# Per-user wallet configuration (implemented in create_write_client)
+# - keystore_path: "~/.sui/sui_config/sui.keystore.{access_key}"
+# - active_env: "testnet"
+# - active_address: determined from keystore

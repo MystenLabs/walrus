@@ -14,8 +14,8 @@ use crate::error::{S3Error, S3Result};
 /// Metadata for an S3 object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectMetadata {
-    /// The Walrus blob ID for this object.
-    pub blob_id: BlobId,
+    /// The Walrus blob ID for this object (as string for serialization).
+    pub blob_id: String,
     /// The original S3 key.
     pub key: String,
     /// The bucket name.
@@ -35,7 +35,7 @@ pub struct ObjectMetadata {
 impl ObjectMetadata {
     /// Create new object metadata.
     pub fn new(
-        blob_id: BlobId,
+        blob_id: String,
         key: String,
         bucket: String,
         content_type: Option<String>,
@@ -186,9 +186,9 @@ impl MetadataStore {
     }
 
     /// Get the blob ID for an object.
-    pub async fn get_blob_id(&self, bucket: &str, key: &str) -> S3Result<Option<BlobId>> {
+    pub async fn get_blob_id(&self, bucket: &str, key: &str) -> S3Result<Option<String>> {
         let objects = self.objects.read().await;
-        Ok(objects.get(&(bucket.to_string(), key.to_string())).map(|meta| meta.blob_id))
+        Ok(objects.get(&(bucket.to_string(), key.to_string())).map(|meta| meta.blob_id.clone()))
     }
 
     /// Get all buckets (unique bucket names).

@@ -83,6 +83,46 @@ impl SigV4Authenticator {
         Ok(())
     }
     
+    /// Extract credentials from authorization header for creating per-request clients.
+    /// Returns (access_key, secret_key) if extraction is successful.
+    /// Note: This is a simplified implementation - in production you'd want to
+    /// securely map access keys to corresponding secrets.
+    pub fn extract_credentials(&self, headers: &HeaderMap) -> S3Result<(String, String)> {
+        let auth_header = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .ok_or(S3Error::AccessDenied)?;
+        
+        let auth_parts = self.parse_authorization_header(auth_header)?;
+        
+        // In a real implementation, you would:
+        // 1. Look up the secret key from a secure store using the access key
+        // 2. Validate the signature against the looked-up secret
+        // 3. Return the actual credentials
+        
+        // For now, we'll return the configured credentials if the access key matches
+        if auth_parts.access_key == self.access_key {
+            Ok((self.access_key.clone(), self.secret_key.clone()))
+        } else {
+            Err(S3Error::InvalidAccessKeyId)
+        }
+    }
+    
+    /// Authenticate and extract credentials in one step.
+    pub fn authenticate_and_extract(
+        &self,
+        method: &Method,
+        uri: &Uri,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> S3Result<(String, String)> {
+        // First authenticate the request
+        self.authenticate(method, uri, headers, body)?;
+        
+        // Then extract credentials
+        self.extract_credentials(headers)
+    }
+    
     /// Parse the authorization header.
     fn parse_authorization_header(&self, header: &str) -> S3Result<AuthorizationParts> {
         if !header.starts_with("AWS4-HMAC-SHA256") {

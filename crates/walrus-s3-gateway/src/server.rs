@@ -7,6 +7,7 @@ use crate::auth::SigV4Authenticator;
 use crate::config::Config;
 use crate::error::{S3Error, S3Result};
 use crate::handlers::{bucket, object, S3State};
+use crate::credentials::{CredentialManager, CredentialStrategy};
 use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, Method, Uri};
 use axum::response::Response;
@@ -42,11 +43,20 @@ impl S3GatewayServer {
             config.region.clone(),
         );
         
+        // Create credential manager with default direct mapping strategy
+        let credential_manager = CredentialManager::new(
+            CredentialStrategy::DirectMapping { 
+                mapping: HashMap::new() // TODO: Load from config
+            }
+        );
+        
         // Create shared state
         let state = S3State::new(
             walrus_client,
             authenticator,
             "walrus-bucket".to_string(), // Default bucket name
+            config.clone(),
+            credential_manager,
         );
         
         // Build the router

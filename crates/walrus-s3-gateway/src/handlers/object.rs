@@ -101,23 +101,23 @@ pub async fn get_object(
     
     info!("GetObject request for bucket '{}', key '{}' authenticated successfully", bucket_name, key);
     
-    // Get blob ID from metadata store
-    let blob_id = match state.metadata_store.get_blob_id(&bucket_name, &key).await? {
-        Some(blob_id) => blob_id,
+    // Get object metadata from metadata store
+    let metadata = match state.metadata_store.get_object(&bucket_name, &key).await? {
+        Some(metadata) => metadata,
         None => {
             info!("Object not found: bucket '{}', key '{}'", bucket_name, key);
             return Err(S3Error::NoSuchKey);
         }
     };
     
-    // Retrieve the blob from Walrus
-    match state.walrus_client.read_blob_retry_committees::<walrus_core::encoding::Primary>(&blob_id).await {
+    // Parse blob ID from string
+    let blob_id = metadata.blob_id.parse::<walrus_core::BlobId>()
+        .map_err(|e| S3Error::InternalError(format!("Invalid blob ID: {}", e)))?;
+    
+    // Retrieve the blob from Walrus using the read client
+    match state.read_client.read_blob_retry_committees::<walrus_core::encoding::Primary>(&blob_id).await {
         Ok(data) => {
             info!("Successfully retrieved blob {} from Walrus", blob_id);
-            
-            // Get metadata for additional response headers
-            let metadata = state.metadata_store.get_object(&bucket_name, &key).await?
-                .ok_or(S3Error::NoSuchKey)?;
             
             let mut response_builder = Response::builder()
                 .status(200)
@@ -156,9 +156,6 @@ pub async fn put_object(
 ) -> S3Result<Response> {
     debug!("Handling PutObject request");
     
-    // Authenticate the request
-    state.authenticate(&method, &uri, &headers, &body)?;
-    
     // Parse bucket and object key from URI
     let (bucket_name, key) = utils::parse_s3_path(&uri)?;
     let key = key.ok_or(S3Error::InvalidRequest("Object key is required".to_string()))?;
@@ -166,7 +163,16 @@ pub async fn put_object(
     utils::validate_bucket_name(&bucket_name)?;
     utils::validate_object_key(&key)?;
     
+    // Authenticate the request and extract credentials
+    let (access_key, secret_key) = state.authenticator.authenticate_and_extract(
+        &method, &uri, &headers, &body
+    )?;
+    
     info!("PutObject request for bucket '{}', key '{}' authenticated successfully", bucket_name, key);
+    
+    // Create a write client for this user
+    let authorization_header = headers.get("authorization").and_then(|v| v.to_str().ok());
+    let write_client = state.create_write_client(&access_key, &secret_key, authorization_header).await?;
     
     // Parse headers
     let content_type = utils::parse_content_type(&headers);
@@ -176,19 +182,12 @@ pub async fn put_object(
     let blob_data = body.as_ref();
     let blob_slice = [blob_data];
     
-    // TODO: Implement blob storage once we have a SuiContractClient with wallet
-    // For now, return an error indicating this feature is not yet available
-    return Err(S3Error::InternalError(
-        "Blob storage not yet implemented - requires wallet configuration".to_string()
-    ));
-    
-    // This is the code that will be used once we have proper wallet setup:
-    /*
-    match state.walrus_client.reserve_and_store_blobs_retry_committees(
+    // Store the blob using the user's authenticated client
+    match write_client.reserve_and_store_blobs_retry_committees(
         &blob_slice,
         EncodingType::RS2,
         1, // epochs_ahead
-        walrus_sdk::store_optimizations::StoreOptimizations::none(), // store_optimizations
+        walrus_sdk::store_optimizations::StoreOptimizations::none(),
         BlobPersistence::Permanent,
         PostStoreAction::Keep,
         None, // metrics
@@ -198,79 +197,74 @@ pub async fn put_object(
                 match result {
                     BlobStoreResult::NewlyCreated { blob_object, .. } => {
                         let blob_id = blob_object.blob_id;
-                        info!("Successfully stored blob {} in Walrus for key '{}'", blob_id, key);
-                        let etag = utils::blob_id_to_etag(&blob_id.to_string());
-                        let metadata = ObjectMetadata::new(
-                            blob_id,
-                            key.clone(),
-                            bucket_name.clone(),
-                            content_type,
-                            metadata,
-                            body.len() as u64,
-                            etag.clone(),
-                        );
                         
-                        state.metadata_store.put_object(metadata).await?;
+                        // Store metadata
+                        let object_metadata = ObjectMetadata {
+                            bucket: bucket_name.clone(),
+                            key: key.clone(),
+                            blob_id: blob_id.to_string(),
+                            size: blob_data.len() as u64,
+                            content_type,
+                            etag: format!("\"{}\"", blob_id.to_string()),
+                            last_modified: chrono::Utc::now(),
+                            user_metadata: metadata,
+                        };
+                        
+                        state.metadata_store.put_object(object_metadata).await?;
+                        
+                        info!("Successfully stored object '{}' in bucket '{}' with blob ID: {}", 
+                             key, bucket_name, blob_id);
                         
                         Ok(Response::builder()
                             .status(200)
-                            .header("ETag", etag)
-                            .body("".into())
+                            .header("ETag", format!("\"{}\"", blob_id.to_string()))
+                            .header("Content-Length", "0")
+                            .body(Body::empty())
                             .unwrap())
                     }
                     BlobStoreResult::AlreadyCertified { blob_id, .. } => {
-                        info!("Blob {} already exists in Walrus for key '{}'", blob_id, key);
+                        // Update metadata for existing blob
+                        let object_metadata = ObjectMetadata {
+                            bucket: bucket_name.clone(),
+                            key: key.clone(),
+                            blob_id: blob_id.to_string(),
+                            size: blob_data.len() as u64,
+                            content_type,
+                            etag: format!("\"{}\"", blob_id.to_string()),
+                            last_modified: chrono::Utc::now(),
+                            user_metadata: metadata,
+                        };
                         
-                        // Check if we already have metadata for this key
-                        if let Some(existing_metadata) = state.metadata_store.get_object(&bucket_name, &key).await? {
-                            let etag = existing_metadata.etag;
-                            Ok(Response::builder()
-                                .status(200)
-                                .header("ETag", etag)
-                                .body("".into())
-                                .unwrap())
-                        } else {
-                            // Create new metadata for existing blob
-                            let etag = utils::blob_id_to_etag(&blob_id.to_string());
-                            let metadata = ObjectMetadata::new(
-                                blob_id,
-                                key.clone(),
-                                bucket_name.clone(),
-                                content_type,
-                                metadata,
-                                body.len() as u64,
-                                etag.clone(),
-                            );
-                            
-                            state.metadata_store.put_object(metadata).await?;
-                            
-                            Ok(Response::builder()
-                                .status(200)
-                                .header("ETag", etag)
-                                .body("".into())
-                                .unwrap())
-                        }
+                        state.metadata_store.put_object(object_metadata).await?;
+                        
+                        info!("Updated metadata for existing object '{}' in bucket '{}' with blob ID: {}", 
+                             key, bucket_name, blob_id);
+                        
+                        Ok(Response::builder()
+                            .status(200)
+                            .header("ETag", format!("\"{}\"", blob_id.to_string()))
+                            .header("Content-Length", "0")
+                            .body(Body::empty())
+                            .unwrap())
                     }
                     BlobStoreResult::Error { error_msg, .. } => {
-                        error!("Failed to store blob in Walrus for key '{}': {}", key, error_msg);
+                        error!("Failed to store blob: {}", error_msg);
                         Err(S3Error::InternalError(format!("Failed to store blob: {}", error_msg)))
                     }
                     BlobStoreResult::MarkedInvalid { blob_id, .. } => {
-                        error!("Blob {} was marked as invalid for key '{}'", blob_id, key);
+                        error!("Blob {} was marked as invalid", blob_id);
                         Err(S3Error::InternalError("Blob was marked as invalid".to_string()))
                     }
                 }
             } else {
-                error!("No results returned from Walrus store operation for key '{}'", key);
-                Err(S3Error::InternalError("Failed to store blob: No results".to_string()))
+                Err(S3Error::InternalError("No result returned from blob store".to_string()))
             }
         }
         Err(e) => {
-            error!("Failed to store blob in Walrus for key '{}': {:?}", key, e);
+            error!("Failed to store blob in Walrus: {}", e);
             Err(S3Error::InternalError(format!("Failed to store blob: {}", e)))
         }
     }
-    */
 }
 
 /// Delete an object.
@@ -282,15 +276,17 @@ pub async fn delete_object(
 ) -> S3Result<Response> {
     debug!("Handling DeleteObject request");
     
-    // Authenticate the request
-    state.authenticate(&method, &uri, &headers, &[])?;
-    
     // Parse bucket and object key from URI
     let (bucket_name, key) = utils::parse_s3_path(&uri)?;
     let key = key.ok_or(S3Error::InvalidRequest("Object key is required".to_string()))?;
     
     utils::validate_bucket_name(&bucket_name)?;
     utils::validate_object_key(&key)?;
+    
+    // Authenticate the request and extract credentials
+    let (_access_key, _secret_key) = state.authenticator.authenticate_and_extract(
+        &method, &uri, &headers, &[]
+    )?;
     
     info!("DeleteObject request for bucket '{}', key '{}' authenticated successfully", bucket_name, key);
     
@@ -303,7 +299,8 @@ pub async fn delete_object(
     state.metadata_store.delete_object(&bucket_name, &key).await?;
     
     // Note: Walrus doesn't support deletion of blobs, so the blob remains in storage
-    // but is no longer accessible via S3 API
+    // but is no longer accessible via S3 API. This is the expected behavior for 
+    // immutable storage systems.
     
     info!("DeleteObject for key '{}' completed (blob remains in Walrus)", key);
     
@@ -426,15 +423,17 @@ pub async fn create_multipart_upload(
 ) -> S3Result<Response> {
     debug!("Handling CreateMultipartUpload request");
     
-    // Authenticate the request
-    state.authenticate(&method, &uri, &headers, &[])?;
-    
     // Parse bucket and object key from URI
     let (bucket_name, key) = utils::parse_s3_path(&uri)?;
     let key = key.ok_or(S3Error::InvalidRequest("Object key is required".to_string()))?;
     
     utils::validate_bucket_name(&bucket_name)?;
     utils::validate_object_key(&key)?;
+    
+    // Authenticate the request and extract credentials
+    let (_access_key, _secret_key) = state.authenticator.authenticate_and_extract(
+        &method, &uri, &headers, &[]
+    )?;
     
     info!("CreateMultipartUpload request for bucket '{}', key '{}' authenticated successfully", bucket_name, key);
     
@@ -446,6 +445,7 @@ pub async fn create_multipart_upload(
     // - Upload ID
     // - Bucket and key
     // - Metadata from headers
+    // - User credentials for subsequent operations
     // - Timestamp
     
     let response_xml = format!(

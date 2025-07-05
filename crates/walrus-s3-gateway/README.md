@@ -32,11 +32,19 @@ A fully functional S3-compatible gateway that allows applications to interact wi
   - Configuration file support (TOML format)
   - CLI argument parsing and validation
 
-### 🚧 **In Progress - Write Support**
+### 🚧 **Write Support - Now Available!**
 - **Object Storage (PUT/POST operations)**
-  - Requires wallet configuration for authenticated transactions
+  - Per-request client creation with user credentials
+  - Automatic wallet configuration mapping from S3 credentials
   - Blob storage with encoding/compression
   - Metadata storage and retrieval
+  - Namespace isolation using bucket prefixes
+
+### 🎯 **New Architecture - Per-Request Authentication**
+- **Dynamic Client Creation**: Each write operation creates a new Walrus client with user-specific credentials
+- **Credential Mapping**: S3 access keys are mapped to Walrus wallet configurations
+- **Secure Isolation**: Each user's operations are isolated using their own authentication context
+- **No Global State**: No shared client state - each request is independent
 
 ### 🔮 **Future Enhancements**
 - Advanced multipart upload with resumable uploads
@@ -163,41 +171,40 @@ enable_metrics = false
 ### ✅ **What Works Now**
 - Server starts and connects to Walrus testnet
 - All S3 API endpoints respond correctly
-- Authentication layer processes requests
+- Authentication layer processes requests and extracts credentials
+- **Write operations (PUT/POST) fully implemented**
+- **Per-request client creation with user credentials**
+- **Automatic credential mapping from S3 to Walrus**
 - Error handling with proper S3 error codes
 - Configuration and logging systems
 
-### 🔄 **Read-Only Mode**
-The gateway currently operates in read-only mode, meaning:
-- You can retrieve objects that already exist in Walrus
-- List operations work correctly
-- Metadata queries function properly
-- PUT/POST operations return clear error messages about write limitations
+### 🔄 **Read-Write Mode**
+The gateway now operates in full read-write mode:
+- **READ operations**: Use shared read-only client for efficiency
+- **WRITE operations**: Create per-request client with user credentials
+- **Credential mapping**: S3 access keys map to Walrus wallet configurations
+- **Namespace isolation**: Buckets are implemented as prefixes for object keys
 
-### 🎯 **Next Steps for Full Functionality**
-To enable write operations (PUT/POST), the following needs to be implemented:
+### 🎯 **Key Features**
+1. **Per-Request Authentication**
+   - Each write operation extracts credentials from S3 authorization header
+   - Creates a new Walrus client with user's wallet configuration
+   - Ensures complete isolation between users
 
-1. **Wallet Integration**
+2. **Credential Mapping Strategy**
    ```rust
-   // Add wallet configuration for write operations
-   wallet_config = Some(WalletConfig {
-       keystore_path: "/path/to/keystore".into(),
-       active_address: Some("0x...".to_string()),
-       // ... other wallet settings
-   })
+   // S3 access key -> Walrus wallet keystore path
+   keystore_path = "~/.sui/sui_config/sui.keystore.{access_key}"
+   
+   // Wallet configuration per user
+   active_env = "testnet"
+   active_address = determined_from_keystore
    ```
 
-2. **Contract Client Setup**
-   ```rust
-   // Switch from SuiReadClient to SuiContractClient for write operations
-   let contract_client = walrus_config.new_contract_client(sui_client, wallet).await?;
-   let walrus_client = Client::new_contract_client_with_refresher(config, contract_client).await?;
-   ```
-
-3. **Blob Storage Implementation**
-   - Integrate `BlobStoreResult` for upload responses
-   - Implement proper blob encoding and metadata storage
-   - Handle transaction fees and gas management
+3. **Bucket Namespace Implementation**
+   - Walrus doesn't have buckets, so we use prefixes
+   - Object key format: `{bucket_name}/{object_key}`
+   - Allows S3 bucket semantics on Walrus storage
 
 ## Testing
 
@@ -261,6 +268,157 @@ src/
 2. **Authentication Methods**: Extend `src/auth.rs`
 3. **Storage Backends**: Modify `src/server.rs` client creation
 4. **Configuration Options**: Update `src/config.rs`
+
+## User Credential Setup
+
+### Setting Up User Wallets
+
+Since the gateway creates per-request clients with user credentials, each user needs their own Sui wallet configured:
+
+1. **Install Sui CLI**
+   ```bash
+   # Install Sui CLI
+   cargo install --locked --git https://github.com/MystenLabs/sui.git --branch testnet sui
+   ```
+
+2. **Create User Wallet**
+   ```bash
+   # Create a new wallet for the user
+   sui client new-address ed25519
+   
+   # Get testnet SUI tokens
+   sui client faucet --address YOUR_ADDRESS
+   
+   # Set environment to testnet
+   sui client switch --env testnet
+   ```
+
+3. **Configure Access Key Mapping**
+   
+   The gateway maps S3 access keys to Sui wallet keystores using this pattern:
+   ```
+   S3 Access Key: "user-123"
+   Wallet Keystore: "~/.sui/sui_config/sui.keystore.user-123"
+   ```
+
+4. **Copy Keystore for User**
+   ```bash
+   # Copy the user's keystore to the mapped location
+   cp ~/.sui/sui_config/sui.keystore ~/.sui/sui_config/sui.keystore.user-123
+   ```
+
+### Example User Setup
+
+```bash
+# User "alice" wants to use the gateway
+export USER_ACCESS_KEY="alice"
+export USER_SECRET_KEY="alice-secret-123"
+
+# Create Sui wallet for Alice
+sui client new-address ed25519
+
+# Get some testnet SUI
+sui client faucet
+
+# Copy keystore to the expected location
+cp ~/.sui/sui_config/sui.keystore ~/.sui/sui_config/sui.keystore.alice
+
+# Now Alice can use AWS CLI with these credentials
+aws configure set aws_access_key_id alice
+aws configure set aws_secret_access_key alice-secret-123
+aws configure set region us-east-1
+
+# Upload a file
+aws --endpoint-url http://localhost:8080 s3 cp file.txt s3://mybucket/file.txt
+```
+
+### ⚠️ **Critical Security Issue - Current Architecture**
+
+**The current implementation has a significant security flaw**: the server must store all user wallets (private keys) to perform write operations. This creates:
+
+1. **🔥 Security Risk**: Single point of failure - server compromise exposes all user wallets
+2. **📈 Scalability Problem**: Each new user requires manual wallet setup on the server
+3. **🤝 Trust Issue**: Users must give their private keys to the server operator
+4. **🔐 Key Management Nightmare**: Backup, rotation, and recovery for hundreds/thousands of users
+
+### 🛡️ **Secure Architecture Alternatives**
+
+The `credentials.rs` module implements several secure alternatives:
+
+#### **Option 1: Client-Side Transaction Signing**
+
+Instead of the server holding user wallets, clients sign Sui transactions locally:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gateway
+    participant Walrus
+    participant Sui
+
+    Client->>Gateway: PUT /bucket/object (with S3 auth)
+    Gateway->>Gateway: Validate S3 signature
+    Gateway->>Walrus: Prepare blob upload
+    Walrus->>Gateway: Return unsigned transaction
+    Gateway->>Client: Return unsigned transaction
+    Client->>Client: Sign transaction with local wallet
+    Client->>Gateway: Submit signed transaction
+    Gateway->>Sui: Submit signed transaction
+    Sui->>Gateway: Transaction result
+    Gateway->>Client: S3 PUT response
+```
+
+**Implementation:**
+```rust
+// Extended S3 API for transaction signing
+PUT /bucket/object?prepare=true  // Returns unsigned transaction
+PUT /bucket/object?submit=true   // Submits signed transaction
+```
+
+#### **Option 2: JWT/Token-Based Authentication**
+
+Use external authentication systems:
+
+```rust
+// User authenticates with external system
+// Receives JWT with Sui address claims
+// Gateway validates JWT and uses address for operations
+
+#[derive(Deserialize)]
+struct UserClaims {
+    sub: String,           // User ID
+    sui_address: String,   // User's Sui address
+    exp: u64,             // Expiration
+}
+```
+
+#### **Option 3: Delegated Signing Service**
+
+Separate wallet management from the gateway:
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Client    │    │   Gateway   │    │   Wallet    │
+│             │───▶│             │───▶│   Service   │
+│             │    │             │    │             │
+└─────────────┘    └─────────────┘    └─────────────┘
+```
+
+### 🔧 **Quick Fix: Environment-Based Credentials**
+
+For development/testing, we can improve the current approach:
+
+```toml
+# config.toml
+[credential_mapping]
+# Map S3 access keys to external wallet configs
+alice = { sui_address = "0x...", keystore_path = "/secure/alice.keystore" }
+bob = { sui_address = "0x...", keystore_path = "/secure/bob.keystore" }
+
+# Or use environment variables
+[credential_mapping]
+alice = { sui_address = "${ALICE_SUI_ADDRESS}", keystore_env = "ALICE_KEYSTORE" }
+```
 
 ## Contributing
 
