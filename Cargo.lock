@@ -13093,6 +13093,7 @@ dependencies = [
  "serde_with",
  "serde_yaml 0.9.34+deprecated",
  "sui-config",
+ "sui-json-rpc-api",
  "sui-keys",
  "sui-macros",
  "sui-move-build",
@@ -13126,6 +13127,43 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "walrus-upload-relay"
+version = "1.29.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.1",
+ "axum-server 0.7.2",
+ "base64 0.22.1",
+ "bcs",
+ "clap",
+ "clap_complete",
+ "fastcrypto",
+ "futures",
+ "git-version",
+ "mysten-metrics",
+ "prometheus",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "serde_with",
+ "serde_yaml 0.9.34+deprecated",
+ "sui-sdk",
+ "sui-types",
+ "telemetry-subscribers",
+ "thiserror 2.0.12",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-redoc",
+ "walrus-sdk",
+ "walrus-test-utils",
 ]
 
 [[package]]

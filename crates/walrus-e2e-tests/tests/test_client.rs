@@ -19,7 +19,6 @@ use std::{
     time::Duration,
 };
 
-use indicatif::MultiProgress;
 use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
@@ -347,7 +346,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &metadata,
             &pairs,
             &BlobPersistenceType::Permanent,
-            &MultiProgress::new(),
+            None,
         )
         .await?;
 

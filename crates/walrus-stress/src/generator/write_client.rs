@@ -222,7 +222,7 @@ impl WriteClient {
                 &metadata,
                 &pairs,
                 &blob_sui_object.blob_persistence_type(),
-                &MultiProgress::new(),
+                Some(&MultiProgress::new()),
             )
             .await?;
 
