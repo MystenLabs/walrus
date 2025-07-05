@@ -41,6 +41,13 @@ Client ──PUT──> Gateway ──202+Template──> Client ──Sign─�
 
 ## Quick Start
 
+### Prerequisites
+
+- **Rust**: Install from [rustup.rs](https://rustup.rs/)
+- **Sui CLI**: Install from [Sui docs](https://docs.sui.io/build/install)  
+- **curl**: For HTTP requests (usually pre-installed)
+- **jq** (optional): For JSON formatting (`brew install jq` on macOS)
+
 ### 1. Configuration
 
 Create `config.toml`:
@@ -69,8 +76,14 @@ cargo run --bin walrus-s3-gateway -- --config config.toml
 ### 3. Test Client-Side Signing
 
 ```bash
-./test-client-signing.sh
+./test-complete.sh
 ```
+
+The test script will:
+1. 🔐 Create a temporary Sui wallet with testnet funds
+2. 🧪 Test all endpoints with real client-side signing workflow  
+3. 📊 Display comprehensive test results
+4. 🧹 Clean up automatically
 
 ## API Endpoints
 
@@ -121,10 +134,12 @@ if (response.status === 202) {
 
 ## Testing
 
-The `test-client-signing.sh` script provides automated testing:
-- ✅ PUT operations return HTTP 202 with signing requirements
-- ✅ Transaction template generation works
-- ✅ Transaction submission endpoint responds correctly
+The `test-complete.sh` script provides comprehensive automated testing:
+- 🔐 Creates temporary Sui wallet with testnet funds
+- ✅ Tests all S3 endpoints with client-side signing
+- 🧪 Validates HTTP 202 responses for PUT operations  
+- 🔧 Tests transaction template generation and submission
+- 🧹 Automatically cleans up test wallet and files
 
 ## Security Benefits
 
@@ -143,7 +158,7 @@ cargo build --release
 ### Run Tests
 ```bash
 cargo test
-./test-client-signing.sh
+./test-complete.sh
 ```
 
 ### Check Code

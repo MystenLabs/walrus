@@ -77,11 +77,12 @@ require_signatures = true
 sui_rpc_url = "https://fullnode.testnet.sui.io:443"
 ```
 
-### Test Script (`test-client-signing.sh`)
-- Automated testing of all signing endpoints
-- Validates HTTP 202 responses for PUT operations
-- Tests transaction template generation
-- Verifies signed transaction submission
+### Test Script (`test-complete.sh`)
+- Complete end-to-end testing with real Sui wallet
+- Automated wallet creation and funding from testnet faucet  
+- Tests all signing endpoints and S3 operations
+- Validates HTTP 202 responses and transaction templates
+- Automatic cleanup of test environment
 
 ## Production Considerations
 

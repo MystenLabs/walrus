@@ -309,11 +309,19 @@ level = "debug"
 # Start the gateway
 cargo run --bin walrus-s3-gateway -- --config test-config.toml
 
-# Run test script
-./test-client-signing.sh
+# Run complete test script (in another terminal)
+./test-complete.sh
 ```
+
+### What the Test Script Does
+1. **🔐 Wallet Setup**: Creates temporary Sui wallet with testnet funds
+2. **🔗 Gateway Check**: Verifies gateway is running and accessible  
+3. **📂 S3 Operations**: Tests standard S3 operations (PUT/GET/DELETE)
+4. **🔧 Client Signing**: Tests transaction template generation and submission
+5. **🧹 Cleanup**: Automatically removes temporary wallet and files
 
 ### Expected Results
 - PUT operations return HTTP 202 with client signing requirements
-- Transaction template generation works
-- Transaction submission endpoint responds correctly
+- Transaction template generation works correctly
+- Transaction submission endpoint responds appropriately
+- Wallet creation and funding from testnet faucet succeeds
