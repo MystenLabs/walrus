@@ -433,4 +433,24 @@ This project is licensed under the Apache 2.0 License - see the `LICENSE` file f
 
 ---
 
-**Note**: This implementation provides a complete S3-compatible interface to Walrus storage. The read-only mode allows immediate use with existing applications, while the foundation is in place for full read-write functionality once wallet integration is completed.
+**Note**: This implementation provides a complete S3-compatible interface to Walrus storage with **full read-write functionality**. The current architecture demonstrates the feasibility while highlighting critical security considerations for production deployment.
+
+### 🚨 **Production Deployment Checklist**
+
+Before deploying to production, implement one of the secure credential strategies:
+
+- [ ] **Client-Side Signing**: Users sign transactions locally
+- [ ] **JWT Authentication**: External auth system with service account  
+- [ ] **Delegated Signing**: Hardened wallet service with HSM
+- [ ] **Environment Credentials**: Move away from direct keystore storage
+
+### 🎯 **Project Status**
+
+- ✅ **S3 API Compatibility**: Complete implementation
+- ✅ **Authentication**: SigV4 with credential extraction
+- ✅ **Read Operations**: Efficient shared client
+- ✅ **Write Operations**: Per-request client creation
+- ✅ **Security Framework**: Multiple credential strategies
+- ⚠️ **Production Ready**: Requires secure credential strategy
+
+The gateway is **functional and feature-complete** but requires security hardening for production use!

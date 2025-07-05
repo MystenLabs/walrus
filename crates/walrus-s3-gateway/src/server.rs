@@ -43,12 +43,12 @@ impl S3GatewayServer {
             config.region.clone(),
         );
         
-        // Create credential manager with default direct mapping strategy
-        let credential_manager = CredentialManager::new(
-            CredentialStrategy::DirectMapping { 
-                mapping: HashMap::new() // TODO: Load from config
-            }
-        );
+        // Create credential manager from configuration
+        let credential_strategy = config.credential_strategy.clone()
+            .unwrap_or_else(|| CredentialStrategy::DirectMapping { 
+                mapping: HashMap::new() 
+            });
+        let credential_manager = CredentialManager::new(credential_strategy);
         
         // Create shared state
         let state = S3State::new(

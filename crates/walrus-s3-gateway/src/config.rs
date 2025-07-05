@@ -4,9 +4,11 @@
 //! Configuration for the S3 gateway.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use walrus_sui::config::WalletConfig;
+use crate::credentials::{CredentialStrategy, UserCredential};
 
 /// Configuration for the S3 gateway server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +48,9 @@ pub struct Config {
     
     /// Path to TLS private key file (if TLS is enabled).
     pub tls_key_path: Option<PathBuf>,
+    
+    /// Credential management strategy.
+    pub credential_strategy: Option<CredentialStrategy>,
 }
 
 impl Default for Config {
@@ -63,6 +68,9 @@ impl Default for Config {
             enable_tls: false,
             tls_cert_path: None,
             tls_key_path: None,
+            credential_strategy: Some(CredentialStrategy::DirectMapping { 
+                mapping: HashMap::new() 
+            }),
         }
     }
 }

@@ -48,17 +48,39 @@ enable_metrics = false
 # will create a client using credentials extracted from the S3 request.
 # The gateway maps S3 access keys to Walrus wallet configurations.
 
-# Example wallet mapping strategy:
-# 1. S3 access key -> Sui wallet keystore path
-# 2. S3 secret key -> used for signature validation
-# 3. Each user needs their own Sui wallet for write operations
+# Credential management strategies
+# Choose one of the following strategies for production deployment:
 
-# [walrus.wallet_config]
-# keystore_path = "/path/to/sui/keystore"
-# active_address = "0x..."
-# active_env = "testnet"
+# Option 1: Direct mapping (development only - security risk!)
+# Maps S3 access keys directly to wallet configurations
+# WARNING: This stores user private keys on the server
+# [credential_strategy]
+# type = "DirectMapping"
+# [credential_strategy.mapping.alice]
+# sui_address = "0x123..."
+# keystore_env = "ALICE_KEYSTORE"  # Environment variable containing keystore path
+# permissions = ["read", "write"]
 
-# Per-user wallet configuration (implemented in create_write_client)
-# - keystore_path: "~/.sui/sui_config/sui.keystore.{access_key}"
-# - active_env: "testnet"
-# - active_address: determined from keystore
+# Option 2: Client-side signing (recommended for production)
+# Clients sign transactions locally, server only validates
+# [credential_strategy]
+# type = "ClientSigning"
+# require_signatures = true
+
+# Option 3: JWT-based authentication (recommended for existing auth systems)
+# External authentication system provides JWT tokens
+# [credential_strategy]
+# type = "JwtBased"
+# jwt_secret = "your-jwt-secret"
+# issuer = "your-auth-system"
+
+# Option 4: Delegated signing service (enterprise)
+# Separate hardened service manages all wallet operations
+# [credential_strategy]
+# type = "DelegatedSigning"
+# signing_service_url = "https://wallet-service.company.com"
+# api_key = "your-api-key"
+
+# Example per-user environment variables for direct mapping:
+# export ALICE_KEYSTORE="/secure/alice.keystore"
+# export BOB_KEYSTORE="/secure/bob.keystore"
