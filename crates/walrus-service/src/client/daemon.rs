@@ -454,32 +454,23 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
+
+            let auth_layers = ServiceBuilder::new()
+                .layer(axum::middleware::from_fn_with_state(
+                    (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                    auth_layer,
+                ))
+                .layer(base_layers.clone());
+
             self.router = self
                 .router
                 .route(
                     BLOB_PUT_ENDPOINT,
-                    put(routes::put_blob).route_layer(
-                        ServiceBuilder::new()
-                            .layer(axum::middleware::from_fn_with_state(
-                                (
-                                    Arc::new(auth_config.clone()),
-                                    Arc::new(replay_suppression_cache.clone()),
-                                ),
-                                auth_layer,
-                            ))
-                            .layer(base_layers.clone()),
-                    ),
+                    put(routes::put_blob).route_layer(auth_layers.clone()),
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
-                    put(routes::put_quilt).route_layer(
-                        ServiceBuilder::new()
-                            .layer(axum::middleware::from_fn_with_state(
-                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                                auth_layer,
-                            ))
-                            .layer(base_layers.clone()),
-                    ),
+                    put(routes::put_quilt).route_layer(auth_layers),
                 );
         } else {
             self.router = self

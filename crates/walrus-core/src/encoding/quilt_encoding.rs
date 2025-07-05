@@ -537,13 +537,6 @@ impl<'a> QuiltStoreBlob<'a> {
             Cow::Owned(_) => self,
         }
     }
-
-    /// Returns the total size of the serialized user data.
-    pub fn total_size(&self) -> usize {
-        bcs::serialized_size(&self.identifier).unwrap_or(0)
-            + bcs::serialized_size(&self.tags).unwrap_or(0)
-            + self.data().len()
-    }
 }
 
 /// Quilt version 1.

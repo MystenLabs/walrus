@@ -81,6 +81,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
+const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
+
 /// Retrieve a Walrus blob.
 ///
 /// Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
@@ -786,8 +788,8 @@ pub struct QuiltPatchMetadata {
 /// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
 /// The form contains:
 /// - Blobs identified by their identifiers as field names (required)
-/// - A `_metadata` field containing a JSON array with per blob metadata (optional).
-///   This field must be valid JSON in array format.
+/// - A `{WALRUS_NATIVE_METADATA_FIELD_NAME}` field containing a JSON array with per blob metadata
+///   (optional). This field must be valid JSON in array format.
 ///
 /// # Supported Walrus-native metadata fields
 /// - `identifier`: The identifier of the blob, must match the corresponding blob field name
@@ -809,7 +811,7 @@ pub struct QuiltPatchMetadata {
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "quilt-manual=@document.pdf" \
 ///   -F "logo-2025=@image.png" \
-///   -F '_metadata=[
+///   -F "{WALRUS_NATIVE_METADATA_FIELD_NAME}=[
 ///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
 ///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
@@ -911,7 +913,7 @@ async fn parse_multipart_quilt(
 
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or("").to_string();
-        if field_name == "_metadata" {
+        if field_name == WALRUS_NATIVE_METADATA_FIELD_NAME {
             let metadata_json = field.text().await?;
             for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
                 let identifier = meta.identifier.clone();
@@ -949,7 +951,7 @@ async fn parse_multipart_quilt(
     Ok(res)
 }
 
-/// Custom deserializer for QuiltVersionEnum that uses From<String>
+/// Custom deserializer for QuiltVersionEnum that uses From<String>.
 fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
 where
     D: serde::Deserializer<'de>,
