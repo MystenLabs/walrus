@@ -8,7 +8,6 @@ use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use url::Url;
 
 /// Extract query parameters from a URI.
 pub fn extract_query_params(uri: &axum::http::Uri) -> HashMap<String, String> {

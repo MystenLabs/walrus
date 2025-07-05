@@ -4,12 +4,11 @@
 //! S3 authentication using AWS Signature Version 4.
 
 use crate::error::{S3Error, S3Result};
-use axum::http::{HeaderMap, HeaderValue, Method, Uri};
+use axum::http::{HeaderMap, Method, Uri};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -292,6 +291,7 @@ impl SigV4Authenticator {
 
 /// Parsed authorization header parts.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AuthorizationParts {
     access_key: String,
     date: String,

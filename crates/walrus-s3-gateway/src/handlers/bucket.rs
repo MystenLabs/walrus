@@ -7,11 +7,9 @@ use crate::error::{S3Error, S3Result};
 use crate::handlers::S3State;
 use crate::s3_types::{ListBucketsResponse, S3Bucket};
 use crate::utils;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, Method, Uri};
 use axum::response::Response;
-use axum::Json;
-use std::collections::HashMap;
 use tracing::{debug, info};
 
 /// List all buckets.

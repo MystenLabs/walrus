@@ -5,7 +5,7 @@
 
 use clap::{Arg, Command};
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use walrus_s3_gateway::Config;
 
 #[tokio::main]

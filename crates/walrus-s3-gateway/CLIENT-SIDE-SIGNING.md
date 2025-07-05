@@ -296,27 +296,24 @@ level = "debug"
    - Implement transaction signing
    - Add signed transaction submission
 
-3. **Test Thoroughly**:
-   - Verify all S3 operations work with signing
-   - Test error handling scenarios
-   - Validate transaction costs
+3. **Test Implementation**:
+   ```bash
+   # Run the test script
+   ./test-client-signing.sh
+   ```
 
-## Performance Considerations
+## Testing
 
-- **Transaction Building**: Cached templates can improve performance
-- **Gas Optimization**: Monitor and optimize gas usage patterns
-- **Concurrent Operations**: Handle multiple signing requests efficiently
+### Quick Test
+```bash
+# Start the gateway
+cargo run --bin walrus-s3-gateway -- --config test-config.toml
 
-## Future Enhancements
+# Run test script
+./test-client-signing.sh
+```
 
-- **Batch Operations**: Support for multiple object operations in single transaction
-- **Gas Sponsorship**: Allow third-party gas payment
-- **Webhook Integration**: Real-time status updates for long-running operations
-- **Advanced Caching**: Intelligent caching of transaction templates
-
-## Support
-
-For questions and support:
-- GitHub Issues: [Walrus Repository](https://github.com/MystenLabs/walrus)
-- Documentation: [Walrus Docs](https://docs.walrus.space/)
-- Community: [Sui Discord](https://discord.gg/sui)
+### Expected Results
+- PUT operations return HTTP 202 with client signing requirements
+- Transaction template generation works
+- Transaction submission endpoint responds correctly

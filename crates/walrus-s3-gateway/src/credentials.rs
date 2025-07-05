@@ -253,7 +253,7 @@ impl ClientSigningManager {
         // For demonstration purposes, we'll return a placeholder
         
         // Get the first signature from the transaction
-        if let Some(signature) = transaction.tx_signatures().first() {
+        if let Some(_signature) = transaction.tx_signatures().first() {
             // Extract the address from the signature
             // This would involve cryptographic verification
             // For now, we'll use a placeholder implementation

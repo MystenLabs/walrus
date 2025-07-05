@@ -4,11 +4,9 @@
 //! S3 metadata management for mapping S3 keys to Walrus blob IDs.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
-use walrus_core::BlobId;
 use crate::error::{S3Error, S3Result};
 
 /// Metadata for an S3 object.

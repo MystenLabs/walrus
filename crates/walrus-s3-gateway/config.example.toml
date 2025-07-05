@@ -1,86 +1,30 @@
 # Walrus S3 Gateway Configuration Example
+# This file shows configuration options for the Walrus S3 Gateway with client-side signing
 
 # Server settings
-bind_address = "0.0.0.0:8080"
-access_key = "walrus-access-key"
-secret_key = "walrus-secret-key"
+listen_address = "127.0.0.1:9200"
+
+# Client-side signing configuration
+[client_signing]
+require_signatures = true
+sui_rpc_url = "https://fullnode.testnet.sui.io:443"
+
+# Walrus endpoints
+[walrus]
+publisher_url = "https://publisher.walrus-testnet.walrus.space"
+aggregator_url = "https://aggregator.walrus-testnet.walrus.space"
+
+# AWS S3 compatibility settings
+[aws]
+access_key_id = "your-access-key"
+secret_access_key = "your-secret-key"
 region = "us-east-1"
 
-# Request handling
-max_body_size = 67108864  # 64MB
-request_timeout = 300     # 5 minutes
-enable_cors = true        # Enable CORS for web applications
+# Metadata storage
+[metadata]
+storage_type = "file"
+storage_path = "./s3_metadata"
 
-# TLS/HTTPS (optional)
-enable_tls = false
-# tls_cert_path = "/path/to/cert.pem"
-# tls_key_path = "/path/to/key.pem"
-
-# Optional: Path to external Walrus client configuration
-# walrus_config_path = "/path/to/walrus-client-config.yaml"
-
-# Walrus-specific configuration
-[walrus]
-# Sui RPC endpoints (testnet)
-sui_rpc_urls = [
-    "https://sui-testnet-rpc.mystenlabs.com:443",
-    "https://sui-testnet.publicnode.com:443"
-]
-
-# Walrus storage node endpoints (testnet)
-storage_nodes = [
-    "https://walrus-testnet.nodes.guru:11444",
-    "https://walrus-testnet-storage.stakin-nodes.com:11444"
-]
-
-# Committee refresh interval in seconds
-committee_refresh_interval = 300  # 5 minutes
-
-# Request timeout for Walrus operations in seconds
-request_timeout = 30
-
-# Metrics (optional)
-enable_metrics = false
-# metrics_port = 9090
-
-# Wallet configuration (required for write operations)
-# Note: With the new per-request client architecture, each write operation
-# will create a client using credentials extracted from the S3 request.
-# The gateway maps S3 access keys to Walrus wallet configurations.
-
-# Credential management strategies
-# Choose one of the following strategies for production deployment:
-
-# Option 1: Direct mapping (development only - security risk!)
-# Maps S3 access keys directly to wallet configurations
-# WARNING: This stores user private keys on the server
-# [credential_strategy]
-# type = "DirectMapping"
-# [credential_strategy.mapping.alice]
-# sui_address = "0x123..."
-# keystore_env = "ALICE_KEYSTORE"  # Environment variable containing keystore path
-# permissions = ["read", "write"]
-
-# Option 2: Client-side signing (recommended for production)
-# Clients sign transactions locally, server only validates
-# [credential_strategy]
-# type = "ClientSigning"
-# require_signatures = true
-
-# Option 3: JWT-based authentication (recommended for existing auth systems)
-# External authentication system provides JWT tokens
-# [credential_strategy]
-# type = "JwtBased"
-# jwt_secret = "your-jwt-secret"
-# issuer = "your-auth-system"
-
-# Option 4: Delegated signing service (enterprise)
-# Separate hardened service manages all wallet operations
-# [credential_strategy]
-# type = "DelegatedSigning"
-# signing_service_url = "https://wallet-service.company.com"
-# api_key = "your-api-key"
-
-# Example per-user environment variables for direct mapping:
-# export ALICE_KEYSTORE="/secure/alice.keystore"
-# export BOB_KEYSTORE="/secure/bob.keystore"
+# Logging configuration
+[logging]
+level = "info"

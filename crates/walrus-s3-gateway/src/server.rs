@@ -264,7 +264,7 @@ pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui
 }
 
 /// Create a default Walrus client configuration from our gateway configuration.
-fn create_default_walrus_config(config: &Config) -> S3Result<ClientConfig> {
+fn create_default_walrus_config(_config: &Config) -> S3Result<ClientConfig> {
     use sui_types::base_types::ObjectID;
     use std::str::FromStr;
     
