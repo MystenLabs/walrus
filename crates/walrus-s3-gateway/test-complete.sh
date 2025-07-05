@@ -92,31 +92,55 @@ setup_sui_wallet() {
     # Initialize Sui client config
     export SUI_CONFIG_DIR="$WALLET_CONFIG"
     
-    # Generate new wallet
-    print_status "Creating new Sui wallet..."
-    sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
-    sui client switch --env testnet
+    print_status "Generating new keypair with sui keytool..."
     
-    # Create new address
-    WALLET_OUTPUT=$(sui client new-address ed25519 2>/dev/null)
-    if [[ $? -ne 0 ]]; then
-        print_error "❌ Failed to create new Sui address"
+    # Generate a new keypair using sui keytool (this is non-interactive)
+    KEYTOOL_OUTPUT=$(sui keytool generate ed25519 2>&1)
+    KEYTOOL_EXIT_CODE=$?
+    
+    if [[ $KEYTOOL_EXIT_CODE -ne 0 ]]; then
+        print_error "❌ Failed to generate keypair with sui keytool"
+        print_error "Output: $KEYTOOL_OUTPUT"
         exit 1
     fi
     
-    # Extract the address from output
-    SUI_ADDRESS=$(echo "$WALLET_OUTPUT" | grep -o "0x[a-fA-F0-9]\{64\}" | head -1)
+    # Extract the address from keytool output
+    SUI_ADDRESS=$(echo "$KEYTOOL_OUTPUT" | grep -o "0x[a-fA-F0-9]\{64\}" | head -1)
     
     if [[ -z "$SUI_ADDRESS" ]]; then
-        print_error "❌ Failed to extract Sui address"
+        # Try alternative extraction
+        SUI_ADDRESS=$(echo "$KEYTOOL_OUTPUT" | grep -oE "0x[a-fA-F0-9]{64}" | head -1)
+    fi
+    
+    if [[ -z "$SUI_ADDRESS" ]]; then
+        print_error "❌ Failed to extract address from keytool output"
+        print_error "Keytool output was: $KEYTOOL_OUTPUT"
         exit 1
     fi
+    
+    print_status "✓ Generated keypair with address: $SUI_ADDRESS"
+    
+    # Create client config file with the generated address
+    cat > "$WALLET_CONFIG/client.yaml" << EOF
+---
+keystore:
+  File: $KEYSTORE_FILE
+envs:
+  - alias: testnet
+    rpc: "https://fullnode.testnet.sui.io:443"
+    ws: ~
+    basic_auth: ~
+active_env: testnet
+active_address: $SUI_ADDRESS
+EOF
+    
+    print_status "✓ Created Sui client configuration with address: $SUI_ADDRESS"
     
     print_status "✓ Created Sui wallet with address: $SUI_ADDRESS"
     
     # Request funds from faucet
     print_status "Requesting funds from Sui testnet faucet..."
-    if sui client faucet --address "$SUI_ADDRESS" 2>/dev/null; then
+    if timeout 30 sui client faucet --address "$SUI_ADDRESS" 2>/dev/null; then
         print_status "✓ Successfully requested funds from faucet"
         
         # Wait a bit for funds to arrive
@@ -131,7 +155,7 @@ setup_sui_wallet() {
             print_warning "⚠️  Could not verify balance, continuing with tests..."
         fi
     else
-        print_warning "⚠️  Failed to request funds from faucet, continuing with tests..."
+        print_warning "⚠️  Failed to request funds from faucet (timeout or error), continuing with tests..."
     fi
     
     # Export wallet address for other functions

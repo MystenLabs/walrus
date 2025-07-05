@@ -2,7 +2,21 @@
 
 A fully functional S3-compatible gateway that allows applications to interact with Walrus storage using standard S3 APIs with **client-side signing** for enhanced security.
 
-## 🔑 Key Feature: Client-Side Signing
+## � Quick Start
+
+For a quick test of the Walrus S3 Gateway with client-side signing:
+
+```bash
+# 1. Start the gateway
+cargo run --bin walrus-s3-gateway -- --config test-config.toml
+
+# 2. Run the complete test (in another terminal)
+./test-complete.sh
+```
+
+See [QUICK-START.md](QUICK-START.md) for detailed instructions.
+
+## �🔑 Key Feature: Client-Side Signing
 
 This implementation uses **client-side signing** where clients sign Sui transactions locally with their wallets before submitting storage operations.
 
