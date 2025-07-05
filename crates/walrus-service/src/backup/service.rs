@@ -51,8 +51,9 @@ use crate::{
     node::{DatabaseConfig, metrics::TelemetryLabel as _, system_events::SystemEventProvider as _},
 };
 
-/// The version of the Walrus backup service.
-pub const VERSION: &str = version!();
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
+
 const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");

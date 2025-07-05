@@ -18,6 +18,8 @@ tokio-metrics = ["dep:tokio-metrics"]
 [dependencies]
 anyhow = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
+const-str.workspace = true
+git-version.workspace = true
 home = { workspace = true, optional = true }
 http-body = { version = "1", optional = true }
 humantime = { workspace = true, optional = true }
