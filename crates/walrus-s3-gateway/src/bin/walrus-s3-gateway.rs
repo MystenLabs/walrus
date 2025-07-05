@@ -1,11 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Main binary for the Walrus S3 Gateway.
+//! Main binary for the Walrus S3 Gateway with Client-Side Signing.
 
 use clap::{Arg, Command};
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use walrus_s3_gateway::Config;
 
 #[tokio::main]
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = Command::new("walrus-s3-gateway")
         .version("1.29.0")
         .author("Mysten Labs <build@mystenlabs.com>")
-        .about("S3-compatible gateway for Walrus storage")
+        .about("S3-compatible gateway for Walrus storage with Client-Side Signing")
         .arg(
             Arg::new("config")
                 .short('c')
@@ -35,20 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .value_name("ADDRESS")
                 .help("Address to bind the server to")
                 .default_value("0.0.0.0:8080"),
-        )
-        .arg(
-            Arg::new("access-key")
-                .long("access-key")
-                .value_name("KEY")
-                .help("S3 access key")
-                .default_value("walrus-access-key"),
-        )
-        .arg(
-            Arg::new("secret-key")
-                .long("secret-key")
-                .value_name("SECRET")
-                .help("S3 secret key")
-                .default_value("walrus-secret-key"),
         )
         .arg(
             Arg::new("region")

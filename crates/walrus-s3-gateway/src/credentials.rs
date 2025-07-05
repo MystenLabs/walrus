@@ -1,48 +1,310 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Advanced credential management strategies for production deployments.
+//! Client-Side Signing credential management for secure Walrus S3 Gateway.
 
 use crate::error::{S3Error, S3Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use walrus_sui::config::WalletConfig;
+use sui_types::base_types::SuiAddress;
+use sui_types::transaction::Transaction;
 
-/// Strategy for credential mapping and authentication.
+/// Client-side signing credential strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CredentialStrategy {
-    /// Direct keystore mapping (development only)
-    DirectMapping {
-        mapping: HashMap<String, UserCredential>,
-    },
-    /// External JWT-based authentication
-    JwtBased {
-        jwt_secret: String,
-        issuer: String,
-    },
-    /// Client-side signing with unsigned transaction flow
-    ClientSigning {
-        /// Whether to require client signatures for all operations
-        require_signatures: bool,
-    },
-    /// Delegated signing service
-    DelegatedSigning {
-        signing_service_url: String,
-        api_key: String,
-    },
+pub struct ClientSigningConfig {
+    /// Whether to require transaction signatures for write operations
+    pub require_signatures: bool,
+    /// Allowed Sui addresses for operations (None = allow all)
+    pub allowed_addresses: Option<Vec<SuiAddress>>,
+    /// Maximum transaction size in bytes
+    pub max_transaction_size: Option<u64>,
+    /// Rate limiting per address (transactions per minute)
+    pub rate_limit_per_address: Option<u32>,
+    /// Whether to validate signature authenticity
+    pub validate_signatures: bool,
 }
 
-/// User credential configuration
+impl Default for ClientSigningConfig {
+    fn default() -> Self {
+        Self {
+            require_signatures: true,
+            allowed_addresses: None,
+            max_transaction_size: Some(1_000_000), // 1MB
+            rate_limit_per_address: Some(100), // 100 tx/min
+            validate_signatures: true,
+        }
+    }
+}
+
+/// Client credential information extracted from S3 requests
+#[derive(Debug, Clone)]
+pub struct ClientCredential {
+    /// S3 access key identifier
+    pub access_key: String,
+    /// Sui address associated with this credential
+    pub sui_address: SuiAddress,
+    /// Permissions for this credential
+    pub permissions: Vec<Permission>,
+    /// Rate limiting state
+    pub rate_limit_state: RateLimitState,
+}
+
+/// Permissions that can be granted to a credential
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Permission {
+    Read,
+    Write,
+    Delete,
+    ListBuckets,
+    CreateBucket,
+}
+
+/// Rate limiting state for a credential
+#[derive(Debug, Clone)]
+pub struct RateLimitState {
+    /// Number of requests in current window
+    pub current_requests: u32,
+    /// Window start time
+    pub window_start: std::time::Instant,
+    /// Requests per minute limit
+    pub limit: u32,
+}
+
+impl RateLimitState {
+    pub fn new(limit: u32) -> Self {
+        Self {
+            current_requests: 0,
+            window_start: std::time::Instant::now(),
+            limit,
+        }
+    }
+
+    /// Check if the request is within rate limits
+    pub fn check_rate_limit(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        
+        // Reset window if more than 1 minute has passed
+        if now.duration_since(self.window_start).as_secs() >= 60 {
+            self.current_requests = 0;
+            self.window_start = now;
+        }
+
+        // Check if under limit
+        if self.current_requests < self.limit {
+            self.current_requests += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Signed transaction from client
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserCredential {
-    /// User's Sui address
-    pub sui_address: String,
-    /// Wallet configuration (optional for client signing)
-    pub wallet_config: Option<WalletConfig>,
-    /// Environment variable for keystore (more secure than direct path)
-    pub keystore_env: Option<String>,
-    /// Permissions/capabilities
-    pub permissions: Vec<String>,
+pub struct SignedTransactionRequest {
+    /// The signed transaction
+    pub transaction: Transaction,
+    /// Additional metadata
+    pub metadata: TransactionMetadata,
+}
+
+/// Metadata for signed transactions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionMetadata {
+    /// Client identifier
+    pub client_id: String,
+    /// Transaction purpose
+    pub purpose: TransactionPurpose,
+    /// Timestamp
+    pub timestamp: u64,
+}
+
+/// Purpose of the transaction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TransactionPurpose {
+    StoreBlob { size: u64 },
+    DeleteBlob { blob_id: String },
+    CreateBucket { name: String },
+    DeleteBucket { name: String },
+}
+
+/// Client-side signing credential manager
+pub struct ClientSigningManager {
+    config: ClientSigningConfig,
+    /// Mapping from S3 access key to client credentials
+    credentials: HashMap<String, ClientCredential>,
+    /// Rate limiting state per address
+    rate_limits: HashMap<SuiAddress, RateLimitState>,
+}
+
+impl ClientSigningManager {
+    pub fn new(config: ClientSigningConfig) -> Self {
+        Self {
+            config,
+            credentials: HashMap::new(),
+            rate_limits: HashMap::new(),
+        }
+    }
+
+    /// Register a new client credential
+    pub fn register_credential(
+        &mut self,
+        access_key: String,
+        sui_address: SuiAddress,
+        permissions: Vec<Permission>,
+    ) -> S3Result<()> {
+        // Check if address is allowed
+        if let Some(ref allowed) = self.config.allowed_addresses {
+            if !allowed.contains(&sui_address) {
+                return Err(S3Error::AccessDenied("Address not allowed".to_string()));
+            }
+        }
+
+        let credential = ClientCredential {
+            access_key: access_key.clone(),
+            sui_address,
+            permissions,
+            rate_limit_state: RateLimitState::new(
+                self.config.rate_limit_per_address.unwrap_or(100)
+            ),
+        };
+
+        self.credentials.insert(access_key, credential);
+        Ok(())
+    }
+
+    /// Get credential by access key
+    pub fn get_credential(&self, access_key: &str) -> Option<&ClientCredential> {
+        self.credentials.get(access_key)
+    }
+
+    /// Validate a signed transaction request
+    pub fn validate_signed_transaction(
+        &mut self,
+        access_key: &str,
+        request: &SignedTransactionRequest,
+    ) -> S3Result<()> {
+        // Get credential
+        let credential = self.get_credential(access_key)
+            .ok_or_else(|| S3Error::AccessDenied("Invalid access key".to_string()))?;
+
+        // Check rate limit
+        let rate_limit = self.rate_limits
+            .entry(credential.sui_address)
+            .or_insert_with(|| RateLimitState::new(
+                self.config.rate_limit_per_address.unwrap_or(100)
+            ));
+
+        if !rate_limit.check_rate_limit() {
+            return Err(S3Error::ServiceUnavailable("Rate limit exceeded".to_string()));
+        }
+
+        // Check transaction size
+        if let Some(max_size) = self.config.max_transaction_size {
+            let tx_size = bcs::to_bytes(&request.transaction)
+                .map_err(|_| S3Error::BadRequest("Invalid transaction format".to_string()))?
+                .len() as u64;
+            
+            if tx_size > max_size {
+                return Err(S3Error::BadRequest("Transaction too large".to_string()));
+            }
+        }
+
+        // Validate signature if required
+        if self.config.validate_signatures {
+            self.validate_transaction_signature(&request.transaction, &credential.sui_address)?;
+        }
+
+        // Check permissions based on transaction purpose
+        self.validate_permissions(&credential.permissions, &request.metadata.purpose)?;
+
+        Ok(())
+    }
+
+    /// Validate transaction signature
+    fn validate_transaction_signature(
+        &self,
+        transaction: &Transaction,
+        expected_signer: &SuiAddress,
+    ) -> S3Result<()> {
+        // This would validate the transaction signature against the expected signer
+        // For now, we'll implement a basic check
+        // In a real implementation, you'd verify the cryptographic signature
+        
+        // Extract signer from transaction (simplified)
+        let tx_signer = self.extract_transaction_signer(transaction)?;
+        
+        if tx_signer != *expected_signer {
+            return Err(S3Error::AccessDenied("Invalid transaction signer".to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Extract the signer address from a transaction
+    fn extract_transaction_signer(&self, transaction: &Transaction) -> S3Result<SuiAddress> {
+        // This is a simplified implementation
+        // In reality, you'd extract the signer from the transaction's signature
+        // For demonstration purposes, we'll return a placeholder
+        
+        // Get the first signature from the transaction
+        if let Some(signature) = transaction.tx_signatures().first() {
+            // Extract the address from the signature
+            // This would involve cryptographic verification
+            // For now, we'll use a placeholder implementation
+            return Ok(SuiAddress::default()); // Replace with actual signature verification
+        }
+
+        Err(S3Error::BadRequest("No signature found in transaction".to_string()))
+    }
+
+    /// Validate permissions for a transaction purpose
+    fn validate_permissions(
+        &self,
+        permissions: &[Permission],
+        purpose: &TransactionPurpose,
+    ) -> S3Result<()> {
+        let required_permission = match purpose {
+            TransactionPurpose::StoreBlob { .. } => Permission::Write,
+            TransactionPurpose::DeleteBlob { .. } => Permission::Delete,
+            TransactionPurpose::CreateBucket { .. } => Permission::CreateBucket,
+            TransactionPurpose::DeleteBucket { .. } => Permission::Delete,
+        };
+
+        if !permissions.contains(&required_permission) {
+            return Err(S3Error::AccessDenied(
+                format!("Missing permission: {:?}", required_permission)
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Generate an unsigned transaction template for the client to sign
+    pub fn generate_transaction_template(
+        &self,
+        purpose: TransactionPurpose,
+        sui_address: SuiAddress,
+    ) -> S3Result<UnsignedTransactionTemplate> {
+        Ok(UnsignedTransactionTemplate {
+            purpose,
+            signer: sui_address,
+            gas_budget: 10_000_000, // 0.01 SUI
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
+    }
+}
+
+/// Unsigned transaction template for client signing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnsignedTransactionTemplate {
+    pub purpose: TransactionPurpose,
+    pub signer: SuiAddress,
+    pub gas_budget: u64,
+    pub timestamp: u64,
 }
 
 /// JWT claims for token-based authentication

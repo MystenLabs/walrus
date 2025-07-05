@@ -21,7 +21,7 @@ pub enum S3Error {
     NoSuchKey,
     
     /// Access denied.
-    AccessDenied,
+    AccessDenied(String),
     
     /// Invalid access key ID.
     InvalidAccessKeyId,
@@ -35,6 +35,9 @@ pub enum S3Error {
     /// Invalid request.
     InvalidRequest(String),
     
+    /// Bad request.
+    BadRequest(String),
+    
     /// Internal server error.
     InternalError(String),
     
@@ -42,7 +45,7 @@ pub enum S3Error {
     MethodNotAllowed,
     
     /// Service unavailable.
-    ServiceUnavailable,
+    ServiceUnavailable(String),
     
     /// Request timeout.
     RequestTimeout,
@@ -65,14 +68,15 @@ impl fmt::Display for S3Error {
         match self {
             S3Error::NoSuchBucket => write!(f, "NoSuchBucket"),
             S3Error::NoSuchKey => write!(f, "NoSuchKey"),
-            S3Error::AccessDenied => write!(f, "AccessDenied"),
+            S3Error::AccessDenied(msg) => write!(f, "AccessDenied: {}", msg),
             S3Error::InvalidAccessKeyId => write!(f, "InvalidAccessKeyId"),
             S3Error::SignatureDoesNotMatch => write!(f, "SignatureDoesNotMatch"),
             S3Error::RequestTimeTooSkewed => write!(f, "RequestTimeTooSkewed"),
             S3Error::InvalidRequest(msg) => write!(f, "InvalidRequest: {}", msg),
+            S3Error::BadRequest(msg) => write!(f, "BadRequest: {}", msg),
             S3Error::InternalError(msg) => write!(f, "InternalError: {}", msg),
             S3Error::MethodNotAllowed => write!(f, "MethodNotAllowed"),
-            S3Error::ServiceUnavailable => write!(f, "ServiceUnavailable"),
+            S3Error::ServiceUnavailable(msg) => write!(f, "ServiceUnavailable: {}", msg),
             S3Error::RequestTimeout => write!(f, "RequestTimeout"),
             S3Error::EntityTooLarge => write!(f, "EntityTooLarge"),
             S3Error::BucketAlreadyExists => write!(f, "BucketAlreadyExists"),
@@ -90,11 +94,16 @@ impl S3Error {
         match self {
             S3Error::NoSuchBucket => StatusCode::NOT_FOUND,
             S3Error::NoSuchKey => StatusCode::NOT_FOUND,
-            S3Error::AccessDenied => StatusCode::FORBIDDEN,
+            S3Error::AccessDenied(_) => StatusCode::FORBIDDEN,
             S3Error::InvalidAccessKeyId => StatusCode::FORBIDDEN,
             S3Error::SignatureDoesNotMatch => StatusCode::FORBIDDEN,
             S3Error::RequestTimeTooSkewed => StatusCode::FORBIDDEN,
             S3Error::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            S3Error::BadRequest(_) => StatusCode::BAD_REQUEST,
+            S3Error::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            S3Error::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+            S3Error::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            S3Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             S3Error::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             S3Error::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             S3Error::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,

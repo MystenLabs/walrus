@@ -1,118 +1,215 @@
-// Copyright (c) Walrus Foundation
+// Copyright (c) Walrus Foundation  
 // SPDX-License-Identifier: Apache-2.0
 
-//! Configuration for the S3 gateway.
+//! Configuration for the Walrus S3 Gateway with Client-Side Signing.
 
+use crate::credentials::ClientSigningConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use walrus_sui::config::WalletConfig;
-use crate::credentials::{CredentialStrategy, UserCredential};
+use std::path::{Path, PathBuf};
+use sui_types::base_types::SuiAddress;
 
-/// Configuration for the S3 gateway server.
+/// Main configuration for the S3 Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// The address to bind the server to.
-    pub bind_address: SocketAddr,
-    
-    /// Access key for S3 authentication.
-    pub access_key: String,
-    
-    /// Secret key for S3 authentication.
-    pub secret_key: String,
-    
-    /// Default region for S3 operations.
-    pub region: String,
-    
-    /// Path to the Walrus client configuration file.
-    pub walrus_config_path: Option<PathBuf>,
-    
-    /// Walrus-specific configuration.
+    /// Server configuration
+    pub server: ServerConfig,
+    /// Client-side signing configuration
+    pub client_signing: ClientSigningConfig,
+    /// Walrus client configuration path
+    pub walrus_client_config: Option<PathBuf>,
+    /// Walrus-specific configuration
     pub walrus: WalrusConfig,
-    
-    /// Maximum request body size in bytes.
-    pub max_body_size: usize,
-    
-    /// Request timeout in seconds.
-    pub request_timeout: u64,
-    
-    /// Whether to enable CORS headers.
-    pub enable_cors: bool,
-    
-    /// Whether to enable TLS.
+    /// Registered client credentials
+    pub client_credentials: HashMap<String, ClientCredentialConfig>,
+}
+
+/// Server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    /// Address to bind the server to
+    pub bind_address: SocketAddr,
+    /// S3 region identifier
+    pub region: String,
+    /// Enable TLS
     pub enable_tls: bool,
-    
-    /// Path to TLS certificate file (if TLS is enabled).
+    /// TLS certificate file path
     pub tls_cert_path: Option<PathBuf>,
-    
-    /// Path to TLS private key file (if TLS is enabled).
+    /// TLS private key file path
     pub tls_key_path: Option<PathBuf>,
-    
-    /// Credential management strategy.
-    pub credential_strategy: Option<CredentialStrategy>,
+    /// Request timeout in seconds
+    pub request_timeout: u64,
+    /// Maximum request body size in bytes
+    pub max_body_size: usize,
+    /// Enable CORS headers
+    pub enable_cors: bool,
+}
+
+/// Client credential configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientCredentialConfig {
+    /// The Sui address for this client
+    pub sui_address: String, // We'll use String for TOML compatibility
+    /// Permissions granted to this client
+    pub permissions: Vec<String>,
+    /// Optional description for this credential
+    pub description: Option<String>,
+    /// Whether this credential is active
+    pub active: bool,
+}
+
+/// Configuration for the Walrus storage system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalrusConfig {
+    /// Sui RPC endpoint URLs
+    pub sui_rpc_urls: Vec<String>,
+    /// Walrus storage node URLs
+    pub storage_nodes: Vec<String>,
+    /// Committee refresh interval in seconds
+    pub committee_refresh_interval: Option<u64>,
+    /// Request timeout in seconds
+    pub request_timeout: Option<u64>,
+    /// Whether to enable metrics collection
+    pub enable_metrics: bool,
+    /// Metrics port (if metrics are enabled)
+    pub metrics_port: Option<u16>,
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let mut client_credentials = HashMap::new();
+        
+        // Add a default credential for testing
+        client_credentials.insert(
+            "walrus-access-key".to_string(),
+            ClientCredentialConfig {
+                sui_address: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                permissions: vec!["read".to_string(), "write".to_string()],
+                description: Some("Default test credential".to_string()),
+                active: true,
+            }
+        );
+
+        Self {
+            server: ServerConfig::default(),
+            client_signing: ClientSigningConfig::default(),
+            walrus_client_config: None,
+            walrus: WalrusConfig::default(),
+            client_credentials,
+        }
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
         Self {
             bind_address: "0.0.0.0:8080".parse().unwrap(),
-            access_key: "walrus-access-key".to_string(),
-            secret_key: "walrus-secret-key".to_string(),
             region: "us-east-1".to_string(),
-            walrus_config_path: None,
-            walrus: WalrusConfig::default(),
-            max_body_size: 64 * 1024 * 1024, // 64MB
-            request_timeout: 300, // 5 minutes
-            enable_cors: true,
             enable_tls: false,
             tls_cert_path: None,
             tls_key_path: None,
-            credential_strategy: Some(CredentialStrategy::DirectMapping { 
-                mapping: HashMap::new() 
-            }),
+            request_timeout: 300, // 5 minutes
+            max_body_size: 64 * 1024 * 1024, // 64MB
+            enable_cors: true,
+        }
+    }
+}
+
+impl Default for WalrusConfig {
+    fn default() -> Self {
+        Self {
+            sui_rpc_urls: vec![
+                "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
+                "https://sui-testnet.publicnode.com:443".to_string(),
+            ],
+            storage_nodes: vec![
+                "https://walrus-testnet.nodes.guru:11444".to_string(),
+                "https://walrus-testnet-storage.stakin-nodes.com:11444".to_string(),
+            ],
+            committee_refresh_interval: Some(300), // 5 minutes
+            request_timeout: Some(30),
+            enable_metrics: false,
+            metrics_port: None,
         }
     }
 }
 
 impl Config {
-    /// Load configuration from a file.
-    pub fn from_file(path: &PathBuf) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let config: Self = toml::from_str(&content)?;
+    /// Load configuration from file
+    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&content)?;
+        config.validate()?;
         Ok(config)
     }
-    
-    /// Save configuration to a file.
-    pub fn to_file(&self, path: &PathBuf) -> anyhow::Result<()> {
+
+    /// Save configuration to file
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
         let content = toml::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
+        fs::write(path, content)?;
         Ok(())
     }
-    
-    /// Validate the configuration.
+
+    /// Validate the configuration
     pub fn validate(&self) -> anyhow::Result<()> {
-        if self.access_key.is_empty() {
-            return Err(anyhow::anyhow!("access_key cannot be empty"));
+        // Validate server config
+        if self.server.region.is_empty() {
+            return Err(anyhow::anyhow!("region cannot be empty"));
         }
-        
-        if self.secret_key.is_empty() {
-            return Err(anyhow::anyhow!("secret_key cannot be empty"));
-        }
-        
-        if self.enable_tls {
-            if self.tls_cert_path.is_none() {
-                return Err(anyhow::anyhow!("tls_cert_path is required when TLS is enabled"));
-            }
-            if self.tls_key_path.is_none() {
-                return Err(anyhow::anyhow!("tls_key_path is required when TLS is enabled"));
+
+        // Validate TLS configuration
+        if self.server.enable_tls {
+            if self.server.tls_cert_path.is_none() || self.server.tls_key_path.is_none() {
+                return Err(anyhow::anyhow!("TLS enabled but cert or key not provided"));
             }
         }
-        
-        // Validate Walrus configuration
+
+        // Validate client credentials
+        if self.client_credentials.is_empty() {
+            return Err(anyhow::anyhow!("At least one client credential must be configured"));
+        }
+
+        for (access_key, cred) in &self.client_credentials {
+            if access_key.is_empty() {
+                return Err(anyhow::anyhow!("Access key cannot be empty"));
+            }
+            
+            if cred.permissions.is_empty() {
+                return Err(anyhow::anyhow!("Client {} must have at least one permission", access_key));
+            }
+            
+            // Validate Sui address format
+            if let Err(_) = cred.sui_address.parse::<SuiAddress>() {
+                return Err(anyhow::anyhow!("Invalid Sui address for client {}: {}", access_key, cred.sui_address));
+            }
+        }
+
+        // Validate Walrus config
         self.walrus.validate()?;
-        
+
         Ok(())
+    }
+
+    /// Get active client credentials
+    pub fn get_active_credentials(&self) -> HashMap<String, &ClientCredentialConfig> {
+        self.client_credentials
+            .iter()
+            .filter(|(_, cred)| cred.active)
+            .map(|(key, cred)| (key.clone(), cred))
+            .collect()
+    }
+
+    /// Parse a client credential's Sui address
+    pub fn parse_sui_address(&self, access_key: &str) -> anyhow::Result<SuiAddress> {
+        let cred = self.client_credentials
+            .get(access_key)
+            .ok_or_else(|| anyhow::anyhow!("Access key not found: {}", access_key))?;
+        
+        cred.sui_address
+            .parse::<SuiAddress>()
+            .map_err(|e| anyhow::anyhow!("Invalid Sui address: {}", e))
     }
 }
 
@@ -134,35 +231,11 @@ pub struct WalrusConfig {
     /// Request timeout in seconds.
     pub request_timeout: Option<u64>,
     
-    /// Wallet configuration for interacting with Sui.
-    /// This includes the path to the wallet keystore and active address/environment.
-    pub wallet_config: Option<WalletConfig>,
-    
     /// Whether to enable metrics collection.
     pub enable_metrics: bool,
     
     /// Metrics port (if metrics are enabled).
     pub metrics_port: Option<u16>,
-}
-
-impl Default for WalrusConfig {
-    fn default() -> Self {
-        Self {
-            sui_rpc_urls: vec![
-                "https://sui-testnet-rpc.mystenlabs.com:443".to_string(),
-                "https://sui-testnet.publicnode.com:443".to_string(),
-            ],
-            storage_nodes: vec![
-                "https://walrus-testnet.nodes.guru:11444".to_string(),
-                "https://walrus-testnet-storage.stakin-nodes.com:11444".to_string(),
-            ],
-            committee_refresh_interval: Some(300), // 5 minutes
-            request_timeout: Some(30),
-            wallet_config: None,
-            enable_metrics: false,
-            metrics_port: None,
-        }
-    }
 }
 
 impl WalrusConfig {
