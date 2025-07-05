@@ -22,8 +22,9 @@ use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
-use walrus_sdk::{client::Client, config::ClientConfig};
-use walrus_sui::{client::SuiContractClient, wallet::Wallet};
+use walrus_sdk::{client::Client, config::{ClientConfig, ClientCommunicationConfig, CommitteesRefreshConfig}};
+use walrus_sui::{client::{SuiContractClient, retry_client::RetriableSuiClient, contract_config::ContractConfig}, wallet::Wallet};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 /// S3 gateway server.
 pub struct S3GatewayServer {
@@ -33,7 +34,7 @@ pub struct S3GatewayServer {
 
 impl S3GatewayServer {
     /// Create a new S3 gateway server.
-    pub async fn new(config: Config, walrus_client: Client<SuiContractClient>) -> S3Result<Self> {
+    pub async fn new(config: Config, walrus_client: Client<walrus_sui::client::SuiReadClient>) -> S3Result<Self> {
         // Validate configuration
         config.validate().map_err(S3Error::from)?;
         
@@ -204,41 +205,78 @@ impl S3GatewayServer {
 }
 
 /// Create a Walrus client from configuration.
-pub async fn create_walrus_client(config: &Config) -> S3Result<Client<SuiContractClient>> {
+pub async fn create_walrus_client(config: &Config) -> S3Result<Client<walrus_sui::client::SuiReadClient>> {
+    // Create Walrus client
+    info!("Setting up Walrus client...");
+    
     // Load Walrus client configuration
     let walrus_config = if let Some(config_path) = &config.walrus_config_path {
-        walrus_sdk::config::load_configuration(Some(config_path), None)
-            .map_err(|e| S3Error::InternalError(format!("Failed to load Walrus config: {}", e)))?
+        // Load from file (we'll implement this later)
+        create_default_walrus_config(&config)?
     } else {
-        // Try to load from default paths
-        walrus_sdk::config::load_configuration(None as Option<&std::path::Path>, None)
-            .map_err(|e| S3Error::InternalError(format!("Failed to load Walrus config from default paths: {}", e)))?
+        // Create default configuration from our settings
+        create_default_walrus_config(&config)?
     };
     
-    // Create wallet from configuration
-    let wallet = if let Some(wallet_config) = &walrus_config.wallet_config {
-        // TODO: Implement proper wallet loading
-        return Err(S3Error::InternalError("Wallet configuration not yet implemented".to_string()));
-    } else {
-        return Err(S3Error::InternalError("No wallet configuration found".to_string()));
-    };
-    
-    // Create Sui contract client
-    let backoff_config = walrus_utils::backoff::ExponentialBackoffConfig::default();
-    let sui_client = SuiContractClient::new(
-        wallet,
-        &walrus_config.rpc_urls,
-        &walrus_config.contract_config,
-        backoff_config,
-        None, // gas_budget
+    // Create Sui client
+    info!("Setting up Sui client with endpoints: {:?}", config.walrus.sui_rpc_urls);
+    let sui_client = RetriableSuiClient::new_for_rpc_urls(
+        &config.walrus.sui_rpc_urls,
+        ExponentialBackoffConfig::default(),
+        config.walrus.request_timeout.map(std::time::Duration::from_secs),
     )
     .await
     .map_err(|e| S3Error::InternalError(format!("Failed to create Sui client: {}", e)))?;
     
-    // Create Walrus client
-    Client::new_contract_client_with_refresher(walrus_config, sui_client)
+    // Create SuiReadClient instead of SuiContractClient for now
+    // This allows read-only access without requiring a wallet
+    let sui_read_client = walrus_config
+        .new_read_client(sui_client)
         .await
-        .map_err(|e| S3Error::InternalError(format!("Failed to create Walrus client: {}", e)))
+        .map_err(|e| S3Error::InternalError(format!("Failed to create Sui read client: {}", e)))?;
+    
+    // Create Walrus client with read client
+    let walrus_client = Client::new_read_client_with_refresher(walrus_config, sui_read_client)
+        .await
+        .map_err(|e| S3Error::InternalError(format!("Failed to create Walrus client: {}", e)))?;
+    
+    info!("Walrus client created successfully");
+    Ok(walrus_client)
+}
+
+/// Create a default Walrus client configuration from our gateway configuration.
+fn create_default_walrus_config(config: &Config) -> S3Result<ClientConfig> {
+    use sui_types::base_types::ObjectID;
+    use std::str::FromStr;
+    use std::time::Duration;
+    
+    // Create default contract configuration for testnet
+    // Note: These are placeholder values - in production, use actual deployed contract IDs
+    let contract_config = ContractConfig {
+        system_object: ObjectID::from_str("0x4bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc3")
+            .map_err(|e| S3Error::InternalError(format!("Invalid system object ID: {}", e)))?,
+        staking_object: ObjectID::from_str("0x7bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc5")
+            .map_err(|e| S3Error::InternalError(format!("Invalid staking object ID: {}", e)))?,
+        subsidies_object: Some(ObjectID::from_str("0x5bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc2")
+            .map_err(|e| S3Error::InternalError(format!("Invalid subsidies object ID: {}", e)))?),
+        credits_object: Some(ObjectID::from_str("0x6bb7d0bb33406f98a57bf8d86ad49e7abc1d0e62dcaeb5a1bb25c72a76bb1dc4")
+            .map_err(|e| S3Error::InternalError(format!("Invalid credits object ID: {}", e)))?),
+    };
+    
+    // Create communication configuration  
+    let communication_config = ClientCommunicationConfig::default();
+    
+    // Create committee refresh configuration
+    let refresh_config = CommitteesRefreshConfig::default();
+    
+    Ok(ClientConfig {
+        contract_config,
+        exchange_objects: vec![],
+        wallet_config: config.walrus.wallet_config.clone(),
+        rpc_urls: config.walrus.sui_rpc_urls.clone(),
+        communication_config,
+        refresh_config,
+    })
 }
 
 #[cfg(test)]

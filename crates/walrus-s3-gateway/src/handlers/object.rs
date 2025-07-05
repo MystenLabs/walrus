@@ -176,6 +176,14 @@ pub async fn put_object(
     let blob_data = body.as_ref();
     let blob_slice = [blob_data];
     
+    // TODO: Implement blob storage once we have a SuiContractClient with wallet
+    // For now, return an error indicating this feature is not yet available
+    return Err(S3Error::InternalError(
+        "Blob storage not yet implemented - requires wallet configuration".to_string()
+    ));
+    
+    // This is the code that will be used once we have proper wallet setup:
+    /*
     match state.walrus_client.reserve_and_store_blobs_retry_committees(
         &blob_slice,
         EncodingType::RS2,
@@ -253,15 +261,16 @@ pub async fn put_object(
                     }
                 }
             } else {
-                error!("No result returned from Walrus for key '{}'", key);
-                Err(S3Error::InternalError("No result returned from Walrus".to_string()))
+                error!("No results returned from Walrus store operation for key '{}'", key);
+                Err(S3Error::InternalError("Failed to store blob: No results".to_string()))
             }
         }
         Err(e) => {
-            error!("Failed to store blob in Walrus for key '{}': {}", key, e);
-            Err(S3Error::from(e))
+            error!("Failed to store blob in Walrus for key '{}': {:?}", key, e);
+            Err(S3Error::InternalError(format!("Failed to store blob: {}", e)))
         }
     }
+    */
 }
 
 /// Delete an object.

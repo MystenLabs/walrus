@@ -16,7 +16,7 @@ use walrus_sdk::client::Client;
 #[derive(Clone)]
 pub struct S3State {
     /// Walrus client.
-    pub walrus_client: Arc<Client<walrus_sui::client::SuiContractClient>>,
+    pub walrus_client: Arc<Client<walrus_sui::client::SuiReadClient>>,
     
     /// SigV4 authenticator.
     pub authenticator: SigV4Authenticator,
@@ -31,7 +31,7 @@ pub struct S3State {
 impl S3State {
     /// Create new S3 state.
     pub fn new(
-        walrus_client: Client<walrus_sui::client::SuiContractClient>,
+        walrus_client: Client<walrus_sui::client::SuiReadClient>,
         authenticator: SigV4Authenticator,
         default_bucket: String,
     ) -> Self {
