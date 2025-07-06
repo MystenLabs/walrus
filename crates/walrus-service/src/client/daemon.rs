@@ -28,6 +28,8 @@ use routes::{
     BLOB_PUT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_STREAM_CHUNKED_ENDPOINT,
+    QUILT_STREAM_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -290,6 +292,12 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             .route(
                 QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
                 get(routes::get_blob_by_quilt_id_and_identifier)
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
+            )
+            .route(QUILT_STREAM_ENDPOINT, get(routes::stream_quilt_video))
+            .route(
+                QUILT_STREAM_CHUNKED_ENDPOINT,
+                get(routes::stream_quilt_video_chunked)
                     .with_state((self.client.clone(), self.response_header_config.clone())),
             );
         self

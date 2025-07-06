@@ -1,12 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
 use axum::{
     Json,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -15,11 +15,13 @@ use axum_extra::{
     TypedHeader,
     headers::{Authorization, authorization::Bearer},
 };
+use futures::stream;
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
+use tokio::time::{Duration, sleep};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
@@ -67,6 +69,10 @@ pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{q
 /// The path to get blob from quilt by quilt ID and identifier.
 pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
+/// The path to stream video from quilt with push-based streaming.
+pub const QUILT_STREAM_ENDPOINT: &str = "/v1/stream/{quilt_id}";
+/// The path to stream video chunks from quilt.
+pub const QUILT_STREAM_CHUNKED_ENDPOINT: &str = "/v1/stream/{quilt_id}/chunked";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -651,6 +657,285 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
 )]
 pub(super) async fn status() -> Response {
     "OK".into_response()
+}
+
+/// Stream video from quilt with HTML player.
+///
+/// Returns an HTML page with an embedded video player that streams video from the quilt.
+/// The video player will automatically start streaming when the page loads.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_STREAM_ENDPOINT,
+    params(
+        (
+            "quilt_id" = BlobId, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "HTML page with embedded video player for streaming",
+            body = String
+        ),
+        GetBlobError,
+    ),
+    summary = "Stream video from quilt",
+    description = "Returns an HTML page with an embedded video player that streams video \
+                from the specified quilt. The video will start playing automatically.",
+)]
+pub(super) async fn stream_quilt_video(
+    Path(BlobIdString(quilt_id)): Path<BlobIdString>,
+) -> Response {
+    let quilt_id_str = quilt_id.to_string();
+    let html = format!(
+        r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Walrus Video Stream - {}</title>
+            <style>
+                body {{
+                    margin: 0;
+                    padding: 20px;
+                    background: #000;
+                    font-family: Arial, sans-serif;
+                }}
+                .container {{
+                    max-width: 1920px;
+                    margin: 0 auto;
+                }}
+                video {{
+                    width: 100%;
+                    height: auto;
+                    border-radius: 8px;
+                    background: #111;
+                }}
+                .info {{
+                    color: white;
+                    margin-top: 10px;
+                    text-align: center;
+                }}
+                .controls {{
+                    margin-top: 20px;
+                    text-align: center;
+                }}
+                button {{
+                    background: #4CAF50;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    margin: 0 5px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                }}
+                button:hover {{
+                    background: #45a049;
+                }}
+                .status {{
+                    color: #ccc;
+                    font-size: 14px;
+                    margin-top: 10px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <video id="video" controls autoplay muted>
+                    <source src="/v1/stream/{}/chunked" type="video/mp4">
+                    Your browser does not support video streaming.
+                </video>
+                <div class="info">
+                    <p>Streaming from Walrus Quilt: {}</p>
+                </div>
+                <div class="controls">
+                    <button onclick="restartStream()">Restart Stream</button>
+                    <button onclick="toggleMute()">Toggle Mute</button>
+                </div>
+                <div class="status" id="status">
+                    Initializing stream...
+                </div>
+            </div>
+            <script>
+                const video = document.getElementById('video');
+                const status = document.getElementById('status');
+
+                function updateStatus(message) {{
+                    status.textContent = message;
+                    console.log('Stream status:', message);
+                }}
+
+                function restartStream() {{
+                    video.load();
+                    updateStatus('Restarting stream...');
+                }}
+
+                function toggleMute() {{
+                    video.muted = !video.muted;
+                    updateStatus(video.muted ? 'Muted' : 'Unmuted');
+                }}
+
+                video.addEventListener('loadstart', () => {{
+                    updateStatus('Loading video stream...');
+                }});
+
+                video.addEventListener('loadedmetadata', () => {{
+                    updateStatus('Stream metadata loaded');
+                }});
+
+                video.addEventListener('canplay', () => {{
+                    updateStatus('Stream ready to play');
+                }});
+
+                video.addEventListener('playing', () => {{
+                    updateStatus('Stream playing');
+                }});
+
+                video.addEventListener('waiting', () => {{
+                    updateStatus('Buffering...');
+                }});
+
+                video.addEventListener('error', (e) => {{
+                    console.error('Video error:', e);
+                    updateStatus('Error: ' + (video.error ? video.error.message : 'Unknown error'));
+                }});
+
+                video.addEventListener('ended', () => {{
+                    updateStatus('Stream ended');
+                }});
+
+                // Try to start playing automatically
+                video.play().catch(e => {{
+                    console.log('Autoplay prevented:', e);
+                    updateStatus('Click play to start stream (autoplay blocked)');
+                }});
+            </script>
+        </body>
+        </html>
+    "#,
+        quilt_id_str, quilt_id_str, quilt_id_str
+    );
+
+    let mut response = (StatusCode::OK, html).into_response();
+    response.headers_mut().insert(
+        "Content-Type",
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+}
+
+/// Stream video chunks from quilt with push-based streaming.
+///
+/// Continuously streams video segments from the quilt using HTTP chunked transfer encoding.
+/// This endpoint pushes video data to the client without requiring the client to specify
+/// individual segments.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_STREAM_CHUNKED_ENDPOINT,
+    params(
+        (
+            "quilt_id" = BlobId, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Continuous video stream using chunked transfer encoding",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Stream video chunks from quilt",
+    description = "Continuously streams video segments from the quilt using HTTP chunked \
+                transfer encoding. The server pushes video data to the client.",
+)]
+pub(super) async fn stream_quilt_video_chunked<T: WalrusReadClient + Send + Sync + 'static>(
+    State(state): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    Path(BlobIdString(quilt_id)): Path<BlobIdString>,
+) -> Response {
+    let (client, _) = state;
+    let quilt_id_str = quilt_id.to_string();
+
+    // Create a stream of video segments
+    let quilt_id_str_clone = quilt_id_str.clone();
+    let video_stream = stream::unfold(
+        (client, quilt_id, 0, false),
+        move |(client, quilt_id, segment_index, stream_ended)| {
+            let quilt_id_str = quilt_id_str_clone.clone();
+            async move {
+                // If we've already determined the stream has ended, stop
+                if stream_ended {
+                    return None;
+                }
+
+                let segment_id = format!("segment_{:04}", segment_index);
+
+                match client
+                    .get_blob_by_quilt_id_and_identifier(&quilt_id, &segment_id)
+                    .await
+                {
+                    Ok(blob) => {
+                        let video_data = blob.into_data();
+                        tracing::info!(
+                            "streaming segment {} ({} bytes) for quilt {}",
+                            segment_id,
+                            video_data.len(),
+                            quilt_id_str
+                        );
+
+                        // Add a small delay between segments to control streaming rate
+                        // This prevents overwhelming the client and simulates real-time streaming
+                        sleep(Duration::from_millis(50)).await;
+
+                        Some((
+                            Ok::<Bytes, std::io::Error>(Bytes::from(video_data)),
+                            (client, quilt_id, segment_index + 1, false),
+                        ))
+                    }
+                    Err(_error) => {
+                        tracing::info!(
+                            "no more segments for quilt {} after segment {} - stream complete",
+                            quilt_id_str,
+                            segment_index
+                        );
+
+                        // Return an empty chunk to signal end of stream gracefully
+                        Some((
+                            Ok::<Bytes, std::io::Error>(Bytes::new()),
+                            (client, quilt_id, segment_index + 1, true),
+                        ))
+                    }
+                }
+            }
+        },
+    );
+
+    // Convert the stream to a body that can be used in the response
+    let stream_body = Body::from_stream(video_stream);
+
+    let mut response = Response::new(stream_body);
+    let headers = response.headers_mut();
+
+    // Set appropriate headers for video streaming
+    headers.insert("Content-Type", HeaderValue::from_static("video/mp4"));
+    headers.insert("Transfer-Encoding", HeaderValue::from_static("chunked"));
+    headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
+    headers.insert("Accept-Ranges", HeaderValue::from_static("bytes"));
+    headers.insert("Connection", HeaderValue::from_static("keep-alive"));
+
+    // CORS headers for browser compatibility
+    headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    headers.insert(
+        "Access-Control-Allow-Headers",
+        HeaderValue::from_static("Range, Content-Type"),
+    );
+
+    response
 }
 
 /// The exclusive option to share the blob or to send it to an address.
