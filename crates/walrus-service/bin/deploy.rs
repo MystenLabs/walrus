@@ -152,9 +152,6 @@ struct DeploySystemContractArgs {
     /// file of the WAL contract. Otherwise, a new WAL token is created.
     #[arg(long)]
     use_existing_wal_token: bool,
-    /// If set, creates a subsidies package.
-    #[arg(long)]
-    with_subsidies: bool,
 }
 
 /// Configuration for epoch 0, either as a duration or as an absolute end time.
@@ -414,7 +411,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -458,7 +454,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         })
         .await
         .context("Failed to deploy system contract")?;

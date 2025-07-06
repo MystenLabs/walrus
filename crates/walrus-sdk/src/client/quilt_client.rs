@@ -47,14 +47,15 @@ pub fn generate_identifier_from_path(path: &Path, index: usize) -> String {
 // TODO(WAL-887): Use relative paths to deduplicate the identifiers.
 pub fn assign_identifiers_with_paths(
     blobs_with_paths: impl IntoIterator<Item = (PathBuf, Vec<u8>)>,
-) -> Vec<QuiltStoreBlob<'static>> {
+) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
     blobs_with_paths
         .into_iter()
         .enumerate()
         .map(|(i, (path, blob))| {
             QuiltStoreBlob::new_owned(blob, generate_identifier_from_path(&path, i))
         })
-        .collect()
+        .collect::<Result<Vec<_>, QuiltError>>()
+        .map_err(ClientError::from)
 }
 
 /// Reads all files recursively from a given path and returns them as path-content pairs.
@@ -725,7 +726,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = assign_identifiers_with_paths(blobs_with_paths);
+        let quilt_store_blobs = assign_identifiers_with_paths(blobs_with_paths)?;
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
             .await
