@@ -1280,6 +1280,8 @@ impl StorageNode {
             return Ok(());
         };
 
+        // Blob extensions do not contain their event emission epoch. So we use this to filter out
+        // blob extensions events.
         let Some(event_epoch) = event.event_epoch() else {
             return Ok(());
         };
@@ -1694,13 +1696,28 @@ impl StorageNode {
             );
         }
 
-        self.process_shard_changes_in_new_epoch(
-            event_handle,
-            event,
-            is_new_node_joining_committee,
-            shard_map_lock,
-        )
-        .await
+        if let NodeStatus::RecoveryInProgress(recovering_epoch) =
+            self.inner.storage.node_status()?
+        {
+            // If the node is already in recovery mode, we need to restart node recovery to recover
+            // to the latest epoch. This is to make sure that the node is always recovering to the
+            // latest epoch.
+            tracing::info!(
+                "node is currently recovering to epoch {recovering_epoch}, restarting \
+                node recovery to recover to the latest epoch {}",
+                event.epoch
+            );
+            self.start_node_recovery(event_handle, event, shard_map_lock)
+                .await
+        } else {
+            self.process_shard_changes_in_new_epoch(
+                event_handle,
+                event,
+                is_new_node_joining_committee,
+                shard_map_lock,
+            )
+            .await
+        }
     }
 
     /// Starts the node recovery process.
