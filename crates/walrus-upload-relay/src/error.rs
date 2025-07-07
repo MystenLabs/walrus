@@ -97,7 +97,6 @@ impl WalrusUploadRelayError {
     }
 }
 
-// TODO: Implement this using the `RestApiError` proc macro when fixed.
 impl IntoResponse for WalrusUploadRelayError {
     fn into_response(self) -> Response {
         match self {
