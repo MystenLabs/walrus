@@ -79,6 +79,7 @@ struct ParallelCheckpointDownloaderInner {
     config: AdaptiveDownloaderConfig,
     worker_count: Arc<AtomicUsize>,
     cancellation_token: CancellationToken,
+    metrics: AdaptiveDownloaderMetrics,
 }
 
 impl ParallelCheckpointDownloaderInner {
@@ -116,12 +117,13 @@ impl ParallelCheckpointDownloaderInner {
         let cloned_message_sender = message_sender.clone();
         let cloned_config = config.clone();
         let cloned_worker_count = worker_count.clone();
+        let cloned_metrics = metrics.clone();
         tokio::spawn(async move {
             let config = PoolMonitorConfig {
                 downloader_config: cloned_config.clone(),
                 checkpoint_store: cloned_checkpoint_store,
                 client: cloned_client,
-                metrics,
+                metrics: cloned_metrics,
             };
             let channels = PoolMonitorChannels {
                 message_sender: cloned_message_sender,
@@ -138,6 +140,7 @@ impl ParallelCheckpointDownloaderInner {
             config,
             worker_count,
             cancellation_token,
+            metrics,
         }
     }
 
@@ -231,7 +234,7 @@ impl ParallelCheckpointDownloaderInner {
                         .message_sender
                         .send(WorkerMessage::Shutdown)
                         .await?;
-                    let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     config.metrics.num_workers.set(
                         new_count
                             .try_into()
@@ -254,7 +257,7 @@ impl ParallelCheckpointDownloaderInner {
                         cloned_config,
                     );
                     *next_worker_id += 1;
-                    let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     config.metrics.num_workers.set(
                         new_count
                             .try_into()
@@ -313,7 +316,7 @@ impl ParallelCheckpointDownloaderInner {
                                 - adjusting to average workers"
                             );
                             let current_workers =
-                                worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                                worker_count.load(std::sync::atomic::Ordering::SeqCst);
                             tracing::info!("adjusting to average workers {:?}", average_workers);
                             Self::adjust_workers(
                                 &mut next_worker_id,
@@ -336,7 +339,7 @@ impl ParallelCheckpointDownloaderInner {
                             .unwrap_or(i64::MAX),
                     );
 
-                    let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                    let current = worker_count.load(std::sync::atomic::Ordering::SeqCst);
                     if lag > downloader_config.scale_up_lag_threshold &&
                         current < downloader_config.max_workers {
                         tracing::info!(
@@ -392,10 +395,10 @@ impl ParallelCheckpointDownloaderInner {
             let mut next_expected = sequence_number;
 
             while !self.cancellation_token.is_cancelled() {
-                let num_workers = self.worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                let num_workers = self.worker_count.load(std::sync::atomic::Ordering::SeqCst);
                 let max_in_flight_requests =
                     num_workers * self.config.channel_config.work_queue_buffer_factor;
-                while in_flight.len() < max_in_flight_requests {
+                while !message_sender.is_full() && in_flight.len() < max_in_flight_requests {
                     if message_sender
                         .send(WorkerMessage::Download(sequence_number))
                         .await
@@ -410,6 +413,9 @@ impl ParallelCheckpointDownloaderInner {
                         sequence_number
                     );
                     in_flight.insert(sequence_number);
+                    self.metrics
+                        .num_inflight_downloading
+                        .set(i64::try_from(in_flight.len()).unwrap_or(i64::MAX));
                     sequence_number += 1;
                 }
 
@@ -418,10 +424,16 @@ impl ParallelCheckpointDownloaderInner {
                 };
 
                 in_flight.remove(&entry.sequence_number);
+                self.metrics
+                    .num_inflight_downloading
+                    .set(i64::try_from(in_flight.len()).unwrap_or(i64::MAX));
 
                 if entry.sequence_number != next_expected {
                     // Store out-of-order response
                     pending.insert(entry.sequence_number, entry);
+                    self.metrics
+                        .num_pending_processing_checkpoints
+                        .set(i64::try_from(pending.len()).unwrap_or(i64::MAX));
                     continue;
                 }
 
@@ -439,6 +451,9 @@ impl ParallelCheckpointDownloaderInner {
                     }
                     next_expected += 1;
                 }
+                self.metrics
+                    .num_pending_processing_checkpoints
+                    .set(i64::try_from(pending.len()).unwrap_or(i64::MAX));
             }
         });
 

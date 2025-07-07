@@ -134,11 +134,11 @@ impl Default for AdaptiveDownloaderConfig {
 
 impl AdaptiveDownloaderConfig {
     pub(crate) fn message_queue_size(&self) -> usize {
-        self.max_workers * self.channel_config.work_queue_buffer_factor
+        self.max_workers * self.channel_config.work_queue_buffer_factor * 2
     }
 
     pub(crate) fn checkpoint_queue_size(&self) -> usize {
-        self.max_workers * self.channel_config.work_queue_buffer_factor
+        self.max_workers * self.channel_config.work_queue_buffer_factor * 2
     }
 
     pub(crate) fn result_queue_size(&self) -> usize {
