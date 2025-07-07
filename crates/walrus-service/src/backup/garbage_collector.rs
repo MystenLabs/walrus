@@ -15,13 +15,11 @@ use super::{
     metrics::BackupGarbageCollectorMetricSet,
     service::{establish_connection_async, retry_serializable_query},
 };
-use crate::{
-    backup::VERSION,
-    common::utils::{self, MetricsAndLoggingRuntime},
-};
+use crate::common::utils::{self, MetricsAndLoggingRuntime};
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_garbage_collector(
+    version: &'static str,
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
 ) -> Result<()> {
@@ -32,18 +30,18 @@ pub async fn start_backup_garbage_collector(
         registry_clone
             .register(mysten_metrics::uptime_metric(
                 "walrus_backup_garbage_collector",
-                VERSION,
+                version,
                 "walrus",
             ))
             .expect("metrics defined at compile time must be valid");
     });
 
-    tracing::info!(version = VERSION, "Walrus backup binary version");
+    tracing::info!(version, "Walrus backup binary version");
     tracing::info!(
         metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
     );
 
-    utils::export_build_info(&metrics_runtime.registry, VERSION);
+    utils::export_build_info(&metrics_runtime.registry, version);
 
     let backup_garbage_collector_metric_set =
         BackupGarbageCollectorMetricSet::new(&metrics_runtime.registry);
