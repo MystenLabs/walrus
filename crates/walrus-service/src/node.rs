@@ -1125,9 +1125,7 @@ impl StorageNode {
                     maybe_epoch_at_start = Some(epoch);
                 });
 
-                if element_index >= processing_starting_index
-                    && self.should_process_event(&stream_element)?
-                {
+                if element_index >= processing_starting_index {
                     sui_macros::fail_point!("process-event-before");
                     self.process_event(
                         stream_element.clone(),
@@ -1243,6 +1241,15 @@ impl StorageNode {
             stream_element.element.event_id(),
             self.inner.clone(),
         );
+        if !self.should_process_event(&stream_element)? {
+            tracing::debug!(
+                "skipping event {} as it is before the first complete epoch",
+                stream_element.element.label()
+            );
+            event_handle.mark_as_complete();
+            return Ok(());
+        }
+
         self.process_event_impl(event_handle, stream_element.clone())
             .inspect_err(|err| {
                 let span = tracing::Span::current();
