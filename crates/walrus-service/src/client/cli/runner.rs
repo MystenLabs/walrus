@@ -1045,23 +1045,17 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        let (n_shards, encoding_type) = if let (Some(n_shards), Some(encoding_type)) =
-            (n_shards, encoding_type)
-        {
-            (n_shards, encoding_type)
+        let n_shards = if let Some(n_shards) = n_shards {
+            n_shards
         } else {
             let config = self.config?;
             let sui_read_client =
                 get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-            let n_shards = if let Some(n_shards) = n_shards {
-                n_shards
-            } else {
-                tracing::debug!("reading `n_shards` from chain");
-                sui_read_client.current_committee().await?.n_shards()
-            };
-            let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-            (n_shards, encoding_type)
+            tracing::debug!("reading `n_shards` from chain");
+            sui_read_client.current_committee().await?.n_shards()
         };
+
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         tracing::debug!(%n_shards, "encoding the blob");
         let spinner = styled_spinner();
