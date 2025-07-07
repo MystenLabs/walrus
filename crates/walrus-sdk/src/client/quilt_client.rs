@@ -8,8 +8,11 @@ use std::{
     fs,
     marker::PhantomData,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
+
+use tokio::sync::RwLock;
 
 use walrus_core::{
     BlobId,
@@ -215,6 +218,7 @@ where
     pub async fn download_data(
         &mut self,
         sliver_indices: &[SliverIndex],
+        allow_fallback_to_full_quilt: bool,
     ) -> ClientResult<()> {
         if matches!(self.reader, QuiltCacheReader::FullQuilt(_)) {
             return Ok(());
@@ -232,19 +236,26 @@ where
             )
             .await;
 
-        if let Ok(slivers) = retrieved_slivers {
-            self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(
-                slivers,
-                self.quilt_index.clone(),
-            ));
-            Ok(())
-        } else {
-            let quilt = self
-                .client
-                .get_full_quilt(&self.metadata, self.certified_epoch)
-                .await?;
-            self.reader = QuiltCacheReader::FullQuilt(quilt);
-            Ok(())
+        match retrieved_slivers {
+            Ok(slivers) => {
+                self.reader = QuiltCacheReader::Decoder(DecoderBasedCacheReader::new(
+                    slivers,
+                    self.quilt_index.clone(),
+                ));
+                Ok(())
+            }
+            Err(e) => {
+                if allow_fallback_to_full_quilt {
+                    let quilt = self
+                        .client
+                        .get_full_quilt(&self.metadata, self.certified_epoch)
+                        .await?;
+                    self.reader = QuiltCacheReader::FullQuilt(quilt);
+                    Ok(())
+                } else {
+                    Err(e.into())
+                }
+            }
         }
     }
 
@@ -359,17 +370,47 @@ impl Default for QuiltClientConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+struct QuiltCacheEntry {
+    metadata: VerifiedBlobMetadataWithId,
+    certified_epoch: Epoch,
+}
+
+#[derive(Debug, Clone)]
+struct QuiltCache {
+    entries: HashMap<BlobId, QuiltCacheEntry>,
+}
+
+impl QuiltCache {
+    fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    fn get_quilt_cache_entry(&self, quilt_id: &BlobId) -> Option<(Epoch, VerifiedBlobMetadataWithId)> {
+        self.entries.get(quilt_id).map(|entry| (entry.certified_epoch, entry.metadata.clone()))
+    }
+
+    fn insert_quilt_cache_entry(&mut self, quilt_id: BlobId, certified_epoch: Epoch, metadata: VerifiedBlobMetadataWithId) {
+        self.entries.insert(quilt_id, QuiltCacheEntry { certified_epoch, metadata });
+    }
+}
+
 /// A facade for interacting with Walrus quilt.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
     client: &'a Client<T>,
     config: QuiltClientConfig,
+    cache: Arc<RwLock<QuiltCache>>,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient.
     pub fn new(client: &'a Client<T>, config: QuiltClientConfig) -> Self {
-        Self { client, config }
+        Self {
+            client,
+            config,
+            cache: Arc::new(RwLock::new(QuiltCache::new())),
+        }
     }
 }
 
@@ -519,7 +560,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 )
                 .await;
                 quilt_reader
-                    .download_data(&sliver_indices)
+                    .download_data(&sliver_indices, true)
                     .await?;
                 quilt_reader.get_blobs_by_identifiers(identifiers).await
             }
@@ -557,7 +598,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 )
                 .await;
                 quilt_reader
-                    .download_data(&sliver_indices)
+                    .download_data(&sliver_indices, true)
                     .await?;
                 quilt_reader
                     .get_blobs_by_tag(target_tag, target_value)
@@ -605,14 +646,20 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 .all(|quilt_patch_id| quilt_patch_id.quilt_id == quilt_id)
         );
 
-        let (certified_epoch, _) = self
-            .client
-            .get_blob_status_and_certified_epoch(&quilt_id, None)
-            .await?;
-        let metadata = self
-            .client
-            .retrieve_metadata(certified_epoch, &quilt_id)
-            .await?;
+        let (certified_epoch, metadata) = if let Some((certified_epoch, metadata)) = self.cache.read().await.get_quilt_cache_entry(&quilt_id) {
+            (certified_epoch, metadata)
+        } else {
+            let (certified_epoch, _) = self
+                .client
+                .get_blob_status_and_certified_epoch(&quilt_id, None)
+                .await?;
+            let metadata = self
+                .client
+                .retrieve_metadata(certified_epoch, &quilt_id)
+                .await?;
+            self.cache.write().await.insert_quilt_cache_entry(quilt_id, certified_epoch, metadata.clone());
+            (certified_epoch, metadata)
+        };
 
         match version_enum {
             QuiltVersionEnum::V1 => {
@@ -620,6 +667,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                     &metadata,
                     certified_epoch,
                     quilt_patch_ids,
+                    false,
                 )
                 .await
             }
@@ -631,6 +679,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
         metadata: &VerifiedBlobMetadataWithId,
         certified_epoch: Epoch,
         quilt_ids: &[QuiltPatchId],
+        allow_fallback_to_full_quilt: bool,
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
         let mut sliver_indices = Vec::new();
         for quilt_id in quilt_ids {
@@ -638,17 +687,22 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             sliver_indices.extend(id.sliver_indices());
         }
 
+        let quilt_client_config = QuiltClientConfig {
+            max_retrieve_slivers_attempts: 1,
+            timeout_duration: Duration::from_secs(10),
+        };
+
         let mut quilt_reader =
             QuiltReader::<'_, QuiltVersionV1, T>::new(
                 self,
-                self.config.clone(),
+                quilt_client_config,
                 None,
                 metadata.clone(),
                 certified_epoch,
             )
             .await;
         quilt_reader
-            .download_data(&sliver_indices)
+            .download_data(&sliver_indices, allow_fallback_to_full_quilt)
             .await?;
         let internal_ids = quilt_ids
             .iter()

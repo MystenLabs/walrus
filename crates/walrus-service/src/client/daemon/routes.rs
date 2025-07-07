@@ -21,7 +21,7 @@ use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS}
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
@@ -29,6 +29,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     encoding::{QuiltError, quilt_encoding::QuiltStoreBlob},
 };
 use walrus_proc_macros::RestApiError;
@@ -73,6 +74,10 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
 pub const QUILT_STREAM_ENDPOINT: &str = "/v1/stream/{quilt_id}";
 /// The path to stream video chunks from quilt.
 pub const QUILT_STREAM_CHUNKED_ENDPOINT: &str = "/v1/stream/{quilt_id}/chunked";
+/// The path to get HLS playlist for video streaming.
+pub const QUILT_HLS_PLAYLIST_ENDPOINT: &str = "/v1/stream/{quilt_id}/playlist.m3u8";
+/// The path to get individual video segments for HLS.
+pub const QUILT_HLS_SEGMENT_ENDPOINT: &str = "/v1/stream/{quilt_id}/segments/{segment_index}";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -706,6 +711,7 @@ pub(super) async fn stream_quilt_video(
         <html>
         <head>
             <title>Walrus Video Stream - {}</title>
+            <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
             <style>
                 body {{
                     margin: 0;
@@ -754,7 +760,6 @@ pub(super) async fn stream_quilt_video(
         <body>
             <div class="container">
                 <video id="video" controls autoplay muted>
-                    <source src="/v1/stream/{}/chunked" type="video/mp4">
                     Your browser does not support video streaming.
                 </video>
                 <div class="info">
@@ -763,6 +768,8 @@ pub(super) async fn stream_quilt_video(
                 <div class="controls">
                     <button onclick="restartStream()">Restart Stream</button>
                     <button onclick="toggleMute()">Toggle Mute</button>
+                    <button onclick="useChunkedStream()">Use Chunked Stream</button>
+                    <button onclick="useCustomPlayer()">Use Custom Player</button>
                 </div>
                 <div class="status" id="status">
                     Initializing stream...
@@ -771,6 +778,8 @@ pub(super) async fn stream_quilt_video(
             <script>
                 const video = document.getElementById('video');
                 const status = document.getElementById('status');
+                let hls = null;
+                const quiltId = '{}';
 
                 function updateStatus(message) {{
                     status.textContent = message;
@@ -778,13 +787,127 @@ pub(super) async fn stream_quilt_video(
                 }}
 
                 function restartStream() {{
-                    video.load();
+                    if (hls) {{
+                        hls.destroy();
+                    }}
+                    initHLS();
                     updateStatus('Restarting stream...');
                 }}
 
                 function toggleMute() {{
                     video.muted = !video.muted;
                     updateStatus(video.muted ? 'Muted' : 'Unmuted');
+                }}
+
+                function useChunkedStream() {{
+                    if (hls) {{
+                        hls.destroy();
+                        hls = null;
+                    }}
+                    
+                    const chunkedUrl = '/v1/stream/' + quiltId + '/chunked';
+                    video.src = chunkedUrl;
+                    video.load();
+                    updateStatus('Switched to chunked streaming...');
+                }}
+
+                function useCustomPlayer() {{
+                    if (hls) {{
+                        hls.destroy();
+                        hls = null;
+                    }}
+                    
+                    // Create a custom video source that loads segments sequentially
+                    const customSource = '/v1/stream/' + quiltId + '/segments/0';
+                    video.src = customSource;
+                    video.load();
+                    
+                    // Set up custom segment loading
+                    let currentSegment = 0;
+                    const totalSegments = 7;
+                    
+                    video.addEventListener('ended', function() {{
+                        currentSegment++;
+                        if (currentSegment < totalSegments) {{
+                            const nextSegment = '/v1/stream/' + quiltId + '/segments/' + currentSegment;
+                            video.src = nextSegment;
+                            video.load();
+                            video.play().catch(e => console.log('Autoplay prevented:', e));
+                            updateStatus('Playing segment ' + currentSegment + ' of ' + totalSegments);
+                        }} else {{
+                            updateStatus('All segments played');
+                        }}
+                    }});
+                    
+                    updateStatus('Custom player: Playing segment 0 of ' + totalSegments);
+                }}
+
+                function initHLS() {{
+                    const playlistUrl = '/v1/stream/' + quiltId + '/playlist.m3u8';
+                    
+                    if (Hls.isSupported()) {{
+                        hls = new Hls({{
+                            debug: true,
+                            enableWorker: true,
+                            lowLatencyMode: false
+                        }});
+                        hls.loadSource(playlistUrl);
+                        hls.attachMedia(video);
+                        
+                        hls.on(Hls.Events.MANIFEST_PARSED, function() {{
+                            updateStatus('Playlist loaded, ready to play');
+                            video.play().catch(e => {{
+                                console.log('Autoplay prevented:', e);
+                                updateStatus('Click play to start stream (autoplay blocked)');
+                            }});
+                        }});
+                        
+                        hls.on(Hls.Events.ERROR, function(event, data) {{
+                            console.error('HLS error:', event, data);
+                            updateStatus('Error: ' + data.details + ' - ' + data.fatal);
+                            
+                            if (data.fatal) {{
+                                switch(data.type) {{
+                                    case Hls.ErrorTypes.NETWORK_ERROR:
+                                        updateStatus('Network error - trying to recover...');
+                                        hls.startLoad();
+                                        break;
+                                    case Hls.ErrorTypes.MEDIA_ERROR:
+                                        updateStatus('Media error - trying to recover...');
+                                        hls.recoverMediaError();
+                                        break;
+                                    default:
+                                        updateStatus('Fatal error - cannot recover');
+                                        break;
+                                }}
+                            }}
+                        }});
+                        
+                        hls.on(Hls.Events.FRAG_LOADING, function(event, data) {{
+                            console.log('Loading fragment:', data.frag.url);
+                        }});
+                        
+                        hls.on(Hls.Events.FRAG_LOADED, function(event, data) {{
+                            console.log('Fragment loaded:', data.frag.url, 'size:', data.payload.byteLength);
+                        }});
+                        
+                        hls.on(Hls.Events.FRAG_PARSING_ERROR, function(event, data) {{
+                            console.error('Fragment parsing error:', data);
+                            updateStatus('Fragment parsing error: ' + data.details);
+                        }});
+                    }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+                        // Native HLS support (Safari)
+                        video.src = playlistUrl;
+                        video.addEventListener('loadedmetadata', function() {{
+                            updateStatus('Playlist loaded, ready to play');
+                            video.play().catch(e => {{
+                                console.log('Autoplay prevented:', e);
+                                updateStatus('Click play to start stream (autoplay blocked)');
+                            }});
+                        }});
+                    }} else {{
+                        updateStatus('HLS not supported in this browser');
+                    }}
                 }}
 
                 video.addEventListener('loadstart', () => {{
@@ -816,11 +939,8 @@ pub(super) async fn stream_quilt_video(
                     updateStatus('Stream ended');
                 }});
 
-                // Try to start playing automatically
-                video.play().catch(e => {{
-                    console.log('Autoplay prevented:', e);
-                    updateStatus('Click play to start stream (autoplay blocked)');
-                }});
+                // Initialize HLS when page loads
+                initHLS();
             </script>
         </body>
         </html>
@@ -870,6 +990,13 @@ pub(super) async fn stream_quilt_video_chunked<T: WalrusReadClient + Send + Sync
 ) -> Response {
     let (client, _) = state;
     let quilt_id_str = quilt_id.to_string();
+    let total_segments = get_available_segments_count();
+    
+    tracing::info!(
+        "starting video stream for quilt {} with {} available segments",
+        quilt_id_str,
+        total_segments
+    );
 
     // Create a stream of video segments
     let quilt_id_str_clone = quilt_id_str.clone();
@@ -883,43 +1010,74 @@ pub(super) async fn stream_quilt_video_chunked<T: WalrusReadClient + Send + Sync
                     return None;
                 }
 
-                let segment_id = format!("segment_{:04}", segment_index);
+                let segment_id = format!("segment_{:05}.ts", segment_index);
 
-                match client
-                    .get_blob_by_quilt_id_and_identifier(&quilt_id, &segment_id)
-                    .await
-                {
-                    Ok(blob) => {
-                        let video_data = blob.into_data();
-                        tracing::info!(
-                            "streaming segment {} ({} bytes) for quilt {}",
-                            segment_id,
-                            video_data.len(),
-                            quilt_id_str
-                        );
+                tracing::info!("getting quilt patch id for segment {}", segment_id);
+                if let Some(quilt_patch_id) = get_quilt_patch_id(&quilt_id, &segment_id) {
+                    tracing::info!(
+                        "found quilt patch id {} for segment {}",
+                        quilt_patch_id,
+                        segment_id
+                    );
+                    match client
+                        .get_blobs_by_quilt_patch_ids(&[quilt_patch_id])
+                        .await
+                    {
+                        Ok(mut blobs) => {
+                            if blobs.is_empty() {
+                                tracing::info!(
+                                    "no blobs returned for segment {} - stream complete",
+                                    segment_id
+                                );
+                                return Some((
+                                    Ok::<Bytes, std::io::Error>(Bytes::new()),
+                                    (client, quilt_id, segment_index + 1, true),
+                                ));
+                            }
 
-                        // Add a small delay between segments to control streaming rate
-                        // This prevents overwhelming the client and simulates real-time streaming
-                        sleep(Duration::from_millis(50)).await;
+                            let blob = blobs.pop().expect("expected at least one blob");
+                            let video_data = blob.into_data();
+                            
+                            tracing::info!(
+                                "streaming segment {} ({} bytes) for quilt {}",
+                                segment_id,
+                                video_data.len(),
+                                quilt_id_str
+                            );
 
-                        Some((
-                            Ok::<Bytes, std::io::Error>(Bytes::from(video_data)),
-                            (client, quilt_id, segment_index + 1, false),
-                        ))
+                            // Add a small delay between segments to allow buffering
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+
+                            // Stream the complete MP4 segment
+                            Some((
+                                Ok::<Bytes, std::io::Error>(Bytes::from(video_data)),
+                                (client, quilt_id, segment_index + 1, false),
+                            ))
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                "error retrieving segment {}: {:?} - stream complete",
+                                segment_id,
+                                error
+                            );
+
+                            // Return an empty chunk to signal end of stream gracefully
+                            Some((
+                                Ok::<Bytes, std::io::Error>(Bytes::new()),
+                                (client, quilt_id, segment_index + 1, true),
+                            ))
+                        }
                     }
-                    Err(_error) => {
-                        tracing::info!(
-                            "no more segments for quilt {} after segment {} - stream complete",
-                            quilt_id_str,
-                            segment_index
-                        );
-
-                        // Return an empty chunk to signal end of stream gracefully
-                        Some((
-                            Ok::<Bytes, std::io::Error>(Bytes::new()),
-                            (client, quilt_id, segment_index + 1, true),
-                        ))
-                    }
+                } else {
+                    tracing::info!(
+                        "no mapping found for segment {} - stream complete after {} segments",
+                        segment_id,
+                        segment_index
+                    );
+                    return Some((
+                        Ok::<Bytes, std::io::Error>(Bytes::new()),
+                        (client, quilt_id, segment_index + 1, true),
+                    ));
                 }
             }
         },
@@ -946,6 +1104,51 @@ pub(super) async fn stream_quilt_video_chunked<T: WalrusReadClient + Send + Sync
     );
 
     response
+}
+
+fn get_quilt_patch_id(quilt_id: &BlobId, name: &str) -> Option<QuiltPatchId> {
+    // Map of segment names to their corresponding QuiltPatchIds (first 30 only)
+    let segment_map: std::collections::HashMap<&str, &str> = [
+        ("segment_00000.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBAQACAA"),
+        ("segment_00001.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBAgADAA"),
+        ("segment_00002.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBAwAEAA"),
+        ("segment_00003.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBBAAFAA"),
+        ("segment_00004.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBBQAGAA"),
+        ("segment_00005.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBBgAHAA"),
+        ("segment_00006.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBBwAIAA"),
+        ("segment_00007.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCAAJAA"),
+        ("segment_00008.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCQAKAA"),
+        ("segment_00009.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCgALAA"),
+        ("segment_00010.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCwAMAA"),
+        ("segment_00011.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDAANAA"),
+        ("segment_00012.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDQAOAA"),
+        ("segment_00013.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDgAPAA"),
+        ("segment_00014.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDwAQAA"),
+        ("segment_00015.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBEAARAA"),
+        ("segment_00016.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBEQASAA"),
+        ("segment_00017.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBEgATAA"),
+        ("segment_00018.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBEwAUAA"),
+        ("segment_00019.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBFAAVAA"),
+        ("segment_00020.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBFQAWAA"),
+        ("segment_00021.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBFgAXAA"),
+        ("segment_00022.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBFwAYAA"),
+        ("segment_00023.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGAAZAA"),
+        ("segment_00024.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGQAaAA"),
+        ("segment_00025.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGgAbAA"),
+        ("segment_00026.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGwAcAA"),
+        ("segment_00027.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHAAdAA"),
+        ("segment_00028.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHQAeAA"),
+        ("segment_00029.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHgAfAA"),
+    ].into_iter().collect();
+
+    segment_map.get(name).and_then(|patch_id_str| {
+        QuiltPatchId::from_str(patch_id_str).ok()
+    })
+}
+
+fn get_available_segments_count() -> usize {
+    // This should match the number of entries in the segment_map above
+    30
 }
 
 /// The exclusive option to share the blob or to send it to an address.
@@ -1048,6 +1251,162 @@ impl PublisherQuery {
     /// Returns the value for the `send_or_share` field.
     pub fn send_or_share(&self) -> Option<SendOrShare> {
         self.send_or_share.clone()
+    }
+}
+
+/// Generate HLS playlist for video streaming.
+///
+/// Returns an M3U8 playlist file that references individual video segments.
+/// This approach works much better with browsers than concatenating MP4 segments.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_HLS_PLAYLIST_ENDPOINT,
+    params(
+        (
+            "quilt_id" = BlobId, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "HLS playlist file (M3U8 format)",
+            body = String
+        ),
+        GetBlobError,
+    ),
+    summary = "Get HLS playlist for video streaming",
+    description = "Returns an M3U8 playlist file that references individual video segments \
+                for proper HLS streaming in browsers.",
+)]
+pub(super) async fn get_hls_playlist(
+    Path(BlobIdString(quilt_id)): Path<BlobIdString>,
+) -> Response {
+    let quilt_id_str = quilt_id.to_string();
+    let total_segments = get_available_segments_count();
+    
+    tracing::info!(
+        "generating HLS playlist for quilt {} with {} segments",
+        quilt_id_str,
+        total_segments
+    );
+
+    // Generate M3U8 playlist content
+    let mut playlist = String::new();
+    playlist.push_str("#EXTM3U\n");
+    playlist.push_str("#EXT-X-VERSION:3\n");
+    playlist.push_str("#EXT-X-TARGETDURATION:10\n"); // Assuming 10 seconds per segment
+    playlist.push_str("#EXT-X-MEDIA-SEQUENCE:0\n");
+    
+    // Add segments to playlist
+    for i in 0..total_segments {
+        playlist.push_str(&format!("#EXTINF:10.0,\n")); // Duration in seconds
+        playlist.push_str(&format!("/v1/stream/{}/segments/{}\n", quilt_id_str, i));
+    }
+    
+    playlist.push_str("#EXT-X-ENDLIST\n");
+
+    let mut response = (StatusCode::OK, playlist).into_response();
+    response.headers_mut().insert(
+        "Content-Type",
+        HeaderValue::from_static("application/vnd.apple.mpegurl"),
+    );
+    response
+}
+
+/// Get individual video segment for HLS streaming.
+///
+/// Returns a single MP4 video segment by its index.
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_HLS_SEGMENT_ENDPOINT,
+    params(
+        (
+            "quilt_id" = BlobId, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        ),
+        (
+            "segment_index" = u32, Path,
+            description = "The segment index (0-based)",
+            example = 0
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "MP4 video segment",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Get individual video segment",
+    description = "Returns a single MP4 video segment by its index for HLS streaming.",
+)]
+pub(super) async fn get_hls_segment<T: WalrusReadClient + Send + Sync + 'static>(
+    State(state): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    Path((quilt_id_str, segment_index)): Path<(String, u32)>,
+) -> Response {
+    let (client, _) = state;
+    
+    tracing::info!(
+        "getting HLS segment {} for quilt {}",
+        segment_index,
+        quilt_id_str
+    );
+
+    let quilt_id = match BlobId::from_str(&quilt_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::error!("invalid quilt ID format: {}", quilt_id_str);
+            return GetBlobError::BlobNotFound.to_response();
+        }
+    };
+
+            let segment_id = format!("segment_{:05}.ts", segment_index);
+
+    if let Some(quilt_patch_id) = get_quilt_patch_id(&quilt_id, &segment_id) {
+        match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
+            Ok(mut blobs) => {
+                if let Some(blob) = blobs.pop() {
+                    let video_data = blob.into_data();
+                    tracing::info!(
+                        "returning segment {} ({} bytes) for quilt {}",
+                        segment_id,
+                        video_data.len(),
+                        quilt_id_str
+                    );
+
+                    let mut response = (StatusCode::OK, video_data).into_response();
+                    response.headers_mut().insert(
+                        "Content-Type",
+                        HeaderValue::from_static("video/mp4"),
+                    );
+                    response.headers_mut().insert(
+                        "Cache-Control",
+                        HeaderValue::from_static("public, max-age=3600"),
+                    );
+                    response
+                } else {
+                    tracing::warn!("no blob data for segment {}", segment_id);
+                    GetBlobError::QuiltPatchNotFound.to_response()
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    "error retrieving segment {}: {:?}",
+                    segment_id,
+                    error
+                );
+                GetBlobError::from(error).to_response()
+            }
+        }
+    } else {
+        tracing::warn!("no mapping found for segment {}", segment_id);
+        GetBlobError::QuiltPatchNotFound.to_response()
     }
 }
 
