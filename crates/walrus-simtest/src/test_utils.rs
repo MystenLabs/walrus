@@ -15,7 +15,7 @@ pub mod simtest_utils {
     use itertools::Itertools;
     use rand::{Rng, seq::IteratorRandom};
     use sui_types::base_types::ObjectID;
-    use tokio::task::JoinHandle;
+    use tokio::{sync::RwLock, task::JoinHandle};
     use walrus_core::{
         DEFAULT_ENCODING,
         Epoch,
@@ -26,7 +26,7 @@ pub mod simtest_utils {
         client::{Client, responses::BlobStoreResult},
         store_optimizations::StoreOptimizations,
     };
-    use walrus_service::test_utils::SimStorageNodeHandle;
+    use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};
     use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
     use walrus_test_utils::WithTempDir;
@@ -78,7 +78,7 @@ pub mod simtest_utils {
                     DEFAULT_ENCODING,
                     epoch_ahead,
                     StoreOptimizations::none(),
-                    BlobPersistence::from_deletable(deletable),
+                    BlobPersistence::from_deletable_and_permanent(deletable, !deletable)?,
                     PostStoreAction::Keep,
                     None,
                 )
@@ -575,5 +575,45 @@ pub mod simtest_utils {
             )
             .as_str(),
         );
+    }
+
+    /// Kills all the storage nodes in the cluster.
+    async fn kill_all_storage_nodes(node_ids: &[sui_simulator::task::NodeId]) {
+        let handle = sui_simulator::runtime::Handle::current();
+        for &node_id in node_ids {
+            handle.delete_node(node_id);
+        }
+    }
+
+    /// Restarts all nodes in the cluster with number of checkpoints per event blob configuration.
+    pub async fn restart_nodes_with_checkpoints(
+        walrus_cluster: &mut TestCluster<SimStorageNodeHandle>,
+        checkpoint_fn: impl Fn(usize) -> u32,
+    ) {
+        let node_handles = walrus_cluster
+            .nodes
+            .iter()
+            .map(|n| n.node_id.expect("simtest must set node id"))
+            .collect::<Vec<_>>();
+
+        kill_all_storage_nodes(&node_handles).await;
+
+        // Doing a short sleep so that the connection between the old nodes to the fullnodes are
+        // fully cleared. We've seen cases where when the new node is started, the old connection
+        // on the fullnode still exists and the new node will not be able to connect to the
+        //fullnode.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        for (i, node) in walrus_cluster.nodes.iter_mut().enumerate() {
+            node.node_id = Some(
+                SimStorageNodeHandle::spawn_node(
+                    Arc::new(RwLock::new(node.storage_node_config.clone())),
+                    Some(checkpoint_fn(i)),
+                    node.cancel_token.clone(),
+                )
+                .await
+                .id(),
+            );
+        }
     }
 }

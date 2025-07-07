@@ -242,7 +242,7 @@ pub(crate) async fn publish_package(
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_exchange_pkg_id: Option<ObjectID>,
-    pub subsidies_pkg_id: Option<ObjectID>,
+    pub credits_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
 }
@@ -294,7 +294,7 @@ pub async fn publish_coin_and_system_package(
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
     use_existing_wal_token: bool,
-    with_subsidies: bool,
+    with_credits: bool,
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
@@ -336,7 +336,7 @@ pub async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
-    let subsidies_pkg_id = if with_subsidies {
+    let credits_pkg_id = if with_credits {
         // Publish `subsidies` package.
         let transaction_response = publish_package_with_default_build_config(
             wallet,
@@ -366,7 +366,7 @@ pub async fn publish_coin_and_system_package(
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
         wal_exchange_pkg_id,
-        subsidies_pkg_id,
+        credits_pkg_id,
         init_cap_id,
         upgrade_cap_id,
     })
@@ -391,8 +391,8 @@ pub struct InitSystemParams {
     pub with_wal_exchange: bool,
     /// Whether to use an existing WAL token.
     pub use_existing_wal_token: bool,
-    /// Whether to publish the `subsidies` package.
-    pub with_subsidies: bool,
+    /// Whether to publish the `subsidies` package for client-side credits.
+    pub with_credits: bool,
 }
 
 /// Initialize the system and staking objects on chain.

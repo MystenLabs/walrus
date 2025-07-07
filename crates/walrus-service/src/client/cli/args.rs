@@ -267,89 +267,12 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// Read quilt patches (blobs) from Walrus.
-    #[command(override_usage = "walrus read-quilt <Arguments> [OPTIONS]")]
+    #[command(override_usage = "walrus read-quilt ARGUMENTS [OPTIONS]")]
     ReadQuilt {
-        /// The quilt ID, which is the BlobID of the quilt.
-        ///
-        /// It is required unless `--quilt-patch-id` is used.
-        #[serde_as(as = "Option<DisplayFromStr>")]
-        #[arg(
-            long,
-            allow_hyphen_values = true,
-            value_parser = parse_blob_id,
-            required_unless_present = "quilt_patch_ids",
-            help_heading = "Arguments",
-        )]
-        quilt_id: Option<BlobId>,
-
-        /// The identifiers to read from the quilt.
-        ///
-        /// It is required to be used with `--quilt-id`.
-        ///
-        /// Example:
-        /// walrus read-quilt --quilt-id `<ID>` --identifier `<IDENTIFIER>`...
-        #[arg(
-            long = "identifier",
-            conflicts_with = "tag",
-            conflicts_with = "quilt_patch_ids",
-            help_heading = "Arguments"
-        )]
-        #[serde(default)]
-        identifiers: Vec<String>,
-
-        /// The tag key.
-        ///
-        /// It is required to be used with `--quilt-id` and `--value`.
-        ///
-        /// Example:
-        /// walrus read-quilt --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
-        #[arg(
-            long,
-            requires = "value",
-            conflicts_with = "identifiers",
-            conflicts_with = "quilt_patch_ids",
-            help_heading = "Arguments"
-        )]
-        #[serde(default)]
-        tag: Option<String>,
-
-        /// The tag value to match.
-        ///
-        /// It is required to be used with `--quilt-id` and `--tag`.
-        ///
-        /// Example:
-        /// walrus read-quilt --quilt-id `<ID>` --tag `<KEY>` --value `<VALUE>`
-        #[arg(
-            long,
-            requires = "tag",
-            conflicts_with = "identifiers",
-            conflicts_with = "quilt_patch_ids",
-            help_heading = "Arguments"
-        )]
-        #[serde(default)]
-        value: Option<String>,
-
-        /// The quilt patch IDs.
-        ///
-        /// It should be used alone without other arguments.
-        ///
-        /// Example:
-        /// walrus read-quilt --quilt-patch-id `<PATCH_ID>`...
-        #[serde_as(as = "Vec<DisplayFromStr>")]
-        #[arg(
-            long = "quilt-patch-id",
-            alias = "patch-id",
-            allow_hyphen_values = true,
-            value_parser = parse_quilt_patch_id,
-            action = clap::ArgAction::Append,
-            conflicts_with = "quilt_id",
-            conflicts_with = "identifiers",
-            conflicts_with = "tag",
-            help_heading = "Arguments",
-        )]
-        #[serde(default)]
-        quilt_patch_ids: Vec<QuiltPatchId>,
-
+        /// The quilt patch query.
+        #[command(flatten)]
+        #[serde(flatten)]
+        quilt_patch_query: QuiltPatchQuery,
         /// The directory path where to write the quilt patches.
         /// The blobs are written to the directory with the same name as the identifier.
         /// The user-defined metadata of the quilt patches, including identifiers and tags are
@@ -1087,12 +1010,25 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub ignore_resources: bool,
+    // TODO(WAL-911): Change the docstrings when the default behavior changes.
     /// Mark the blob/quilt as deletable.
     ///
     /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
-    #[arg(long)]
+    ///
+    /// *This will become the default behavior in the future.*
+    #[arg(long, conflicts_with = "permanent")]
     #[serde(default)]
     pub deletable: bool,
+    /// Mark the blob/quilt as permanent.
+    ///
+    /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
+    /// beneficial if strong availability guarantees are required.
+    ///
+    /// This is currently the default behavior; but *in the future, blobs will be deletable by
+    /// default*.
+    #[arg(long)]
+    #[serde(default)]
+    pub permanent: bool,
     /// Whether to put the blob/quilt into a shared object.
     #[arg(long)]
     #[serde(default)]
@@ -1173,6 +1109,128 @@ impl FromStr for QuiltBlobInput {
     }
 }
 
+/// Query to read quilt patches.
+#[serde_as]
+#[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[group(required = true)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchQuery {
+    /// The quilt ID, which is the BlobID of the quilt.
+    ///
+    /// It is required unless `--quilt-patch-id` is used.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[arg(
+        long,
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        conflicts_with = "quilt_patch_ids",
+        required_unless_present = "quilt_patch_ids",
+        help_heading = "Arguments",
+    )]
+    quilt_id: Option<BlobId>,
+
+    /// The identifiers to read from the quilt.
+    ///
+    /// It is required to be used with `--quilt-id`.
+    #[arg(
+        long = "identifiers",
+        alias = "identifier",
+        conflicts_with = "tag",
+        conflicts_with = "quilt_patch_ids",
+        num_args = 1..,
+        help_heading = "Arguments"
+    )]
+    #[serde(default)]
+    identifiers: Vec<String>,
+
+    /// The tag key and value.
+    ///
+    /// It is required to be used with `--quilt-id`.
+    #[arg(
+        long,
+        conflicts_with = "quilt_patch_ids",
+        value_names = &["KEY", "VALUE"],
+        num_args = 2,
+        action = clap::ArgAction::Append,
+        help_heading = "Arguments"
+    )]
+    #[serde(default)]
+    tag: Vec<String>,
+
+    /// The quilt patch IDs.
+    ///
+    /// It should be used alone without other arguments.
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[arg(
+        long = "quilt-patch-ids",
+        aliases = ["quilt-patch-id", "patch-ids"],
+        num_args = 1..,
+        value_terminator = "--",
+        allow_hyphen_values = true,
+        value_parser = parse_quilt_patch_id,
+        help_heading = "Arguments",
+    )]
+    #[serde(default)]
+    quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+impl QuiltPatchQuery {
+    /// Returns a QuiltPatchSelector from the command line arguments.
+    pub fn into_selector(mut self) -> Result<QuiltPatchSelector> {
+        match (
+            !self.identifiers.is_empty(),
+            !self.tag.is_empty(),
+            !self.quilt_patch_ids.is_empty(),
+            self.quilt_id,
+        ) {
+            // quilt_id and identifiers provided.
+            (true, false, false, Some(quilt_id)) => {
+                Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                    quilt_id,
+                    identifiers: self.identifiers,
+                }))
+            }
+
+            // quilt_id and tags provided.
+            (false, true, false, Some(quilt_id)) => {
+                if self.tag.len() != 2 {
+                    return Err(anyhow!("Only one tag is supported for now."));
+                }
+                let value = self.tag.pop().expect("value should be present");
+                let tag = self.tag.pop().expect("tag should be present");
+                Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                    quilt_id,
+                    tag,
+                    value,
+                }))
+            }
+
+            // quilt_patch_ids provided.
+            (false, false, true, None) => Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+                quilt_patch_ids: self.quilt_patch_ids,
+            })),
+
+            // Only quilt_id provided.
+            (false, false, false, Some(quilt_id)) => Ok(QuiltPatchSelector::All(quilt_id)),
+
+            // All other combinations are invalid
+            _ => Err(Self::invalid_query_error()),
+        }
+    }
+
+    /// Returns an error message for an invalid query.
+    fn invalid_query_error() -> anyhow::Error {
+        anyhow!(
+            "Exactly one query pattern must be specified. Valid query patterns are:\n\
+            - quiltId + identifiers: {{\"quiltId\": \"<ID>\", \
+            \"identifiers\": [\"<IDENTIFIER>\", ...]}}\n\
+            - quiltId + tag: {{\"quiltId\": \"<ID>\", \"tag\": [\"<KEY>\", \"<VALUE>\"]}}\n\
+            - quiltPatchIds: {{\"quiltPatchIds\": [\"<PATCH_ID>\", ...]}}\n\
+            - quiltId only: {{\"quiltId\": \"<ID>\"}}"
+        )
+    }
+}
+
 /// Represents a blob.
 #[serde_as]
 #[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -1248,46 +1306,6 @@ pub enum QuiltPatchSelector {
     ByPatchId(QuiltPatchByPatchId),
     /// Read 'em all.
     All(BlobId),
-}
-
-impl QuiltPatchSelector {
-    /// Get a selector from the command line arguments.
-    pub fn get_selector_from_args(
-        quilt_id: Option<BlobId>,
-        identifiers: Vec<String>,
-        tag: Option<String>,
-        value: Option<String>,
-        quilt_patch_ids: Vec<QuiltPatchId>,
-    ) -> Result<QuiltPatchSelector> {
-        if !identifiers.is_empty() {
-            Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
-                quilt_id: quilt_id.expect("quilt_id should be present"),
-                identifiers,
-            }))
-        } else if tag.is_some() && value.is_some() {
-            Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
-                quilt_id: quilt_id.expect("quilt_id should be present"),
-                tag: tag.as_ref().expect("tag should be present").clone(),
-                value: value.as_ref().expect("value should be present").clone(),
-            }))
-        } else if !quilt_patch_ids.is_empty() {
-            Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
-                quilt_patch_ids,
-            }))
-        } else if quilt_id.is_some() {
-            Ok(QuiltPatchSelector::All(
-                quilt_id.expect("quilt_id should be present"),
-            ))
-        } else {
-            Err(anyhow!(
-                "Exactly one query type must be specified. Valid query types are:\n\
-                - --quilt-id <ID> --identifier <IDENTIFIER>...\n\
-                - --quilt-id <ID> --tag <KEY> --value <VALUE>\n\
-                - --quilt-patch-id <PATCH_ID>...\n\
-                - --quilt-id <ID>"
-            ))
-        }
-    }
 }
 
 #[serde_as]
@@ -1718,6 +1736,7 @@ mod tests {
                 force: false,
                 ignore_resources: false,
                 deletable: false,
+                permanent: false,
                 share: false,
                 encoding_type: Default::default(),
             },

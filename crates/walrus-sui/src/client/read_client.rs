@@ -231,10 +231,10 @@ pub trait ReadClient: Send + Sync {
     /// Should be called after the contract is upgraded.
     fn refresh_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
-    /// Refreshes the subsidies package ID.
+    /// Refreshes the credits package ID.
     ///
-    /// Should be called after the subsidies contract is upgraded.
-    fn refresh_subsidies_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+    /// Should be called after the `subsidies` contract for credits is upgraded.
+    fn refresh_credits_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Returns the version of the system object.
     fn system_object_version(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
@@ -265,24 +265,24 @@ impl From<Mutability> for bool {
     }
 }
 
-/// Subsidies configuration and state
+/// Credits (former: Subsidies) configuration and state
 #[derive(Clone, Debug)]
-pub struct Subsidies {
-    /// The package ID of the subsidies contract
+pub struct Credits {
+    /// The package ID of the credits contract
     pub package_id: ObjectID,
-    /// The object ID of the subsidies object
+    /// The object ID of the `subsidies::Subsidies` Move object
     pub object_id: ObjectID,
-    /// The initial version of the subsidies object when it was created
-    subsidies_obj_initial_version: OnceCell<SequenceNumber>,
+    /// The initial version of the `subsidies::Subsidies` object when it was created
+    credits_obj_initial_version: OnceCell<SequenceNumber>,
 }
 
-impl Subsidies {
-    /// Creates a new Subsidies instance with the given package and object IDs
+impl Credits {
+    /// Creates a new instance with the given package and object IDs
     pub fn new(package_id: ObjectID, object_id: ObjectID) -> Self {
         Self {
             package_id,
             object_id,
-            subsidies_obj_initial_version: OnceCell::new(),
+            credits_obj_initial_version: OnceCell::new(),
         }
     }
 }
@@ -297,7 +297,7 @@ pub struct SuiReadClient {
     type_origin_map: Arc<RwLock<TypeOriginMap>>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
-    subsidies: Arc<RwLock<Option<Subsidies>>>,
+    credits: Arc<RwLock<Option<Credits>>>,
     wal_type: String,
 }
 
@@ -317,15 +317,15 @@ impl SuiReadClient {
             .type_origin_map_for_package(walrus_package_id)
             .await?;
         let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
-        let subsidies = if let Some(subsidies_object_id) = contract_config.subsidies_object {
-            let subsidies_package_id = sui_client
-                .get_subsidies_object(subsidies_object_id)
-                .await?
-                .package_id;
-            Some(Subsidies {
-                package_id: subsidies_package_id,
-                object_id: subsidies_object_id,
-                subsidies_obj_initial_version: OnceCell::new(),
+        let credits = if let Some(object_id) = contract_config
+            .credits_object
+            .or(contract_config.subsidies_object)
+        {
+            let package_id = sui_client.get_credits_object(object_id).await?.package_id;
+            Some(Credits {
+                package_id,
+                object_id,
+                credits_obj_initial_version: OnceCell::new(),
             })
         } else {
             None
@@ -338,7 +338,7 @@ impl SuiReadClient {
             type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
-            subsidies: Arc::new(RwLock::new(subsidies)),
+            credits: Arc::new(RwLock::new(credits)),
             wal_type,
         })
     }
@@ -405,25 +405,25 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_subsidies_obj(
+    pub(crate) async fn object_arg_for_credits_obj(
         &self,
         mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
-        let subsidies = self
-            .subsidies
+        let credits = self
+            .credits
             .read()
             .expect("mutex should not be poisoned")
             .as_ref()
-            .ok_or_else(|| SuiClientError::Internal(anyhow!("subsidies object ID not found")))?
+            .ok_or_else(|| SuiClientError::Internal(anyhow!("credits object ID not found")))?
             .clone();
 
-        let initial_shared_version = subsidies
-            .subsidies_obj_initial_version
-            .get_or_try_init(|| self.get_shared_object_initial_version(subsidies.object_id))
+        let initial_shared_version = credits
+            .credits_obj_initial_version
+            .get_or_try_init(|| self.get_shared_object_initial_version(credits.object_id))
             .await?;
 
         Ok(ObjectArg::SharedObject {
-            id: subsidies.object_id,
+            id: credits.object_id,
             initial_shared_version: *initial_shared_version,
             mutable: mutable.into(),
         })
@@ -463,9 +463,9 @@ impl SuiReadClient {
         *self.walrus_package_id()
     }
 
-    /// Returns the subsidies package ID.
-    pub fn get_subsidies_package_id(&self) -> Option<ObjectID> {
-        self.subsidies
+    /// Returns the credits package ID.
+    pub fn get_credits_package_id(&self) -> Option<ObjectID> {
+        self.credits
             .read()
             .expect("mutex should not be poisoned")
             .as_ref()
@@ -482,9 +482,9 @@ impl SuiReadClient {
         self.staking_object_id
     }
 
-    /// Returns the subsidies object ID.
-    pub fn get_subsidies_object_id(&self) -> Option<ObjectID> {
-        self.subsidies
+    /// Returns the credits object ID.
+    pub fn get_credits_object_id(&self) -> Option<ObjectID> {
+        self.credits
             .read()
             .expect("mutex should not be poisoned")
             .as_ref()
@@ -493,15 +493,17 @@ impl SuiReadClient {
 
     /// Returns the contract config.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new_with_subsidies(
-            self.system_object_id,
-            self.staking_object_id,
-            self.subsidies
+        ContractConfig {
+            system_object: self.system_object_id,
+            staking_object: self.staking_object_id,
+            credits_object: self
+                .credits
                 .read()
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
-        )
+            subsidies_object: None,
+        }
     }
 
     /// Returns the staking pool for the given node ID.
@@ -521,11 +523,9 @@ impl SuiReadClient {
             .expect("mutex should not be poisoned")
     }
 
-    /// Returns a mutable reference to the subsidies object.
-    fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
-        self.subsidies
-            .write()
-            .expect("mutex should not be poisoned")
+    /// Returns a mutable reference to the credits object.
+    fn credits_mut(&self) -> RwLockWriteGuard<Option<Credits>> {
+        self.credits.write().expect("mutex should not be poisoned")
     }
 
     pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
@@ -801,17 +801,17 @@ impl SuiReadClient {
         Ok(staking_object)
     }
 
-    /// Sets a subsidies object to be used by the client.
-    pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
-        let subsidies_package_id = self
+    /// Sets a credit (`subsidies::Subsidies` in Move) object to be used by the client.
+    pub async fn set_credits_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
+        let package_id = self
             .sui_client
-            .get_subsidies_object(subsidies_object_id)
+            .get_credits_object(object_id)
             .await?
             .package_id;
-        *self.subsidies_mut() = Some(Subsidies {
-            package_id: subsidies_package_id,
-            object_id: subsidies_object_id,
-            subsidies_obj_initial_version: OnceCell::new(),
+        *self.credits_mut() = Some(Credits {
+            package_id,
+            object_id,
+            credits_obj_initial_version: OnceCell::new(),
         });
         Ok(())
     }
@@ -1163,27 +1163,24 @@ impl ReadClient for SuiReadClient {
         self.refresh_package_id_with_id(walrus_package_id).await
     }
 
-    async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
-        let subsidies = self
-            .subsidies
+    async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
+        let credits = self
+            .credits
             .read()
             .expect("mutex should not be poisoned")
             .clone();
-        if let Some(subsidies) = subsidies {
+        if let Some(credits) = credits {
             let new_package_id = self
                 .sui_client
-                .get_subsidies_object(subsidies.object_id)
+                .get_credits_object(credits.object_id)
                 .await?
                 .package_id;
 
             // Update the package_id if it has changed
-            if new_package_id != subsidies.package_id {
-                let mut subsidies_guard = self
-                    .subsidies
-                    .write()
-                    .expect("mutex should not be poisoned");
-                if let Some(subsidies) = subsidies_guard.as_mut() {
-                    subsidies.package_id = new_package_id;
+            if new_package_id != credits.package_id {
+                let mut credits_guard = self.credits.write().expect("mutex should not be poisoned");
+                if let Some(credits) = credits_guard.as_mut() {
+                    credits.package_id = new_package_id;
                 }
             }
         }

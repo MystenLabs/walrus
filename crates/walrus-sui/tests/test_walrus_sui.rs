@@ -49,7 +49,7 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 0, 1).await
 }
 
-async fn initialize_contract_and_wallet_with_subsidies_with_single_node() -> anyhow::Result<(
+async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyhow::Result<(
     Arc<tokio::sync::Mutex<TestClusterHandle>>,
     WithTempDir<SuiContractClient>,
     SystemContext,
@@ -68,12 +68,12 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
-async fn test_register_certify_blob_100_percent_buyer_subsidies() -> anyhow::Result<()> {
+async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
     let encoding_type = EncodingType::RS2;
 
     let (_sui_cluster_handle, walrus_client, _, _) =
-        initialize_contract_and_wallet_with_subsidies_with_single_node().await?;
+        initialize_contract_and_wallet_with_credits_with_single_node().await?;
 
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());

@@ -3,7 +3,10 @@
 
 //! Responsible for downloading and managing event blobs
 
-use std::path::Path;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch};
@@ -113,7 +116,10 @@ impl EventBlobDownloader {
             Some(blob) => blob,
             None => match self.sui_read_client.last_certified_event_blob().await? {
                 Some(blob) => blob.blob_id,
-                None => return Ok(vec![]),
+                None => {
+                    tracing::info!("no certified event blobs found");
+                    return Ok(vec![]);
+                }
             },
         };
 
@@ -122,23 +128,57 @@ impl EventBlobDownloader {
             event_blob_id
         );
 
+        // When reading the first certified event blob, it may be the case that the event blob is
+        // just certified, and the storage nodes may not know it yet. Therefore, upon encountering
+        // a nonexistent blob, we will retry and wait for the blob to be certified.
+        // For all the earlier blobs, they must have been seen by the storage nodes, since
+        // otherwise, no new certified event blobs would be created.
+        let mut reading_first_event_blob = true;
+
         loop {
             if event_blob_id == BlobId::ZERO {
                 tracing::info!("reached the beginning of the event history",);
                 break;
             }
 
-            let blob_status = match self
-                .walrus_client
-                .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
-                .await
-            {
-                Ok(blob_status) => blob_status,
-                Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
-                    BlobStatus::Nonexistent
+            // Timer for waiting for the first certified event blob to be certified.
+            let start_time = Instant::now();
+
+            let blob_status = loop {
+                let blob_status = match self
+                    .walrus_client
+                    .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
+                    .await
+                {
+                    Ok(blob_status) => blob_status,
+                    Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
+                        BlobStatus::Nonexistent
+                    }
+                    Err(err) => return Err(err.into()),
+                };
+
+                if blob_status == BlobStatus::Nonexistent && reading_first_event_blob {
+                    tracing::debug!(
+                        "reading first certified event blob {} encountered a nonexistent \
+                    blob, waiting for it to be certified",
+                        event_blob_id
+                    );
+
+                    if start_time.elapsed() > Duration::from_secs(30) {
+                        tracing::warn!(
+                            "waiting for first certified event blob to be certified timed out"
+                        );
+                        break blob_status;
+                    }
+                    // Short sleep since we expect storage nodes to keep up with Sui events in most
+                    // of the time.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
                 }
-                Err(err) => return Err(err.into()),
+
+                break blob_status;
             };
+            reading_first_event_blob = false;
 
             if blob_status == BlobStatus::Nonexistent {
                 anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
