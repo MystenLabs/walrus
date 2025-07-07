@@ -1,3 +1,8 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+//! Upload Relay shared types and constants.
+
 #[cfg(test)]
 use anyhow::Result;
 #[cfg(test)]
