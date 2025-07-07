@@ -393,8 +393,8 @@ CLI configuration refers to the standard location for Sui configuration
     subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: mainnet
       # Optional override for the Sui address to use.
@@ -411,8 +411,8 @@ CLI configuration refers to the standard location for Sui configuration
       - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
       - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: testnet
       # Optional override for the Sui address to use.
@@ -483,7 +483,6 @@ wallet_config:
 # The following parameters can be used to tune the networking behavior of the client. There is no
 # risk in playing around with these values. In the worst case, you may not be able to store/read
 # blob due to timeouts or other networking errors.
-rpc_urls:
 - https://fullnode.testnet.sui.io:443
 communication_config:
   max_concurrent_writes: null
