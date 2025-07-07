@@ -64,16 +64,17 @@ impl BackgroundEventProcessor {
     ) -> anyhow::Result<()> {
         match blob_event {
             BlobEvent::Certified(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
+                let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Certified");
                 self.process_blob_certified_event(event_handle, event)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
+                let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Deleted");
                 self.process_blob_deleted_event(event_handle, event).await?;
             }
             BlobEvent::InvalidBlobID(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
+                let _scope =
+                    monitored_scope::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
@@ -268,7 +269,7 @@ impl BlobEventProcessor {
             // If we want to do this in parallel, we shouldn't mix registered event processing with
             // certified event processing, as certified events take longer and can block following
             // registered events.
-            monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
+            let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
             event_handle.mark_as_complete();
             return Ok(());
         }
