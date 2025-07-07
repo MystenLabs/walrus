@@ -55,7 +55,7 @@ pub fn get_monitored_scope_metrics() -> Option<&'static MonitoredScopeMetrics> {
     MONITORED_SCOPE_METRICS.get()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct MonitoredScopeGuard {
     metrics: &'static MonitoredScopeMetrics,
@@ -68,7 +68,13 @@ impl Drop for MonitoredScopeGuard {
         self.metrics
             .scope_duration_ns
             .with_label_values(&[self.name])
-            .add(self.timer.elapsed().as_nanos() as i64);
+            .add(
+                self.timer
+                    .elapsed()
+                    .as_nanos()
+                    .try_into()
+                    .unwrap_or(i64::MAX),
+            );
         self.metrics
             .scope_entrance
             .with_label_values(&[self.name])

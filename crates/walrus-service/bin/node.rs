@@ -437,30 +437,33 @@ struct PathArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct CatchupArgs {
-    #[arg(long)]
     /// Path to the RocksDB database directory.
+    #[arg(long)]
     db_path: PathBuf,
-    #[arg(long)]
     /// Object ID of the Walrus system object.
+    #[arg(long)]
     system_object_id: ObjectID,
-    #[arg(long)]
     /// Object ID of the Walrus staking object.
-    staking_object_id: ObjectID,
-    #[arg(long, default_value = "http://localhost:9000")]
-    /// The Sui RPC URL to use for catchup.
-    sui_rpc_url: String,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
-    /// The timeout for each request to the Sui RPC node.
-    checkpoint_request_timeout: Duration,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
-    /// The duration to run the event processor for.
-    runtime_duration: Duration,
     #[arg(long)]
+    staking_object_id: ObjectID,
+    /// The Sui RPC URL to use for catchup.
+    #[arg(long, default_value = "http://localhost:9000")]
+    sui_rpc_url: String,
+    /// The timeout for each request to the Sui RPC node.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    checkpoint_request_timeout: Duration,
+    /// The duration to run the event processor for.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
+    runtime_duration: Duration,
     /// The minimum checkpoint lag to use for event stream catchup.
+    #[arg(long)]
     event_stream_catchup_min_checkpoint_lag: u64,
-    #[command(flatten)]
     /// The config for RPC fallback.
+    #[command(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
+    /// The interval at which to sample high-frequency tracing logs.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "30s")]
+    sampled_tracing_interval: Duration,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -569,7 +572,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use checkpoint_downloader::AdaptiveDownloaderConfig;
     use config::{
         LoadsFromPath,
         MetricsPushConfig,
@@ -1049,13 +1051,14 @@ mod commands {
             runtime_duration,
             event_stream_catchup_min_checkpoint_lag,
             rpc_fallback_config_args,
+            sampled_tracing_interval,
         }: CatchupArgs,
     ) -> anyhow::Result<()> {
         let event_processor_config = EventProcessorConfig {
-            pruning_interval: Duration::from_secs(3600),
             checkpoint_request_timeout,
-            adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
             event_stream_catchup_min_checkpoint_lag,
+            sampled_tracing_interval,
+            ..Default::default()
         };
 
         // Since this is a manual catchup, we use a single RPC address.

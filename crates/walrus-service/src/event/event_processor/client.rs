@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Client module for managing Sui RPC and client connections with retry capabilities.
+
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
@@ -58,6 +59,7 @@ impl ClientManager {
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
         registry: &Registry,
+        sampled_tracing_interval: Duration,
     ) -> Result<Self, anyhow::Error> {
         let metrics = Arc::new(SuiClientMetricSet::new(registry));
         let lazy_client_builders = rest_urls
@@ -74,6 +76,7 @@ impl ClientManager {
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
             Some(metrics.clone()),
+            sampled_tracing_interval,
         )
         .await?;
 

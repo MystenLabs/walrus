@@ -102,6 +102,10 @@ pub struct EventProcessorConfig {
     /// This helps balance between catchup for small lags using checkpoints vs
     /// using event streams for longer checkpoint lags.
     pub event_stream_catchup_min_checkpoint_lag: u64,
+    /// The interval at which to sample high-frequency tracing logs.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "sampled_tracing_interval_secs")]
+    pub sampled_tracing_interval: Duration,
 }
 
 impl Default for EventProcessorConfig {
@@ -111,6 +115,7 @@ impl Default for EventProcessorConfig {
             checkpoint_request_timeout: Duration::from_secs(60),
             adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
+            sampled_tracing_interval: Duration::from_secs(3600),
         }
     }
 }

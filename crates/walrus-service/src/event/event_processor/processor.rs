@@ -39,7 +39,7 @@ const MAX_EVENTS_PER_POLL: usize = 1000;
 pub struct EventProcessor {
     /// Full node REST client.
     pub client_manager: ClientManager,
-    /// Store manager
+    /// Event database.
     pub stores: EventProcessorStores,
     /// Event polling interval.
     pub event_polling_interval: Duration,
@@ -53,10 +53,12 @@ pub struct EventProcessor {
     pub metrics: EventProcessorMetrics,
     /// Pipelined checkpoint downloader.
     pub checkpoint_downloader: ParallelCheckpointDownloader,
-    /// Package store
+    /// Package store.
     pub package_store: LocalDBPackageStore,
-    /// Checkpoint processor
+    /// Checkpoint processor.
     pub checkpoint_processor: CheckpointProcessor,
+    /// The interval at which to sample high-frequency tracing logs.
+    pub sampled_tracing_interval: Duration,
 }
 
 impl fmt::Debug for EventProcessor {
@@ -67,6 +69,7 @@ impl fmt::Debug for EventProcessor {
             .field("walrus_package_store", &self.stores.walrus_package_store)
             .field("committee_store", &self.stores.committee_store)
             .field("event_store", &self.stores.event_store)
+            .field("sampled_tracing_interval", &self.sampled_tracing_interval)
             .finish()
     }
 }
@@ -84,6 +87,7 @@ impl EventProcessor {
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
             metrics_registry,
+            config.sampled_tracing_interval,
         )
         .await?;
 
@@ -123,6 +127,7 @@ impl EventProcessor {
             checkpoint_downloader,
             package_store,
             checkpoint_processor,
+            sampled_tracing_interval: config.sampled_tracing_interval,
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -276,17 +281,19 @@ impl EventProcessor {
 
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
-        let mut rx = self
-            .checkpoint_downloader
-            .start(next_checkpoint, cancel_token);
+        let mut rx = self.checkpoint_downloader.start(
+            next_checkpoint,
+            cancel_token,
+            self.sampled_tracing_interval,
+        );
 
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
                 tracing::error!(
                     ?error,
-                    "failed to download checkpoint {}",
-                    entry.sequence_number,
+                    sequence_number = entry.sequence_number,
+                    "failed to download checkpoint",
                 );
                 bail!("failed to download checkpoint: {}", entry.sequence_number);
             };
@@ -296,7 +303,11 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
-            tracing_sampled::info!("30s", "processing checkpoint {}", next_checkpoint);
+            tracing_sampled::info!(
+                self.sampled_tracing_interval,
+                sequence_number = next_checkpoint,
+                "processing checkpoint",
+            );
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint.try_into()?);
