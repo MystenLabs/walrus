@@ -1,13 +1,13 @@
-#[cfg(any(test, feature = "test-client"))]
+#[cfg(test)]
 use anyhow::Result;
-#[cfg(any(test, feature = "test-client"))]
+#[cfg(test)]
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-#[cfg(any(test, feature = "test-client"))]
+#[cfg(test)]
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use walrus_sdk::core::{BlobId, messages::ConfirmationCertificate};
 
-#[cfg(any(test, feature = "test-client"))]
+#[cfg(test)]
 use crate::params::Params;
 
 pub(crate) const BLOB_UPLOAD_RELAY_ROUTE: &str = "/v1/blob-upload-relay";
@@ -22,7 +22,7 @@ pub(crate) struct ResponseType {
     pub confirmation_certificate: ConfirmationCertificate,
 }
 
-#[cfg(any(test, feature = "test-client"))]
+#[cfg(test)]
 pub(crate) fn blob_upload_relay_url(server_url: &Url, params: &Params) -> Result<Url> {
     let mut url = server_url.join(BLOB_UPLOAD_RELAY_ROUTE)?;
     let mut query_pairs = url.query_pairs_mut();

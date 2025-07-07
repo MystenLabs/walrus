@@ -10,10 +10,6 @@ license.workspace = true
 name = "walrus-upload-relay"
 path = "src/main.rs"
 
-[[bin]]
-name = "walrus-upload-relay-client"
-path = "src/client.rs"
-required-features = ["test-client"]
 
 [dependencies]
 anyhow.workspace = true
@@ -54,4 +50,3 @@ walrus-test-utils.workspace = true
 
 [features]
 default = []
-test-client = []
