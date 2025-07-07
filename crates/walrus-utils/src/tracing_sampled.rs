@@ -28,11 +28,11 @@ pub use once_cell::sync::Lazy;
 ///
 /// fn process_item(item_id: u32) {
 ///     // Log processing start max once every 5 seconds for this function call site.
-///     tracing_sampled::info!("5s", item_id, "Starting processing");
+///     tracing_sampled::info!("5s", item_id, "starting processing");
 ///     // Simulate work
 ///     thread::sleep(Duration::from_millis(100));
 ///     // Log completion max once every 30 seconds, including skipped count.
-///     tracing_sampled::debug!("30s", item_id, "Finished processing item");
+///     tracing_sampled::debug!("30s", item_id, "finished processing item");
 /// }
 /// ```
 #[macro_export]
@@ -147,17 +147,17 @@ mod tests {
         let mut actual_log_count = 0;
         let mut total_calls = 0;
 
-        tracing::info!("Starting new macro test loop");
+        tracing::info!("starting new macro test loop");
         let test_duration = Duration::from_secs(3);
 
         while start.elapsed() < test_duration {
             total_calls += 1;
 
-            if tracing_sampled::info!("1s", iteration = total_calls, "New macro info log") {
+            if tracing_sampled::info!("1s", iteration = total_calls, "new macro info log") {
                 actual_log_count += 1;
             }
 
-            tracing_sampled::debug!("500ms", "Debug check: {}", total_calls);
+            tracing_sampled::debug!("500ms", "debug check: {}", total_calls);
 
             tokio::time::sleep(Duration::from_millis(100)).await;
         }

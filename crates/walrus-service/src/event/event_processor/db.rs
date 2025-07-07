@@ -101,11 +101,10 @@ impl EventProcessorStores {
 
     /// Opens the stores for event processing.
     pub fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores> {
-        let default_rw_opts = ReadWriteOptions::default();
         let checkpoint_store = DBMap::reopen(
             database,
             Some(constants::CHECKPOINT_STORE),
-            &default_rw_opts,
+            &ReadWriteOptions::default(),
             false,
         )?;
         let walrus_package_store = DBMap::reopen(
@@ -117,7 +116,7 @@ impl EventProcessorStores {
         let committee_store = DBMap::reopen(
             database,
             Some(constants::COMMITTEE_STORE),
-            &default_rw_opts,
+            &ReadWriteOptions::default(),
             false,
         )?;
         let event_store = DBMap::reopen(

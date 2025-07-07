@@ -329,7 +329,7 @@ impl<'a> EventBlob<'a> {
         self.prev_event_id
     }
 
-    /// Epoch of the blob.
+    /// The epoch of the first event in the blob.
     pub fn epoch(&self) -> Epoch {
         self.epoch
     }

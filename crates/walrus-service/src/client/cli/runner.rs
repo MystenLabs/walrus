@@ -197,26 +197,12 @@ impl ClientCommandRunner {
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::ReadQuilt {
-                quilt_id,
-                identifiers,
-                tag,
-                value,
-                quilt_patch_ids,
+                quilt_patch_query,
                 out,
                 rpc_arg: RpcArg { rpc_url },
             } => {
-                self.read_quilt(
-                    QuiltPatchSelector::get_selector_from_args(
-                        quilt_id,
-                        identifiers,
-                        tag,
-                        value,
-                        quilt_patch_ids,
-                    )?,
-                    out,
-                    rpc_url,
-                )
-                .await
+                self.read_quilt(quilt_patch_query.into_selector()?, out, rpc_url)
+                    .await
             }
 
             CliCommands::ListPatchesInQuilt {
@@ -236,7 +222,10 @@ impl ClientCommandRunner {
                         common_options.force,
                         common_options.ignore_resources,
                     ),
-                    BlobPersistence::from_deletable(common_options.deletable),
+                    BlobPersistence::from_deletable_and_permanent(
+                        common_options.deletable,
+                        common_options.permanent,
+                    )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                 )
@@ -257,7 +246,10 @@ impl ClientCommandRunner {
                         common_options.force,
                         common_options.ignore_resources,
                     ),
-                    BlobPersistence::from_deletable(common_options.deletable),
+                    BlobPersistence::from_deletable_and_permanent(
+                        common_options.deletable,
+                        common_options.permanent,
+                    )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                 )
@@ -585,7 +577,7 @@ impl ClientCommandRunner {
 
         let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
 
-        let retrieved_blobs = match selector {
+        let mut retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
                 quilt_id,
                 identifiers,
@@ -610,12 +602,13 @@ impl ClientCommandRunner {
             QuiltPatchSelector::All(quilt_id) => quilt_read_client.get_all_blobs(&quilt_id).await?,
         };
 
-        let read_quilt_output = ReadQuiltOutput::new(out.clone(), retrieved_blobs);
+        tracing::info!("retrieved {} blobs from quilt", retrieved_blobs.len());
+
         if let Some(out) = out.as_ref() {
-            Self::write_blobs_dedup(&read_quilt_output.retrieved_blobs, out).await?;
+            Self::write_blobs_dedup(&mut retrieved_blobs, out).await?;
         }
 
-        read_quilt_output.print_output(self.json)
+        ReadQuiltOutput::new(out.clone(), retrieved_blobs).print_output(self.json)
     }
 
     pub(crate) async fn list_patches_in_quilt(
@@ -827,7 +820,7 @@ impl ClientCommandRunner {
             anyhow::bail!("cannot provide both paths and blob_inputs");
         } else if !paths.is_empty() {
             let blobs = read_blobs_from_paths(paths)?;
-            Ok(assign_identifiers_with_paths(blobs))
+            Ok(assign_identifiers_with_paths(blobs)?)
         } else if !blob_inputs.is_empty() {
             let paths = blob_inputs
                 .iter()
@@ -848,9 +841,9 @@ impl ClientCommandRunner {
                             .clone()
                             .unwrap_or_else(|| generate_identifier_from_path(&path, i)),
                     )
-                    .with_tags(input.tags.clone())
+                    .map(|blob| blob.with_tags(input.tags.clone()))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(quilt_store_blobs)
         } else {
             anyhow::bail!("either paths or blob_inputs must be provided");
@@ -1052,23 +1045,17 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        let (n_shards, encoding_type) = if let (Some(n_shards), Some(encoding_type)) =
-            (n_shards, encoding_type)
-        {
-            (n_shards, encoding_type)
+        let n_shards = if let Some(n_shards) = n_shards {
+            n_shards
         } else {
             let config = self.config?;
             let sui_read_client =
                 get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-            let n_shards = if let Some(n_shards) = n_shards {
-                n_shards
-            } else {
-                tracing::debug!("reading `n_shards` from chain");
-                sui_read_client.current_committee().await?.n_shards()
-            };
-            let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-            (n_shards, encoding_type)
+            tracing::debug!("reading `n_shards` from chain");
+            sui_read_client.current_committee().await?.n_shards()
         };
+
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         tracing::debug!(%n_shards, "encoding the blob");
         let spinner = styled_spinner();
@@ -1434,20 +1421,25 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    async fn write_blobs_dedup(blobs: &[QuiltStoreBlob<'static>], out_dir: &Path) -> Result<()> {
+    async fn write_blobs_dedup(
+        blobs: &mut [QuiltStoreBlob<'static>],
+        out_dir: &Path,
+    ) -> Result<()> {
         let mut filename_counters = std::collections::HashMap::new();
 
-        for blob in blobs {
-            let original_filename = blob.identifier();
-            let counter = filename_counters.entry(original_filename).or_insert(0);
+        for blob in &mut *blobs {
+            let original_filename = blob.identifier().to_owned();
+            let counter = filename_counters
+                .entry(original_filename.clone())
+                .or_insert(0);
             *counter += 1;
 
             let output_file_path = if *counter == 1 {
-                out_dir.join(original_filename)
+                out_dir.join(&original_filename)
             } else {
                 let (stem, extension) = match original_filename.rsplit_once('.') {
                     Some((s, e)) => (s, Some(e)),
-                    None => (original_filename, None),
+                    None => (original_filename.as_str(), None),
                 };
 
                 let new_filename = if let Some(ext) = extension {
@@ -1459,7 +1451,7 @@ impl ClientCommandRunner {
                 out_dir.join(new_filename)
             };
 
-            std::fs::write(&output_file_path, blob.data())?;
+            std::fs::write(&output_file_path, blob.take_blob())?;
         }
 
         Ok(())

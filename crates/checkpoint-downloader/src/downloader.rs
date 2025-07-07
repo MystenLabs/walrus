@@ -171,7 +171,7 @@ impl ParallelCheckpointDownloaderInner {
         client: &RetriableRpcClient,
     ) -> Result<u64> {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
-            return Err(anyhow!("Failed to get current checkpoint"));
+            return Err(anyhow!("failed to get current checkpoint"));
         };
 
         #[cfg(msim)]
@@ -201,13 +201,14 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
-        monitored_scope::monitored_scope("WorkerLoop");
+        let _scope = monitored_scope::monitored_scope("WorkerLoop");
+
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
-            tracing_sampled::info!("30s", "Downloaded checkpoint {}", sequence_number);
+            tracing_sampled::info!("30s", "downloaded checkpoint {}", sequence_number);
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!(worker_id, "checkpoint download worker shutting down");
@@ -405,7 +406,7 @@ impl ParallelCheckpointDownloaderInner {
                     }
                     tracing_sampled::info!(
                         "30s",
-                        "Adding checkpoint to worker queue {}",
+                        "adding checkpoint to worker queue {}",
                         sequence_number
                     );
                     in_flight.insert(sequence_number);
@@ -568,7 +569,7 @@ mod tests {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
-            .expect("Failed to open temporary directory")
+            .expect("failed to open temporary directory")
             .keep();
         let database = {
             let _lock = global_test_lock().lock().await;

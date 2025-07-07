@@ -625,7 +625,7 @@ mod commands {
         metrics_runtime
             .runtime
             .as_ref()
-            .expect("Storage node requires metrics to have their own runtime")
+            .expect("storage node requires metrics to have their own runtime")
             .spawn(async move {
                 registry_clone
                     .register(mysten_metrics::uptime_metric(
@@ -690,7 +690,7 @@ mod commands {
                 .sui
                 .as_ref()
                 .map(|config| config.into())
-                .expect("SUI configuration must be present"),
+                .expect("Sui configuration must be present"),
             config.event_processor_config.clone(),
             config.use_legacy_event_provider,
             &config.storage_path,
@@ -1446,7 +1446,7 @@ impl StorageNodeRuntime {
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
 
         let handle = tokio::spawn(async move {
-            tracing::info!("Local admin socket listening on {}", socket_path.display());
+            tracing::info!("local admin socket listening on {}", socket_path.display());
 
             loop {
                 tokio::select! {
@@ -1465,7 +1465,7 @@ impl StorageNodeRuntime {
             }
 
             let _ = std::fs::remove_file(socket_path);
-            tracing::info!("Local admin socket stopped");
+            tracing::info!("local admin socket stopped");
         });
 
         Ok(Some(handle))

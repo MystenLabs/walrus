@@ -39,7 +39,7 @@ use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN
 use walrus_sui::{
     ObjectIdSchema,
     SuiAddressSchema,
-    client::BlobPersistence,
+    client::{BlobPersistence, InvalidBlobPersistenceError},
     types::move_structs::{BlobAttribute, BlobWithAttribute},
 };
 
@@ -299,6 +299,11 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         }
     }
 
+    let blob_persistence = match query.blob_persistence() {
+        Ok(blob_persistence) => blob_persistence,
+        Err(error) => return error.into_response(),
+    };
+
     tracing::debug!("starting to store received blob");
     match client
         .write_blob(
@@ -306,7 +311,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             query.encoding_type,
             query.epochs,
             query.optimizations(),
-            query.blob_persistence(),
+            blob_persistence,
             query.post_store_action(client.default_post_store_action()),
         )
         .await
@@ -376,10 +381,15 @@ pub(crate) enum StoreBlobError {
     )]
     NotEnoughConfirmations,
 
-    /// The blob cannot be returned as has been blocked.
+    /// The blob cannot be returned as it has been blocked.
     #[error("the requested metadata is blocked")]
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
+
+    /// The blob cannot be defined as both deletable and permanent.
+    #[error(transparent)]
+    #[rest_api_error(reason = "INVALID_BLOB_PERSISTENCE", status = ApiStatusCode::InvalidArgument)]
+    InvalidBlobPersistence(#[from] InvalidBlobPersistenceError),
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
@@ -678,9 +688,14 @@ pub struct PublisherQuery {
     /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
     pub epochs: EpochCount,
-    /// If true, the publisher creates a deletable blob instead of a permanent one.
+    /// If true, the publisher creates a deletable blob instead of a permanent one. *This will
+    /// become the default behavior in the future.*
     #[serde(default)]
     pub deletable: bool,
+    /// If true, the publisher creates a permanent blob. This is currently the default behavior;
+    /// but *in the future, blobs will be deletable by default*.
+    #[serde(default)]
+    pub permanent: bool,
     /// If true, the publisher will always store the blob, creating a new Blob object.
     ///
     /// The blob will be stored even if the blob is already certified on Walrus for the specified
@@ -703,6 +718,7 @@ impl Default for PublisherQuery {
             encoding_type: None,
             epochs: default_epochs(),
             deletable: false,
+            permanent: false,
             force: false,
             send_or_share: None,
         }
@@ -718,8 +734,9 @@ impl PublisherQuery {
     }
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.
-    fn blob_persistence(&self) -> BlobPersistence {
-        BlobPersistence::from_deletable(self.deletable)
+    fn blob_persistence(&self) -> Result<BlobPersistence, StoreBlobError> {
+        BlobPersistence::from_deletable_and_permanent(self.deletable, self.permanent)
+            .map_err(StoreBlobError::from)
     }
 
     /// Returns the [`PostStoreAction`] value based on the query parameters.

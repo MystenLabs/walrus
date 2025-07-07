@@ -23,7 +23,6 @@ use errors::{ListSymbolsError, Unavailable};
 use fastcrypto::traits::KeyPair;
 use futures::{
     FutureExt as _,
-    Stream,
     StreamExt,
     TryFutureExt as _,
     stream::{self, FuturesOrdered},
@@ -116,6 +115,7 @@ use walrus_storage_node_client::{
         StoredOnNodeStatus,
     },
 };
+use walrus_sui::client::FixedSystemParameters;
 use walrus_utils::metrics::{Registry, TaskMonitorFamily, monitored_scope};
 
 use self::{
@@ -161,11 +161,13 @@ use crate::{
             CheckpointEventPosition,
             EventStreamCursor,
             EventStreamElement,
+            EventStreamWithStartingIndices,
+            InitState,
             PositionedStreamEvent,
         },
     },
     node::event_blob_writer::EventBlobWriter,
-    utils::{ShardDiffCalculator, should_reposition_cursor},
+    utils::ShardDiffCalculator,
 };
 
 pub(crate) mod db_checkpoint;
@@ -199,7 +201,14 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 
 // The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
+#[cfg(not(msim))]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+
+// In simtest, we record event source for events to make event index consistency checking more
+// accurate.
+#[cfg(msim)]
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
+
 const NUM_DIGEST_BUCKETS: u64 = 10;
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
@@ -510,6 +519,7 @@ pub struct StorageNode {
 pub struct StorageNodeInner {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
+    system_parameters: FixedSystemParameters,
     encoding_config: Arc<EncodingConfig>,
     event_manager: Box<dyn EventManager>,
     contract_service: Arc<dyn SystemContractService>,
@@ -633,11 +643,12 @@ impl StorageNode {
         .await
         {
             Ok(manager) => Some(Arc::new(manager)),
-            Err(e) => {
-                tracing::warn!(?e, "Failed to initialize checkpoint manager");
+            Err(error) => {
+                tracing::warn!(?error, "failed to initialize checkpoint manager");
                 None
             }
         };
+        let system_parameters = contract_service.fixed_system_parameters().await?;
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -645,6 +656,7 @@ impl StorageNode {
                 .expect("protocol key pair must already be loaded")
                 .clone(),
             storage,
+            system_parameters,
             event_manager,
             contract_service: contract_service.clone(),
             current_epoch: watch::Sender::new(committee_service.get_epoch()),
@@ -684,7 +696,6 @@ impl StorageNode {
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 
-        let system_parameters = contract_service.fixed_system_parameters().await?;
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,
             contract_service.clone(),
@@ -849,66 +860,168 @@ impl StorageNode {
     }
 
     /// Continues the event stream from the last committed event.
+    ///
+    /// This function is used to continue the event stream from the last committed event. It also
+    /// handles the special case of a fresh node starting with incomplete event history.
     async fn continue_event_stream(
         &self,
         event_blob_writer_cursor: EventStreamCursor,
         storage_node_cursor: EventStreamCursor,
         event_blob_writer: &mut Option<EventBlobWriter>,
-    ) -> anyhow::Result<(
-        Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
-        u64,
-    )> {
-        let event_cursor = std::cmp::min(storage_node_cursor, event_blob_writer_cursor);
-        let event_stream = self.inner.event_manager.events(event_cursor).await?;
-        let event_index = event_cursor.element_index;
+    ) -> anyhow::Result<EventStreamWithStartingIndices> {
+        // TODO(mlegner): Check these changes again.
+        let event_cursor = storage_node_cursor.min(event_blob_writer_cursor);
+        let lowest_needed_event_index = event_cursor.element_index;
+        let processing_starting_index = storage_node_cursor.element_index;
+        let writer_starting_index = event_blob_writer_cursor.element_index;
 
-        let init_state = self.inner.event_manager.init_state(event_cursor).await?;
-        let Some(init_state) = init_state else {
-            return Ok((Pin::from(event_stream), event_index));
+        let default_result = || async {
+            Ok(EventStreamWithStartingIndices {
+                event_stream: Pin::from(self.inner.event_manager.events(event_cursor).await?),
+                processing_starting_index,
+                writer_starting_index,
+            })
         };
 
-        let actual_event_index = init_state.event_cursor.element_index;
+        let Some(init_state) = self.inner.event_manager.init_state(event_cursor).await? else {
+            return default_result().await;
+        };
 
-        let storage_index = storage_node_cursor.element_index;
-        let mut storage_node_cursor_repositioned = false;
-        if should_reposition_cursor(storage_index, actual_event_index) {
-            tracing::info!(
-                "Repositioning storage node cursor from {} to {}",
-                storage_index,
-                actual_event_index
-            );
-            self.inner.reposition_event_cursor(
-                init_state
-                    .event_cursor
-                    .event_id
-                    .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
-                actual_event_index,
-            )?;
-            storage_node_cursor_repositioned = true;
+        let first_available_event_index = init_state.event_cursor.element_index;
+        if first_available_event_index <= lowest_needed_event_index {
+            return default_result().await;
         }
 
-        let mut event_blob_writer_repositioned = false;
+        // If we reach this point, we have to reposition at least one of the event cursors.
+        // Important: We need to make sure we start the event stream from the correct cursor.
+
+        // Use the event cursor from the init state, as it is the earliest event that we can
+        // process.
+        let new_event_cursor = init_state.event_cursor;
+        assert!(
+            new_event_cursor > event_cursor,
+            "the event cursor from the init state must be greater than the persisted cursor"
+        );
+
+        // Reposition the node event cursor if it is behind the first available event.
+        self.reposition_event_cursor_if_starting_with_incomplete_history(
+            storage_node_cursor.element_index,
+            init_state.clone(),
+        )?;
+
+        // Reposition the event blob writer if it is behind the first available event.
         if let Some(writer) = event_blob_writer {
-            let event_blob_writer_index = event_blob_writer_cursor.element_index;
-            if should_reposition_cursor(event_blob_writer_index, actual_event_index) {
+            if writer_starting_index < first_available_event_index {
                 tracing::info!(
-                    "Repositioning event blob writer cursor from {} to {}",
-                    event_blob_writer_index,
-                    actual_event_index
+                    "repositioning event blob writer cursor from {} to {}",
+                    writer_starting_index,
+                    first_available_event_index
                 );
                 writer.update(init_state).await?;
-                event_blob_writer_repositioned = true;
             }
         }
 
-        if !storage_node_cursor_repositioned && !event_blob_writer_repositioned {
-            ensure!(
-                event_index == actual_event_index,
-                "event stream out of sync"
+        // Reset the starting indices to the first event that is available for processing and
+        // writing.
+        let new_starting_index = new_event_cursor.element_index;
+        let processing_starting_index = processing_starting_index.max(new_starting_index);
+        let writer_starting_index = writer_starting_index.max(new_starting_index);
+
+        Ok(EventStreamWithStartingIndices {
+            event_stream: Pin::from(self.inner.event_manager.events(new_event_cursor).await?),
+            processing_starting_index,
+            writer_starting_index,
+        })
+    }
+
+    /// Checks if the node is a fresh node starting with incomplete event history, adjusts the event
+    /// cursor and status if necessary, and returns the new event cursor.
+    ///
+    /// Normally, when an existing node restarts, the next event to be processed exists is available
+    /// through checkpoints or the event blobs. In this case, no special handling is necessary, and
+    /// the node picks up processing right where it left off.
+    ///
+    /// However, there's a special case during node bootstrapping (when starting with no previous
+    /// state) and event processor bootstrapping itself from event blobs because older event blobs
+    /// might have expired due to the MAX_EPOCHS_AHEAD limit.
+    ///
+    /// Let's say the earliest available event starts at index `N` (where `N > 0`) but the new node
+    /// wants to start processing from index 0. In this scenario, we actually want
+    /// to reposition the node's cursor to index `N`.
+    ///
+    /// We also need to set the node status to `RecoveryCatchUpWithIncompleteHistory` to indicate
+    /// that the node is missing some early events.
+    fn reposition_event_cursor_if_starting_with_incomplete_history(
+        &self,
+        next_event_index: u64,
+        init_state: InitState,
+    ) -> anyhow::Result<()> {
+        let first_available_event_index = init_state.event_cursor.element_index;
+        if next_event_index >= first_available_event_index {
+            // Standard case: the node is not behind the first available event.
+            return Ok(());
+        }
+        if next_event_index != 0 {
+            // TODO(WAL-894): Implement recovery with incomplete event history for nodes that are
+            // not new.
+            unimplemented!(
+                "the node is too far behind for normal recovery and recovery with incomplete event \
+                history is only implemented for fresh nodes; \
+                please wipe the DB and restart the node"
             );
         }
 
-        Ok((Pin::from(event_stream), actual_event_index))
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_recovery_with_incomplete_history");
+
+        // `first_complete_epoch` is the oldest epoch for which all events are guaranteed to be
+        // still available through non-expired event blobs.
+        let current_epoch = self.inner.committee_service.get_epoch();
+        let first_complete_epoch =
+            current_epoch + 1 - self.inner.system_parameters.max_epochs_ahead;
+
+        assert!(
+            // Note that the first event of the first non-expired event blob cannot be the
+            // `EpochChangeStart` for the first complete epoch:
+            //
+            // Assume we have epoch `E` as the first complete epoch and that event blob `B` has the
+            // `EpochChangeStart` for epoch `E` as its first event. This means the previous event
+            // blob `B-1` cannot have been certified in epoch `E-1` as we would otherwise miss its
+            // registration and certification events. This means that `B-1` must have been certified
+            // in epoch `E` (or later). So we definitely have events for epoch `E-1` in our
+            // incomplete history.
+            init_state.epoch < first_complete_epoch,
+            "inconsistent event-blob state: we do not have access to all events from epoch \
+            {first_complete_epoch}",
+        );
+
+        tracing::info!(
+            "repositioning node event cursor from {} to {} and setting node status to \
+            RecoveryCatchUpWithIncompleteHistory (first complete epoch: {}, current epoch: {})",
+            next_event_index,
+            first_available_event_index,
+            first_complete_epoch,
+            current_epoch,
+        );
+        self.inner.reposition_event_cursor(
+            init_state
+                .event_cursor
+                .event_id
+                .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
+            first_available_event_index,
+        )?;
+        self.inner
+            .set_node_status(NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                first_complete_epoch,
+                epoch_at_start: current_epoch,
+            })?;
+
+        // Remark: Given that we only reach this point when we start from the very beginning,
+        // clearing the blob-info table may not actually be necessary. However, it also doesn't hurt
+        // in that case.
+        self.inner.storage.clear_blob_info_table()?;
+
+        Ok(())
     }
 
     async fn get_event_blob_downloader_from_config(
@@ -969,10 +1082,20 @@ impl StorageNode {
             Some(factory) => Some(factory.create().await?),
             None => None,
         };
-        let (event_stream, next_event_index) = self
+        let EventStreamWithStartingIndices {
+            event_stream,
+            processing_starting_index,
+            writer_starting_index,
+        } = self
             .continue_event_stream(writer_cursor, storage_node_cursor, &mut event_blob_writer)
             .await?;
+        tracing::info!(
+            processing_starting_index,
+            writer_starting_index,
+            "starting to process events",
+        );
 
+        let next_event_index = processing_starting_index.min(writer_starting_index);
         let index_stream = stream::iter(next_event_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
@@ -1002,11 +1125,9 @@ impl StorageNode {
                     maybe_epoch_at_start = Some(epoch);
                 });
 
-                let should_write = element_index >= writer_cursor.element_index;
-                let should_process = element_index >= storage_node_cursor.element_index;
-                ensure!(should_write || should_process, "event stream out of sync");
-
-                if should_process {
+                if element_index >= processing_starting_index
+                    && self.should_process_event(&stream_element)?
+                {
                     sui_macros::fail_point!("process-event-before");
                     self.process_event(
                         stream_element.clone(),
@@ -1017,7 +1138,7 @@ impl StorageNode {
                     sui_macros::fail_point!("process-event-after");
                 }
 
-                if should_write {
+                if element_index >= writer_starting_index {
                     if let Some(writer) = &mut event_blob_writer {
                         sui_macros::fail_point!("write-event-before");
                         writer.write(stream_element.clone(), element_index).await?;
@@ -1034,6 +1155,37 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
+    /// Returns `false` if the node is recovering with incomplete history and the event is not
+    /// relevant to the recovery.
+    ///
+    /// An event is relevant, if the current event epoch is greater than or equal to the first
+    /// complete epoch of the recovery.
+    fn should_process_event(&self, stream_element: &PositionedStreamEvent) -> anyhow::Result<bool> {
+        let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+            first_complete_epoch: first_epoch,
+            ..
+        } = self.inner.storage.node_status()?
+        else {
+            return Ok(true);
+        };
+
+        if self.inner.current_event_epoch() >= first_epoch {
+            return Ok(true);
+        }
+        if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
+        )) = &stream_element.element
+        {
+            if *epoch >= first_epoch {
+                // Processing this event will set the `current_event_epoch` to `epoch`, such that we
+                // will take the previous if-statement and return `true` for all future events.
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     /// Process an event.
     ///
     /// When `maybe_epoch_at_start` is provided, it indicates the node has not processed any events
@@ -1045,7 +1197,8 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent");
+
         let node_status = self.inner.storage.node_status()?;
         let span = tracing::info_span!(
             parent: &Span::current(),
@@ -1105,6 +1258,8 @@ impl StorageNode {
     ///
     /// If so, the node will enter RecoveryCatchUp mode, and try to catch up with events until
     /// the latest epoch as fast as possible.
+    // TODO(WAL-895): We should simplify/improve the way we check if the node is lagging behind
+    // after storing the latest event epoch in the DB.
     fn check_if_node_lagging_and_enter_recovery_mode(
         &self,
         event: &ContractEvent,
@@ -1115,18 +1270,15 @@ impl StorageNode {
             return Ok(());
         };
 
-        // For blob extension events, the epoch is the event's original
-        // certified epoch, and not the current epoch. Skip node lagging check
-        // for blob extension events.
-        if event.is_blob_extension() {
+        let Some(event_epoch) = event.event_epoch() else {
             return Ok(());
-        }
+        };
 
-        // Update initial latest event epoch. This is the first event the
-        // node processes.
+        // Update initial latest event epoch. This is the first (non-extension) event the node
+        // processes.
         self.inner
             .latest_event_epoch
-            .store(event.event_epoch(), Ordering::SeqCst);
+            .store(event_epoch, Ordering::SeqCst);
 
         tracing::debug!("checking the first contract event if we're severely lagging");
 
@@ -1134,12 +1286,12 @@ impl StorageNode {
         *maybe_epoch_at_start = None;
 
         // Checks if the node is severely lagging behind.
-        if node_status != NodeStatus::RecoveryCatchUp && event.event_epoch() + 1 < epoch_at_start {
+        if !node_status.is_catching_up() && event_epoch + 1 < epoch_at_start {
             tracing::warn!(
                 "the current epoch ({}) is far ahead of the event epoch ({}); \
-                                node entering recovery mode",
+                node entering recovery mode",
                 epoch_at_start,
-                event.event_epoch()
+                event_epoch,
             );
             self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
         }
@@ -1153,7 +1305,8 @@ impl StorageNode {
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::Impl");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::Impl");
+
         let _timer_guard = walrus_utils::with_label!(
             self.inner.metrics.event_process_duration_seconds,
             stream_element.element.label()
@@ -1197,7 +1350,8 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
+
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         self.blob_event_processor
             .process_event(event_handle, blob_event)
@@ -1211,7 +1365,8 @@ impl StorageNode {
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
+
         match epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
@@ -1230,7 +1385,7 @@ impl StorageNode {
         }
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
                 self.epoch_change_driver
@@ -1241,7 +1396,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
                 fail_point_async!("epoch_change_start_entry");
@@ -1249,16 +1404,20 @@ impl StorageNode {
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::EpochChangeDone",
+                );
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(_) => {
-                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::ShardsReceived",
+                );
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(_) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::ShardRecoveryStart",
                 );
                 event_handle.mark_as_complete();
@@ -1273,7 +1432,8 @@ impl StorageNode {
         event_handle: EventHandle,
         package_event: PackageEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
+
         tracing::info!(?package_event, "{} event received", package_event.name());
         match package_event {
             PackageEvent::ContractUpgraded(_event) => {
@@ -1376,7 +1536,7 @@ impl StorageNode {
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
-        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
+        if self.inner.storage.node_status()?.is_catching_up() {
             self.execute_epoch_change_while_catching_up(event_handle, event, shard_map_lock)
                 .await?;
         } else {
@@ -1421,8 +1581,10 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Executes the epoch change logic while the node is in
-    /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] mode.
+    /// Processes the epoch change start event while the node is in
+    /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] or
+    /// [`RecoveryCatchUpWithIncompleteHistory`][NodeStatus::RecoveryCatchUpWithIncompleteHistory]
+    /// state.
     async fn execute_epoch_change_while_catching_up(
         &self,
         event_handle: EventHandle,
@@ -1446,10 +1608,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        tracing::info!(
-            epoch = %event.epoch,
-            "processing event during node RecoveryCatchUp reaches the latest epoch"
-        );
+        tracing::info!(epoch = %event.epoch, "catching-up node reaches the current epoch");
 
         let active_committees = self.inner.committee_service.active_committees();
         if !active_committees
@@ -1830,6 +1989,7 @@ impl StorageNode {
         // Only record every Nth event.
         // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
         // every few hours.
+
         if event_index % NUM_EVENTS_PER_DIGEST_RECORDING != 0 {
             return Ok(());
         }
@@ -1863,6 +2023,23 @@ impl StorageNode {
             bucket.to_string()
         )
         .set(event_source as i64);
+
+        // Stores event source for event index consistency checking in simtest.
+        sui_macros::fail_point_arg!(
+            "storage_node_event_index_source",
+            |event_source_map: Arc<
+                std::sync::Mutex<
+                    std::collections::HashMap<u64, std::collections::HashMap<ObjectID, u64>>,
+                >,
+            >| {
+                event_source_map
+                    .lock()
+                    .expect("failed to lock the event source map")
+                    .entry(event_index)
+                    .or_insert_with(|| std::collections::HashMap::new())
+                    .insert(self.inner.node_capability(), event_source);
+            }
+        );
 
         Ok(())
     }
@@ -5755,9 +5932,13 @@ mod tests {
 
             // Expect that the node is not in recovery catch up mode because the lag check should
             // not be triggered.
-            assert_ne!(
-                cluster.nodes[0].storage_node.inner.storage.node_status()?,
-                NodeStatus::RecoveryCatchUp
+            assert!(
+                !cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .node_status()?
+                    .is_catching_up()
             );
 
             Ok(())

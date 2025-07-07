@@ -1124,11 +1124,10 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig {
-            system_object: ObjectID::random_from_rng(&mut rng),
-            staking_object: ObjectID::random_from_rng(&mut rng),
-            subsidies_object: None,
-        };
+        let contract_config = ContractConfig::new(
+            ObjectID::random_from_rng(&mut rng),
+            ObjectID::random_from_rng(&mut rng),
+        );
         let config = StorageNodeConfig {
             sui: Some(SuiConfig {
                 rpc: "https://fullnode.testnet.sui.io:443".to_string(),

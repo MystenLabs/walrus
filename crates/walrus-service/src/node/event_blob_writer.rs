@@ -325,14 +325,24 @@ impl EventBlobWriterFactory {
                         .unwrap_or(false);
 
                 if !exists_in_db {
-                    if let Err(e) = fs::remove_file(&blob_path) {
-                        tracing::warn!(?blob_path, ?e, "Failed to remove orphaned blob from disk");
+                    if let Err(error) = fs::remove_file(&blob_path) {
+                        tracing::warn!(
+                            path = %blob_path.display(),
+                            ?error,
+                            "failed to remove orphaned blob from disk"
+                        );
                     } else {
-                        tracing::info!(?blob_path, "Removed orphaned event blob from disk");
+                        tracing::info!(
+                            path = %blob_path.display(),
+                            "removed orphaned event blob from disk"
+                        );
                     }
                 }
             } else {
-                tracing::warn!(?blob_path, "Orphaned event blob with no event index found");
+                tracing::warn!(
+                    path = %blob_path.display(),
+                    "orphaned event blob with no event index found"
+                );
             }
         }
         Ok(())
@@ -472,7 +482,7 @@ impl EventBlobWriterFactory {
                 )?;
             }
             None => {
-                tracing::info!("No certified event blob exists");
+                tracing::info!("no certified event blob exists");
             }
         }
 
@@ -582,7 +592,7 @@ impl EventBlobWriterFactory {
             // We skip past all the blobs until the last certified event blob and delete
             // all the uncertified blobs. If this was a local fork, the pending blobs
             // will also be in bad shape and discarding them is needed to recover.
-            tracing::info!("Skipping past all the blobs until the last certified event blob");
+            tracing::info!("skipping past all the blobs until the last certified event blob");
             let certified_metadata = CertifiedEventBlobMetadata::new(
                 latest.blob_id,
                 latest.event_stream_cursor,
@@ -798,10 +808,17 @@ impl EventBlobWriterFactory {
         for blob_index in blobs_to_delete {
             let blob_path = blobs_path.join(blob_index.to_string());
             if blob_path.exists() {
-                if let Err(e) = fs::remove_file(&blob_path) {
-                    tracing::warn!(?blob_path, ?e, "Failed to remove blob file");
+                if let Err(error) = fs::remove_file(&blob_path) {
+                    tracing::warn!(
+                        path = %blob_path.display(),
+                        ?error,
+                        "failed to remove blob file"
+                    );
                 } else {
-                    tracing::info!(?blob_path, "Removed uncertified blob file");
+                    tracing::info!(
+                        path = %blob_path.display(),
+                        "removed uncertified blob file"
+                    );
                 }
             }
         }
@@ -1052,6 +1069,18 @@ impl EventBlobWriter {
             pause_attestations: false,
             backoff: EventBackoff::new(5, 5),
         };
+
+        let latest_certified_index = blob_writer
+            .certified
+            .safe_iter()?
+            .next()
+            .transpose()?
+            .map(|(_, metadata)| metadata.event_cursor.element_index)
+            .unwrap_or(0);
+        blob_writer
+            .metrics
+            .latest_certified_event_index
+            .set(latest_certified_index.try_into()?);
 
         // Upon receiving a blob_certified event for an event blob, we may have crashed after making
         // the db changes but before attesting the next pending blob (since those two events are

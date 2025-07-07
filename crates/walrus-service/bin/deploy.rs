@@ -153,9 +153,6 @@ struct DeploySystemContractArgs {
     /// file of the WAL contract. Otherwise, a new WAL token is created.
     #[arg(long)]
     use_existing_wal_token: bool,
-    /// If set, creates a subsidies package.
-    #[arg(long)]
-    with_subsidies: bool,
 }
 
 /// Configuration for epoch 0, either as a duration or as an absolute end time.
@@ -260,9 +257,9 @@ struct UpgradeArgs {
     /// the active address from the wallet is used.
     #[arg(long, requires = "serialize_unsigned")]
     sender: Option<SuiAddress>,
-    /// Also migrate the system and staking objects after upgrading the contract.
+    /// Also set the migration epoch on the staking object after upgrading the contract.
     #[arg(long, conflicts_with = "serialize_unsigned")]
-    migrate: bool,
+    set_migration_epoch: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -415,7 +412,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -459,7 +455,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         })
         .await
         .context("Failed to deploy system contract")?;
@@ -624,7 +619,7 @@ mod commands {
             upgrade_manager_object_id,
             sender,
             serialize_unsigned,
-            migrate,
+            set_migration_epoch,
         }: UpgradeArgs,
         upgrade_type: UpgradeType,
     ) -> anyhow::Result<()> {
@@ -670,10 +665,10 @@ mod commands {
                 success(),
                 new_package_id
             );
-            if migrate {
-                contract_client.migrate_contracts(new_package_id).await?;
+            if set_migration_epoch {
+                contract_client.set_migration_epoch(new_package_id).await?;
                 println!(
-                    "{} Migrated the shared objects to package_id: {}",
+                    "{} Set the migration epoch on the staking object for package_id: {}",
                     success(),
                     new_package_id
                 );

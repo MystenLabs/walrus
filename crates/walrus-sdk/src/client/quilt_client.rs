@@ -47,14 +47,15 @@ pub fn generate_identifier_from_path(path: &Path, index: usize) -> String {
 // TODO(WAL-887): Use relative paths to deduplicate the identifiers.
 pub fn assign_identifiers_with_paths(
     blobs_with_paths: impl IntoIterator<Item = (PathBuf, Vec<u8>)>,
-) -> Vec<QuiltStoreBlob<'static>> {
+) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
     blobs_with_paths
         .into_iter()
         .enumerate()
         .map(|(i, (path, blob))| {
             QuiltStoreBlob::new_owned(blob, generate_identifier_from_path(&path, i))
         })
-        .collect()
+        .collect::<Result<Vec<_>, QuiltError>>()
+        .map_err(ClientError::from)
 }
 
 /// Reads all files recursively from a given path and returns them as path-content pairs.
@@ -253,10 +254,10 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_identifiers(identifiers)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => quilt
                 .get_blobs_by_identifiers(identifiers)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
         }
     }
 
@@ -272,10 +273,10 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_tag(target_tag, target_value)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => quilt
                 .get_blobs_by_tag(target_tag, target_value)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
         }
     }
 
@@ -290,13 +291,13 @@ where
             ))),
             QuiltCacheReader::Decoder(cache) => cache
                 .get_blobs_by_patch_internal_ids(patch_internal_ids)
-                .map_err(ClientError::other),
+                .map_err(ClientError::from),
             QuiltCacheReader::FullQuilt(quilt) => patch_internal_ids
                 .iter()
                 .map(|patch_internal_id| {
                     quilt
                         .get_blob_by_patch_internal_id(patch_internal_id)
-                        .map_err(ClientError::other)
+                        .map_err(ClientError::from)
                 })
                 .collect::<Result<Vec<_>, _>>(),
         }
@@ -323,7 +324,7 @@ where
             QuiltCacheReader::FullQuilt(quilt) => quilt,
             _ => unreachable!(),
         };
-        quilt.get_all_blobs().map_err(ClientError::other)
+        quilt.get_all_blobs().map_err(ClientError::from)
     }
 }
 
@@ -519,10 +520,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         certified_epoch,
                     )
                     .await?;
-                quilt_reader
-                    .get_blobs_by_identifiers(identifiers)
-                    .await
-                    .map_err(ClientError::other)
+                quilt_reader.get_blobs_by_identifiers(identifiers).await
             }
         }
     }
@@ -565,7 +563,6 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 quilt_reader
                     .get_blobs_by_tag(target_tag, target_value)
                     .await
-                    .map_err(ClientError::other)
             }
         }
     }
@@ -672,10 +669,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
 
         let mut quilt_reader =
             QuiltReader::<'_, QuiltVersionV1, T>::new(self, self.config.clone(), None).await;
-        quilt_reader
-            .get_all_blobs(&metadata, certified_epoch)
-            .await
-            .map_err(ClientError::other)
+        quilt_reader.get_all_blobs(&metadata, certified_epoch).await
     }
 
     /// Retrieves the quilt from Walrus.
@@ -693,7 +687,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
             .encoding_config()
             .get_for_type(metadata.metadata().encoding_type());
 
-        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::other)
+        QuiltEnum::new(quilt, &encoding_config_enum).map_err(ClientError::from)
     }
 }
 
@@ -710,7 +704,7 @@ impl QuiltClient<'_, SuiContractClient> {
             blobs,
         );
 
-        encoder.construct_quilt().map_err(ClientError::other)
+        encoder.construct_quilt().map_err(ClientError::from)
     }
 
     /// Constructs a quilt from a list of paths.
@@ -732,7 +726,7 @@ impl QuiltClient<'_, SuiContractClient> {
             )));
         }
 
-        let quilt_store_blobs: Vec<_> = assign_identifiers_with_paths(blobs_with_paths);
+        let quilt_store_blobs = assign_identifiers_with_paths(blobs_with_paths)?;
 
         self.construct_quilt::<V>(&quilt_store_blobs, encoding_type)
             .await
