@@ -99,10 +99,10 @@ docker run \
 ### Configuration
 
 An example `walrus-upload-relay` configuration file can be found
-[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml). The
+[here](./walrus_upload_relay_config_example.yaml). The
 various options are described
-[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/src/controller.rs#L63) and
-[here](https://github.com/MystenLabs/walrus/crates/walrus-upload-relay/src/tip/config.rs#L57).
+[here](./src/controller.rs#L63) and
+[here](./src/tip/config.rs#L57).
 
 # Conclusion
 
