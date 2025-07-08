@@ -107,7 +107,10 @@ impl BackgroundEventProcessor {
             || self.node.storage.node_status()?.is_catching_up()
             || self
                 .node
-                .is_stored_at_all_shards_at_epoch(&event.blob_id, self.node.current_event_epoch())
+                .is_stored_at_all_shards_at_epoch(
+                    &event.blob_id,
+                    self.node.current_event_epoch().expect("current event epoch should be set"),
+                )
                 .await?
         {
             event_handle.mark_as_complete();

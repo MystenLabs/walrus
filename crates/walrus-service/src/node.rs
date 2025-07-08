@@ -1172,9 +1172,16 @@ impl StorageNode {
             return Ok(false);
         };
 
-        if self.inner.current_event_epoch() >= first_complete_epoch {
+        let Some(current_event_epoch) = self.inner.current_event_epoch() else {
+            // When current event epoch is not set, we are processing events before the first epoch
+            // change start event, which should be excluded from processing.
+            return Ok(false);
+        };
+
+        if current_event_epoch >= first_complete_epoch {
             return Ok(false);
         }
+
         if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
             EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
         )) = &stream_element.element
@@ -2244,10 +2251,8 @@ impl StorageNodeInner {
     /// Returns the latest event epoch.
     /// The callsite must ensure that the first event is processed so that the
     /// latest_event_epoch_watcher is initialized.
-    fn current_event_epoch(&self) -> Epoch {
-        self.latest_event_epoch_sender
-            .borrow()
-            .expect("latest event epoch is not set")
+    fn current_event_epoch(&self) -> Option<Epoch> {
+        *self.latest_event_epoch_watcher.borrow()
     }
 
     fn current_epoch(&self) -> Epoch {

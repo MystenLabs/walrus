@@ -561,15 +561,23 @@ impl BlobSynchronizer {
         // recovering all the missing blobs.
         let futures_iter = self
             .node
-            .owned_shards_at_epoch(self.node.current_event_epoch())
+            .owned_shards_at_epoch(
+                self.node
+                    .current_event_epoch()
+                    .expect("current event epoch should be set"),
+            )
             .unwrap_or_else(|_| {
                 tracing::error!(
                     "shard assignment must be found at the certified epoch {}",
-                    self.node.current_event_epoch()
+                    self.node
+                        .current_event_epoch()
+                        .expect("current event epoch should be set")
                 );
                 panic!(
                     "shard assignment must be found at the certified epoch {}",
-                    self.node.current_event_epoch()
+                    self.node
+                        .current_event_epoch()
+                        .expect("current event epoch should be set")
                 )
             })
             .into_iter()
