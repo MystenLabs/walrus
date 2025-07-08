@@ -72,6 +72,7 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 | ------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Ubuntu  | Intel 64bit           | [`ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64)                 |
 | Ubuntu  | Intel 64bit (generic) | [`ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic) |
+| Ubuntu  | ARM 64bit             | [`ubuntu-aarch64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-aarch64)               |
 | MacOS   | Apple Silicon         | [`macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64)                     |
 | MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
 | Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
@@ -79,18 +80,18 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 ### Install via script {#nix-install}
 
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
-commands in your terminal then follow on-screen instructions. See [Windows
-instructions](#windows-install) if you are on Windows.
+commands in your terminal then follow on-screen instructions. If you are on Windows, see the
+[Windows-specific instructions](#windows-install) or the [`suiup` installation](#suiup-install) (experimental)
 
 ```sh
 # Run a first-time install using the latest Mainnet version.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+curl -sSf https://install.wal.app | sh
 
 # Install the latest Testnet version instead.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
+curl -sSf https://install.wal.app | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
+curl -sSf https://install.wal.app | sh -s -- -f
 ```
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
@@ -133,6 +134,19 @@ From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
 ```admonish title="Windows"
 Note that most of the remaining instructions assume a UNIX-based system for the directory structure,
 commands, etc. If you use Windows, you may need to adapt most of those.
+```
+
+### Install via suiup (experimental) {#suiup-install}
+
+`suiup` is a tool to install and manage different versions of CLI tools for working in the Sui
+ecosystem, including the `walrus` CLI. After installing `suiup` as described in the [`suiup`
+documentation](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation), you can install
+specific versions of the `walrus` CLI:
+
+```sh
+suiup install walrus@testnet # install the latest testnet release
+suiup install walrus@mainnet # install the latest mainnet release
+suiup install walrus@testnet-v1.27.1 # install a specific release
 ```
 
 ### GitHub releases
