@@ -650,10 +650,21 @@ mod tests {
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        // Register a fail point to have a temporary pause in the node recovery process that is
-        // longer than epoch length.
-        register_fail_point_async("start_node_recovery_entry", || async move {
-            tokio::time::sleep(Duration::from_secs(60)).await;
+        // Register a fail point to have a temporary pause in the first node recovery process that
+        // is longer than epoch length.
+        // Note that when a node is in RecoveryInProgress state, it will not start a new recovery
+        // everytime when a new epoch change start event is processed. So here we only delay the
+        // first recovery.
+        let delay_triggered = Arc::new(AtomicBool::new(false));
+        register_fail_point_async("start_node_recovery_entry", move || {
+            let delay_triggered_clone = delay_triggered.clone();
+            async move {
+                if !delay_triggered_clone.load(Ordering::SeqCst) {
+                    delay_triggered_clone.store(true, Ordering::SeqCst);
+                    tracing::info!("delaying node recovery for 60s");
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            }
         });
 
         // Tracks if a crash has been triggered.

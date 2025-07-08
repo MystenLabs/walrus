@@ -149,6 +149,7 @@ impl NodeRecoveryHandler {
 
                     tracing::debug!(
                         walrus.blob_id = %blob_id,
+                        recoverying_epoch = certified_before_epoch,
                         "start recovery sync for blob"
                     );
                     node.metrics.node_recovery_ongoing_blob_syncs.inc();
@@ -232,6 +233,8 @@ impl NodeRecoveryHandler {
             // Wait until the latest_event_epoch watcher is set to Some(epoch)
             let mut watcher = self.node.latest_event_epoch_watcher();
 
+            tracing::info!("waiting for latest event epoch to be set to restart node recovery");
+
             // Wait for the node.latest_event_epoch is initialized, so that the node recovery
             // task can start.
             while watcher.borrow().is_none() {
@@ -240,6 +243,11 @@ impl NodeRecoveryHandler {
                     .await
                     .expect("watcher should not be closed");
             }
+
+            tracing::info!(
+                "restarting node recovery to recover to the epoch {}",
+                recovering_epoch
+            );
 
             return self.start_node_recovery(recovering_epoch).await;
         }
