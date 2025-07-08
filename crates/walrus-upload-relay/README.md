@@ -1,6 +1,6 @@
 # Walrus Upload Relay
 
-# Overview
+## Overview
 
 A goal of Walrus is to enable dApps to `store` to Walrus from within their end-users’ browsers
 having low to moderate machine specifications (mobile devices, low-powered laptops, etc.) Currently
@@ -9,38 +9,108 @@ connections required to upload all slivers to all shards.
 
 The Upload Relay is a downloadable program that community members, Mysten Labs, and/or dApp writers
 themselves can run on internet-facing hosts to facilitate performing this fan-out on behalf of dApp
-end-users - thus mitigating browser resource consumption and enabling Web-based `store` operations.
+end-users, thus mitigating browser resource consumption and enabling Web-based `store` operations.
 
 ## Design
 
 ### Outline
 
-The store sequence is as follows:
+At a high level, a client store a blob using an Upload Relay as follows:
 
-- On the client side:
-  - The client creates a transaction:
-    - Mandatory: The first input, which is not used as the input of any actual contract call,
-      contains the hash of the data `h = Hash(blob)`
-    - Optional: Any transaction that registers or extends blobs, in any order
-    - Mandatory per configuration: Any transaction that will result in the balance of the relay’s
-      tip address to increase by the tip amount.
-  - The client then executes the transaction, obtaining the transaction ID `tx_id`
-  - The client sends the `blob` and `tx_id` to the relay
-- On the relay side:
-  - The relay requests the effects and balance changes of the transaction `tx_id` from a trusted
-    full node, then checks:
-    - that the balance changes for its address are sufficient to cover its tip (as described in its
-      tip configuration) of storing the blob (possibly considering the length of the blob).
-    - that the data at input zero matches `Hash(blob)` of the received data, confirming that the
-      received data is the data the tip was paid for.
-  - If everything matches, the relay proceeds to storing the blobs, and if successful, in creating
-    the certificate.
-  - The relay returns the certificate to the client
-- Finally, the client certifies the blob
+- First, the client locally encodes the blob and registers it on Sui;
+- then, the client sends the blob to the Upload Relay via an HTTP POST request to the blob-relay
+  endpoint (`/v1/blob-upload-relay`);
+- the Upload Relay then encodes the blob, sends the slivers to the storage nodes, collects a storage
+  confirmation certificate, and sends it back to the client;
+- finally, the client uses the confirmation certificate to certify the blob on Sui.
 
-# Usage
+Therefore, the Upload Relay _does not_ perform any on-chain operation, and only helps clients
+distribute the slivers of their blobs to storage nodes.
 
-There are various ways to run the `walrus-upload-relay`.
+### Upload Relay Operation
+
+The Upload Relay can be operated in two ways:
+
+- **Free service**: It accepts simple HTTP POST requests with blobs from clients, and relays them to
+  the storage nodes for free.
+- **Paid service** (for public relays): In this configuration, the Upload Relay requires a _tip_ to
+  relay a blob. The tip can be used by the relay operator to cover the costs of running the
+  infrastructure and turn a profit on the service. At the moment, we allow a constant tip, and a tip
+  that is linear in the unencoded data size.
+
+Upload Relays expose a tip-config endpoint (`/v1/tip-config`) that returns the tipping configuration. For example:
+
+```json
+{
+  "send_tip": {
+    "address": "0x1234...",
+    "kind": {
+      "const": 105
+    }
+  }
+}
+```
+
+The configuration above specifies that every store operation requires a tip of `105 MIST` (arbitrary
+value), paid to the set address (`0x1234..`). Note that this configuration is provided even for free
+Upload Relays (returning `"no_tip"`).
+
+### Paying the Tip
+
+This step is only necessary if the proxy requires a tip.
+
+To pay the tip, the client proceeds as follows:
+
+- it computes the `blob_digest = SHA256(blob)`
+- it generates a random `nonce`, and hashes it `nonce_digest = SHA256(nonce)`
+- it computes the `unencoded_length = blob.len()`
+
+Then, it creates a PTB, where the first input (`input 0`) is the `bcs` encoded representation of
+`blob_digest || nonce_digest || unencoded_length`. This will later be used by the proxy to
+authenticate the sender of the store request. In the same PTB, the client transfers the appropriate
+tip amount to the proxy’s wallet (also found through the `/v1/tip-config` endpoint). Usually, the
+client would also register the blob in this transaction. This is not mandatory, and the blob can be
+registered in another transaction, but it is commonly convenient and cheaper to perform all these
+operations together.
+
+Once the transaction is executed, the client keeps the transaction ID `tx_id` , the `nonce`, and the
+`blob_id`, which are required for the next phase.
+
+Note: the proxy will enforce a freshness check on the transaction that paid the tip (currently 1h by
+default, but each proxy can independently configure this).
+
+### Sending data to the proxy
+
+See the OpenAPI spec for the fanout proxy here: https://fan-out.testnet.walrus.space/v1/api
+
+Essentially, the client sends a POST request to the `/v1/blob-fan-out` API endpoint on the proxy,
+containing the bytes of the blob to be stored in the body.
+
+These additional parameters have to be specified in the URL’s query string:
+
+- **blob_id** (required): The blob ID of the blob to be stored. Example:
+  `blob_id=E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU`
+- **tx_id** (required if the proxy requires tip): The transaction ID (Base58 encoded) of the
+  transaction that transferred the TIP to the proxy. Example:
+  `tx_id=EmcFpdozbobqH61w76T4UehhC4UGaAv32uZpv6c4CNyg`
+- **nonce** (required if the proxy requires tip): The `nonce`, the preimage of the hash added to the
+  transaction inputs created above, as a Base64 URL-encoded string without padding.
+  `nonce=rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ`
+- **deletable_blob_object** (required if the blob is registered as deletable): If the blob being
+  stored is deletable, then the client must specify the object ID (as a Hex string) of the Blob. If
+  the blob is to be stored as a permanent one, this parameter should not be specified. Example:
+  `deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60`
+- **encoding_type** (optional): The encoding type to be used for the blob. The default value, and at
+  the moment the only value, is `RS2` .
+
+## Receiving the certificate
+
+Once the proxy is done storing the blob, it will collect the confirmation certificate from the
+storage nodes.
+
+Then, it will send a response to the client, containing the `blob_id` of the stored blob, along with
+the `confirmation_certificate`. The client can then use this certificate to certify the blob on
+chain.
 
 ## Installation
 
