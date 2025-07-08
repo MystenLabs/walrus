@@ -55,6 +55,8 @@ pub fn get_monitored_scope_metrics() -> Option<&'static MonitoredScopeMetrics> {
     MONITORED_SCOPE_METRICS.get()
 }
 
+#[derive(Debug)]
+#[must_use]
 pub struct MonitoredScopeGuard {
     metrics: &'static MonitoredScopeMetrics,
     name: &'static str,

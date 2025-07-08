@@ -325,6 +325,8 @@ pub fn concat_labels<'a>(first: &[&'a str], second: &[&'a str]) -> Vec<&'a str> 
 }
 
 /// Increments gauge when acquired, decrements when guard drops
+#[derive(Debug)]
+#[must_use]
 pub struct OwnedGaugeGuard(IntGauge);
 
 impl OwnedGaugeGuard {
