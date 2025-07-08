@@ -97,13 +97,15 @@ acquiring these tokens differs between Testnet and Mainnet.
 1. **Get SUI tokens**: Use the [official Sui faucet](https://faucet.sui.io/) to get free Testnet
    SUI.
 1. **Get WAL tokens**: Exchange your new Testnet SUI for Testnet WAL at a 1:1 rate by running the
-   `walrus get-wal` command with the `walrus` CLI.
+   `walrus get-wal` command either using the `walrus get-wal` CLI command or visiting
+   [stake-wal.wal.app](stake-wal.wal.app) setting network to Testnet and using the "Get WAL" button.
 
 {{#endtab }}
 {{#tab name="Mainnet Funding" }}
 
 For a Mainnet deployment, you will need to acquire both SUI and WAL tokens from an exchange and
-transfer them to your deployment address.
+transfer them to your deployment address. You can also check Slush Wallet for token swaps to WAL,
+and on-ramp services (availability may vary by region).
 
 {{#endtab }}
 {{#endtabs }}
