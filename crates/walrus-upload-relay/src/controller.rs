@@ -221,8 +221,8 @@ impl Controller {
     }
 }
 
-/// Runs the proxy.
-pub(crate) async fn run_proxy(
+/// Runs the upload relay.
+pub(crate) async fn run_upload_relay(
     context: Option<String>,
     walrus_config: PathBuf,
     server_address: Option<SocketAddr>,

@@ -7,6 +7,7 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
+use controller::run_upload_relay;
 use walrus_sdk::core_utils::{
     bin_version,
     metrics::{Registry, monitored_scope},
@@ -70,7 +71,7 @@ async fn main() -> Result<()> {
         .init();
     let registry = Registry::new(walrus_registry);
 
-    controller::run_proxy(
+    run_upload_relay(
         args.context,
         args.walrus_config,
         args.server_address,

@@ -1,12 +1,6 @@
 tip_config: !send_tip
   address: 0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a
-  # You choose to have a flat fee, independent of the blob size.
-  # kind: !const 42
-  # Or, you can charge for upload relay pro-rata, at kilobyte granularity. The example below indicates a base tip of 10 MIST per upload + 50 MIST for
-  # every kilobyte of unencoded blob size.
-  kind: !linear
-    base: 10
-    encoded_size_mul_per_kb: 50
+  kind: !const 42
 tx_freshness_threshold:
   secs: 36000
   nanos: 0
