@@ -57,22 +57,25 @@ If you don't provide the `GITHUB_TOKEN`, the action will still deploy your site 
 won't create pull requests for resource file changes.
 ```
 
-### First Run vs Subsequent Runs
+### New Site vs Existing Site
 
-Understanding how the workflow behaves differently on the first run is important:
+Understanding how the workflow behaves depends on whether you have an existing site:
 
-**First run (new site):**
+**New site (no existing `object_id`):**
 
-- Creates a new Walrus Site on Sui
+- Creates a new Walrus Site on Sui.
 - Generates a `ws-resources.json` file in your `DIST` directory (or updates the file specified by
-  `WS_RESOURCES`)
-- This file contains the `object_id` of your newly created site
-- If `GITHUB_TOKEN` is provided with correct permissions, creates a pull request with these changes
+  `WS_RESOURCES`).
+- This file contains the `object_id` of your newly created site.
+- If `GITHUB_TOKEN` is provided with correct permissions, creates a pull request with these changes.
 
-**Subsequent runs (updates):**
+**Existing site (has `object_id`):**
 
-- Uses the existing `object_id` from `ws-resources.json` to update the same site
-- Only creates PRs if the resource file changes during deployment
+- Uses the existing `object_id` from your Walrus-Sites resources file to update the same site.
+- Only creates PRs if the resources file changes during deployment.
+- This applies whether you've previously deployed using GitHub Actions or manually using the CLI -
+  as long as the `object_id` is present in your `WS_RESOURCES` file (defaults to
+  `DIST/ws-resources.json`)
 
 ```admonish tip
 The `ws-resources.json` file is crucial - it tells the action which site to update. Make sure to
