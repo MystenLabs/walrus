@@ -1117,9 +1117,10 @@ mod commands {
         )
         .await?;
 
+        let target_checkpoint = checkpoint_id.map_or("latest".to_string(), |id| id.to_string());
         println!(
-            "Restore completed successfully. The node must be restarted for changes to \
-            take effect."
+            "Restore from {target_checkpoint} successfully. The node must be restarted for changes \
+            to take effect."
         );
 
         Ok(())
