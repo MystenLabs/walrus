@@ -455,7 +455,8 @@ existing shared blob with the <code>walrus fund-shared-blob</code> command. Addi
 share a newly created blob by adding the <code>--share</code> option to the <code>walrus store</code> command.</p>
 <p>Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.</p>
 <p>See <a href="#extending-the-lifetime-of-a-blob">this section</a> for more on blob extension.</p>
-<h2 id="batch-storing-blobs-with-quilt"><a class="header" href="#batch-storing-blobs-with-quilt">Batch-Storing Blobs with Quilt</a></h2>
+<h2 id="batch-storing-blobs-with-quilts"><a class="header" href="#batch-storing-blobs-with-quilts">Batch-storing blobs with quilts</a></h2>
+<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.28</em> or higher.</p>
 <div id="admonition-warning-1" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-1-title">
 <div class="admonition-title">
 <div id="admonition-warning-1-title">
@@ -493,8 +494,11 @@ the files to include in two ways:</p>
 </div>
 <h4 id="using---paths"><a class="header" href="#using---paths">Using <code>--paths</code></a></h4>
 <p>To store all files from one or more directories recursively. The filename of each file will be
-used as its unique identifier within the quilt.</p>
-<pre><code class="language-sh">walrus store-quilt --epochs 1 --paths &lt;path-to-directory-1&gt; &lt;path-to-directory-2&gt; &lt;path-to-blob&gt;
+used as its unique identifier within the quilt. Regular expressions are supported for uploading from
+multiple paths, same as the <code>walrus store</code> command.</p>
+<p>Like the regular <code>store</code> command, you can specify the storage duration using <code>--epochs</code>,
+<code>--earliest-expiry-time</code>, or <code>--end-epoch</code>.</p>
+<pre><code class="language-sh">walrus store-quilt --epochs &lt;EPOCHS&gt; --paths &lt;path-to-directory-1&gt; &lt;path-to-directory-2&gt; &lt;path-to-blob&gt;
 </code></pre>
 <h4 id="using---blobs"><a class="header" href="#using---blobs">Using <code>--blobs</code></a></h4>
 <p>To specify a list of blobs as JSON objects. This gives you more control, allowing you to set a
@@ -503,10 +507,8 @@ name is used instead.</p>
 <pre><code class="language-sh">walrus store-quilt \
   --blobs '{"path":"&lt;path-to-blob-1&gt;","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
           '{"path":"&lt;path-to_blob-2&gt;","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
-  --epochs 1
+  --epochs &lt;EPOCHS&gt;
 </code></pre>
-<p>Like the regular <code>store</code> command, you can specify the storage duration using <code>--epochs</code>,
-<code>--earliest-expiry-time</code>, or <code>--end-epoch</code>.</p>
 <h3 id="reading-blobs-from-a-quilt"><a class="header" href="#reading-blobs-from-a-quilt">Reading Blobs from a Quilt</a></h3>
 <p>You can retrieve individual blobs (formally "patches") from a quilt without downloading the
 entire quilt. The <code>read-quilt</code> command allows you to query for specific blobs by their identifier,
@@ -521,7 +523,7 @@ walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
 </code></pre>
 <p>You can also read a blob using its QuiltPatchId, which can be retrieved using
-<code>list-patches-in-quilt</code>.</p>
+<a href="#list-patches-in-a-quilt"><code>list-patches-in-quilt</code></a>.</p>
 <pre><code class="language-sh">walrus read-quilt --out &lt;download dir&gt; \
   --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
   GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
