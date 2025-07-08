@@ -80,6 +80,12 @@ merge the PR from the first run so future deployments update the same site inste
 ones.
 ```
 
+```admonish tip
+Once your site is deployed and you have the `object_id`, you can link it with a SuiNS name to make
+your site accessible at `<suins>.wal.app`. See [Set a SuiNS name](./tutorial-suins.md) for details
+on how to set this up.
+```
+
 ## Creating Your Workflow
 
 1. Create `.github/workflows/deploy-site.yml` in your repository
