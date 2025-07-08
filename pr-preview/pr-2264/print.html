@@ -1028,8 +1028,8 @@ CLI configuration refers to the standard location for Sui configuration
     subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: mainnet
       # Optional override for the Sui address to use.
@@ -1046,8 +1046,8 @@ CLI configuration refers to the standard location for Sui configuration
       - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
       - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
     wallet_config:
-      # Path to the wallet config file.
-      path: ~/.sui/sui_config/client.yaml
+      # Optional path to the wallet config file.
+      # path: ~/.sui/sui_config/client.yaml
       # Sui environment to use.
       active_env: testnet
       # Optional override for the Sui address to use.
@@ -4019,12 +4019,14 @@ acquiring these tokens differs between Testnet and Mainnet.</p>
 <li><strong>Get SUI tokens</strong>: Use the <a href="https://faucet.sui.io/">official Sui faucet</a> to get free Testnet
 SUI.</li>
 <li><strong>Get WAL tokens</strong>: Exchange your new Testnet SUI for Testnet WAL at a 1:1 rate by running the
-<code>walrus get-wal</code> command with the <code>walrus</code> CLI.</li>
+<code>walrus get-wal</code> command either using the <code>walrus get-wal</code> CLI command or visiting
+<a href="walrus-sites/stake-wal.wal.app">stake-wal.wal.app</a> setting network to Testnet and using the "Get WAL" button.</li>
 </ol>
 </div>
 <div class="mdbook-tab-content hidden" data-tabname="Mainnet Funding">
 <p>For a Mainnet deployment, you will need to acquire both SUI and WAL tokens from an exchange and
-transfer them to your deployment address.</p>
+transfer them to your deployment address. You can also check Slush Wallet for token swaps to WAL,
+and on-ramp services (availability may vary by region).</p>
 </div>
 </div>
 <hr />
