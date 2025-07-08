@@ -145,6 +145,20 @@ impl NodeRecoveryHandler {
                         while ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
                             ongoing_syncs.next().await;
                         }
+
+                        // Since there is a wait, the blob might not be certified anymore. Check
+                        // again before starting the sync.
+                        if !blob_info.is_certified(node.current_epoch()) {
+                            // Skip blobs that are not certified in the given epoch. This
+                            // includes blobs that are invalid or expired.
+                            tracing::debug!(
+                                walrus.blob_id = %blob_id,
+                                walrus.blob_certified_before_epoch = certified_before_epoch,
+                                walrus.current_epoch = node.current_epoch(),
+                                "skip non-certified blob, post concurrency limit wait"
+                            );
+                            continue;
+                        }
                     }
 
                     tracing::debug!(

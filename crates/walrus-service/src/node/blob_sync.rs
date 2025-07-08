@@ -274,6 +274,9 @@ impl BlobSyncHandler {
             .remove(blob_id);
     }
 
+    /// Starts a blob sync for the given `blob_id` and `certified_epoch`.
+    ///
+    /// Returns a `Notify` that is notified when the sync task is finished.
     #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
     pub async fn start_sync(
         &self,
@@ -286,8 +289,7 @@ impl BlobSyncHandler {
             .lock()
             .expect("should be able to acquire lock");
 
-        let finish_notify = Arc::new(Notify::new());
-        match in_progress.entry(blob_id) {
+        let finish_notify = match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
                 let spawned_trace = tracing::info_span!(
                     parent: &Span::current(),
@@ -307,6 +309,7 @@ impl BlobSyncHandler {
                     "error.type" = field::Empty,
                 );
                 spawned_trace.follows_from(Span::current());
+                let finish_notify = Arc::new(Notify::new());
 
                 let cancel_token = CancellationToken::new();
                 let synchronizer = BlobSynchronizer::new(
@@ -333,16 +336,19 @@ impl BlobSyncHandler {
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
+                    finish_notify: finish_notify.clone(),
                 });
+                finish_notify
             }
-            Entry::Occupied(_) => {
+            Entry::Occupied(existing_sync) => {
                 // A blob sync with a lower sequence number is already in progress. We can safely
                 // try to increase the event cursor since it will only be advanced once that sync is
                 // finished or cancelled due to an invalid blob event.
                 event_handle.mark_as_complete();
-                finish_notify.notify_one();
+
+                existing_sync.get().finish_notify.clone()
             }
-        }
+        };
         Ok(finish_notify)
     }
 
@@ -441,6 +447,7 @@ type SyncJoinHandle = JoinHandle<Option<EventHandle>>;
 struct InProgressSyncHandle {
     cancel_token: CancellationToken,
     blob_sync_handle: Option<SyncJoinHandle>,
+    finish_notify: Arc<Notify>,
 }
 
 impl InProgressSyncHandle {
@@ -448,6 +455,7 @@ impl InProgressSyncHandle {
     // `blob_syncs_in_progress`.
     fn cancel(&mut self) -> Option<SyncJoinHandle> {
         self.cancel_token.cancel();
+        self.finish_notify.notify_one();
         self.blob_sync_handle.take()
     }
 }
