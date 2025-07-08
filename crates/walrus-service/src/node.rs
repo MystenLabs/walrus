@@ -1197,7 +1197,8 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent");
+
         let node_status = self.inner.storage.node_status()?;
         let span = tracing::info_span!(
             parent: &Span::current(),
@@ -1304,7 +1305,8 @@ impl StorageNode {
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::Impl");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::Impl");
+
         let _timer_guard = walrus_utils::with_label!(
             self.inner.metrics.event_process_duration_seconds,
             stream_element.element.label()
@@ -1348,7 +1350,8 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent");
+
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         self.blob_event_processor
             .process_event(event_handle, blob_event)
@@ -1362,7 +1365,8 @@ impl StorageNode {
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
+
         match epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
@@ -1381,7 +1385,7 @@ impl StorageNode {
         }
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
                 self.epoch_change_driver
@@ -1392,7 +1396,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochChangeStart",
                 );
                 fail_point_async!("epoch_change_start_entry");
@@ -1400,16 +1404,20 @@ impl StorageNode {
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
-                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::EpochChangeDone",
+                );
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(_) => {
-                monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
+                let _scope = monitored_scope::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::ShardsReceived",
+                );
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(_) => {
-                monitored_scope::monitored_scope(
+                let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::ShardRecoveryStart",
                 );
                 event_handle.mark_as_complete();
@@ -1424,7 +1432,8 @@ impl StorageNode {
         event_handle: EventHandle,
         package_event: PackageEvent,
     ) -> anyhow::Result<()> {
-        monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
+        let _scope = monitored_scope::monitored_scope("ProcessEvent::PackageEvent");
+
         tracing::info!(?package_event, "{} event received", package_event.name());
         match package_event {
             PackageEvent::ContractUpgraded(_event) => {

@@ -43,7 +43,7 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::utils::{self, MetricsAndLoggingRuntime, version},
+    common::utils::{self, MetricsAndLoggingRuntime},
     event::{
         event_processor::{processor::EventProcessor, runtime::EventProcessorRuntime},
         events::{CheckpointEventPosition, EventStreamElement, PositionedStreamEvent},
@@ -51,13 +51,12 @@ use crate::{
     node::{DatabaseConfig, metrics::TelemetryLabel as _, system_events::SystemEventProvider as _},
 };
 
-/// The version of the Walrus backup service.
-pub const VERSION: &str = version!();
 const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 async fn stream_events(
+    version: &'static str,
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
     db_config: &BackupDbConfig,
@@ -87,6 +86,7 @@ async fn stream_events(
         match &element {
             EventStreamElement::ContractEvent(contract_event) => {
                 record_event(
+                    version,
                     &mut pg_connection,
                     &element,
                     checkpoint_event_position,
@@ -111,6 +111,7 @@ async fn stream_events(
 
 #[allow(clippy::too_many_arguments)]
 async fn record_event(
+    version: &'static str,
     pg_connection: &mut AsyncPgConnection,
     element: &EventStreamElement,
     checkpoint_event_position: CheckpointEventPosition,
@@ -140,7 +141,7 @@ async fn record_event(
                     .execute(conn)
                     .await?;
 
-                dispatch_contract_event(contract_event, conn).await
+                dispatch_contract_event(version, contract_event, conn).await
             }
             .scope_boxed()
         },
@@ -150,6 +151,7 @@ async fn record_event(
 }
 
 async fn dispatch_contract_event(
+    version: &'static str,
     contract_event: &ContractEvent,
     conn: &mut AsyncPgConnection,
 ) -> Result<(), Error> {
@@ -205,7 +207,7 @@ async fn dispatch_contract_event(
             )
             .bind::<Bytea, _>(blob_certified.blob_id.0.to_vec())
             .bind::<Int8, _>(i64::from(blob_certified.end_epoch))
-            .bind::<Text, _>(VERSION)
+            .bind::<Text, _>(version)
             .execute(conn)
             .await?;
             tracing::info!(
@@ -295,28 +297,28 @@ pub fn run_backup_database_migrations(config: &BackupConfig) {
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_orchestrator(
+    version: &'static str,
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
 ) -> Result<()> {
-    tracing::info!(?config, "starting backup node");
+    tracing::info!(?config, version, "starting backup node");
 
     let registry_clone = metrics_runtime.registry.clone();
     tokio::spawn(async move {
         registry_clone
             .register(mysten_metrics::uptime_metric(
                 "walrus_backup_orchestrator",
-                VERSION,
+                version,
                 "walrus",
             ))
             .expect("metrics defined at compile time must be valid");
     });
 
-    tracing::info!(version = VERSION, "Walrus backup binary version");
     tracing::info!(
         metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
     );
 
-    utils::export_build_info(&metrics_runtime.registry, VERSION);
+    utils::export_build_info(&metrics_runtime.registry, version);
 
     let cancel_token = CancellationToken::new();
 
@@ -339,6 +341,7 @@ pub async fn start_backup_orchestrator(
     // Connect to the database.
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(
+        version,
         event_processor,
         metrics_registry,
         &config.db_config,
@@ -441,10 +444,11 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_fetcher(
+    version: &'static str,
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
 ) -> Result<()> {
-    tracing::info!(?config, "starting backup node");
+    tracing::info!(?config, version, "starting backup node");
     if config.backup_bucket.is_none() {
         // If the backup bucket is not set, we need to create the backup archive storage dir.
         let backup_path_dir = config.backup_storage_path.join(BACKUP_BLOB_ARCHIVE_SUBDIR);
@@ -460,21 +464,20 @@ pub async fn start_backup_fetcher(
         registry_clone
             .register(mysten_metrics::uptime_metric(
                 "walrus_backup_fetcher",
-                VERSION,
+                version,
                 "walrus",
             ))
             .expect("metrics defined at compile time must be valid");
     });
 
-    tracing::info!(version = VERSION, "Walrus backup binary version");
     tracing::info!(
         metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
     );
 
-    utils::export_build_info(&metrics_runtime.registry, VERSION);
+    utils::export_build_info(&metrics_runtime.registry, version);
 
     let backup_fetcher_metric_set = BackupFetcherMetricSet::new(&metrics_runtime.registry);
-    backup_fetcher(config, backup_fetcher_metric_set).await
+    backup_fetcher(version, config, backup_fetcher_metric_set).await
 }
 
 /// Read the oldest un-fetched blob states from the database and return their BlobIds.
@@ -573,6 +576,7 @@ async fn backup_take_tasks(
 }
 
 async fn backup_fetcher(
+    version: &'static str,
     backup_config: BackupConfig,
     backup_metric_set: BackupFetcherMetricSet,
 ) -> Result<()> {
@@ -619,6 +623,7 @@ async fn backup_fetcher(
         if !blob_ids.is_empty() {
             for blob_id in blob_ids {
                 match backup_fetch_inner_core(
+                    version,
                     &mut conn,
                     &backup_config,
                     &backup_metric_set,
@@ -652,6 +657,7 @@ async fn backup_fetcher(
 
 #[tracing::instrument(skip_all)]
 async fn backup_fetch_inner_core(
+    version: &'static str,
     conn: &mut AsyncPgConnection,
     backup_config: &BackupConfig,
     backup_metric_set: &BackupFetcherMetricSet,
@@ -730,7 +736,7 @@ async fn backup_fetch_inner_core(
                         )
                         .bind::<Bytea, _>(md5)
                         .bind::<Bytea, _>(&sha256)
-                        .bind::<Text, _>(VERSION)
+                        .bind::<Text, _>(version)
                         .bind::<Bytea, _>(blob_id.as_ref().to_vec())
                         .execute(conn)
                         .await
@@ -761,7 +767,7 @@ async fn backup_fetch_inner_core(
                     WHERE blob_id = $3",
             )
             .bind::<Text, _>(error.to_string())
-            .bind::<Text, _>(VERSION)
+            .bind::<Text, _>(version)
             .bind::<Bytea, _>(blob_id.as_ref().to_vec())
             .execute(conn)
             .await;

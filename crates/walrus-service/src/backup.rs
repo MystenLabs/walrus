@@ -56,10 +56,5 @@ mod metrics;
 #[cfg(feature = "backup")]
 pub use self::{
     garbage_collector::start_backup_garbage_collector,
-    service::{
-        VERSION,
-        run_backup_database_migrations,
-        start_backup_fetcher,
-        start_backup_orchestrator,
-    },
+    service::{run_backup_database_migrations, start_backup_fetcher, start_backup_orchestrator},
 };
