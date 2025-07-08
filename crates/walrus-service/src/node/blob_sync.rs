@@ -578,10 +578,7 @@ impl BlobSynchronizer {
                     "shard assignment must be found at the certified epoch {}",
                     latest_event_epoch
                 );
-                panic!(
-                    "shard assignment must be found at the certified epoch {}",
-                    latest_event_epoch
-                )
+                panic!("shard assignment must be found at the certified epoch {latest_event_epoch}")
             })
             .into_iter()
             .map(|shard| {

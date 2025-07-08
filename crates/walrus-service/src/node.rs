@@ -1208,6 +1208,7 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
+        sui_macros::fail_point!("fail_point_process_event");
         let _scope = monitored_scope::monitored_scope("ProcessEvent");
 
         let node_status = self.inner.storage.node_status()?;

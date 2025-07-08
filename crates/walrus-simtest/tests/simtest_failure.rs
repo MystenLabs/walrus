@@ -28,6 +28,7 @@ mod tests {
         self,
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
+        repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
@@ -330,42 +331,6 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
     }
 
-    // Simulates repeated node crash and restart with sim node id.
-    fn repeatedly_crash_target_node(
-        target_node_id: sui_simulator::task::NodeId,
-        next_fail_triggered_clone: Arc<Mutex<Instant>>,
-        crash_end_time: Instant,
-    ) {
-        let time_now = Instant::now();
-        if time_now > crash_end_time {
-            // No more crash is needed.
-            return;
-        }
-
-        if time_now < *next_fail_triggered_clone.lock().unwrap() {
-            // Not time to crash yet.
-            return;
-        }
-
-        let current_node = sui_simulator::current_simnode_id();
-        if target_node_id != current_node {
-            return;
-        }
-
-        let mut rng = rand::thread_rng();
-        let node_down_duration = Duration::from_secs(rng.gen_range(5..=25));
-        let next_crash_time =
-            Instant::now() + node_down_duration + Duration::from_secs(rng.gen_range(5..=25));
-
-        tracing::warn!(
-            "crashing node {current_node} for {} seconds; next crash is set to {:?}",
-            node_down_duration.as_secs(),
-            next_crash_time
-        );
-        sui_simulator::task::kill_current_node(Some(node_down_duration));
-        *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
-    }
-
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
     #[ignore = "ignore integration simtests by default"]
@@ -442,6 +407,10 @@ mod tests {
                 target_fail_node_id,
                 next_fail_triggered_clone.clone(),
                 crash_end_time,
+                5,
+                25,
+                5,
+                25,
             );
         });
 

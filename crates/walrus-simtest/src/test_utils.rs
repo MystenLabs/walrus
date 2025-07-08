@@ -8,7 +8,7 @@ pub mod simtest_utils {
     use std::{
         collections::{HashMap, HashSet},
         sync::{Arc, Mutex, atomic::AtomicBool},
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use anyhow::Context;
@@ -615,5 +615,48 @@ pub mod simtest_utils {
                 .id(),
             );
         }
+    }
+
+    /// Simulates repeated node crash and restart with sim node id.
+    pub fn repeatedly_crash_target_node(
+        target_node_id: sui_simulator::task::NodeId,
+        next_fail_triggered_clone: Arc<Mutex<Instant>>,
+        crash_end_time: Instant,
+        min_crash_duration_secs: u64,
+        max_crash_duration_secs: u64,
+        min_live_duration_secs: u64,
+        max_live_duration_secs: u64,
+    ) {
+        let time_now = Instant::now();
+        if time_now > crash_end_time {
+            // No more crash is needed.
+            return;
+        }
+
+        if time_now < *next_fail_triggered_clone.lock().unwrap() {
+            // Not time to crash yet.
+            return;
+        }
+
+        let current_node = sui_simulator::current_simnode_id();
+        if target_node_id != current_node {
+            return;
+        }
+
+        let mut rng = rand::thread_rng();
+
+        let node_down_duration =
+            Duration::from_secs(rng.gen_range(min_crash_duration_secs..=max_crash_duration_secs));
+        let next_crash_time = Instant::now()
+            + node_down_duration
+            + Duration::from_secs(rng.gen_range(min_live_duration_secs..=max_live_duration_secs));
+
+        tracing::warn!(
+            "crashing node {current_node} for {} seconds; next crash is set to {:?}",
+            node_down_duration.as_secs(),
+            next_crash_time
+        );
+        sui_simulator::task::kill_current_node(Some(node_down_duration));
+        *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
     }
 }
