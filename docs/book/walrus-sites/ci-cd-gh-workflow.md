@@ -36,9 +36,9 @@ Optional inputs include:
 ### About `GITHUB_TOKEN`
 
 The `GITHUB_TOKEN` input is particularly useful for tracking changes to your site's resources. When
-you deploy a site, Walrus creates or updates a `ws-resources.json` file that tracks the site's data.
-If this file changes during deployment, the action can automatically create a pull request with the
-updated file.
+you deploy a site, site-builder creates or updates a `ws-resources.json` file that tracks the site's
+data. If this file changes during deployment, the action can automatically create a pull request
+with the updated file.
 
 To use this feature:
 
