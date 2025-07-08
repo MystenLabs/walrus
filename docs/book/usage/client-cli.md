@@ -237,7 +237,7 @@ Shared blobs can only contain permanent blobs and as such cannot be deleted befo
 
 See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
 
-## Batch-Storing Blobs with Quilt
+## Batch-storing blobs with quilts
 
 ```admonish warning
 - Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
@@ -265,7 +265,8 @@ You must ensure that all the identifiers are unique within a quilt, the operatio
 #### Using `--paths`
 
 To store all files from one or more directories recursively. The filename of each file will be
-used as its unique identifier within the quilt.
+used as its unique identifier within the quilt. Regular expressions are supported for uploading from
+multiple paths, same as the `walrus store` command.
 
 ```sh
 walrus store-quilt --epochs 1 --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
