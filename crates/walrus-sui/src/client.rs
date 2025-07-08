@@ -291,7 +291,6 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
 
 /// Represents the persistence state of a blob on Walrus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum BlobPersistence {
     /// The blob cannot be deleted.
