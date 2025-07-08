@@ -284,6 +284,7 @@ impl DbCheckpointManager {
         db: Arc<RocksDB>,
         config: DbCheckpointConfig,
     ) -> Result<Self, DbCheckpointError> {
+        tracing::info!("DbCheckpointManager starting with config: {:?}", config);
         if let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() {
             create_dir_all(db_checkpoint_dir).map_err(|e| DbCheckpointError::Other(e.into()))?;
         }

@@ -171,6 +171,9 @@ enum Commands {
     #[command(hide = true)]
     Catchup(CatchupArgs),
 
+    /// Restore the database from a checkpoint.
+    Restore(RestoreArgs),
+
     /// Local admin commands for managing a running node.
     LocalAdmin {
         /// Admin subcommand to execute.
@@ -190,27 +193,6 @@ enum AdminCommands {
         /// Subcommand to execute.
         #[command(subcommand)]
         command: CheckpointCommands,
-    },
-    /// Restore the database from a checkpoint.
-    Restore {
-        /// The path where the checkpoint will be created. If not specified, the checkpoint will be
-        /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
-        #[arg(long)]
-        #[serde(default)]
-        db_checkpoint_path: PathBuf,
-        /// The path where the database will be restored.
-        #[arg(long)]
-        #[serde(default)]
-        db_path: PathBuf,
-        /// The path where the WAL will be restored. If not specified, the WAL will be restored in
-        /// the same directory as the database.
-        #[arg(long)]
-        #[serde(default)]
-        wal_path: Option<PathBuf>,
-        /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
-        /// restored.
-        #[arg(long)]
-        checkpoint_id: Option<u32>,
     },
     /// Log level management.
     /// It also supports log directive like `walrus-service=debug`
@@ -481,6 +463,25 @@ struct CatchupArgs {
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct RestoreArgs {
+    /// The path where the checkpoint is stored. Note, it will not be defaulted to the
+    /// checkpoint dir in the config file.
+    #[arg(long)]
+    db_checkpoint_path: PathBuf,
+    /// The path where the database will be restored.
+    #[arg(long)]
+    db_path: PathBuf,
+    /// The path where the WAL will be restored. If not specified, the WAL will be restored in
+    /// the same directory as the database.
+    #[arg(long)]
+    wal_path: Option<PathBuf>,
+    /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
+    /// restored.
+    #[arg(long)]
+    checkpoint_id: Option<u32>,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -556,6 +557,8 @@ fn main() -> anyhow::Result<()> {
         Commands::DbTool { command } => command.execute()?,
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
+
+        Commands::Restore(restore_args) => commands::restore(restore_args)?,
 
         Commands::LocalAdmin {
             command,
@@ -1098,6 +1101,31 @@ mod commands {
     }
 
     #[tokio::main]
+    pub(crate) async fn restore(
+        RestoreArgs {
+            db_checkpoint_path,
+            db_path,
+            wal_path,
+            checkpoint_id,
+        }: RestoreArgs,
+    ) -> anyhow::Result<()> {
+        DbCheckpointManager::restore_from_backup(
+            &db_checkpoint_path,
+            &db_path,
+            wal_path.as_deref(),
+            checkpoint_id,
+        )
+        .await?;
+
+        println!(
+            "Restore completed successfully. The node must be restarted for changes to \
+            take effect."
+        );
+
+        Ok(())
+    }
+
+    #[tokio::main]
     pub(crate) async fn setup(
         SetupArgs {
             config_directory,
@@ -1231,27 +1259,6 @@ mod commands {
         command: AdminCommands,
         socket_path: PathBuf,
     ) -> anyhow::Result<()> {
-        if let AdminCommands::Restore {
-            db_checkpoint_path,
-            db_path,
-            wal_path,
-            checkpoint_id,
-        } = command
-        {
-            DbCheckpointManager::restore_from_backup(
-                &db_checkpoint_path,
-                &db_path,
-                wal_path.as_deref(),
-                checkpoint_id,
-            )
-            .await?;
-            println!(
-                "Restore completed successfully. The node must be restarted for changes to \
-                take effect."
-            );
-            return Ok(());
-        }
-
         // Connect to the socket.
         let socket = UnixStream::connect(&socket_path).await.context(format!(
             "failed to connect to local admin socket at '{}'",
@@ -1578,11 +1585,6 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
                 handle_checkpoint_command(command, &args).await
             }
             Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
-            Ok(AdminCommands::Restore { .. }) => AdminCommandResponse {
-                success: false,
-                message: "Restore is an offline command and cannot be sent to a running node"
-                    .to_string(),
-            },
             Err(e) => AdminCommandResponse {
                 success: false,
                 message: format!("Failed to parse command: {e}"),
