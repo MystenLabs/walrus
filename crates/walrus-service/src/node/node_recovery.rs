@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
@@ -229,10 +229,18 @@ impl NodeRecoveryHandler {
     /// Restarts any in progress recovery.
     pub async fn restart_recovery(&self) -> Result<(), TypedStoreError> {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
-            // The `latest_event_epoch` is still set to `0` at this point.
-            self.node
-                .latest_event_epoch
-                .store(recovering_epoch, Ordering::SeqCst);
+            // Wait until the latest_event_epoch watcher is set to Some(epoch)
+            let mut watcher = self.node.latest_event_epoch_watcher();
+
+            // Wait for the node.latest_event_epoch is initialized, so that the node recovery
+            // task can start.
+            while watcher.borrow().is_none() {
+                watcher
+                    .changed()
+                    .await
+                    .expect("watcher should not be closed");
+            }
+
             return self.start_node_recovery(recovering_epoch).await;
         }
         Ok(())

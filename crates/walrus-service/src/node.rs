@@ -9,7 +9,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -534,7 +534,10 @@ pub struct StorageNodeInner {
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
-    latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
+    // Receiver for watching the latest event epoch.
+    latest_event_epoch_watcher: watch::Receiver<Option<Epoch>>,
+    // Sender for updating the latest event epoch.
+    latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
 }
@@ -649,6 +652,7 @@ impl StorageNode {
             }
         };
         let system_parameters = contract_service.fixed_system_parameters().await?;
+        let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -676,7 +680,8 @@ impl StorageNode {
             thread_pool,
             encoding_config,
             registry: registry.clone(),
-            latest_event_epoch: AtomicU32::new(0),
+            latest_event_epoch_sender,
+            latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
         });
@@ -1288,9 +1293,7 @@ impl StorageNode {
 
         // Update initial latest event epoch. This is the first (non-extension) event the node
         // processes.
-        self.inner
-            .latest_event_epoch
-            .store(event_epoch, Ordering::SeqCst);
+        let _ = self.inner.latest_event_epoch_sender.send(Some(event_epoch));
 
         tracing::debug!("checking the first contract event if we're severely lagging");
 
@@ -1533,9 +1536,7 @@ impl StorageNode {
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
-        self.inner
-            .latest_event_epoch
-            .store(event.epoch, Ordering::SeqCst);
+        let _ = self.inner.latest_event_epoch_sender.send(Some(event.epoch));
 
         Ok(())
     }
@@ -2240,12 +2241,22 @@ impl StorageNodeInner {
         Ok(metadata)
     }
 
+    /// Returns the latest event epoch.
+    /// The callsite must ensure that the first event is processed so that the
+    /// latest_event_epoch_watcher is initialized.
     fn current_event_epoch(&self) -> Epoch {
-        self.latest_event_epoch.load(Ordering::SeqCst)
+        self.latest_event_epoch_sender
+            .borrow()
+            .expect("latest event epoch is not set")
     }
 
     fn current_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
+    }
+
+    /// Returns a clone of the latest event epoch watcher receiver.
+    pub(crate) fn latest_event_epoch_watcher(&self) -> watch::Receiver<Option<Epoch>> {
+        self.latest_event_epoch_watcher.clone()
     }
 
     fn check_index<T>(&self, index: T) -> Result<(), IndexOutOfRange>
