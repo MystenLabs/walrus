@@ -18,7 +18,7 @@ use futures::{
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use rayon::prelude::*;
 use tokio::{
-    sync::{Notify, Semaphore},
+    sync::{Notify, Semaphore, watch},
     task::{JoinHandle, JoinSet},
 };
 use tokio_metrics::TaskMonitor;
@@ -466,6 +466,8 @@ enum RecoverSliverError {
     Inconsistent(InconsistencyProof),
     #[error(transparent)]
     Database(#[from] TypedStoreError),
+    #[error(transparent)]
+    WatchRecvError(#[from] watch::error::RecvError),
 }
 
 #[derive(Debug)]
@@ -567,25 +569,18 @@ impl BlobSynchronizer {
         // this function panics since no shard assignment info is found. Upon restarting the node,
         // the node will enter recovery mode until catching up with all the events and start
         // recovering all the missing blobs.
+        let latest_event_epoch = self.node.current_event_epoch().await?;
         let futures_iter = self
             .node
-            .owned_shards_at_epoch(
-                self.node
-                    .current_event_epoch()
-                    .expect("current event epoch should be set"),
-            )
+            .owned_shards_at_epoch(latest_event_epoch)
             .unwrap_or_else(|_| {
                 tracing::error!(
                     "shard assignment must be found at the certified epoch {}",
-                    self.node
-                        .current_event_epoch()
-                        .expect("current event epoch should be set")
+                    latest_event_epoch
                 );
                 panic!(
                     "shard assignment must be found at the certified epoch {}",
-                    self.node
-                        .current_event_epoch()
-                        .expect("current event epoch should be set")
+                    latest_event_epoch
                 )
             })
             .into_iter()
@@ -803,6 +798,9 @@ impl BlobSynchronizer {
             RecoverSliverError::Database(_) => {
                 tracing::error!(?error, "database error during sliver sync")
             }
+            RecoverSliverError::WatchRecvError(_) => {
+                tracing::error!(?error, "watch recv error during sliver sync")
+            }
         })
     }
 
@@ -843,6 +841,7 @@ const fn labels_from_sliver_result<A: EncodingAxis>(
         Some(Ok(false)) => metrics::STATUS_SKIPPED,
         Some(Err(RecoverSliverError::Database(_))) => metrics::STATUS_FAILURE,
         Some(Err(RecoverSliverError::Inconsistent(_))) => metrics::STATUS_INCONSISTENT,
+        Some(Err(RecoverSliverError::WatchRecvError(_))) => metrics::STATUS_FAILURE,
     };
 
     [part, status]

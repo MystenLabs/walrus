@@ -1172,7 +1172,7 @@ impl StorageNode {
             return Ok(false);
         };
 
-        let Some(current_event_epoch) = self.inner.current_event_epoch() else {
+        let Some(current_event_epoch) = self.inner.try_get_current_event_epoch() else {
             // When current event epoch is not set, we are processing events before the first epoch
             // change start event, which should be excluded from processing.
             return Ok(false);
@@ -2251,17 +2251,20 @@ impl StorageNodeInner {
     /// Returns the latest event epoch.
     /// The callsite must ensure that the first event is processed so that the
     /// latest_event_epoch_watcher is initialized.
-    fn current_event_epoch(&self) -> Option<Epoch> {
+    async fn current_event_epoch(&self) -> Result<Epoch, watch::error::RecvError> {
+        let mut watcher = self.latest_event_epoch_watcher.clone();
+        while watcher.borrow().is_none() {
+            watcher.changed().await?;
+        }
+        Ok(watcher.borrow().expect("watcher should be set"))
+    }
+
+    fn try_get_current_event_epoch(&self) -> Option<Epoch> {
         *self.latest_event_epoch_watcher.borrow()
     }
 
     fn current_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
-    }
-
-    /// Returns a clone of the latest event epoch watcher receiver.
-    pub(crate) fn latest_event_epoch_watcher(&self) -> watch::Receiver<Option<Epoch>> {
-        self.latest_event_epoch_watcher.clone()
     }
 
     fn check_index<T>(&self, index: T) -> Result<(), IndexOutOfRange>
