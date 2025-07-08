@@ -7,7 +7,10 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
-use walrus_sdk::core_utils::metrics::{Registry, monitored_scope};
+use walrus_sdk::core_utils::{
+    bin_version,
+    metrics::{Registry, monitored_scope},
+};
 
 mod controller;
 mod error;
@@ -17,7 +20,7 @@ mod shared;
 mod tip;
 mod utils;
 
-const VERSION: &str = self::utils::version!();
+bin_version!();
 
 #[derive(Parser, Debug, Clone)]
 #[command(
