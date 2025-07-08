@@ -41,7 +41,9 @@ blob. The encoded size of a blob is the size of the erasure coded blob, which is
 than the unencoded original blob size, and the size of some metadata that is independent of the
 size of the blob. Since the fixed size per-blob metadata is quite large (about 64MB in the worse
 case), the cost of storing small blobs (< 10MB) is dominated by this, and the size of storing
-larger blobs is dominated by their increasing size.
+larger blobs is dominated by their increasing size. See
+[Reducing costs for small blobs](#reducing-costs-for-small-blobs) for more information on cost
+optimization strategies.
 
 The Walrus CLI uses some strategies to lower costs but is not guaranteed to be optimal for all
 use-cases. For high volume or other cost sensitive users there may be strategies that further
@@ -134,7 +136,14 @@ storage costs. This does not delete the blob on Walrus. Depending on the relativ
 WAL it might be cheaper to burn a long lived blob object, and subsequently re-registering and
 re-certifying them close to the end of its lifetime to extend it.
 
+### Reducing costs for small blobs
+
+Walrus [Quilt](../usage/quilt.md) is a batch storage tool to reduce storage costs of small blobs.
+There are two batching approaches: first, batching a large number of small blobs together, and
+second, batching small blobs together with large blobs. This significantly reduces the per-blob
+metadata overhead that dominates costs for small files.
+
 ## The future
 
-The Walrus teams are focused on both making storage of small blobs more cost efficient,
-as well as the size of metadata smaller to reduce costs for all blob sizes.
+The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
+smaller, as well as further improving the efficiency of Quilt for small blob storage.
