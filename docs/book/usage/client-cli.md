@@ -239,6 +239,8 @@ See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension
 
 ## Batch-storing blobs with quilts
 
+ **Note:** The *quilt* feature is only available in Walrus version *v1.28* or higher.
+
 ```admonish warning
 - Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
   is generated based on all blobs in the quilt, so a blob's `QuiltPatchId` will change if it's
@@ -268,8 +270,11 @@ To store all files from one or more directories recursively. The filename of eac
 used as its unique identifier within the quilt. Regular expressions are supported for uploading from
 multiple paths, same as the `walrus store` command.
 
+Like the regular `store` command, you can specify the storage duration using `--epochs`,
+`--earliest-expiry-time`, or `--end-epoch`.
+
 ```sh
-walrus store-quilt --epochs 1 --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
+walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
 ```
 
 #### Using `--blobs`
@@ -282,11 +287,8 @@ name is used instead.
 walrus store-quilt \
   --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
           '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
-  --epochs 1
+  --epochs <EPOCHS>
 ```
-
-Like the regular `store` command, you can specify the storage duration using `--epochs`,
-`--earliest-expiry-time`, or `--end-epoch`.
 
 ### Reading Blobs from a Quilt
 
@@ -310,7 +312,7 @@ walrus read-quilt --out <download dir> \
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using
-`list-patches-in-quilt`.
+[`list-patches-in-quilt`](#list-patches-in-a-quilt).
 
 ```sh
 walrus read-quilt --out <download dir> \
