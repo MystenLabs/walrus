@@ -19,7 +19,7 @@ pub fn compute_symbol_size(
         .next_multiple_of(required_alignment.into());
 
     Ok(
-        NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| std::dbg!(DataTooLargeError))?)
+        NonZeroU16::new(u16::try_from(symbol_size).map_err(|_| DataTooLargeError)?)
             .expect("we start with something positive and always round up"),
     )
 }
