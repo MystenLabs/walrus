@@ -201,7 +201,8 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
-        monitored_scope::monitored_scope("WorkerLoop");
+        let _scope = monitored_scope::monitored_scope("WorkerLoop");
+
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
