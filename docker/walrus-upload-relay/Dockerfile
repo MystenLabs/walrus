@@ -16,7 +16,7 @@ COPY contracts contracts
 RUN cargo build --profile $PROFILE --bin walrus-upload-relay
 
 # Production Image for walrus walrus-upload-relay
-FROM debian:bookworm-slim AS walrus-upload-relay
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/debian:bookworm-slim-amd64 AS walrus-upload-relay
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "/tmp/walrus"
