@@ -262,6 +262,7 @@ the files to include in two ways:
 
 ```admonish warning
 You must ensure that all the identifiers are unique within a quilt, the operation will fail otherwise.
+Identifiers are the unique names used to retrieve individual blobs from within a quilt.
 ```
 
 #### Using `--paths`
