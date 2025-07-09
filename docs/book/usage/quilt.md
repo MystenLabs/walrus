@@ -63,8 +63,8 @@ blobs for 1 epoch as a quilt compared to storing them as separate blobs.
 
 The table only shows the Walrus storage cost. Similar savings are possible for Sui gas fees. Storing
 600 blobs as a quilt results in gas fees of 0.00725 SUI compared to 1.725 SUI when storing them as
-standard blobs (batching 25 at a time), which is a savings factor of **238x**. These values are not
-affected by the blob size.
+standard blobs (with `walrus store` command, with 25 blobs per command to reduce Sui computation
+costs), which is a savings factor of **238x**. These values are not affected by the blob size.
 Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
 blobs under 100KB where both SUI and WAL costs can be reduced by over **100x**.
 
