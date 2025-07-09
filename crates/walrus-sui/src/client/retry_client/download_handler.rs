@@ -415,6 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
     async fn assess_overall_window_exceeded_triggers_fallback_and_sets_skip() {
         let skip_duration = Duration::from_secs(60);
         let config = test_config(3, Duration::from_secs(10), 5, skip_duration);
