@@ -174,7 +174,7 @@ various options are described
 [here](./src/controller.rs#L63) and
 [here](./src/tip/config.rs#L57).
 
-# Conclusion
+## Conclusion
 
 Setting up the `walrus-upload-relay` should be straightforward. Please reach out to the Walrus team if you
 encounter any difficulties or have questions/concerns.
