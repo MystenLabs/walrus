@@ -575,18 +575,19 @@ impl EventBlobWriterFactory {
     /// Handles the case where the last certified event blob has metadata.
     fn handle_event_blob_with_metadata(
         &self,
-        latest: EventBlobWithMetadata,
+        event_blob: EventBlobWithMetadata,
         num_uncertified_blob_threshold: Option<usize>,
         wb: &mut DBBatch,
     ) -> Result<()> {
         tracing::info!(
-            "Found last certified event blob with metadata: {:?}",
-            latest
+            last_certified_event_blob = ?event_blob,
+            "found last certified event blob with metadata"
         );
         let current_certified = self.certified.get(&())?;
         tracing::info!("current certified: {:?}", current_certified);
         if current_certified.is_some_and(|current_certified| {
-            latest.event_stream_cursor.element_index > current_certified.event_cursor.element_index
+            event_blob.event_stream_cursor.element_index
+                > current_certified.event_cursor.element_index
         }) {
             // The last certified event blob is ahead of the local certified event blob.
             // We skip past all the blobs until the last certified event blob and delete
@@ -594,9 +595,9 @@ impl EventBlobWriterFactory {
             // will also be in bad shape and discarding them is needed to recover.
             tracing::info!("skipping past all the blobs until the last certified event blob");
             let certified_metadata = CertifiedEventBlobMetadata::new(
-                latest.blob_id,
-                latest.event_stream_cursor,
-                latest.epoch,
+                event_blob.blob_id,
+                event_blob.event_stream_cursor,
+                event_blob.epoch,
             );
             wb.insert_batch(&self.certified, std::iter::once(((), certified_metadata)))?;
             wb.delete_batch(&self.attested, std::iter::once(()))?;
@@ -613,7 +614,7 @@ impl EventBlobWriterFactory {
                 &self.attested,
                 &self.failed_to_attest,
                 num_uncertified_blob_threshold,
-                Some(latest.blob()),
+                Some(event_blob.blob()),
                 &Self::blobs_path(&self.root_dir_path),
                 wb,
             )?;
@@ -632,8 +633,8 @@ impl EventBlobWriterFactory {
         // We reset the uncertified blobs to recover from potential global fork where
         // nodes cannot agree on the last certified event blob.
         tracing::info!(
-            "Found last certified event blob without metadata: {:?}",
-            event_blob
+            last_certified_event_blob = ?event_blob,
+            "found last certified event blob without metadata"
         );
         Self::reset_uncertified_blobs(
             &self.pending,
@@ -772,7 +773,7 @@ impl EventBlobWriterFactory {
 
         if !should_reset {
             tracing::info!(
-                "Skipping reset: uncertified blobs ({}/{}) below threshold {}. Last certified at \
+                "skipping reset: uncertified blobs ({}/{}) below threshold {}; last certified at \
                 checkpoint {}",
                 consecutive_uncertified,
                 total_uncertified_blobs,
@@ -783,9 +784,9 @@ impl EventBlobWriterFactory {
         }
 
         tracing::info!(
-            "Resetting event blob writer: uncertified blobs ({}) exceeded threshold ({})",
+            "resetting event blob writer: uncertified blobs ({}) exceeded threshold ({})",
             consecutive_uncertified,
-            num_uncertified_blob_threshold
+            num_uncertified_blob_threshold,
         );
 
         let mut blobs_to_delete = Vec::new();
@@ -1363,7 +1364,7 @@ impl EventBlobWriter {
                         Ok(())
                     }
 
-                    e @ SuiClientError::TransactionExecutionError(
+                    error @ SuiClientError::TransactionExecutionError(
                         MoveExecutionError::SystemStateInner(
                             SystemStateInnerError::EIncorrectAttestation(_)
                             | SystemStateInnerError::ERepeatedAttestation(_),
@@ -1371,9 +1372,9 @@ impl EventBlobWriter {
                     ) => {
                         tracing::error!(
                             walrus.epoch = self.current_epoch,
-                            error = ?e,
-                            blob_id = ?blob_id,
-                            "Unexpected non-retriable event blob certification error \
+                            ?error,
+                            %blob_id,
+                            "unexpected non-retriable event blob certification error \
                             while attesting event blob"
                         );
                         Ok(())
@@ -1381,27 +1382,35 @@ impl EventBlobWriter {
                     SuiClientError::TransactionExecutionError(MoveExecutionError::NotParsable(
                         _,
                     )) => {
-                        tracing::error!(blob_id = ?blob_id,
-                                "Unexpected unknown transaction execution error while \
-                                attesting event blob, retrying");
+                        tracing::error!(
+                            %blob_id,
+                            "unexpected unknown transaction execution error while attesting event \
+                            blob, retrying"
+                        );
                         Err(err)
                     }
-                    ref e @ SuiClientError::TransactionExecutionError(_) => {
-                        tracing::warn!(error = ?e, blob_id = ?blob_id,
-                                "Unexpected move execution error while attesting event blob");
-                        Err(err)
+                    error @ SuiClientError::TransactionExecutionError(_) => {
+                        tracing::warn!(
+                            ?error,
+                            %blob_id,
+                            "unexpected Move execution error while attesting event blob"
+                        );
+                        Err(error)
                     }
                     SuiClientError::SharedObjectCongestion(_) => {
-                        tracing::debug!(blob_id = ?blob_id,
-                                "Shared object congestion error while attesting event blob, \
-                                retrying");
+                        tracing::debug!(
+                            %blob_id,
+                            "shared object congestion error while attesting event blob, retrying"
+                        );
                         Err(err)
                     }
-                    ref e => {
-                        tracing::error!(error = ?e, blob_id = ?blob_id,
-                                "Unexpected event blob certification error while attesting \
-                                event blob");
-                        Err(err)
+                    error => {
+                        tracing::error!(
+                            ?error,
+                            %blob_id,
+                            "unexpected event blob certification error while attesting event blob"
+                        );
+                        Err(error)
                     }
                 };
                 result?;
@@ -1524,7 +1533,7 @@ impl EventBlobWriter {
     ) -> Result<()> {
         ensure!(
             element_index == self.event_cursor.element_index,
-            "Invalid event index"
+            "invalid event index"
         );
         self.metrics
             .latest_in_progress_event_index
@@ -1847,7 +1856,7 @@ mod tests {
             let attested_blob = blob_writer
                 .attested
                 .get(&())?
-                .expect("Attested blob should exist");
+                .expect("attested blob should exist");
             let attested_blob_id = attested_blob.blob_id;
             let f = File::open(
                 dir.join("event_blob_writer")
@@ -1924,7 +1933,7 @@ mod tests {
         let attested_blob = blob_writer
             .attested
             .get(&())?
-            .expect("Attested blob should exist");
+            .expect("attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
 
         let pending_blobs = blob_writer
@@ -1980,7 +1989,7 @@ mod tests {
         let attested_blob = blob_writer
             .attested
             .get(&())?
-            .expect("Attested blob should exist");
+            .expect("attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
 
         let pending_blobs = blob_writer
@@ -2064,7 +2073,7 @@ mod tests {
         let certified_blob = blob_writer
             .certified
             .get(&())?
-            .expect("Certified blob should exist");
+            .expect("certified blob should exist");
         assert_eq!(certified_blob.blob_id, expected_blob_id);
         Ok(())
     }
@@ -2078,7 +2087,7 @@ mod tests {
         let next_attested_blob = blob_writer
             .attested
             .get(&())?
-            .expect("Next attested blob should exist");
+            .expect("next attested blob should exist");
         assert_eq!(
             next_attested_blob.event_cursor.element_index,
             expected_event_index

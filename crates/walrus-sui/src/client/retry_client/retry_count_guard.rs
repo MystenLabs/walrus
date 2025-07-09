@@ -8,6 +8,8 @@ use super::ToErrorType;
 use crate::client::SuiClientMetricSet;
 
 /// A guard that records the number of retries and the result of an RPC call.
+#[derive(Debug)]
+#[must_use]
 pub(crate) struct RetryCountGuard {
     pub(crate) method: String,
     pub(crate) count: u64,

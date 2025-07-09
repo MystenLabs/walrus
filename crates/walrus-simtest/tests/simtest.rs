@@ -529,7 +529,16 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
+        let new_node_initial_persisted_event_progress =
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[5]]).await[0]
+                .event_progress
+                .persisted;
+        tracing::info!(
+            "new node initial persisted event progress: {new_node_initial_persisted_event_progress}"
+        );
+
         tracing::info!("waiting for the new node to catch up and recover");
+        workload_handle.abort();
         tokio::time::sleep(Duration::from_secs(150)).await;
 
         tracing::info!("checking the cluster's health info");
@@ -540,15 +549,16 @@ mod tests {
             .await
             .unwrap();
         let current_committee = committees.current_committee();
+        let new_node_health_info = &node_health_info[5];
 
         assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
-        assert!(node_health_info[5].shard_detail.is_some());
+        assert!(new_node_health_info.shard_detail.is_some());
 
         tracing::info!("checking that shards in the new node matches the shards in the committees");
         let shards_in_new_node_based_on_committee = committees
             .current_committee()
             .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
-        let shards_in_new_node_owned = node_health_info[5]
+        let shards_in_new_node_owned = new_node_health_info
             .shard_detail
             .as_ref()
             .unwrap()
@@ -562,9 +572,12 @@ mod tests {
             assert!(shards_in_new_node_based_on_committee.contains(&shard.shard));
         }
 
-        assert_eq!(node_health_info[5].node_status, "Active");
-
-        workload_handle.abort();
+        assert_eq!(new_node_health_info.node_status, "Active");
+        assert!(
+            new_node_health_info.event_progress.persisted
+                > new_node_initial_persisted_event_progress,
+            "the new node should have persisted some new events"
+        );
 
         blob_info_consistency_check
             .check_storage_node_consistency_from_epoch(new_node_starting_epoch);

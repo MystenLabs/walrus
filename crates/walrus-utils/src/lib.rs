@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(missing_docs)]
+
 use std::{fs, path::Path};
 
 use anyhow::Context;

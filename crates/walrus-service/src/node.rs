@@ -1125,9 +1125,7 @@ impl StorageNode {
                     maybe_epoch_at_start = Some(epoch);
                 });
 
-                if element_index >= processing_starting_index
-                    && self.should_process_event(&stream_element)?
-                {
+                if element_index >= processing_starting_index {
                     sui_macros::fail_point!("process-event-before");
                     self.process_event(
                         stream_element.clone(),
@@ -1155,35 +1153,36 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
-    /// Returns `false` if the node is recovering with incomplete history and the event is not
-    /// relevant to the recovery.
-    ///
-    /// An event is relevant, if the current event epoch is greater than or equal to the first
-    /// complete epoch of the recovery.
-    fn should_process_event(&self, stream_element: &PositionedStreamEvent) -> anyhow::Result<bool> {
+    /// Returns `true` if the node is recovering with incomplete history and the event is not
+    /// relevant to the recovery because it is before the first complete epoch of the recovery.
+    fn should_skip_event_in_incomplete_history_before_first_complete_epoch(
+        &self,
+        stream_element: &PositionedStreamEvent,
+    ) -> anyhow::Result<bool> {
         let NodeStatus::RecoveryCatchUpWithIncompleteHistory {
-            first_complete_epoch: first_epoch,
+            first_complete_epoch,
             ..
         } = self.inner.storage.node_status()?
         else {
-            return Ok(true);
+            return Ok(false);
         };
 
-        if self.inner.current_event_epoch() >= first_epoch {
-            return Ok(true);
+        if self.inner.current_event_epoch() >= first_complete_epoch {
+            return Ok(false);
         }
         if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
             EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
         )) = &stream_element.element
         {
-            if *epoch >= first_epoch {
-                // Processing this event will set the `current_event_epoch` to `epoch`, such that we
-                // will take the previous if-statement and return `true` for all future events.
-                return Ok(true);
+            if *epoch >= first_complete_epoch {
+                // Processing the `EpochChangeStart` event for the first complete epoch will set the
+                // `current_event_epoch` to `epoch`, such that we will take the previous
+                // if-statement and return `false` for all future events.
+                return Ok(false);
             }
         }
 
-        Ok(false)
+        Ok(true)
     }
 
     /// Process an event.
@@ -1244,6 +1243,17 @@ impl StorageNode {
             stream_element.element.event_id(),
             self.inner.clone(),
         );
+        if self
+            .should_skip_event_in_incomplete_history_before_first_complete_epoch(&stream_element)?
+        {
+            tracing::debug!(
+                "skipping event {} as it is before the first complete epoch",
+                stream_element.element.label()
+            );
+            event_handle.mark_as_complete();
+            return Ok(());
+        }
+
         self.process_event_impl(event_handle, stream_element.clone())
             .inspect_err(|err| {
                 let span = tracing::Span::current();

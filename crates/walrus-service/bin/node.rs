@@ -171,6 +171,9 @@ enum Commands {
     #[command(hide = true)]
     Catchup(CatchupArgs),
 
+    /// Restore the database from a checkpoint.
+    Restore(RestoreArgs),
+
     /// Local admin commands for managing a running node.
     LocalAdmin {
         /// Admin subcommand to execute.
@@ -190,27 +193,6 @@ enum AdminCommands {
         /// Subcommand to execute.
         #[command(subcommand)]
         command: CheckpointCommands,
-    },
-    /// Restore the database from a checkpoint.
-    Restore {
-        /// The path where the checkpoint will be created. If not specified, the checkpoint will be
-        /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
-        #[arg(long)]
-        #[serde(default)]
-        db_checkpoint_path: PathBuf,
-        /// The path where the database will be restored.
-        #[arg(long)]
-        #[serde(default)]
-        db_path: PathBuf,
-        /// The path where the WAL will be restored. If not specified, the WAL will be restored in
-        /// the same directory as the database.
-        #[arg(long)]
-        #[serde(default)]
-        wal_path: Option<PathBuf>,
-        /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
-        /// restored.
-        #[arg(long)]
-        checkpoint_id: Option<u32>,
     },
     /// Log level management.
     /// It also supports log directive like `walrus-service=debug`
@@ -455,30 +437,52 @@ struct PathArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct CatchupArgs {
-    #[arg(long)]
     /// Path to the RocksDB database directory.
+    #[arg(long)]
     db_path: PathBuf,
-    #[arg(long)]
     /// Object ID of the Walrus system object.
+    #[arg(long)]
     system_object_id: ObjectID,
-    #[arg(long)]
     /// Object ID of the Walrus staking object.
-    staking_object_id: ObjectID,
-    #[arg(long, default_value = "http://localhost:9000")]
-    /// The Sui RPC URL to use for catchup.
-    sui_rpc_url: String,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
-    /// The timeout for each request to the Sui RPC node.
-    checkpoint_request_timeout: Duration,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
-    /// The duration to run the event processor for.
-    runtime_duration: Duration,
     #[arg(long)]
+    staking_object_id: ObjectID,
+    /// The Sui RPC URL to use for catchup.
+    #[arg(long, default_value = "http://localhost:9000")]
+    sui_rpc_url: String,
+    /// The timeout for each request to the Sui RPC node.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    checkpoint_request_timeout: Duration,
+    /// The duration to run the event processor for.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
+    runtime_duration: Duration,
     /// The minimum checkpoint lag to use for event stream catchup.
+    #[arg(long)]
     event_stream_catchup_min_checkpoint_lag: u64,
-    #[command(flatten)]
     /// The config for RPC fallback.
+    #[command(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
+    /// The interval at which to sample high-frequency tracing logs.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "30s")]
+    sampled_tracing_interval: Duration,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct RestoreArgs {
+    /// The path where the checkpoint is stored. Note, it will not be defaulted to the
+    /// checkpoint dir in the config file.
+    #[arg(long)]
+    db_checkpoint_path: PathBuf,
+    /// The path where the database will be restored.
+    #[arg(long)]
+    db_path: PathBuf,
+    /// The path where the WAL will be restored. If not specified, the WAL will be restored in
+    /// the same directory as the database.
+    #[arg(long)]
+    wal_path: Option<PathBuf>,
+    /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
+    /// restored.
+    #[arg(long)]
+    checkpoint_id: Option<u32>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -557,6 +561,8 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
 
+        Commands::Restore(restore_args) => commands::restore(restore_args)?,
+
         Commands::LocalAdmin {
             command,
             socket_path,
@@ -566,7 +572,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use checkpoint_downloader::AdaptiveDownloaderConfig;
     use config::{
         LoadsFromPath,
         MetricsPushConfig,
@@ -1046,13 +1051,14 @@ mod commands {
             runtime_duration,
             event_stream_catchup_min_checkpoint_lag,
             rpc_fallback_config_args,
+            sampled_tracing_interval,
         }: CatchupArgs,
     ) -> anyhow::Result<()> {
         let event_processor_config = EventProcessorConfig {
-            pruning_interval: Duration::from_secs(3600),
             checkpoint_request_timeout,
-            adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
             event_stream_catchup_min_checkpoint_lag,
+            sampled_tracing_interval,
+            ..Default::default()
         };
 
         // Since this is a manual catchup, we use a single RPC address.
@@ -1094,6 +1100,32 @@ mod commands {
         tokio::time::sleep(runtime_duration).await;
 
         cancel_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(crate) async fn restore(
+        RestoreArgs {
+            db_checkpoint_path,
+            db_path,
+            wal_path,
+            checkpoint_id,
+        }: RestoreArgs,
+    ) -> anyhow::Result<()> {
+        DbCheckpointManager::restore_from_backup(
+            &db_checkpoint_path,
+            &db_path,
+            wal_path.as_deref(),
+            checkpoint_id,
+        )
+        .await?;
+
+        let target_checkpoint = checkpoint_id.map_or("latest".to_string(), |id| id.to_string());
+        println!(
+            "Restored from {target_checkpoint} successfully. The node must be restarted for \
+            changes to take effect."
+        );
+
         Ok(())
     }
 
@@ -1231,27 +1263,6 @@ mod commands {
         command: AdminCommands,
         socket_path: PathBuf,
     ) -> anyhow::Result<()> {
-        if let AdminCommands::Restore {
-            db_checkpoint_path,
-            db_path,
-            wal_path,
-            checkpoint_id,
-        } = command
-        {
-            DbCheckpointManager::restore_from_backup(
-                &db_checkpoint_path,
-                &db_path,
-                wal_path.as_deref(),
-                checkpoint_id,
-            )
-            .await?;
-            println!(
-                "Restore completed successfully. The node must be restarted for changes to \
-                take effect."
-            );
-            return Ok(());
-        }
-
         // Connect to the socket.
         let socket = UnixStream::connect(&socket_path).await.context(format!(
             "failed to connect to local admin socket at '{}'",
@@ -1578,11 +1589,6 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
                 handle_checkpoint_command(command, &args).await
             }
             Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
-            Ok(AdminCommands::Restore { .. }) => AdminCommandResponse {
-                success: false,
-                message: "Restore is an offline command and cannot be sent to a running node"
-                    .to_string(),
-            },
             Err(e) => AdminCommandResponse {
                 success: false,
                 message: format!("Failed to parse command: {e}"),
