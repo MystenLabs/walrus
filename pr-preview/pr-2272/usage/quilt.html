@@ -283,8 +283,8 @@ other factors.</p>
 </blockquote>
 <p>The table only shows the Walrus storage cost. Similar savings are possible for Sui gas fees. Storing
 600 blobs as a quilt results in gas fees of 0.00725 SUI compared to 1.725 SUI when storing them as
-standard blobs (batching 25 at a time), which is a savings factor of <strong>238x</strong>. These values are not
-affected by the blob size.
+standard blobs (with <code>walrus store</code> command, with 25 blobs per command to reduce Sui computation
+costs), which is a savings factor of <strong>238x</strong>. These values are not affected by the blob size.
 Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
 blobs under 100KB where both SUI and WAL costs can be reduced by over <strong>100x</strong>.</p>
 <h3 id="organizing-collections"><a class="header" href="#organizing-collections">Organizing Collections</a></h3>

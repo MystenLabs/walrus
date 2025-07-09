@@ -357,10 +357,8 @@ storage costs. This does not delete the blob on Walrus. Depending on the relativ
 WAL it might be cheaper to burn a long lived blob object, and subsequently re-registering and
 re-certifying them close to the end of its lifetime to extend it.</p>
 <h3 id="reducing-costs-for-small-blobs"><a class="header" href="#reducing-costs-for-small-blobs">Reducing costs for small blobs</a></h3>
-<p>Walrus <a href="../usage/quilt.html">Quilt</a> is a batch storage tool to reduce storage costs of small blobs.
-There are two batching approaches: first, batching a large number of small blobs together, and
-second, batching small blobs together with large blobs. This significantly reduces the per-blob
-metadata overhead that dominates costs for small files.</p>
+<p>Walrus <a href="../usage/quilt.html">Quilt</a> is a batch storage tool that reduces storage costs for small
+blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.</p>
 <h2 id="the-future"><a class="header" href="#the-future">The future</a></h2>
 <p>The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
 smaller, as well as further improving the efficiency of Quilt for small blob storage.</p>

@@ -934,6 +934,7 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 <div class="table-wrapper"><table><thead><tr><th>OS</th><th>CPU</th><th>Architecture</th></tr></thead><tbody>
 <tr><td>Ubuntu</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64"><code>ubuntu-x86_64</code></a></td></tr>
 <tr><td>Ubuntu</td><td>Intel 64bit (generic)</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic"><code>ubuntu-x86_64-generic</code></a></td></tr>
+<tr><td>Ubuntu</td><td>ARM 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-aarch64"><code>ubuntu-aarch64</code></a></td></tr>
 <tr><td>MacOS</td><td>Apple Silicon</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64"><code>macos-arm64</code></a></td></tr>
 <tr><td>MacOS</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64"><code>macos-x86_64</code></a></td></tr>
 <tr><td>Windows</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe"><code>windows-x86_64.exe</code></a></td></tr>
@@ -941,16 +942,16 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 </div>
 <h3 id="nix-install"><a class="header" href="#nix-install">Install via script</a></h3>
 <p>To download and install <code>walrus</code> to your <code>"$HOME"/.local/bin</code> directory, run one of the following
-commands in your terminal then follow on-screen instructions. See <a href="usage/setup.html#windows-install">Windows
-instructions</a> if you are on Windows.</p>
+commands in your terminal then follow on-screen instructions. If you are on Windows, see the
+<a href="usage/setup.html#windows-install">Windows-specific instructions</a> or the <a href="usage/setup.html#suiup-install"><code>suiup</code> installation</a> (experimental)</p>
 <pre><code class="language-sh"># Run a first-time install using the latest Mainnet version.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+curl -sSf https://install.wal.app | sh
 
 # Install the latest Testnet version instead.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
+curl -sSf https://install.wal.app | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
+curl -sSf https://install.wal.app | sh -s -- -f
 </code></pre>
 <p>Make sure that the <code>"$HOME"/.local/bin</code> directory is in your <code>$PATH</code>.</p>
 <p>Once this is done, you should be able to run Walrus by using the <code>walrus</code> command in your terminal.</p>
@@ -998,6 +999,15 @@ Note that due to DoS protection, it may not be possible to download the binaries
 commands, etc. If you use Windows, you may need to adapt most of those.</p>
 </div>
 </div>
+<h3 id="suiup-install"><a class="header" href="#suiup-install">Install via suiup (experimental)</a></h3>
+<p><code>suiup</code> is a tool to install and manage different versions of CLI tools for working in the Sui
+ecosystem, including the <code>walrus</code> CLI. After installing <code>suiup</code> as described in the <a href="https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation"><code>suiup</code>
+documentation</a>, you can install
+specific versions of the <code>walrus</code> CLI:</p>
+<pre><code class="language-sh">suiup install walrus@testnet # install the latest testnet release
+suiup install walrus@mainnet # install the latest mainnet release
+suiup install walrus@testnet-v1.27.1 # install a specific release
+</code></pre>
 <h3 id="github-releases"><a class="header" href="#github-releases">GitHub releases</a></h3>
 <p>You can find all our releases including release notes on <a href="https://github.com/MystenLabs/walrus/releases">GitHub</a>.
 Simply download the archive for your system and extract the <code>walrus</code> binary.</p>
@@ -2321,10 +2331,8 @@ storage costs. This does not delete the blob on Walrus. Depending on the relativ
 WAL it might be cheaper to burn a long lived blob object, and subsequently re-registering and
 re-certifying them close to the end of its lifetime to extend it.</p>
 <h3 id="reducing-costs-for-small-blobs"><a class="header" href="#reducing-costs-for-small-blobs">Reducing costs for small blobs</a></h3>
-<p>Walrus <a href="dev-guide/../usage/quilt.html">Quilt</a> is a batch storage tool to reduce storage costs of small blobs.
-There are two batching approaches: first, batching a large number of small blobs together, and
-second, batching small blobs together with large blobs. This significantly reduces the per-blob
-metadata overhead that dominates costs for small files.</p>
+<p>Walrus <a href="dev-guide/../usage/quilt.html">Quilt</a> is a batch storage tool that reduces storage costs for small
+blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.</p>
 <h2 id="the-future"><a class="header" href="#the-future">The future</a></h2>
 <p>The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
 smaller, as well as further improving the efficiency of Quilt for small blob storage.</p>
@@ -2483,8 +2491,8 @@ other factors.</p>
 </blockquote>
 <p>The table only shows the Walrus storage cost. Similar savings are possible for Sui gas fees. Storing
 600 blobs as a quilt results in gas fees of 0.00725 SUI compared to 1.725 SUI when storing them as
-standard blobs (batching 25 at a time), which is a savings factor of <strong>238x</strong>. These values are not
-affected by the blob size.
+standard blobs (with <code>walrus store</code> command, with 25 blobs per command to reduce Sui computation
+costs), which is a savings factor of <strong>238x</strong>. These values are not affected by the blob size.
 Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
 blobs under 100KB where both SUI and WAL costs can be reduced by over <strong>100x</strong>.</p>
 <h3 id="organizing-collections"><a class="header" href="#organizing-collections">Organizing Collections</a></h3>
@@ -5428,9 +5436,9 @@ concepts, their canonical name, and how they relate to or differ from other term
 <tr><td>point of availability (PoA)</td><td>point in time when a <em>CoA</em> is submitted to Sui and the corresponding <em>blob</em> is guaranteed to be available until its expiration</td></tr>
 <tr><td>publisher</td><td>service interacting with Sui and the <em>SNs</em> to store <em>blobs</em> on Walrus; offers a simple <code>HTTP POST</code> endpoint to <em>end users</em></td></tr>
 <tr><td>quilt</td><td>structured data object consisting of one or multiple unstructured <em>blobs</em></td></tr>
-<tr><td>quilt id</td><td><em>blob ID</em> of a <em>quilt</em></td></tr>
+<tr><td>quilt ID</td><td><em>blob ID</em> of a <em>quilt</em></td></tr>
 <tr><td>quilt patch</td><td>a single <em>blob</em> stored in a <em>quilt</em>, including the unstructured data and metadata</td></tr>
-<tr><td>quilt patch id</td><td>a unique id to identify a <em>quilt patch</em> in Walrus; the <em>quilt patch id</em> is computed from the entire <em>quilt</em>, not a single <em>quilt patch</em></td></tr>
+<tr><td>quilt patch ID</td><td>a unique ID to identify a <em>quilt patch</em> in Walrus; the <em>quilt patch ID</em> is computed from the entire <em>quilt</em>, not a single <em>quilt patch</em></td></tr>
 <tr><td>reconstruction (of a blob)</td><td>decoding of the primary <em>slivers</em> to obtain the blob; includes re-encoding the <em>blob</em> and checking the Merkle proofs</td></tr>
 <tr><td>recovery</td><td>process of an <em>SN</em> recovering one or multiple <em>blobs</em>, <em>slivers</em>, or full <em>shards</em> by obtaining recovery symbols from other <em>SNs</em></td></tr>
 <tr><td>RedStuff</td><td>our erasure-encoding approach, which uses two different encodings (<em>primary</em> and <em>secondary</em>) to enable shard recovery; details are available in the <a href="./walrus.pdf">whitepaper</a></td></tr>
