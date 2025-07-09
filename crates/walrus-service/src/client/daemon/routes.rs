@@ -686,7 +686,7 @@ pub(super) async fn status() -> Response {
         (
             "quilt_id" = BlobId, Path,
             description = "The quilt ID encoded as URL-safe base64",
-            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+            example = "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0I"
         )
     ),
     responses(
@@ -1121,7 +1121,7 @@ fn get_quilt_patch_id(quilt_id: &BlobId, name: &str) -> Option<QuiltPatchId> {
         ("segment_00009.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCgALAA"),
         ("segment_00010.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBCwAMAA"),
         ("segment_00011.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDAANAA"),
-        ("segment_00012.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDQAOAA"),
+        ("segment_00012.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IB0QDSAA"),
         ("segment_00013.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDgAPAA"),
         ("segment_00014.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBDwAQAA"),
         ("segment_00015.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBEAARAA"),
@@ -1134,11 +1134,11 @@ fn get_quilt_patch_id(quilt_id: &BlobId, name: &str) -> Option<QuiltPatchId> {
         ("segment_00022.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBFwAYAA"),
         ("segment_00023.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGAAZAA"),
         ("segment_00024.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGQAaAA"),
-        ("segment_00025.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGgAbAA"),
-        ("segment_00026.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGwAcAA"),
-        ("segment_00027.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHAAdAA"),
-        ("segment_00028.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHQAeAA"),
-        ("segment_00029.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHgAfAA"),
+        // ("segment_00025.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGgAbAA"),
+        // ("segment_00026.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBGwAcAA"),
+        // ("segment_00027.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHAAdAA"),
+        // ("segment_00028.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHQAeAA"),
+        // ("segment_00029.ts", "QFGqa50FCknuqsRRpH_z2fx5MVpf5wCC_29aW3JLv0IBHgAfAA"),
     ].into_iter().collect();
 
     segment_map.get(name).and_then(|patch_id_str| {
