@@ -80,9 +80,10 @@ pub(crate) fn check_response_tip(
             Ok(())
         }
         TipConfig::SendTip { address, kind } => {
-            let expected_tip = kind
-                .compute_tip(n_shards, unencoded_size, encoding_type)
-                .ok_or(TipError::EncodedBlobLengthFailed)? as i128;
+            let expected_tip = i128::from(
+                kind.compute_tip(n_shards, unencoded_size, encoding_type)
+                    .ok_or(TipError::EncodedBlobLengthFailed)?,
+            );
             tracing::debug!(%expected_tip, "checking tip");
 
             let Some(balance_changes) = response.balance_changes.as_ref() else {
