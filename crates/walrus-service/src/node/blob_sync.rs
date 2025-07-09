@@ -3,7 +3,6 @@
 
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
-    ops::Not,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -58,6 +57,7 @@ pub(crate) struct BlobSyncHandler {
     node: Arc<StorageNodeInner>,
     permits: Permits,
     task_monitors: TaskMonitorFamily<&'static str>,
+    monitor_interval: Duration,
 }
 
 impl BlobSyncHandler {
@@ -65,6 +65,7 @@ impl BlobSyncHandler {
         node: Arc<StorageNodeInner>,
         max_concurrent_blob_syncs: usize,
         max_concurrent_sliver_syncs: usize,
+        monitor_interval: Duration,
     ) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
@@ -74,25 +75,33 @@ impl BlobSyncHandler {
                 sliver_pairs: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
             },
             node,
+            monitor_interval,
         }
     }
 
-    // Periodically checks the status of all in-progress blob syncs and return any that panicked.
+    /// Periodically checks the status of all in-progress blob syncs, cancelling those that are no
+    /// longer certified and returning any that panicked.
     pub fn spawn_task_monitor(&self) -> JoinHandle<()> {
         let blob_syncs = self.blob_syncs_in_progress.clone();
+        let node = self.node.clone();
+        let monitor_interval = if cfg!(test) {
+            Duration::from_secs(5)
+        } else {
+            self.monitor_interval
+        };
         tokio::spawn(async move {
             loop {
                 // Collect all finished in-progress syncs. Note that at the end of blob sync, the
                 // handle should have been removed from the map. So handles that are still in the
                 // map are either still running or panicked.
-                let mut handles = Vec::new();
-                {
-                    // Collect all finished in-progress syncs;
-                    let mut syncs = blob_syncs.lock().expect("should be able to acquire lock");
-                    let mut completed = Vec::new();
+                let mut finished_sync_handles = Vec::new();
 
-                    // Collect handles to be awaited
+                {
+                    let mut syncs = blob_syncs.lock().expect("should be able to acquire lock");
+                    let mut completed_blob_ids = Vec::new();
+
                     for (blob_id, handle) in syncs.iter_mut() {
+<<<<<<< HEAD
                         if let Some(sync_handle) = &handle.blob_sync_handle
                             && sync_handle.is_finished()
                         {
@@ -102,48 +111,63 @@ impl BlobSyncHandler {
                             );
                             if let Some(join_handle) = handle.blob_sync_handle.take() {
                                 handles.push((*blob_id, join_handle));
+=======
+                        // Cancel the sync if the blob is no longer certified.
+                        if node.is_blob_not_certified(blob_id) {
+                            tracing::debug!(
+                                walrus.blob_id = %blob_id,
+                                "cancelling blob sync because blob is no longer certified"
+                            );
+                            handle.cancel();
+                        }
+
+                        // Collect handles to be awaited.
+                        if let Some(sync_handle) = &handle.blob_sync_handle {
+                            if sync_handle.is_finished() {
+                                tracing::info!(
+                                    walrus.blob_id = %blob_id,
+                                    "blob sync monitor observed blob sync finished"
+                                );
+                                if let Some(join_handle) = handle.blob_sync_handle.take() {
+                                    finished_sync_handles.push((*blob_id, join_handle));
+                                }
+                                completed_blob_ids.push(*blob_id);
+>>>>>>> 55c8bbd8 (fix(node): cancel blob syncs for expired blobs)
                             }
                             completed.push(*blob_id);
                         }
                     }
 
-                    // Remove completed syncs
-                    for blob_id in completed {
+                    // Remove completed syncs.
+                    for blob_id in completed_blob_ids {
                         syncs.remove(&blob_id);
                     }
                 }
 
-                // Now await the handles
-                for (blob_id, handle) in handles {
-                    match handle.await {
-                        Ok(_) => {
-                            // Normal completion. This should not happen.
-                            // The blob sync handler should have removed the handle after the sync
-                            // finished. So technically the sync handle should not be in the map.
-                            tracing::warn!(
-                                walrus.blob_id = %blob_id,
-                                "blob sync finished with success, but still exists in \
-                                BlobSyncHandler"
-                            );
-                        }
-                        Err(error) => {
-                            tracing::error!(
-                                walrus.blob_id = %blob_id,
-                                ?error,
-                                "blob sync task exited with error"
-                            );
-                            if error.is_panic() {
-                                std::panic::resume_unwind(error.into_panic());
-                            }
-                        }
+                // Now await the handles.
+                for (blob_id, handle) in finished_sync_handles {
+                    let Err(error) = handle.await else {
+                        // Normal completion. This should not happen.
+                        // The blob sync handler should have removed the handle after the sync
+                        // finished. So technically the sync handle should not be in the map.
+                        tracing::warn!(
+                            walrus.blob_id = %blob_id,
+                            "blob sync finished with success, but still exists in \
+                            BlobSyncHandler"
+                        );
+                        continue;
+                    };
+                    tracing::error!(
+                        walrus.blob_id = %blob_id,
+                        ?error,
+                        "blob sync task exited with error"
+                    );
+                    if error.is_panic() {
+                        std::panic::resume_unwind(error.into_panic());
                     }
                 }
 
-                if cfg!(test) {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                } else {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                }
+                tokio::time::sleep(monitor_interval).await;
             }
         })
     }
@@ -242,8 +266,7 @@ impl BlobSyncHandler {
 
         let closure = |(blob_id, sync): (&BlobId, &mut InProgressSyncHandle)| {
             self.node
-                .is_blob_certified(blob_id)
-                .is_ok_and(Not::not)
+                .is_blob_not_certified(blob_id)
                 .then(|| sync.cancel())
                 .flatten()
         };
