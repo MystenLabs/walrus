@@ -934,6 +934,7 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 <div class="table-wrapper"><table><thead><tr><th>OS</th><th>CPU</th><th>Architecture</th></tr></thead><tbody>
 <tr><td>Ubuntu</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64"><code>ubuntu-x86_64</code></a></td></tr>
 <tr><td>Ubuntu</td><td>Intel 64bit (generic)</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic"><code>ubuntu-x86_64-generic</code></a></td></tr>
+<tr><td>Ubuntu</td><td>ARM 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-aarch64"><code>ubuntu-aarch64</code></a></td></tr>
 <tr><td>MacOS</td><td>Apple Silicon</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64"><code>macos-arm64</code></a></td></tr>
 <tr><td>MacOS</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64"><code>macos-x86_64</code></a></td></tr>
 <tr><td>Windows</td><td>Intel 64bit</td><td><a href="https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe"><code>windows-x86_64.exe</code></a></td></tr>
@@ -941,16 +942,16 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 </div>
 <h3 id="nix-install"><a class="header" href="#nix-install">Install via script</a></h3>
 <p>To download and install <code>walrus</code> to your <code>"$HOME"/.local/bin</code> directory, run one of the following
-commands in your terminal then follow on-screen instructions. See <a href="usage/setup.html#windows-install">Windows
-instructions</a> if you are on Windows.</p>
+commands in your terminal then follow on-screen instructions. If you are on Windows, see the
+<a href="usage/setup.html#windows-install">Windows-specific instructions</a> or the <a href="usage/setup.html#suiup-install"><code>suiup</code> installation</a> (experimental)</p>
 <pre><code class="language-sh"># Run a first-time install using the latest Mainnet version.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+curl -sSf https://install.wal.app | sh
 
 # Install the latest Testnet version instead.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
+curl -sSf https://install.wal.app | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
+curl -sSf https://install.wal.app | sh -s -- -f
 </code></pre>
 <p>Make sure that the <code>"$HOME"/.local/bin</code> directory is in your <code>$PATH</code>.</p>
 <p>Once this is done, you should be able to run Walrus by using the <code>walrus</code> command in your terminal.</p>
@@ -998,6 +999,15 @@ Note that due to DoS protection, it may not be possible to download the binaries
 commands, etc. If you use Windows, you may need to adapt most of those.</p>
 </div>
 </div>
+<h3 id="suiup-install"><a class="header" href="#suiup-install">Install via suiup (experimental)</a></h3>
+<p><code>suiup</code> is a tool to install and manage different versions of CLI tools for working in the Sui
+ecosystem, including the <code>walrus</code> CLI. After installing <code>suiup</code> as described in the <a href="https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation"><code>suiup</code>
+documentation</a>, you can install
+specific versions of the <code>walrus</code> CLI:</p>
+<pre><code class="language-sh">suiup install walrus@testnet # install the latest testnet release
+suiup install walrus@mainnet # install the latest mainnet release
+suiup install walrus@testnet-v1.27.1 # install a specific release
+</code></pre>
 <h3 id="github-releases"><a class="header" href="#github-releases">GitHub releases</a></h3>
 <p>You can find all our releases including release notes on <a href="https://github.com/MystenLabs/walrus/releases">GitHub</a>.
 Simply download the archive for your system and extract the <code>walrus</code> binary.</p>
