@@ -534,6 +534,10 @@ pub struct StorageNodeInner {
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
+    // Below tokio watch channel holds the current event epoch that the node is processing.
+    // Storage node is a state machine processing events, and in many places, we need to use
+    // the current event epoch which can be lagging behind the latest Walrus epoch on chain.
+    //
     // Receiver for watching the latest event epoch.
     latest_event_epoch_watcher: watch::Receiver<Option<Epoch>>,
     // Sender for updating the latest event epoch.
@@ -1301,7 +1305,9 @@ impl StorageNode {
 
         // Update initial latest event epoch. This is the first (non-extension) event the node
         // processes.
-        let _ = self.inner.latest_event_epoch_sender.send(Some(event_epoch));
+        self.inner
+            .latest_event_epoch_sender
+            .send(Some(event_epoch))?;
 
         tracing::debug!("checking the first contract event if we're severely lagging");
 
@@ -1544,7 +1550,9 @@ impl StorageNode {
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
-        let _ = self.inner.latest_event_epoch_sender.send(Some(event.epoch));
+        self.inner
+            .latest_event_epoch_sender
+            .send(Some(event.epoch))?;
 
         Ok(())
     }
@@ -1649,14 +1657,23 @@ impl StorageNode {
             tracing::info!("node just became a new committee member, process shard changes");
             // This node just became a new committee member. Process shard changes as a new
             // committee member.
-            self.process_shard_changes_in_new_epoch(event_handle, event, true, shard_map_lock)
-                .await?;
+            self.process_shard_changes_in_new_epoch_while_node_is_in_sync(
+                event_handle,
+                event,
+                true,
+                shard_map_lock,
+            )
+            .await?;
         } else {
             tracing::info!("start node recovery to catch up to the latest epoch");
             // This node is a past and current committee member. Start node recovery to catch up
             // to the latest epoch.
-            self.start_node_recovery(event_handle, event, shard_map_lock)
-                .await?;
+            self.process_shard_changes_in_new_epoch_and_start_node_recovery(
+                event_handle,
+                event,
+                shard_map_lock,
+            )
+            .await?;
         }
 
         Ok(())
@@ -1716,10 +1733,14 @@ impl StorageNode {
                 node recovery to recover to the latest epoch {}",
                 event.epoch
             );
-            self.start_node_recovery(event_handle, event, shard_map_lock)
-                .await
+            self.process_shard_changes_in_new_epoch_and_start_node_recovery(
+                event_handle,
+                event,
+                shard_map_lock,
+            )
+            .await
         } else {
-            self.process_shard_changes_in_new_epoch(
+            self.process_shard_changes_in_new_epoch_while_node_is_in_sync(
                 event_handle,
                 event,
                 is_new_node_joining_committee,
@@ -1729,11 +1750,11 @@ impl StorageNode {
         }
     }
 
-    /// Starts the node recovery process.
+    /// Processes the shard changes in the new epoch and starts the node recovery process.
     ///
     /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
     /// event as completed.
-    async fn start_node_recovery(
+    async fn process_shard_changes_in_new_epoch_and_start_node_recovery(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1875,9 +1896,9 @@ impl StorageNode {
         }
     }
 
-    /// Processes all the shard changes in the new epoch.
+    /// Processes all the shard changes in the new epoch, and finishes the epoch change.
     #[tracing::instrument(skip_all)]
-    async fn process_shard_changes_in_new_epoch(
+    async fn process_shard_changes_in_new_epoch_while_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -2250,8 +2271,8 @@ impl StorageNodeInner {
     }
 
     /// Returns the latest event epoch.
-    /// The callsite must ensure that the first event is processed so that the
-    /// latest_event_epoch_watcher is initialized.
+    /// If the storage node hasn't processed the first event yet, this function will block until
+    /// the first event is processed, so that the current event epoch is set.
     async fn current_event_epoch(&self) -> Result<Epoch, watch::error::RecvError> {
         let mut watcher = self.latest_event_epoch_watcher.clone();
         while watcher.borrow().is_none() {
@@ -2260,6 +2281,7 @@ impl StorageNodeInner {
         Ok(watcher.borrow().expect("watcher should be set"))
     }
 
+    /// Non-blocking version of `current_event_epoch`.
     fn try_get_current_event_epoch(&self) -> Option<Epoch> {
         *self.latest_event_epoch_watcher.borrow()
     }

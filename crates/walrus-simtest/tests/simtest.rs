@@ -750,8 +750,8 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
     }
 
-    // The node recovery process is artificially prolonged to be longer than 1 epoch.
-    // We should expect the recovering node should eventually become Active.
+    // Tests that when a node is in RecoveryInProgress state, restarting the node repeatedly
+    // will not cause the node to be stuck/malfunction.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_recovery_in_progress_with_node_restart() {
@@ -832,7 +832,7 @@ mod tests {
         {
             let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
             let next_fail_triggered_clone = next_fail_triggered.clone();
-            let crash_end_time = Instant::now() + Duration::from_secs(60);
+            let crash_end_time = Instant::now() + Duration::from_secs(120);
             let target_fail_node_id = walrus_cluster.nodes[0]
                 .node_id
                 .expect("node id should be set");

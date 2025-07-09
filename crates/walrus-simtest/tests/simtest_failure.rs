@@ -407,10 +407,10 @@ mod tests {
                 target_fail_node_id,
                 next_fail_triggered_clone.clone(),
                 crash_end_time,
-                5,
-                25,
-                5,
-                25,
+                /* min_crash_duration_secs */ 5,
+                /* max_crash_duration_secs */ 25,
+                /* min_live_duration_secs */ 5,
+                /* max_live_duration_secs */ 25,
             );
         });
 

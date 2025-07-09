@@ -647,14 +647,16 @@ pub mod simtest_utils {
 
         let node_down_duration =
             Duration::from_secs(rng.gen_range(min_crash_duration_secs..=max_crash_duration_secs));
-        let next_crash_time = Instant::now()
-            + node_down_duration
+        let next_crash_after = node_down_duration
             + Duration::from_secs(rng.gen_range(min_live_duration_secs..=max_live_duration_secs));
+        let next_crash_time = time_now + next_crash_after;
 
         tracing::warn!(
-            "crashing node {current_node} for {} seconds; next crash is set to {:?}",
+            "crashing node {current_node} for {} seconds; next crash is set to {:?} after {} \
+            seconds",
             node_down_duration.as_secs(),
-            next_crash_time
+            next_crash_time,
+            next_crash_after.as_secs(),
         );
         sui_simulator::task::kill_current_node(Some(node_down_duration));
         *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
