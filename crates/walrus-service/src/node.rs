@@ -9,7 +9,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -524,7 +524,14 @@ pub struct StorageNodeInner {
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
-    latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
+    // Below tokio watch channel holds the current event epoch that the node is processing.
+    // Storage node is a state machine processing events, and in many places, we need to use
+    // the current event epoch which can be lagging behind the latest Walrus epoch on chain.
+    //
+    // Receiver for watching the latest event epoch.
+    latest_event_epoch_watcher: watch::Receiver<Option<Epoch>>,
+    // Sender for updating the latest event epoch.
+    latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
 }
@@ -638,6 +645,7 @@ impl StorageNode {
                 None
             }
         };
+        let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -664,7 +672,8 @@ impl StorageNode {
             thread_pool,
             encoding_config,
             registry: registry.clone(),
-            latest_event_epoch: AtomicU32::new(0),
+            latest_event_epoch_sender,
+            latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
         });
@@ -1045,6 +1054,7 @@ impl StorageNode {
         element_index: u64,
         maybe_epoch_at_start: &mut Option<Epoch>,
     ) -> anyhow::Result<()> {
+        sui_macros::fail_point!("fail_point_process_event");
         let _scope = monitored_scope::monitored_scope("ProcessEvent");
 
         let node_status = self.inner.storage.node_status()?;
@@ -1123,12 +1133,6 @@ impl StorageNode {
             return Ok(());
         }
 
-        // Update initial latest event epoch. This is the first event the
-        // node processes.
-        self.inner
-            .latest_event_epoch
-            .store(event.event_epoch(), Ordering::SeqCst);
-
         tracing::debug!("checking the first contract event if we're severely lagging");
 
         // Clear the starting epoch, so that we won't make this check again in the current run.
@@ -1144,6 +1148,12 @@ impl StorageNode {
             );
             self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
         }
+
+        // Update initial latest event epoch. This is the first (non-extension) event the node
+        // processes.
+        self.inner
+            .latest_event_epoch_sender
+            .send(Some(event.event_epoch()))?;
 
         Ok(())
     }
@@ -1371,8 +1381,8 @@ impl StorageNode {
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
         self.inner
-            .latest_event_epoch
-            .store(event.epoch, Ordering::SeqCst);
+            .latest_event_epoch_sender
+            .send(Some(event.epoch))?;
 
         Ok(())
     }
@@ -1478,14 +1488,23 @@ impl StorageNode {
             tracing::info!("node just became a new committee member, process shard changes");
             // This node just became a new committee member. Process shard changes as a new
             // committee member.
-            self.process_shard_changes_in_new_epoch(event_handle, event, true, shard_map_lock)
-                .await?;
+            self.process_shard_changes_in_new_epoch_while_node_is_in_sync(
+                event_handle,
+                event,
+                true,
+                shard_map_lock,
+            )
+            .await?;
         } else {
             tracing::info!("start node recovery to catch up to the latest epoch");
             // This node is a past and current committee member. Start node recovery to catch up
             // to the latest epoch.
-            self.start_node_recovery(event_handle, event, shard_map_lock)
-                .await?;
+            self.process_shard_changes_in_new_epoch_and_start_node_recovery(
+                event_handle,
+                event,
+                shard_map_lock,
+            )
+            .await?;
         }
 
         Ok(())
@@ -1534,20 +1553,39 @@ impl StorageNode {
             );
         }
 
-        self.process_shard_changes_in_new_epoch(
-            event_handle,
-            event,
-            is_new_node_joining_committee,
-            shard_map_lock,
-        )
-        .await
+        if let NodeStatus::RecoveryInProgress(recovering_epoch) =
+            self.inner.storage.node_status()?
+        {
+            // If the node is already in recovery mode, we need to restart node recovery to recover
+            // to the latest epoch. This is to make sure that the node is always recovering to the
+            // latest epoch.
+            tracing::info!(
+                "node is currently recovering to epoch {recovering_epoch}, restarting \
+                node recovery to recover to the latest epoch {}",
+                event.epoch
+            );
+            self.process_shard_changes_in_new_epoch_and_start_node_recovery(
+                event_handle,
+                event,
+                shard_map_lock,
+            )
+            .await
+        } else {
+            self.process_shard_changes_in_new_epoch_while_node_is_in_sync(
+                event_handle,
+                event,
+                is_new_node_joining_committee,
+                shard_map_lock,
+            )
+            .await
+        }
     }
 
-    /// Starts the node recovery process.
+    /// Processes the shard changes in the new epoch and starts the node recovery process.
     ///
     /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
     /// event as completed.
-    async fn start_node_recovery(
+    async fn process_shard_changes_in_new_epoch_and_start_node_recovery(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1689,9 +1727,9 @@ impl StorageNode {
         }
     }
 
-    /// Processes all the shard changes in the new epoch.
+    /// Processes all the shard changes in the new epoch, and finishes the epoch change.
     #[tracing::instrument(skip_all)]
-    async fn process_shard_changes_in_new_epoch(
+    async fn process_shard_changes_in_new_epoch_while_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -2045,8 +2083,15 @@ impl StorageNodeInner {
         Ok(metadata)
     }
 
-    fn current_event_epoch(&self) -> Epoch {
-        self.latest_event_epoch.load(Ordering::SeqCst)
+    /// Returns the latest event epoch.
+    /// If the storage node hasn't processed the first event yet, this function will block until
+    /// the first event is processed, so that the current event epoch is set.
+    async fn current_event_epoch(&self) -> Result<Epoch, watch::error::RecvError> {
+        let mut watcher = self.latest_event_epoch_watcher.clone();
+        while watcher.borrow().is_none() {
+            watcher.changed().await?;
+        }
+        Ok(watcher.borrow().expect("watcher should be set"))
     }
 
     fn current_epoch(&self) -> Epoch {

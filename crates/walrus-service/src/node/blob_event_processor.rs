@@ -113,7 +113,10 @@ impl BackgroundEventProcessor {
             || self.node.storage.node_status()? == NodeStatus::RecoveryCatchUp
             || self
                 .node
-                .is_stored_at_all_shards_at_epoch(&event.blob_id, self.node.current_event_epoch())
+                .is_stored_at_all_shards_at_epoch(
+                    &event.blob_id,
+                    self.node.current_event_epoch().await?,
+                )
                 .await?
         {
             event_handle.mark_as_complete();

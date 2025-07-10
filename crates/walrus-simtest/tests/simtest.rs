@@ -8,8 +8,12 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{Arc, atomic::AtomicBool},
-        time::Duration,
+        sync::{
+            Arc,
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::{Duration, Instant},
     };
 
     use rand::{Rng, SeedableRng};
@@ -32,6 +36,8 @@ mod tests {
         self,
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
+        NodeCrashConfig,
+        repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
@@ -454,10 +460,21 @@ mod tests {
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        // Register a fail point to have a temporary pause in the node recovery process that is
-        // longer than epoch length.
-        register_fail_point_async("start_node_recovery_entry", || async move {
-            tokio::time::sleep(Duration::from_secs(60)).await;
+        // Register a fail point to have a temporary pause in the first node recovery process that
+        // is longer than epoch length.
+        // Note that when a node is in RecoveryInProgress state, it will not start a new recovery
+        // everytime when a new epoch change start event is processed. So here we only delay the
+        // first recovery.
+        let delay_triggered = Arc::new(AtomicBool::new(false));
+        register_fail_point_async("start_node_recovery_entry", move || {
+            let delay_triggered_clone = delay_triggered.clone();
+            async move {
+                if !delay_triggered_clone.load(Ordering::SeqCst) {
+                    delay_triggered_clone.store(true, Ordering::SeqCst);
+                    tracing::info!("delaying node recovery for 60s");
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            }
         });
 
         // Tracks if a crash has been triggered.
@@ -540,5 +557,133 @@ mod tests {
         }
 
         blob_info_consistency_check.check_storage_node_consistency();
+    }
+
+    // Tests that when a node is in RecoveryInProgress state, restarting the node repeatedly
+    // will not cause the node to be stuck/malfunction.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_recovery_in_progress_with_node_restart() {
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: false,
+                ..Default::default()
+            })
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
+
+        // Run the workload to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Register a fail point to have a temporary pause in the first node recovery process that
+        // is longer than epoch length.
+        // Note that when a node is in RecoveryInProgress state, it will not start a new recovery
+        // everytime when a new epoch change start event is processed. So here we only delay the
+        // first recovery.
+        let delay_triggered = Arc::new(AtomicBool::new(false));
+        register_fail_point_async("start_node_recovery_entry", move || {
+            let delay_triggered_clone = delay_triggered.clone();
+            async move {
+                if !delay_triggered_clone.load(Ordering::SeqCst) {
+                    delay_triggered_clone.store(true, Ordering::SeqCst);
+                    tracing::info!("delaying node recovery for 60s");
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            }
+        });
+
+        // First, trigger a node crash with long delay to bring node into recovery mode.
+        {
+            // Tracks if a crash has been triggered.
+            let fail_triggered = Arc::new(AtomicBool::new(false));
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+            let fail_triggered_clone = fail_triggered.clone();
+
+            register_fail_point("fail_point_process_event", move || {
+                crash_target_node(
+                    target_fail_node_id,
+                    fail_triggered_clone.clone(),
+                    Duration::from_secs(60),
+                );
+            });
+
+            // Wait until fail_triggered is set to true with a timeout.
+            let timeout = Instant::now() + Duration::from_secs(20);
+            while !fail_triggered.load(Ordering::SeqCst) {
+                if Instant::now() > timeout {
+                    panic!("fail_triggered is not set to true within 20 seconds");
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+
+        // During recovery, repeatedly restart the node.
+        {
+            let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
+            let next_fail_triggered_clone = next_fail_triggered.clone();
+            let crash_end_time = Instant::now() + Duration::from_secs(120);
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+
+            sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
+                repeatedly_crash_target_node(
+                    target_fail_node_id,
+                    next_fail_triggered_clone.clone(),
+                    crash_end_time,
+                    NodeCrashConfig {
+                        min_crash_duration_secs: 1,
+                        max_crash_duration_secs: 3,
+                        min_live_duration_secs: 5,
+                        max_live_duration_secs: 40,
+                    },
+                );
+            });
+        }
+
+        tokio::time::sleep(Duration::from_secs(180)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
+
+        assert!(node_health_info[0].shard_detail.is_some());
+        for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
+            // For all the shards that the crashed node owns, they should be in ready state.
+            assert_eq!(shard.status, ShardStatus::Ready);
+        }
+
+        assert_eq!(
+            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
+
+        workload_handle.abort();
+
+        blob_info_consistency_check.check_storage_node_consistency();
+
+        clear_fail_point("start_node_recovery_entry");
     }
 }
