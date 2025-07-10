@@ -812,7 +812,7 @@ pub struct QuiltPatchQuery {
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
     pub identifier: String,
-    pub tags: Option<BTreeMap<String, serde_json::Value>>,
+    pub tags: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Store multiple blobs as a quilt using multipart/form-data.
@@ -973,10 +973,8 @@ async fn parse_multipart_quilt(
         for (identifier, data) in blobs_with_identifiers {
             let tags = if let Some(meta) = metadata_map.get(&identifier) {
                 meta.tags
-                    .clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(k, v)| (k, v.to_string()))
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
                     .collect()
             } else {
                 BTreeMap::new()
@@ -1176,8 +1174,6 @@ mod tests {
         assert_eq!(
             metadata[0]
                 .tags
-                .as_ref()
-                .unwrap()
                 .get("author")
                 .expect("should be some")
                 .as_str()
@@ -1187,8 +1183,6 @@ mod tests {
         assert_eq!(
             metadata[1]
                 .tags
-                .as_ref()
-                .unwrap()
                 .get("type")
                 .expect("should be some")
                 .to_string(),
