@@ -195,8 +195,8 @@ where
 
 // Faucets
 const LOCALNET_FAUCET: &str = "http://127.0.0.1:9123/gas";
-const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
-const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
+const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v2/gas";
+const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v2/gas";
 
 /// Enum for the different sui networks.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
