@@ -35,7 +35,6 @@ rename_all = "kebab-case",
 struct Args {
     #[arg(
         long,
-        short,
         help = "Override the metrics address to use",
         default_value = "127.0.0.1:9184"
     )]
