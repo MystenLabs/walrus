@@ -12,6 +12,7 @@ pub mod config;
 pub mod error;
 pub mod store_optimizations;
 pub mod utils;
+pub mod walrus;
 
 pub use sui_types::{base_types::ObjectID, event::EventID};
 pub use walrus_core as core;
