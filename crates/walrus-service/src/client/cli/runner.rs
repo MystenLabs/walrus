@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Helper struct to run the Walrus client binary commands.
+//! Helper struct to run the Walrus CLI commands.
 
 use std::{
     io::Write,
