@@ -184,6 +184,10 @@ impl BlobInfoTable {
             | BlobEvent::Deleted(BlobDeleted { end_epoch, .. })
                 if end_epoch <= &epoch_at_start =>
             {
+                debug_assert!(
+                    false,
+                    "event prior to epoch_at_start should have been filtered"
+                );
                 tracing::debug!(
                     "skip updating blob info for event with end epoch before epoch at start"
                 );
