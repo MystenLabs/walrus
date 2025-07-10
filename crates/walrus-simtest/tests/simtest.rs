@@ -587,8 +587,7 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+        let workload_handle = simtest_utils::start_background_workload(client_arc.clone(), false);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -663,7 +662,8 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(180)).await;
 
-        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = simtest_utils::get_nodes_health_info(&node_refs).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -672,7 +672,7 @@ mod tests {
         }
 
         assert_eq!(
-            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]])
+            simtest_utils::get_nodes_health_info(&[&walrus_cluster.nodes[0]])
                 .await
                 .get(0)
                 .unwrap()
