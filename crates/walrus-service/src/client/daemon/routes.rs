@@ -793,6 +793,21 @@ impl PublisherQuery {
     }
 }
 
+/// The query parameters for a quilt upload endpoint.
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
+pub struct QuiltPatchQuery {
+    /// The quilt version to use.
+    /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_quilt_version")]
+    pub quilt_version: Option<QuiltVersionEnum>,
+    /// Publisher query parameters.
+    #[serde(flatten)]
+    pub publisher_query: PublisherQuery,
+}
+
 /// A helper structure to hold metadata for a quilt patch.
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
@@ -833,14 +848,14 @@ pub struct QuiltPatchMetadata {
 ///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
 /// ```
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.publisher_query.epochs))]
 #[utoipa::path(
     put,
     path = QUILT_PUT_ENDPOINT,
     request_body(
         content_type = "multipart/form-data",
         description = "Multipart form with blobs and their Walrus-native metadata"),
-    params(PublisherQuery),
+    params(QuiltPatchQuery),
     responses(
         (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
         (status = 400, description = "The request is malformed"),
@@ -850,7 +865,7 @@ pub struct QuiltPatchMetadata {
 )]
 pub(super) async fn put_quilt<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
-    Query(query): Query<PublisherQuery>,
+    Query(query): Query<QuiltPatchQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     multipart: Multipart,
 ) -> Response {
@@ -877,7 +892,7 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         .into_response();
     }
 
-    let blob_persistence = match query.blob_persistence() {
+    let blob_persistence = match query.publisher_query.blob_persistence() {
         Ok(blob_persistence) => blob_persistence,
         Err(error) => return error.into_response(),
     };
@@ -886,7 +901,10 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
     let result = match quilt_version {
         QuiltVersionEnum::V1 => {
             let quilt = match client
-                .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, query.encoding_type)
+                .construct_quilt::<QuiltVersionV1>(
+                    &quilt_store_blobs,
+                    query.publisher_query.encoding_type,
+                )
                 .await
             {
                 Ok(quilt) => quilt,
@@ -907,11 +925,13 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
             client
                 .write_quilt::<QuiltVersionV1>(
                     quilt,
-                    query.encoding_type,
-                    query.epochs,
-                    query.optimizations(),
+                    query.publisher_query.encoding_type,
+                    query.publisher_query.epochs,
+                    query.publisher_query.optimizations(),
                     blob_persistence,
-                    query.post_store_action(client.default_post_store_action()),
+                    query
+                        .publisher_query
+                        .post_store_action(client.default_post_store_action()),
                 )
                 .await
         }
@@ -1133,33 +1153,46 @@ mod tests {
     #[test]
     fn test_quilt_file_metadata_deserialization() {
         let json = r#"[
-            {
-                "identifier": "contract-v2",
-                "tags": {
-                    "author": "alice",
-                    "version": "2.0"
+                {
+                    "identifier": "contract-v2",
+                    "tags": {
+                        "author": "alice",
+                        "version": "2.0"
+                    }
+                },
+                {
+                    "identifier": "logo-2024",
+                    "tags": {
+                        "type": 3,
+                        "format": "png"
+                    }
                 }
-            },
-            {
-                "identifier": "logo-2024",
-                "tags": {
-                    "type": "logo",
-                    "format": "png"
-                }
-            }
-        ]"#;
+            ]"#;
 
         let metadata: Vec<QuiltPatchMetadata> = serde_json::from_str(json).expect("should parse");
         assert_eq!(metadata.len(), 2);
         assert_eq!(metadata[0].identifier, "contract-v2");
         assert_eq!(metadata[1].identifier, "logo-2024");
         assert_eq!(
-            metadata[0].tags.as_ref().unwrap().get("author").unwrap(),
+            metadata[0]
+                .tags
+                .as_ref()
+                .unwrap()
+                .get("author")
+                .expect("should be some")
+                .as_str()
+                .expect("should be some"),
             "alice"
         );
         assert_eq!(
-            metadata[1].tags.as_ref().unwrap().get("type").unwrap(),
-            "logo"
+            metadata[1]
+                .tags
+                .as_ref()
+                .unwrap()
+                .get("type")
+                .expect("should be some")
+                .to_string(),
+            "3"
         );
     }
 }

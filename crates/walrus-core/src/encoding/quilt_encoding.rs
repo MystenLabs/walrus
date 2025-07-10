@@ -344,7 +344,8 @@ pub trait QuiltColumnRangeReader {
 }
 
 /// The version of the quilt.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[repr(u8)]
 pub enum QuiltVersionEnum {
     /// QuiltVersionV1.
