@@ -1301,12 +1301,6 @@ impl StorageNode {
             return Ok(());
         };
 
-        // Update initial latest event epoch. This is the first (non-extension) event the node
-        // processes.
-        self.inner
-            .latest_event_epoch_sender
-            .send(Some(event_epoch))?;
-
         tracing::debug!("checking the first contract event if we're severely lagging");
 
         // Clear the starting epoch, so that we won't make this check again in the current run.
@@ -1322,6 +1316,12 @@ impl StorageNode {
             );
             self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
         }
+
+        // Update initial latest event epoch. This is the first (non-extension) event the node
+        // processes.
+        self.inner
+            .latest_event_epoch_sender
+            .send(Some(event_epoch))?;
 
         Ok(())
     }

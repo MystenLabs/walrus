@@ -64,6 +64,9 @@ impl NodeRecoveryHandler {
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
             tracing::info!("waiting for latest event epoch to be set to restart node recovery");
+            // When current_event_epoch() returns during node start up, if the node is lagging
+            // behind, the node status will also be set to RecoveryCatchUp. So the recovery
+            // task does not need to run in this case.
             node.current_event_epoch()
                 .await
                 .expect("current event epoch watch channel should not be dropped");
@@ -76,6 +79,21 @@ impl NodeRecoveryHandler {
             fail_point_async!("start_node_recovery_entry");
 
             loop {
+                // Node can enter recovery catch up mode while recovery is in progress. In this
+                // case, we should skip recovery. Once the node is caught up to the latest epoch,
+                // the recovery task will be restarted.
+                if node
+                    .storage
+                    .node_status()
+                    .expect("reading node status should not fail")
+                    .is_catching_up()
+                {
+                    tracing::info!(
+                        "node recovery encountered node is in catching up; skip recovery"
+                    );
+                    return;
+                }
+
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
                 // is capped by `max_concurrent_blob_syncs_during_recovery`.
                 let mut ongoing_syncs = FuturesUnordered::new();
