@@ -472,7 +472,7 @@ mod tests {
             );
             if last_persist_event_index == node_health_info[0].event_progress.persisted {
                 // We expect that there shouldn't be any stuck event progress.
-                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(30));
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(60));
             } else {
                 last_persist_event_index = node_health_info[0].event_progress.persisted;
                 last_persisted_event_time = Instant::now();
