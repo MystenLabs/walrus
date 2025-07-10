@@ -306,6 +306,7 @@ impl EventProcessor {
             tracing_sampled::info!(
                 self.sampled_tracing_interval,
                 sequence_number = next_checkpoint,
+                next_event_index,
                 "processing checkpoint",
             );
             self.metrics

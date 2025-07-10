@@ -124,6 +124,8 @@ impl EventBlobDownloader {
         };
 
         tracing::info!(
+            starting_checkpoint_to_process = ?starting_checkpoint_to_process,
+            from_blob = ?from_blob,
             "starting download of event blobs from latest blob ID {} and going backwards",
             event_blob_id
         );

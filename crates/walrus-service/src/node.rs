@@ -884,6 +884,13 @@ impl StorageNode {
         let processing_starting_index = storage_node_cursor.element_index;
         let writer_starting_index = event_blob_writer_cursor.element_index;
 
+        tracing::info!(
+            "continue event stream initial cursors: event blob writer cursor: {:?}, \
+            storage node cursor: {:?}",
+            event_blob_writer_cursor,
+            storage_node_cursor
+        );
+
         let default_result = || async {
             Ok(EventStreamWithStartingIndices {
                 event_stream: Pin::from(self.inner.event_manager.events(event_cursor).await?),
