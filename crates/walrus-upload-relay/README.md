@@ -57,7 +57,7 @@ Upload Relays (returning `"no_tip"`).
 
 ### Paying the Tip
 
-This step is only necessary if the proxy requires a tip.
+This step is only necessary if the relay requires a tip.
 
 To pay the tip, the client proceeds as follows:
 
@@ -66,9 +66,9 @@ To pay the tip, the client proceeds as follows:
 - it computes the `unencoded_length = blob.len()`
 
 Then, it creates a PTB, where the first input (`input 0`) is the `bcs` encoded representation of
-`blob_digest || nonce_digest || unencoded_length`. This will later be used by the proxy to
+`blob_digest || nonce_digest || unencoded_length`. This will later be used by the relay to
 authenticate the sender of the store request. In the same PTB, the client transfers the appropriate
-tip amount to the proxy’s wallet (also found through the `/v1/tip-config` endpoint). Usually, the
+tip amount to the relay’s wallet (also found through the `/v1/tip-config` endpoint). Usually, the
 client would also register the blob in this transaction. This is not mandatory, and the blob can be
 registered in another transaction, but it is commonly convenient and cheaper to perform all these
 operations together.
@@ -76,24 +76,24 @@ operations together.
 Once the transaction is executed, the client keeps the transaction ID `tx_id` , the `nonce`, and the
 `blob_id`, which are required for the next phase.
 
-Note: the proxy will enforce a freshness check on the transaction that paid the tip (currently 1h by
-default, but each proxy can independently configure this).
+Note: the relay will enforce a freshness check on the transaction that paid the tip (currently 1h by
+default, but each relay can independently configure this).
 
-### Sending data to the proxy
+### Sending Data to the Upload Relay
 
-See the OpenAPI spec for the fanout proxy here: https://fan-out.testnet.walrus.space/v1/api
+See the full OpenAPI spec for the upload relay for the full details ([yaml](./upload_relay_openapi.yaml), [html](./upload_relay_openapi.html))
 
-Essentially, the client sends a POST request to the `/v1/blob-fan-out` API endpoint on the proxy,
+Essentially, the client sends a POST request to the `/v1/blob-upload-relay` API endpoint on the relay,
 containing the bytes of the blob to be stored in the body.
 
 These additional parameters have to be specified in the URL’s query string:
 
 - **blob_id** (required): The blob ID of the blob to be stored. Example:
   `blob_id=E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU`
-- **tx_id** (required if the proxy requires tip): The transaction ID (Base58 encoded) of the
-  transaction that transferred the TIP to the proxy. Example:
+- **tx_id** (required if the relay requires tip): The transaction ID (Base58 encoded) of the
+  transaction that transferred the TIP to the relay. Example:
   `tx_id=EmcFpdozbobqH61w76T4UehhC4UGaAv32uZpv6c4CNyg`
-- **nonce** (required if the proxy requires tip): The `nonce`, the preimage of the hash added to the
+- **nonce** (required if the relay requires tip): The `nonce`, the preimage of the hash added to the
   transaction inputs created above, as a Base64 URL-encoded string without padding.
   `nonce=rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ`
 - **deletable_blob_object** (required if the blob is registered as deletable): If the blob being
@@ -105,7 +105,7 @@ These additional parameters have to be specified in the URL’s query string:
 
 ## Receiving the certificate
 
-Once the proxy is done storing the blob, it will collect the confirmation certificate from the
+Once the relay is done storing the blob, it will collect the confirmation certificate from the
 storage nodes.
 
 Then, it will send a response to the client, containing the `blob_id` of the stored blob, along with

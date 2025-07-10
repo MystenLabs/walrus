@@ -6,10 +6,9 @@ A simple script that uses the Sui CLI to merge all the SUI coins in the wallet
 into a single coin.
 """
 
-import subprocess
 import json
+import subprocess
 from argparse import ArgumentParser
-
 
 # The maximum number of coins that can be paid in a single operation.
 MAX_NUM_COINS = 256
@@ -25,7 +24,7 @@ def parse_args():
     parser = ArgumentParser(
         description="Merge all SUI coins in the wallet into a single coin. \
             Uses the address and the network that are set in the Sui CLI. \
-            As a result, the wallet will contain 2 SUI coins.",
+            As a result, the wallet will contain 1 SUI coin.",
     )
     parser.add_argument(
         "-y",
@@ -70,8 +69,8 @@ def get_wallet_env() -> str:
 def pay_sui_to_smash(coins: list[str], recipient: str) -> None:
     """Merges the SUI coins in the list into a single coin.
 
-    Uses the gas-smashing property of the pay-sui command.  Assumes that the
-    list of coins contains less than `MAX_NUM_COINS` elements.
+    Uses the gas-smashing property of the pay-sui command. Assumes that the list
+    of coins contains less than `MAX_NUM_COINS` elements.
     """
     assert (
         len(coins) <= MAX_NUM_COINS

@@ -18,15 +18,18 @@ use walrus_sdk::{
 #[serde(rename_all = "snake_case")]
 #[schema(examples(
         json!(TipKind::Const(31415)),
-        json!(TipKind::Linear{base: 101, encoded_size_mul_per_kb: 42})
+        json!(TipKind::Linear{base: 101, encoded_size_mul_per_kib: 42})
 ))]
 pub(crate) enum TipKind {
     /// A constant tip.
     Const(u64),
     /// A tip that linearly depends on the encoded size of the blob.
+    ///
+    /// If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
+    /// `base + encoded_size * encoded_size_mul_per_kib`.
     Linear {
         base: u64,
-        encoded_size_mul_per_kb: u64,
+        encoded_size_mul_per_kib: u64,
     },
 }
 
@@ -44,11 +47,11 @@ impl TipKind {
             TipKind::Const(constant) => *constant,
             TipKind::Linear {
                 base,
-                encoded_size_mul_per_kb,
+                encoded_size_mul_per_kib,
             } => {
                 base + encoded_blob_length_for_n_shards(n_shards, unencoded_length, encoding_type)?
-                    / 1024
-                    * encoded_size_mul_per_kb
+                    .div_ceil(1024)
+                    * encoded_size_mul_per_kib
             }
         })
     }

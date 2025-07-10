@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{
     Router,
     body::Bytes,
@@ -21,6 +21,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{DurationSeconds, serde_as};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
@@ -56,20 +57,26 @@ use crate::{
     utils::check_tx_auth_package,
 };
 
-const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
+pub(crate) const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 /// The configuration for the Walrus Upload Relay.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
     tip_config: TipConfig,
-    /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is
-    /// paid), and the request to store is made to the Walrus upload relay.
+    /// The maximum time gap (in seconds) between the time the tip transaction is executed (i.e.,
+    /// the tip is paid), and the request to store is made to the Walrus upload relay.
+    #[serde(rename = "tx_freshness_threshold_secs")]
+    #[serde_as(as = "DurationSeconds")]
     tx_freshness_threshold: Duration,
-    /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
+    /// The maximum amount of time in the future (in seconds) we can tolerate a transaction
+    /// timestamp to be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
+    #[serde(rename = "tx_max_future_threshold_secs")]
+    #[serde_as(as = "DurationSeconds")]
     tx_max_future_threshold: Duration,
 }
 
@@ -225,7 +232,7 @@ impl Controller {
 pub(crate) async fn run_upload_relay(
     context: Option<String>,
     walrus_config: PathBuf,
-    server_address: Option<SocketAddr>,
+    server_address: SocketAddr,
     relay_config_path: PathBuf,
     registry: Registry,
 ) -> Result<()> {
@@ -256,14 +263,8 @@ pub(crate) async fn run_upload_relay(
         )))
         .layer(cors_layer());
 
-    let addr: SocketAddr = if let Some(socket_addr) = server_address {
-        socket_addr
-    } else {
-        DEFAULT_SERVER_ADDRESS.parse().context("invalid address")?
-    };
-
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(?addr, n_shards, "Serving Walrus Upload Relay...");
+    let listener = tokio::net::TcpListener::bind(&server_address).await?;
+    tracing::info!(?server_address, n_shards, "Serving Walrus Upload Relay...");
     Ok(axum::serve(listener, app).await?)
 }
 
@@ -335,7 +336,7 @@ pub(crate) struct Binary(());
         ),
     params(Params),
     responses(
-        (status = 200, description = "The blob was fanned-out to the Walrus Network successfully"),
+        (status = 200, description = "The blob was relayed to the Walrus Network successfully"),
         // TODO(WAL-913): extend these docs with the the WalrusUploadRelayError variants.
     ),
 )]
@@ -347,7 +348,7 @@ pub(crate) async fn blob_upload_relay_handler(
 ) -> Result<impl IntoResponse, WalrusUploadRelayError> {
     let start = Instant::now();
     let blob_id = params.blob_id;
-    tracing::info!(?params, "starting to process a fan-out request");
+    tracing::info!(?params, "starting to process a relay request");
     let response = controller
         .fan_out(body, params)
         .await
@@ -393,8 +394,10 @@ mod tests {
     use std::time::Duration;
 
     use sui_types::base_types::SuiAddress;
+    use utoipa::OpenApi;
+    use utoipa_redoc::Redoc;
 
-    use super::WalrusUploadRelayConfig;
+    use super::{WalrusUploadRelayApiDoc, WalrusUploadRelayConfig};
     use crate::tip::config::{TipConfig, TipKind};
 
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
@@ -415,5 +418,29 @@ mod tests {
             serde_yaml::to_string(&config).expect("serialization succeeds"),
         )
         .expect("overwrite failed");
+    }
+
+    /// Serializes the upload relay's openAPI spec when this test is run.
+    ///
+    /// This test ensures that the files `upload_relay_openapi.yaml` and
+    /// `upload_relay_openapi.html` are kept in sync with changes to the spec.
+    #[test]
+    fn upload_relay_check_and_update_openapi_spec() {
+        let label = "upload_relay";
+        let spec_path = format!("{label}_openapi.yaml");
+        let html_path = format!("{label}_openapi.html");
+
+        let mut spec = WalrusUploadRelayApiDoc::openapi();
+        spec.info.version = "<VERSION>".to_string();
+
+        std::fs::write(html_path, Redoc::new(spec.clone()).to_html())
+            .expect("should be able to write to disk");
+
+        if let Err(error) = walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            spec_path,
+            spec.to_yaml().expect("should be a ble to encode to yaml"),
+        ) {
+            panic!("the OpenAPI spec was updated by the test: {error:?}");
+        };
     }
 }

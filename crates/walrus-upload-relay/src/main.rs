@@ -7,7 +7,7 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
-use controller::run_upload_relay;
+use controller::{DEFAULT_SERVER_ADDRESS, run_upload_relay};
 use walrus_sdk::core_utils::{
     bin_version,
     metrics::{Registry, monitored_scope},
@@ -46,8 +46,8 @@ struct Args {
     #[arg(long)]
     walrus_config: PathBuf,
     /// The address to listen on. Defaults to 0.0.0.0:57391.
-    #[arg(long)]
-    server_address: Option<SocketAddr>,
+    #[arg(long, default_value=DEFAULT_SERVER_ADDRESS)]
+    server_address: SocketAddr,
     /// The file path to the configuration of the Walrus Upload Relay.
     #[arg(long)]
     relay_config: PathBuf,

@@ -1579,7 +1579,6 @@ impl<T> Client<T> {
 
                 let progress_bar = progress_bar.clone();
                 async move {
-                    let progress_bar = progress_bar.clone();
                     let result = fut.await;
                     if result.is_ok() {
                         if let Some(value) = progress_bar {
