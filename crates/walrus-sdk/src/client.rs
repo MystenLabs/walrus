@@ -1580,13 +1580,11 @@ impl<T> Client<T> {
                 let progress_bar = progress_bar.clone();
                 async move {
                     let result = fut.await;
-                    if result.is_ok() {
-                        if let Some(value) = progress_bar {
-                            if result.is_ok() && !value.is_finished() {
-                                value
-                                    .inc(result.weight.try_into().expect("the weight fits a usize"))
-                            }
-                        }
+                    if result.is_ok()
+                        && let Some(value) = progress_bar
+                        && !value.is_finished()
+                    {
+                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
                     }
                     result
                 }
