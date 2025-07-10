@@ -1176,25 +1176,23 @@ impl StorageNode {
             return Ok(false);
         };
 
-        let Some(current_event_epoch) = self.inner.try_get_current_event_epoch() else {
-            // When current event epoch is not set, we are processing events before the first epoch
-            // change start event, which should be excluded from processing.
-            return Ok(false);
-        };
-
-        if current_event_epoch >= first_complete_epoch {
-            return Ok(false);
-        }
-
-        if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-            EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
-        )) = &stream_element.element
-        {
-            if *epoch >= first_complete_epoch {
-                // Processing the `EpochChangeStart` event for the first complete epoch will set the
-                // `current_event_epoch` to `epoch`, such that we will take the previous
-                // if-statement and return `false` for all future events.
+        // When current event epoch is not set, we are processing events before the first epoch
+        // change start event, which should be excluded from processing.
+        if let Some(current_event_epoch) = self.inner.try_get_current_event_epoch() {
+            if current_event_epoch >= first_complete_epoch {
                 return Ok(false);
+            }
+
+            if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
+            )) = &stream_element.element
+            {
+                if *epoch >= first_complete_epoch {
+                    // Processing the `EpochChangeStart` event for the first complete epoch will set
+                    // the `current_event_epoch` to `epoch`, such that we will take the previous
+                    // if-statement and return `false` for all future events.
+                    return Ok(false);
+                }
             }
         }
 

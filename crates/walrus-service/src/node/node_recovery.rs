@@ -63,6 +63,11 @@ impl NodeRecoveryHandler {
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
+            tracing::info!("waiting for latest event epoch to be set to restart node recovery");
+            node.current_event_epoch()
+                .await
+                .expect("current event epoch watch channel should not be dropped");
+
             tracing::info!(
                 "starting node recovery task to recover blobs certified before epoch {}",
                 certified_before_epoch
@@ -244,8 +249,6 @@ impl NodeRecoveryHandler {
     /// Restarts any in progress recovery.
     pub async fn restart_recovery(&self) -> anyhow::Result<()> {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
-            tracing::info!("waiting for latest event epoch to be set to restart node recovery");
-            self.node.current_event_epoch().await?;
             tracing::info!(
                 "restarting node recovery to recover to the epoch {}",
                 recovering_epoch

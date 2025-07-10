@@ -617,15 +617,25 @@ pub mod simtest_utils {
         }
     }
 
+    /// Configuration for node crash and restart.
+    #[derive(Debug, Clone)]
+    pub struct NodeCrashConfig {
+        /// The minimum duration of the node crash.
+        pub min_crash_duration_secs: u64,
+        /// The maximum duration of the node crash.
+        pub max_crash_duration_secs: u64,
+        /// The minimum duration of the node live after crash.
+        pub min_live_duration_secs: u64,
+        /// The maximum duration of the node live after crash.
+        pub max_live_duration_secs: u64,
+    }
+
     /// Simulates repeated node crash and restart with sim node id.
     pub fn repeatedly_crash_target_node(
         target_node_id: sui_simulator::task::NodeId,
         next_fail_triggered_clone: Arc<Mutex<Instant>>,
         crash_end_time: Instant,
-        min_crash_duration_secs: u64,
-        max_crash_duration_secs: u64,
-        min_live_duration_secs: u64,
-        max_live_duration_secs: u64,
+        config: NodeCrashConfig,
     ) {
         let time_now = Instant::now();
         if time_now > crash_end_time {
@@ -645,10 +655,13 @@ pub mod simtest_utils {
 
         let mut rng = rand::thread_rng();
 
-        let node_down_duration =
-            Duration::from_secs(rng.gen_range(min_crash_duration_secs..=max_crash_duration_secs));
+        let node_down_duration = Duration::from_secs(
+            rng.gen_range(config.min_crash_duration_secs..=config.max_crash_duration_secs),
+        );
         let next_crash_after = node_down_duration
-            + Duration::from_secs(rng.gen_range(min_live_duration_secs..=max_live_duration_secs));
+            + Duration::from_secs(
+                rng.gen_range(config.min_live_duration_secs..=config.max_live_duration_secs),
+            );
         let next_crash_time = time_now + next_crash_after;
 
         tracing::warn!(
@@ -658,7 +671,7 @@ pub mod simtest_utils {
             next_crash_time,
             next_crash_after.as_secs(),
         );
-        sui_simulator::task::kill_current_node(Some(node_down_duration));
         *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
+        sui_simulator::task::kill_current_node(Some(node_down_duration));
     }
 }

@@ -38,6 +38,7 @@ mod tests {
         self,
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
+        NodeCrashConfig,
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
@@ -842,10 +843,12 @@ mod tests {
                     target_fail_node_id,
                     next_fail_triggered_clone.clone(),
                     crash_end_time,
-                    /* min_crash_duration_secs */ 1,
-                    /* max_crash_duration_secs */ 3,
-                    /* min_live_duration_secs */ 5,
-                    /* max_live_duration_secs */ 40,
+                    NodeCrashConfig {
+                        min_crash_duration_secs: 1,
+                        max_crash_duration_secs: 3,
+                        min_live_duration_secs: 5,
+                        max_live_duration_secs: 40,
+                    },
                 );
             });
         }
