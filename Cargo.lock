@@ -12843,6 +12843,7 @@ name = "walrus-sdk"
 version = "1.29.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bimap",
  "chrono",
  "enum_dispatch",

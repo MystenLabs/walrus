@@ -12,6 +12,7 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 bimap.workspace = true
 chrono.workspace = true
 enum_dispatch.workspace = true

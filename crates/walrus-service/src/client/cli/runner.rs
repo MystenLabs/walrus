@@ -214,6 +214,25 @@ impl ClientCommandRunner {
                 files,
                 common_options,
             } => {
+                if let Some(_upload_relay) = common_options.upload_relay {
+                    todo!()
+                    //self.store_via_upload_relay(
+                    //    files,
+                    //    upload_relay,
+                    //    common_options.epoch_arg,
+                    //    common_options.dry_run,
+                    //    StoreOptimizations::from_force_and_ignore_resources_flags(
+                    //        common_options.force,
+                    //        common_options.ignore_resources,
+                    //    ),
+                    //    BlobPersistence::from_deletable_and_permanent(
+                    //        common_options.deletable,
+                    //        common_options.permanent,
+                    //    )?,
+                    //    PostStoreAction::from_share(common_options.share),
+                    //    common_options.encoding_type,
+                    //)
+                }
                 self.store(
                     files,
                     common_options.epoch_arg,

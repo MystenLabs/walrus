@@ -12,12 +12,12 @@ use sui_types::transaction::{
     TransactionDataV1,
     TransactionKind,
 };
-use walrus_sdk::core::ensure;
-
-use crate::{
-    error::WalrusUploadRelayError,
-    params::{DIGEST_LEN, HashedAuthPackage},
+use walrus_sdk::{
+    core::ensure,
+    upload_relay::params::{DIGEST_LEN, HashedAuthPackage},
 };
+
+use crate::error::WalrusUploadRelayError;
 
 /// Compute a SHA256 hash of a blob.
 pub fn compute_digest_sha256(blob: &[u8]) -> Digest<32> {

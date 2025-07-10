@@ -93,6 +93,7 @@ pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+pub mod upload_relay_client;
 
 /// The delay between retries when retrieving slivers.
 #[allow(unused)]
