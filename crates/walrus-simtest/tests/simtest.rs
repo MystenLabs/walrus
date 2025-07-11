@@ -229,6 +229,8 @@ mod tests {
         tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
         fail_triggered.store(true, Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(crash_duration));
+        // Do not put any code after this point, as it won't be executed.
+        // kill_current_node is implemented using a panic.
     }
 
     #[ignore = "ignore integration simtests by default"]

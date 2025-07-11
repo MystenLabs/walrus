@@ -673,5 +673,7 @@ pub mod simtest_utils {
         );
         *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
         sui_simulator::task::kill_current_node(Some(node_down_duration));
+        // Do not put any code after this point, as it won't be executed.
+        // kill_current_node is implemented using a panic.
     }
 }

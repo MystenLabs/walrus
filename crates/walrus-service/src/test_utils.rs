@@ -455,6 +455,8 @@ impl SimStorageNodeHandle {
                                 sui_simulator::task::kill_current_node(Some(Duration::from_secs(
                                     10,
                                 )));
+                                // Do not put any code after this point, as it won't be executed.
+                                // kill_current_node is implemented using a panic.
                             } else if matches!(
                                 e.downcast_ref::<SyncNodeConfigError>(),
                                 Some(SyncNodeConfigError::NodeNeedsReboot)
@@ -463,6 +465,8 @@ impl SimStorageNodeHandle {
                                 sui_simulator::task::kill_current_node(Some(Duration::from_secs(
                                     10,
                                 )));
+                                // Do not put any code after this point, as it won't be executed.
+                                // kill_current_node is implemented using a panic.
                             } else {
                                 // TODO(WAL-912): we need to alert the test if the node is stopped
                                 // unexpectedly. Currently, node crashing may not be noticed and
