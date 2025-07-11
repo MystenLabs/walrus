@@ -1094,17 +1094,9 @@ impl ClientCommandRunner {
         .await?;
         let auth_config = args.generate_auth_config()?;
 
-        ClientDaemon::new_publisher(
-            client,
-            auth_config,
-            args.daemon_args.bind_address,
-            args.max_body_size(),
-            registry,
-            args.max_request_buffer_size,
-            args.max_concurrent_requests,
-        )
-        .run()
-        .await?;
+        ClientDaemon::new_publisher(client, auth_config, &args, registry)
+            .run()
+            .await?;
         Ok(())
     }
 

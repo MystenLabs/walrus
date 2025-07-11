@@ -28,6 +28,7 @@ use routes::{
     BLOB_PUT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_PUT_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -47,10 +48,17 @@ use walrus_core::{
     EncodingType,
     EpochCount,
     QuiltPatchId,
-    encoding::{Primary, quilt_encoding::QuiltStoreBlob},
+    encoding::{
+        Primary,
+        quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+    },
 };
 use walrus_sdk::{
-    client::{Client, quilt_client::QuiltClientConfig, responses::BlobStoreResult},
+    client::{
+        Client,
+        quilt_client::QuiltClientConfig,
+        responses::{BlobStoreResult, QuiltStoreResult},
+    },
     error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
@@ -132,6 +140,24 @@ pub trait WalrusWriteClient: WalrusReadClient {
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
+    /// Constructs a quilt from blobs.
+    fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> impl std::future::Future<Output = ClientResult<V::Quilt>> + Send;
+
+    /// Writes a quilt to Walrus.
+    fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreResult>> + Send;
+
     /// Returns the default [`PostStoreAction`] for this client.
     fn default_post_store_action(&self) -> PostStoreAction;
 }
@@ -204,6 +230,42 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .into_iter()
             .next()
             .expect("there is only one blob, as store was called with one blob"))
+    }
+
+    async fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> ClientResult<V::Quilt> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
+        self.quilt_client(QuiltClientConfig::default())
+            .construct_quilt::<V>(blobs, encoding_type)
+            .await
+    }
+
+    async fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        self.quilt_client(QuiltClientConfig::default())
+            .reserve_and_store_quilt::<V>(
+                &quilt,
+                encoding_type,
+                epochs_ahead,
+                store_optimizations,
+                persistence,
+                post_store,
+            )
+            .await
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {
@@ -328,18 +390,17 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     pub fn new_publisher(
         client: T,
         auth_config: Option<AuthConfig>,
-        network_address: SocketAddr,
-        max_body_limit: usize,
+        args: &PublisherArgs,
         registry: &Registry,
-        max_request_buffer_size: usize,
-        max_concurrent_requests: usize,
     ) -> Self {
-        Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
-            auth_config,
-            max_body_limit,
-            max_request_buffer_size,
-            max_concurrent_requests,
-        )
+        Self::new::<PublisherApiDoc>(client, args.daemon_args.bind_address, registry)
+            .with_publisher(
+                auth_config,
+                args.max_body_size(),
+                args.max_request_buffer_size,
+                args.max_concurrent_requests,
+                args.max_quilt_body_size(),
+            )
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
@@ -365,6 +426,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 publisher_args.max_body_size_kib,
                 publisher_args.max_request_buffer_size,
                 publisher_args.max_concurrent_requests,
+                publisher_args.max_quilt_body_size(),
             )
     }
 
@@ -375,6 +437,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_body_limit: usize,
         max_request_buffer_size: usize,
         max_concurrent_requests: usize,
+        max_quilt_body_limit: usize,
     ) -> Self {
         tracing::debug!(
             %max_body_limit,
@@ -393,22 +456,39 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(
-                    ServiceBuilder::new()
-                        .layer(axum::middleware::from_fn_with_state(
-                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                            auth_layer,
-                        ))
-                        .layer(base_layers),
-                ),
-            );
+
+            let auth_layers = ServiceBuilder::new()
+                .layer(axum::middleware::from_fn_with_state(
+                    (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                    auth_layer,
+                ))
+                .layer(base_layers.clone());
+
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(auth_layers.clone()),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(auth_layers),
+                );
         } else {
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(base_layers),
-            );
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(base_layers.clone()),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(base_layers),
+                );
         }
         self
     }
