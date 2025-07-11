@@ -41,7 +41,7 @@ pub struct CheckpointProcessor {
     stores: EventProcessorStores,
     package_store: LocalDBPackageStore,
     package_resolver: Arc<Resolver<PackageCache>>,
-    system_pkg_id: ObjectID,
+    original_system_pkg_id: ObjectID,
     latest_checkpoint_seq_number: Arc<AtomicU64>,
 }
 
@@ -50,7 +50,7 @@ impl fmt::Debug for CheckpointProcessor {
         f.debug_struct("CheckpointProcessor")
             .field("stores", &self.stores)
             .field("package_store", &self.package_store)
-            .field("system_pkg_id", &self.system_pkg_id)
+            .field("original_system_pkg_id", &self.original_system_pkg_id)
             .finish()
     }
 }
@@ -60,12 +60,12 @@ impl CheckpointProcessor {
     pub fn new(
         stores: EventProcessorStores,
         package_store: LocalDBPackageStore,
-        system_pkg_id: ObjectID,
+        original_system_pkg_id: ObjectID,
     ) -> Self {
         Self {
             stores,
             package_store: package_store.clone(),
-            system_pkg_id,
+            original_system_pkg_id,
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store.clone()))),
             latest_checkpoint_seq_number: Arc::new(AtomicU64::new(0)),
         }
@@ -156,7 +156,7 @@ impl CheckpointProcessor {
                 .into_iter()
                 .zip(original_package_ids)
                 // Filter out events that are not from the Walrus system package.
-                .filter(|(_, original_id)| *original_id == self.system_pkg_id)
+                .filter(|(_, original_id)| *original_id == self.original_system_pkg_id)
                 .map(|(event, _)| event)
                 .enumerate()
             {
