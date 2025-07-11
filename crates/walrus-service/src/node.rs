@@ -6,7 +6,6 @@
 use std::{
     future::Future,
     num::{NonZero, NonZeroU16},
-    ops::Not,
     pin::Pin,
     sync::{
         Arc,
@@ -814,8 +813,7 @@ impl StorageNode {
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
             },
-            blob_sync_result = self.blob_sync_handler.spawn_task_monitor(
-            ) => {
+            blob_sync_result = self.blob_sync_handler.spawn_task_monitor() => {
                 match blob_sync_result {
                     Ok(()) => unreachable!("blob sync task monitor never returns"),
                     Err(e) => {
@@ -2500,7 +2498,10 @@ impl StorageNodeInner {
 
     /// Returns true if the blob is currently not certified.
     fn is_blob_not_certified(&self, blob_id: &BlobId) -> bool {
-        !self.is_blob_certified(blob_id).is_ok_and(Not::not)
+        if let Ok(false) = self.is_blob_certified(blob_id) {
+            return true;
+        }
+        false
     }
 
     /// Sets the status of the node.
