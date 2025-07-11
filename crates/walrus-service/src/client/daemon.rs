@@ -239,6 +239,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     ) -> ClientResult<V::Quilt> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
+        // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
         self.quilt_client(QuiltClientConfig::default())
             .construct_quilt::<V>(blobs, encoding_type)
             .await
@@ -389,18 +390,17 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     pub fn new_publisher(
         client: T,
         auth_config: Option<AuthConfig>,
-        network_address: SocketAddr,
-        max_body_limit: usize,
+        args: &PublisherArgs,
         registry: &Registry,
-        max_request_buffer_size: usize,
-        max_concurrent_requests: usize,
     ) -> Self {
-        Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
-            auth_config,
-            max_body_limit,
-            max_request_buffer_size,
-            max_concurrent_requests,
-        )
+        Self::new::<PublisherApiDoc>(client, args.daemon_args.bind_address, registry)
+            .with_publisher(
+                auth_config,
+                args.max_body_size(),
+                args.max_request_buffer_size,
+                args.max_concurrent_requests,
+                args.max_quilt_body_size(),
+            )
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
@@ -426,6 +426,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 publisher_args.max_body_size_kib,
                 publisher_args.max_request_buffer_size,
                 publisher_args.max_concurrent_requests,
+                publisher_args.max_quilt_body_size(),
             )
     }
 
@@ -436,6 +437,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_body_limit: usize,
         max_request_buffer_size: usize,
         max_concurrent_requests: usize,
+        max_quilt_body_limit: usize,
     ) -> Self {
         tracing::debug!(
             %max_body_limit,
@@ -470,7 +472,9 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
-                    put(routes::put_quilt).route_layer(auth_layers),
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(auth_layers),
                 );
         } else {
             self.router = self
@@ -481,7 +485,9 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
-                    put(routes::put_quilt).route_layer(base_layers),
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(base_layers),
                 );
         }
         self

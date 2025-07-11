@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -793,21 +793,6 @@ impl PublisherQuery {
     }
 }
 
-/// The query parameters for a quilt upload endpoint.
-#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
-#[into_params(parameter_in = Query, style = Form)]
-#[serde(deny_unknown_fields)]
-pub struct QuiltPatchQuery {
-    /// The quilt version to use.
-    /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_quilt_version")]
-    pub quilt_version: Option<QuiltVersionEnum>,
-    /// Publisher query parameters.
-    #[serde(flatten)]
-    pub publisher_query: PublisherQuery,
-}
-
 /// A helper structure to hold metadata for a quilt patch.
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
@@ -819,11 +804,10 @@ pub struct QuiltPatchMetadata {
 ///
 /// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
 /// The form contains:
-/// - Blobs identified by their identifiers as field names (required)
-/// - A `{WALRUS_NATIVE_METADATA_FIELD_NAME}` field containing a JSON array with per blob metadata
-///   (optional). This field must be valid JSON in array format.
+/// - Blobs identified by their identifiers as field names
+/// - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
 ///
-/// # Supported Walrus-native metadata fields
+/// # Contents of Walrus-native metadata
 /// - `identifier`: The identifier of the blob, must match the corresponding blob field name
 /// - `tags`: JSON object with string key-value pairs (optional)
 ///
@@ -843,19 +827,19 @@ pub struct QuiltPatchMetadata {
 /// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
 ///   -F "quilt-manual=@document.pdf" \
 ///   -F "logo-2025=@image.png" \
-///   -F "{WALRUS_NATIVE_METADATA_FIELD_NAME}=[
+///   -F "_metadata=[
 ///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
 ///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
 ///   ]'
 /// ```
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.publisher_query.epochs))]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
 #[utoipa::path(
     put,
     path = QUILT_PUT_ENDPOINT,
     request_body(
         content_type = "multipart/form-data",
         description = "Multipart form with blobs and their Walrus-native metadata"),
-    params(QuiltPatchQuery),
+    params(PublisherQuery),
     responses(
         (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
         (status = 400, description = "The request is malformed"),
@@ -865,7 +849,7 @@ pub struct QuiltPatchMetadata {
 )]
 pub(super) async fn put_quilt<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
-    Query(query): Query<QuiltPatchQuery>,
+    Query(query): Query<PublisherQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     multipart: Multipart,
 ) -> Response {
@@ -892,50 +876,43 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         .into_response();
     }
 
-    let blob_persistence = match query.publisher_query.blob_persistence() {
+    let blob_persistence = match query.blob_persistence() {
         Ok(blob_persistence) => blob_persistence,
         Err(error) => return error.into_response(),
     };
 
     // For now, we only support V1 quilts.
-    let result = match quilt_version {
-        QuiltVersionEnum::V1 => {
-            let quilt = match client
-                .construct_quilt::<QuiltVersionV1>(
-                    &quilt_store_blobs,
-                    query.publisher_query.encoding_type,
-                )
-                .await
-            {
-                Ok(quilt) => quilt,
-                Err(e) => {
-                    return StoreBlobError::MalformedRequest {
-                        message: format!("failed to construct quilt: {e:?}"),
-                    }
-                    .into_response();
-                }
-            };
+    assert_eq!(quilt_version, QuiltVersionEnum::V1);
 
-            if let Some(TypedHeader(header)) = bearer_header {
-                if let Err(error) = check_blob_size(header, quilt.data().len()) {
-                    return error.into_response();
-                }
+    let quilt = match client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, query.encoding_type)
+        .await
+    {
+        Ok(quilt) => quilt,
+        Err(e) => {
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to construct quilt: {e:?}"),
             }
-
-            client
-                .write_quilt::<QuiltVersionV1>(
-                    quilt,
-                    query.publisher_query.encoding_type,
-                    query.publisher_query.epochs,
-                    query.publisher_query.optimizations(),
-                    blob_persistence,
-                    query
-                        .publisher_query
-                        .post_store_action(client.default_post_store_action()),
-                )
-                .await
+            .into_response();
         }
     };
+
+    if let Some(TypedHeader(header)) = bearer_header {
+        if let Err(error) = check_blob_size(header, quilt.data().len()) {
+            return error.into_response();
+        }
+    }
+
+    let result = client
+        .write_quilt::<QuiltVersionV1>(
+            quilt,
+            query.encoding_type,
+            query.epochs,
+            query.optimizations(),
+            blob_persistence,
+            query.post_store_action(client.default_post_store_action()),
+        )
+        .await;
 
     match result {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
@@ -951,7 +928,7 @@ async fn parse_multipart_quilt(
     mut multipart: Multipart,
 ) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
     let mut blobs_with_identifiers = Vec::new();
-    let mut metadata_map: BTreeMap<String, QuiltPatchMetadata> = BTreeMap::new();
+    let mut metadata_map: HashMap<String, QuiltPatchMetadata> = HashMap::new();
 
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or("").to_string();
@@ -959,7 +936,12 @@ async fn parse_multipart_quilt(
             let metadata_json = field.text().await?;
             for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
                 let identifier = meta.identifier.clone();
-                metadata_map.insert(identifier, meta);
+                if let Some(existing) = metadata_map.insert(identifier, meta) {
+                    return Err(StoreBlobError::MalformedRequest {
+                        message: format!("duplicate identifiers found in _metadata: {existing:?}"),
+                    }
+                    .into());
+                }
             }
         } else {
             let data = field.bytes().await?.to_vec();
