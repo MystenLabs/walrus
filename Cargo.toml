@@ -13,7 +13,6 @@ default-members = [
   "crates/walrus-stress",
   "crates/walrus-sui",
   "crates/walrus-test-utils",
-  "crates/walrus-upload-relay",
   "crates/walrus-utils",
 ]
 members = ["crates/*"]
