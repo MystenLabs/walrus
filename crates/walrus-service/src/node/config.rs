@@ -579,6 +579,17 @@ impl Default for BlobRecoveryConfig {
     }
 }
 
+impl BlobRecoveryConfig {
+    /// Returns a default configuration with a shorter monitor interval for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            monitor_interval: Duration::from_secs(5),
+            ..Default::default()
+        }
+    }
+}
+
 /// Configuration of a Walrus storage node.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

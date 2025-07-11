@@ -84,11 +84,8 @@ impl BlobSyncHandler {
     pub fn spawn_task_monitor(&self) -> JoinHandle<()> {
         let blob_syncs = self.blob_syncs_in_progress.clone();
         let node = self.node.clone();
-        let monitor_interval = if cfg!(test) {
-            Duration::from_secs(5)
-        } else {
-            self.monitor_interval
-        };
+        let monitor_interval = self.monitor_interval;
+
         tokio::spawn(async move {
             loop {
                 // Collect all finished in-progress syncs. Note that at the end of blob sync, the
@@ -101,15 +98,6 @@ impl BlobSyncHandler {
                     let mut completed_blob_ids = Vec::new();
 
                     for (blob_id, handle) in syncs.iter_mut() {
-                        // Cancel the sync if the blob is no longer certified.
-                        if node.is_blob_not_certified(blob_id) {
-                            tracing::debug!(
-                                walrus.blob_id = %blob_id,
-                                "cancelling blob sync because blob is no longer certified"
-                            );
-                            handle.cancel();
-                        }
-
                         // Collect handles to be awaited.
                         if let Some(sync_handle) = &handle.blob_sync_handle {
                             if sync_handle.is_finished() {
@@ -122,6 +110,15 @@ impl BlobSyncHandler {
                                 }
                                 completed_blob_ids.push(*blob_id);
                             }
+                        }
+
+                        // Cancel the sync if the blob is no longer certified.
+                        if node.is_blob_not_certified(blob_id) {
+                            tracing::debug!(
+                                walrus.blob_id = %blob_id,
+                                "cancelling blob sync because blob is no longer certified"
+                            );
+                            handle.cancel();
                         }
                     }
 
