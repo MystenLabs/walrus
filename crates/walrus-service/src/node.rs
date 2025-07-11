@@ -1521,7 +1521,15 @@ impl StorageNode {
             .wait_until_previous_task_done()
             .await;
 
-        if self.inner.consistency_check_config.enable_consistency_check {
+        // Start storage node consistency check if
+        // - consistency check is enabled
+        // - node is not reprocessing events (blob info table should not be affected by future
+        //   events)
+        let node_is_reprocessing_events =
+            self.inner.storage.get_latest_handled_event_index()? >= event_handle.index();
+        if self.inner.consistency_check_config.enable_consistency_check
+            && !node_is_reprocessing_events
+        {
             if let Err(err) = consistency_check::schedule_background_consistency_check(
                 self.inner.clone(),
                 self.blob_sync_handler.clone(),
