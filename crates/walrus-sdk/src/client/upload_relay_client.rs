@@ -50,8 +50,7 @@ use crate::{
     },
 };
 
-/// Runs the test client.
-#[cfg(feature = "test-client")]
+/// Runs the upload relay client.
 pub(crate) async fn run_client(
     file: PathBuf,
     context: Option<String>,
@@ -73,13 +72,13 @@ pub(crate) async fn run_client(
         .encoded_size(metadata.metadata().unencoded_length())
         .unwrap();
 
-    let auth_package = AuthPackage::new(&blob)?;
+    let auth_package = AuthPackage::new(&blob);
 
     // Transaction creation.
     let (upload_relay_client, signed_tx) = if upload_relay_client.tip_config.requires_payment() {
         upload_relay_client
             .with_pt_builder()?
-            .add_pure_input(auth_package.to_hashed())?
+            .add_pure_input(auth_package.to_hashed_nonce())?
             .add_buy_and_register(&metadata, epochs, encoded_size)
             .await?
             .add_tip(encoded_size)

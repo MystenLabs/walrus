@@ -13,10 +13,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{BlobId, messages::ConfirmationCertificate};
 
-/// The route for the Walrus Upload Relay API.
+/// The route to upload blobs using the relay.
 pub const BLOB_UPLOAD_RELAY_ROUTE: &str = "/v1/blob-upload-relay";
-/// The route for the Walrus Upload Relay Tip Config API.
+/// The route to fetch the update-relay's tip configuration.
 pub const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
+/// The route for the update-relay's OpenAPI docs.
+pub const API_DOCS: &str = "/v1/api";
 
 /// The response of the Walrus Upload Relay, containing the blob ID and the corresponding
 /// certificate.

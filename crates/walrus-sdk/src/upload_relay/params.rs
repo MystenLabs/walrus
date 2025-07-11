@@ -3,6 +3,8 @@
 
 //! The parameters and types used by the Walrus Upload Relay.
 
+use fastcrypto::hash::{HashFunction, Sha256};
+use rand::{Rng, thread_rng};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::digests::TransactionDigest;
@@ -90,6 +92,32 @@ pub struct AuthPackage {
     pub nonce: [u8; NONCE_LEN],
     /// The length in bytes of the unencoded blob.
     pub unencoded_length: u64,
+}
+
+impl AuthPackage {
+    pub(crate) fn new(blob: &[u8]) -> Self {
+        let blob_digest = Sha256::digest(blob).digest;
+        let nonce = thread_rng().r#gen();
+        Self {
+            blob_digest,
+            nonce,
+            unencoded_length: blob.len().try_into().expect("using a u32 or u64 arch"),
+        }
+    }
+
+    pub(crate) fn to_hashed_nonce(&self) -> HashedAuthPackage {
+        let Self {
+            blob_digest,
+            nonce,
+            unencoded_length,
+        } = self.clone();
+        let nonce_digest = Sha256::digest(nonce).digest;
+        HashedAuthPackage {
+            blob_digest,
+            nonce_digest,
+            unencoded_length,
+        }
+    }
 }
 
 /// The tip authentication structure, with hashed nonce.

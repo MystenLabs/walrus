@@ -85,11 +85,13 @@ mod tests {
     use axum::{extract::Query, http::Uri};
     use reqwest::Url;
     use sui_types::digests::TransactionDigest;
-    use walrus_sdk::{ObjectID, core::BlobId};
-
-    use crate::{
-        params::{DIGEST_LEN, Params},
-        shared::blob_upload_relay_url,
+    use walrus_sdk::{
+        ObjectID,
+        core::BlobId,
+        upload_relay::{
+            blob_upload_relay_url,
+            params::{DIGEST_LEN, Params},
+        },
     };
 
     #[test]

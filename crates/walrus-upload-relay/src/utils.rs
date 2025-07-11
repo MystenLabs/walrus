@@ -3,7 +3,7 @@
 
 //! Utilities for the Walrus Upload Relay.
 
-use fastcrypto::hash::{Digest, HashFunction as _, Sha256};
+use fastcrypto::hash::{HashFunction as _, Sha256};
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::transaction::{
     CallArg,
@@ -18,13 +18,6 @@ use walrus_sdk::{
 };
 
 use crate::error::WalrusUploadRelayError;
-
-/// Compute a SHA256 hash of a blob.
-pub fn compute_digest_sha256(blob: &[u8]) -> Digest<32> {
-    let mut blob_hash = Sha256::new();
-    blob_hash.update(blob);
-    blob_hash.finalize()
-}
 
 /// Checks the blob hash in the transaction matches the hash of the blob that was sent to the
 /// Walrus Upload Relay.
@@ -49,7 +42,7 @@ pub(crate) fn auth_package_checks(
     rcvd_nonce: &[u8; DIGEST_LEN],
 ) -> Result<(), WalrusUploadRelayError> {
     // 1. Check that the nonce in the received package is the preimage of the one in the tx.
-    let rcvd_nonce_digest = compute_digest_sha256(rcvd_nonce).digest;
+    let rcvd_nonce_digest = Sha256::digest(rcvd_nonce).digest;
     ensure!(
         rcvd_nonce_digest == tx_auth_package.nonce_digest,
         WalrusUploadRelayError::InvalidNonceHash
@@ -62,9 +55,9 @@ pub(crate) fn auth_package_checks(
         WalrusUploadRelayError::BlobLengthMismatch
     );
 
-    // 3. Check that
+    // 3. Check that the blob digests match.
     ensure!(
-        compute_digest_sha256(blob).digest == tx_auth_package.blob_digest,
+        Sha256::digest(blob).digest == tx_auth_package.blob_digest,
         WalrusUploadRelayError::BlobDigestMismatch
     );
     Ok(())
@@ -111,8 +104,8 @@ mod tests {
                 blob: blob.to_vec(),
                 nonce,
                 auth_package: HashedAuthPackage {
-                    blob_digest: compute_digest_sha256(blob.as_slice()).digest,
-                    nonce_digest: compute_digest_sha256(&nonce).digest,
+                    blob_digest: Sha256::digest(blob.as_slice()).digest,
+                    nonce_digest: Sha256::digest(&nonce).digest,
                     unencoded_length: blob.len() as u64,
                 },
             }
