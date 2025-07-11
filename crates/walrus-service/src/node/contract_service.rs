@@ -520,7 +520,7 @@ impl SystemContractService for SuiSystemContractService {
                     Ok(latest_epoch_on_chain) => {
                         if latest_epoch_on_chain > epoch {
                             tracing::info!(
-                                ?error,
+                                %error,
                                 "walrus epoch has advanced, skipping epoch sync done"
                             );
                             Some(())
