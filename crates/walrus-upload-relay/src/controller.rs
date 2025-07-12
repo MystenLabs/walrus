@@ -21,8 +21,9 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::{DurationSeconds, serde_as};
+use serde_with::serde_as;
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
+use sui_types::digests::TransactionDigest;
 use tokio::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
@@ -43,21 +44,24 @@ use walrus_sdk::{
         ObjectIdSchema,
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
     },
+    upload_relay::{
+        BLOB_UPLOAD_RELAY_ROUTE,
+        ResponseType,
+        TIP_CONFIG_ROUTE,
+        params::{DigestSchema, NONCE_LEN, Params, TransactionDigestSchema},
+        tip_config::{TipConfig, TipKind},
+    },
 };
 
 use crate::{
     error::WalrusUploadRelayError,
     metrics::WalrusUploadRelayMetricSet,
-    params::{DigestSchema, PaidTipParams, Params, TransactionDigestSchema},
-    shared::{API_DOCS, BLOB_UPLOAD_RELAY_ROUTE, ResponseType, TIP_CONFIG_ROUTE},
-    tip::{
-        check::{check_response_tip, check_tx_freshness},
-        config::{TipConfig, TipKind},
-    },
+    tip::check::{check_response_tip, check_tx_freshness},
     utils::check_tx_auth_package,
 };
 
-pub(crate) const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
+const API_DOCS: &str = "/v1/api";
+pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 /// The configuration for the Walrus Upload Relay.
 #[serde_as]
@@ -66,18 +70,45 @@ pub(crate) const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 pub(crate) struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
     tip_config: TipConfig,
-    /// The maximum time gap (in seconds) between the time the tip transaction is executed (i.e.,
-    /// the tip is paid), and the request to store is made to the Walrus upload relay.
-    #[serde(rename = "tx_freshness_threshold_secs")]
-    #[serde_as(as = "DurationSeconds")]
+    /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is
+    /// paid), and the request to store is made to the Walrus upload relay.
     tx_freshness_threshold: Duration,
-    /// The maximum amount of time in the future (in seconds) we can tolerate a transaction
-    /// timestamp to be.
+    /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
-    #[serde(rename = "tx_max_future_threshold_secs")]
-    #[serde_as(as = "DurationSeconds")]
     tx_max_future_threshold: Duration,
+}
+
+/// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
+///
+/// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
+/// `deletable_blob_object` are not necessary.
+#[derive(Debug, Clone)]
+pub(crate) struct PaidTipParams {
+    pub tx_id: TransactionDigest,
+    pub nonce: [u8; NONCE_LEN],
+    pub encoding_type: Option<EncodingType>,
+}
+
+impl TryFrom<&Params> for PaidTipParams {
+    type Error = WalrusUploadRelayError;
+
+    fn try_from(value: &Params) -> Result<Self, Self::Error> {
+        // Checks that the `Params` contain the `tx_id` and the `nonce`, and returns an instance of
+        // `PaidParams`.
+        let Params {
+            tx_id,
+            nonce,
+            encoding_type,
+            ..
+        } = value;
+
+        Ok(PaidTipParams {
+            tx_id: tx_id.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
+            nonce: nonce.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
+            encoding_type: *encoding_type,
+        })
+    }
 }
 
 /// The controller for the Walrus Upload Relay.
@@ -117,7 +148,7 @@ impl Controller {
         if self.relay_config.tip_config.requires_payment() {
             // Check authentication pre-conditions for upload relay, if the configuration requires a
             // tip.
-            let paid_params = params.to_paid_params()?;
+            let paid_params = PaidTipParams::try_from(&params)?;
             self.validate_auth_package(&paid_params, body.as_ref())
                 .await?;
         }
@@ -396,9 +427,9 @@ mod tests {
     use sui_types::base_types::SuiAddress;
     use utoipa::OpenApi;
     use utoipa_redoc::Redoc;
+    use walrus_sdk::upload_relay::tip_config::{TipConfig, TipKind};
 
     use super::{WalrusUploadRelayApiDoc, WalrusUploadRelayConfig};
-    use crate::tip::config::{TipConfig, TipKind};
 
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 

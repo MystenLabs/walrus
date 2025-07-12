@@ -15,9 +15,9 @@ use std::{
 use sui_sdk::{SUI_COIN_TYPE, rpc_types::SuiTransactionBlockResponse};
 use sui_types::TypeTag;
 use tracing::Level;
-use walrus_sdk::core::EncodingType;
+use walrus_sdk::{core::EncodingType, upload_relay::tip_config::TipConfig};
 
-use crate::tip::{config::TipConfig, error::TipError};
+use crate::tip::error::TipError;
 
 /// Checks the freshness of the transaction.
 ///

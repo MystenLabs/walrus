@@ -44,5 +44,8 @@ utoipa-redoc.workspace = true
 walrus-sdk.workspace = true
 walrus-test-utils.workspace = true
 
+[features]
+default = []
+
 [lints]
 workspace = true
