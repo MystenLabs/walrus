@@ -698,6 +698,7 @@ impl StorageNode {
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
             config.blob_recovery.max_concurrent_sliver_syncs,
+            config.blob_recovery.monitor_interval,
         ));
 
         let shard_sync_handler =
@@ -878,7 +879,6 @@ impl StorageNode {
         storage_node_cursor: EventStreamCursor,
         event_blob_writer: &mut Option<EventBlobWriter>,
     ) -> anyhow::Result<EventStreamWithStartingIndices> {
-        // TODO(mlegner): Check these changes again.
         let event_cursor = storage_node_cursor.min(event_blob_writer_cursor);
         let lowest_needed_event_index = event_cursor.element_index;
         let processing_starting_index = storage_node_cursor.element_index;
@@ -2485,6 +2485,14 @@ impl StorageNodeInner {
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
             .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+    }
+
+    /// Returns true if the blob is currently not certified.
+    fn is_blob_not_certified(&self, blob_id: &BlobId) -> bool {
+        if let Ok(false) = self.is_blob_certified(blob_id) {
+            return true;
+        }
+        false
     }
 
     /// Sets the status of the node.

@@ -104,6 +104,7 @@ use crate::{
         config::{
             self,
             BlobEventProcessorConfig,
+            BlobRecoveryConfig,
             ConfigSynchronizerConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
@@ -957,6 +958,7 @@ impl StorageNodeHandleBuilder {
             } else {
                 Default::default()
             },
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1137,6 +1139,7 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -2887,7 +2890,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
-            blob_recovery: Default::default(),
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             tls: Default::default(),
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: config::ShardSyncConfig {
