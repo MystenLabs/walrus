@@ -6,11 +6,12 @@
 
 //! Utility functions for tests.
 
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 use core::num::NonZeroU16;
+use std::collections::{HashMap, HashSet};
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::{
     BlobId,
@@ -25,7 +26,9 @@ use crate::{
         EncodingConfigTrait as _,
         PrimaryRecoverySymbol,
         PrimarySliver,
+        QuiltError,
         SecondarySliver,
+        quilt_encoding::QuiltStoreBlob,
     },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
@@ -37,6 +40,15 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
 };
+
+/// A struct containing the test data for Quilt.
+#[derive(Debug, Clone)]
+pub struct QuiltTestData<'a> {
+    /// A map of quilt store blobs, keyed by their identifier.
+    pub quilt_store_blobs: HashMap<String, QuiltStoreBlob<'a>>,
+    /// A map of tag index, keyed by their tag key and value.
+    pub tag_index: HashMap<String, HashMap<String, String>>,
+}
 
 /// Returns a deterministic fixed protocol key pair for testing.
 ///
@@ -211,4 +223,57 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
         target_sliver_index,
         recovery_symbols,
     ))
+}
+
+/// Generates random QuiltStoreBlobs from the input raw blobs.
+///
+/// A random unique identifier is generated for each blob.
+/// If `include_tags` is true, random numbers of random tags are generated for each blob.
+pub fn generate_random_quilt_store_blobs<'a>(
+    blob_data: &'a [&'a [u8]],
+    max_value_length: usize,
+    max_num_tags: usize,
+) -> Result<Vec<QuiltStoreBlob<'a>>, QuiltError> {
+    tracing::debug!("generating random quilt store blobs...");
+    let mut rng = rand::thread_rng();
+    let num_tags = rng.gen_range(0..=max_num_tags);
+
+    let mut res = Vec::with_capacity(blob_data.len());
+    let mut identifiers = HashSet::with_capacity(blob_data.len());
+    while identifiers.len() < blob_data.len() {
+        let identifier_length = rng.gen_range(1..=max_value_length);
+        let random_data = walrus_test_utils::random_data_from_rng(identifier_length, &mut rng);
+        let encoded = hex::encode(random_data);
+        identifiers.insert(encoded);
+    }
+
+    let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, max_value_length);
+    let raw_tag_keys = walrus_test_utils::generate_random_data(num_tags, 1, max_value_length);
+    let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
+    let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
+
+    for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
+        let mut tags = BTreeMap::new();
+        let num_keys_for_blob = rng.gen_range(0..=num_tags);
+
+        if num_keys_for_blob > 0 {
+            let selected_keys: Vec<_> = tag_keys
+                .as_slice()
+                .choose_multiple(&mut rng, num_keys_for_blob)
+                .collect();
+
+            for key in selected_keys {
+                let value = tag_values.choose(&mut rng).expect("Should choose a value");
+                tags.insert(key.clone(), value.clone());
+            }
+        }
+
+        let mut blob = QuiltStoreBlob::new(data, identifier)?;
+        if !tags.is_empty() {
+            blob = blob.with_tags(tags);
+        }
+        res.push(blob);
+    }
+
+    Ok(res)
 }
