@@ -950,24 +950,17 @@ async fn parse_multipart_quilt(
     }
 
     let mut res = Vec::with_capacity(blobs_with_identifiers.len());
+    for (identifier, data) in blobs_with_identifiers {
+        let tags = if let Some(meta) = metadata_map.get(&identifier) {
+            meta.tags
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
 
-    if !metadata_map.is_empty() {
-        for (identifier, data) in blobs_with_identifiers {
-            let tags = if let Some(meta) = metadata_map.get(&identifier) {
-                meta.tags
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.to_string()))
-                    .collect()
-            } else {
-                BTreeMap::new()
-            };
-
-            res.push(QuiltStoreBlob::new_owned(data, identifier)?.with_tags(tags));
-        }
-    } else {
-        for (identifier, data) in blobs_with_identifiers {
-            res.push(QuiltStoreBlob::new_owned(data, identifier)?);
-        }
+        res.push(QuiltStoreBlob::new_owned(data, identifier)?.with_tags(tags));
     }
 
     Ok(res)
