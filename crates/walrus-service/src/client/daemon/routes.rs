@@ -1,7 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -13,6 +18,7 @@ use axum::{
 };
 use axum_extra::{
     TypedHeader,
+    extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
 use jsonwebtoken::{DecodingKey, Validation};
@@ -27,11 +33,14 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
-    encoding::{QuiltError, quilt_encoding::QuiltStoreBlob},
+    encoding::{
+        QuiltError,
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
+    },
 };
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
-    client::responses::BlobStoreResult,
+    client::responses::{BlobStoreResult, QuiltStoreResult},
     error::{ClientError, ClientErrorKind},
     store_optimizations::StoreOptimizations,
 };
@@ -62,6 +71,8 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to store multiple files as a quilt using multipart/form-data.
+pub const QUILT_PUT_ENDPOINT: &str = "/v1/quilts";
 /// The path to get blobs from quilt by IDs.
 pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
 /// The path to get blob from quilt by quilt ID and identifier.
@@ -69,6 +80,8 @@ pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
+
+const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 
 /// Retrieve a Walrus blob.
 ///
@@ -381,6 +394,11 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
+    /// The request is malformed.
+    #[error("the request is malformed: {message}")]
+    #[rest_api_error(reason = "MALFORMED_REQUEST", status = ApiStatusCode::InvalidArgument)]
+    MalformedRequest { message: String },
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -391,6 +409,9 @@ impl From<ClientError> for StoreBlobError {
         match error.kind() {
             ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::QuiltError(_) => Self::MalformedRequest {
+                message: format!("the quilt patch is not found: {error:?}"),
+            },
             _ => Self::Internal(anyhow!(error)),
         }
     }
@@ -666,7 +687,7 @@ pub enum SendOrShare {
 }
 
 /// The query parameters for a publisher.
-#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
 #[into_params(parameter_in = Query, style = Form)]
 #[serde(deny_unknown_fields)]
 pub struct PublisherQuery {
@@ -687,6 +708,11 @@ pub struct PublisherQuery {
     /// number of epochs.
     #[serde(default)]
     pub force: bool,
+    /// The quilt version to use (for quilt endpoints only).
+    /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_quilt_version")]
+    pub quilt_version: Option<QuiltVersionEnum>,
 
     #[serde(flatten, default)]
     #[param(inline)]
@@ -704,6 +730,7 @@ impl Default for PublisherQuery {
             epochs: default_epochs(),
             deletable: false,
             force: false,
+            quilt_version: None,
             send_or_share: None,
         }
     }
@@ -749,6 +776,183 @@ impl PublisherQuery {
     }
 }
 
+/// A helper structure to hold metadata for a quilt patch.
+#[derive(Debug, Deserialize)]
+pub struct QuiltPatchMetadata {
+    pub identifier: String,
+    pub tags: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Store multiple blobs as a quilt using multipart/form-data.
+///
+/// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+/// The form contains:
+/// - Blobs identified by their identifiers as field names
+/// - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+///
+/// # Contents of Walrus-native metadata
+/// - `identifier`: The identifier of the blob, must match the corresponding blob field name
+/// - `tags`: JSON object with string key-value pairs (optional)
+///
+/// Blobs without corresponding metadata entries will be stored with empty tags.
+///
+/// # Examples
+///
+/// ## Blobs without Walrus-native metadata, with quilt version V1
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+///   -F "contract-v2=@document.pdf" \
+///   -F "logo-2024=@image.png"
+/// ```
+///
+/// ## Blobs with Walrus-native metadata, with default quilt version
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+///   -F "quilt-manual=@document.pdf" \
+///   -F "logo-2025=@image.png" \
+///   -F "_metadata=[
+///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+///   ]'
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
+#[utoipa::path(
+    put,
+    path = QUILT_PUT_ENDPOINT,
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form with blobs and their Walrus-native metadata"),
+    params(PublisherQuery),
+    responses(
+        (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The quilt is too large"),
+        StoreBlobError,
+    ),
+)]
+pub(super) async fn put_quilt<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
+    Query(query): Query<PublisherQuery>,
+    bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
+    multipart: Multipart,
+) -> Response {
+    tracing::debug!("starting to process quilt upload");
+
+    // Parse the quilt version, defaulting to V1 if not specified.
+    let quilt_version = query.quilt_version.clone().unwrap_or(QuiltVersionEnum::V1);
+
+    let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
+        Ok(blobs) => blobs,
+        Err(error) => {
+            tracing::debug!(?error, "failed to parse multipart form");
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to parse multipart form: {error:?}"),
+            }
+            .into_response();
+        }
+    };
+
+    if quilt_store_blobs.is_empty() {
+        return StoreBlobError::MalformedRequest {
+            message: "no files provided in multipart form".to_string(),
+        }
+        .into_response();
+    }
+
+    // For now, we only support V1 quilts.
+    assert_eq!(quilt_version, QuiltVersionEnum::V1);
+
+    let quilt = match client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, query.encoding_type)
+        .await
+    {
+        Ok(quilt) => quilt,
+        Err(e) => {
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to construct quilt: {e:?}"),
+            }
+            .into_response();
+        }
+    };
+
+    if let Some(TypedHeader(header)) = bearer_header {
+        if let Err(error) = check_blob_size(header, quilt.data().len()) {
+            return error.into_response();
+        }
+    }
+
+    let result = client
+        .write_quilt::<QuiltVersionV1>(
+            quilt,
+            query.encoding_type,
+            query.epochs,
+            query.optimizations(),
+            query.blob_persistence(),
+            query.post_store_action(client.default_post_store_action()),
+        )
+        .await;
+
+    match result {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => {
+            tracing::error!(?error, "error storing quilt");
+            StoreBlobError::from(error).into_response()
+        }
+    }
+}
+
+/// Parse multipart form data and extract files with their metadata.
+async fn parse_multipart_quilt(
+    mut multipart: Multipart,
+) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
+    let mut blobs_with_identifiers = Vec::new();
+    let mut metadata_map: HashMap<String, QuiltPatchMetadata> = HashMap::new();
+
+    while let Some(field) = multipart.next_field().await? {
+        let field_name = field.name().unwrap_or("").to_string();
+        if field_name == WALRUS_NATIVE_METADATA_FIELD_NAME {
+            let metadata_json = field.text().await?;
+            for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
+                let identifier = meta.identifier.clone();
+                if let Some(existing) = metadata_map.insert(identifier, meta) {
+                    return Err(StoreBlobError::MalformedRequest {
+                        message: format!("duplicate identifiers found in _metadata: {existing:?}"),
+                    }
+                    .into());
+                }
+            }
+        } else {
+            let data = field.bytes().await?.to_vec();
+            blobs_with_identifiers.push((field_name, data));
+        }
+    }
+
+    let mut res = Vec::with_capacity(blobs_with_identifiers.len());
+    for (identifier, data) in blobs_with_identifiers {
+        let tags = if let Some(meta) = metadata_map.get(&identifier) {
+            meta.tags
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+
+        res.push(QuiltStoreBlob::new_owned(data, identifier)?.with_tags(tags));
+    }
+
+    Ok(res)
+}
+
+/// Custom deserializer for QuiltVersionEnum that uses From<String>.
+fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_str: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt_str.map(QuiltVersionEnum::from))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::Uri;
@@ -767,7 +971,7 @@ mod tests {
             &[
                 Token::Struct {
                     name: "PublisherQuery",
-                    len: 4,
+                    len: 5,
                 },
                 Token::Str("encoding_type"),
                 Token::None,
@@ -777,6 +981,8 @@ mod tests {
                 Token::Bool(false),
                 Token::Str("force"),
                 Token::Bool(false),
+                Token::Str("quilt_version"),
+                Token::None,
                 Token::StructEnd,
             ],
         );
@@ -893,5 +1099,47 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_quilt_file_metadata_deserialization() {
+        let json = r#"[
+                {
+                    "identifier": "contract-v2",
+                    "tags": {
+                        "author": "alice",
+                        "version": "2.0"
+                    }
+                },
+                {
+                    "identifier": "logo-2024",
+                    "tags": {
+                        "type": 3,
+                        "format": "png"
+                    }
+                }
+            ]"#;
+
+        let metadata: Vec<QuiltPatchMetadata> = serde_json::from_str(json).expect("should parse");
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata[0].identifier, "contract-v2");
+        assert_eq!(metadata[1].identifier, "logo-2024");
+        assert_eq!(
+            metadata[0]
+                .tags
+                .get("author")
+                .expect("should be some")
+                .as_str()
+                .expect("should be some"),
+            "alice"
+        );
+        assert_eq!(
+            metadata[1]
+                .tags
+                .get("type")
+                .expect("should be some")
+                .to_string(),
+            "3"
+        );
     }
 }

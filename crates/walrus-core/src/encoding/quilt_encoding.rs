@@ -83,7 +83,7 @@ pub trait QuiltVersion: Sized {
     /// The type of the quilt decoder.
     type QuiltDecoder<'a>: QuiltDecoderApi<'a, Self>;
     /// The type of the quilt.
-    type Quilt: QuiltApi<Self>;
+    type Quilt: QuiltApi<Self> + Send + Sync;
     /// The type of the quilt index.
     type QuiltIndex: QuiltIndexApi<Self>;
     /// The type of the quilt patch.
@@ -345,6 +345,7 @@ pub trait QuiltColumnRangeReader {
 
 /// The version of the quilt.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[repr(u8)]
 pub enum QuiltVersionEnum {
     /// QuiltVersionV1.
