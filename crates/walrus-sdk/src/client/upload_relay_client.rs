@@ -15,8 +15,11 @@ use serde::Serialize;
 use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::{
     base_types::SuiAddress,
-    transaction::{Transaction, TransactionData, TransactionKind},
+    digests::TransactionDigest,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::{Argument, Command, Transaction, TransactionData, TransactionKind},
 };
+use walrus_sui::client::transaction_builder::build_transaction_data_with_min_gas_balance;
 
 use crate::{
     ObjectID,
@@ -46,7 +49,7 @@ use crate::{
         TIP_CONFIG_ROUTE,
         blob_upload_relay_url,
         params::{AuthPackage, Params},
-        tip_config::TipConfig,
+        tip_config::{TipConfig, TipKind},
     },
 };
 
@@ -155,6 +158,121 @@ pub(crate) async fn run_client(
 
     println!("Blob with ID {computed_blob_id} and encoded size {encoded_size} successfully stored");
     Ok(())
+}
+
+pub(crate) struct UploadRelayTipClient {
+    /// The number of shards for this network.
+    n_shards: NonZeroU16,
+    /// The upload relay url.
+    upload_relay: Url,
+    /// The tip configuration.
+    tip_config: TipConfig,
+    /// The gas budget for the tip payment.
+    gas_budget: Option<u64>,
+}
+
+impl UploadRelayTipClient {
+    /// Fetches the tip configuration from the upload relay and creates a new upload relay tip
+    /// client.
+    pub(crate) async fn new(
+        n_shards: NonZeroU16,
+        upload_relay: Url,
+        gas_budget: Option<u64>,
+    ) -> Result<Self> {
+        tracing::debug!(
+            ?upload_relay,
+            "fetching the tip confign and creating upload relay tip client"
+        );
+        let tip_config = get_tip_config(&upload_relay).await?;
+        Ok(Self {
+            n_shards,
+            upload_relay,
+            tip_config,
+            gas_budget,
+        })
+    }
+
+    /// Pays the tip to the upload relay if required.
+    ///
+    /// Optionally returns the transaction ID of the payment transaction.
+    pub(crate) async fn pay_tip_if_required(
+        &self,
+        sui_client: &mut SuiContractClient,
+        blob: &[u8],
+        encoding_type: EncodingType,
+    ) -> Result<Option<TransactionDigest>> {
+        if let TipConfig::SendTip { address, kind } = &self.tip_config {
+            let auth_package = AuthPackage::new(blob);
+            let tx_id = self
+                .pay_tip(
+                    sui_client,
+                    *address,
+                    kind,
+                    &auth_package,
+                    blob.len().try_into().expect("32 or 64 bit arch"),
+                    encoding_type,
+                )
+                .await?;
+            Ok(Some(tx_id))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Pays the tip to the upload relay, based on the blob's unencoded length.
+    ///
+    /// Returns the transaction ID of the payment transaction.
+    pub(crate) async fn pay_tip(
+        &self,
+        sui_client: &mut SuiContractClient,
+        relay_address: SuiAddress,
+        kind: &TipKind,
+        auth_package: &AuthPackage,
+        unencoded_length: u64,
+        encoding_type: EncodingType,
+    ) -> Result<TransactionDigest> {
+        let tip_amount = kind
+            .compute_tip(self.n_shards, unencoded_length, encoding_type)
+            .ok_or(anyhow::anyhow!(
+                "could not compute the tip amount for the given blob size \
+                ({} bytes, n_shards: {}, encoding_type: {:?})",
+                unencoded_length,
+                self.n_shards,
+                encoding_type
+            ))?;
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        // The first input is the authentication package.
+        pt_builder.pure(auth_package.to_hashed_nonce())?;
+
+        // Pay the tip.
+        let amount_arg = pt_builder.pure(tip_amount)?;
+        let split_coin =
+            pt_builder.command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
+        pt_builder.transfer_arg(relay_address, split_coin);
+
+        // Sign and execute.
+        let owner_address = sui_client.wallet_mut().active_address()?;
+        let gas_price = sui_client.read_client().get_reference_gas_price().await?;
+        let transaction_data = build_transaction_data_with_min_gas_balance(
+            pt_builder.finish(),
+            gas_price,
+            sui_client.read_client(),
+            owner_address,
+            self.gas_budget,
+            0, // No additional gas budget.
+            tip_amount,
+        )
+        .await?;
+
+        let signed_transaction = sui_client.wallet_mut().sign_transaction(&transaction_data);
+        let response = sui_client
+            .sui_client()
+            .execute_transaction(signed_transaction, "pay_tip")
+            .await?;
+
+        Ok(response.digest)
+    }
 }
 
 /// Gets the tip configuration from the specified Walrus Upload Relay.

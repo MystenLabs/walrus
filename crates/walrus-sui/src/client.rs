@@ -2191,7 +2191,7 @@ impl SuiContractClientInner {
         if sui_balance.coin_object_count > 1 || wal_balance.coin_object_count > 1 {
             self.sign_and_send_transaction(
                 tx_builder
-                    .build_transaction_data_with_min_gas_balance(
+                    .transfer_outputs_and_build_transaction_data(
                         self.gas_budget,
                         sui_balance
                             .total_balance
