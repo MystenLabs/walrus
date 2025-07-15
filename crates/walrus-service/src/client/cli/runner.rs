@@ -232,6 +232,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
+                    common_options.yes.into(),
                 )
                 .await
             }
@@ -257,6 +258,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
+                    common_options.yes.into(),
                 )
                 .await
             }
@@ -645,6 +647,7 @@ impl ClientCommandRunner {
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
+        confirmation: UserConfirmation,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -696,6 +699,18 @@ impl ClientCommandRunner {
             .await?;
             // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
+
+            let total_tip = store_args.compute_total_tip_amount(
+                client.encoding_config().n_shards(),
+                &blobs
+                    .iter()
+                    .map(|blob| blob.1.len().try_into().expect("32 or 64-bit arch"))
+                    .collect::<Vec<_>>(),
+            )?;
+
+            if confirmation.is_required() {
+                ask_for_tip_confirmation(total_tip)?;
+            }
         }
 
         let results = client
@@ -778,6 +793,7 @@ impl ClientCommandRunner {
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
+        confirmation: UserConfirmation,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -833,6 +849,18 @@ impl ClientCommandRunner {
             .await?;
             // Store operations will use the upload relay.
             store_args = store_args.with_upload_relay_client(upload_relay_client);
+
+            let total_tip = store_args.compute_total_tip_amount(
+                client.encoding_config().n_shards(),
+                &quilt_store_blobs
+                    .iter()
+                    .map(|blob| blob.unencoded_length())
+                    .collect::<Vec<_>>(),
+            )?;
+
+            if confirmation.is_required() {
+                ask_for_tip_confirmation(total_tip)?;
+            }
         }
 
         let result = quilt_write_client
@@ -1662,6 +1690,24 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+pub fn ask_for_tip_confirmation(total_tip: Option<u64>) -> Result<bool> {
+    if let Some(total_tip) = total_tip {
+        println!(
+            "You are about to store the blobs using the provided upload relay;\n \
+            on top of the Walrus base costs, the tip for the upload relay will \
+            amount to {} (+ gas fees).",
+            HumanReadableMist::from(total_tip)
+        );
+
+        if !ask_for_confirmation()? {
+            anyhow::bail!("operation cancelled by user");
+        }
+    }
+
+    // If no tip is required, we proceed with the upload.
+    Ok(true)
 }
 
 /// Get the latest checkpoint sequence number from the Sui RPC node.

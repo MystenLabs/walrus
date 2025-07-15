@@ -1042,6 +1042,13 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub upload_relay: Option<Url>,
+    /// Whether to ask for user confirmations.
+    ///
+    /// If yes is specified, the client will not ask for confirmations and proceed with the
+    /// operation.
+    #[arg(long)]
+    #[serde(default)]
+    pub yes: bool,
 }
 
 #[serde_as]
@@ -1745,6 +1752,7 @@ mod tests {
                 share: false,
                 encoding_type: Default::default(),
                 upload_relay: None,
+                yes: false,
             },
         })
     }

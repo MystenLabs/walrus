@@ -273,6 +273,16 @@ impl UploadRelayClient {
         Ok(response.confirmation_certificate)
     }
 
+    /// Returns a reference to the tip configuration.
+    pub fn tip_config(&self) -> &TipConfig {
+        &self.tip_config
+    }
+
+    /// Returns the number of shards for this network.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
+    }
+
     /// Send the blob to the upload relay.
     async fn send_to_relay(
         &self,

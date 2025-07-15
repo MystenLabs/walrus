@@ -3,13 +3,17 @@
 
 //! Arguments for the store operations in the client.
 
-use std::{sync::Arc, time::Duration};
+use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
 use super::{metrics::ClientMetrics, upload_relay_client::UploadRelayClient};
-use crate::store_optimizations::StoreOptimizations;
+use crate::{
+    client::upload_relay_client::UploadRelayClientError,
+    store_optimizations::StoreOptimizations,
+    upload_relay::tip_config::TipConfig,
+};
 
 /// Arguments for store operations that are frequently passed together.
 #[derive(Debug, Clone)]
@@ -159,5 +163,34 @@ impl StoreArgs {
         if let Some(metrics) = self.metrics_ref() {
             metrics.observe_upload_certificate(duration);
         }
+    }
+
+    /// Computes the total tip amount for all blobs based on their unencoded lengths.
+    pub fn compute_total_tip_amount(
+        &self,
+        n_shards: NonZeroU16,
+        unencoded_lengths: &[u64],
+    ) -> Result<Option<u64>, UploadRelayClientError> {
+        let Some(upload_relay_client) = self.upload_relay_client_ref() else {
+            return Ok(None);
+        };
+
+        let TipConfig::SendTip { address: _, kind } = upload_relay_client.tip_config() else {
+            return Ok(None);
+        };
+
+        let mut total_tip = 0u64;
+        for &unencoded_length in unencoded_lengths {
+            let tip_amount = kind
+                .compute_tip(n_shards, unencoded_length, self.encoding_type)
+                .ok_or(UploadRelayClientError::TipComputationFailed {
+                    unencoded_length,
+                    n_shards,
+                    encoding_type: self.encoding_type,
+                })?;
+            total_tip += tip_amount;
+        }
+
+        Ok(Some(total_tip))
     }
 }
