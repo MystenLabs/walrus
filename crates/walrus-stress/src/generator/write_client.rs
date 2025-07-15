@@ -19,7 +19,7 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{Client, StoreArgs, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
     error::ClientError,
     store_optimizations::StoreOptimizations,
 };

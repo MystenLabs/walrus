@@ -50,7 +50,7 @@ use walrus_core::{
     encoding::{Primary, quilt_encoding::QuiltStoreBlob},
 };
 use walrus_sdk::{
-    client::{Client, quilt_client::QuiltClientConfig, responses::BlobStoreResult},
+    client::{Client, StoreArgs, quilt_client::QuiltClientConfig, responses::BlobStoreResult},
     error::{ClientError, ClientResult},
     store_optimizations::StoreOptimizations,
 };
@@ -188,16 +188,15 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
         let result = self
-            .reserve_and_store_blobs_retry_committees(
-                &[blob],
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-                None,
-            )
+            .reserve_and_store_blobs_retry_committees(&[blob], &store_args)
             .await?;
 
         Ok(result

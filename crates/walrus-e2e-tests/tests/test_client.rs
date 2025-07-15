@@ -823,16 +823,12 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     }
 
     // Add a blob that is not deletable.
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_store_optimizations(StoreOptimizations::none());
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(
-            &blobs,
-            encoding_type,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&blobs, &store_args)
         .await?;
     let blob_id = result.first().unwrap().blob_id();
 
@@ -966,15 +962,12 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_epochs_ahead(2)
+        .with_store_optimizations(StoreOptimizations::none());
     let store_operation_result = quilt_client
-        .reserve_and_store_quilt::<QuiltVersionV1>(
-            &quilt,
-            encoding_type,
-            2,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
         .await?;
 
     let QuiltStoreResult {
@@ -1075,15 +1068,11 @@ async fn test_blocklist() -> TestResult {
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
 
+    let store_args = StoreArgs::default()
+        .with_store_optimizations(StoreOptimizations::none())
+        .with_persistence(BlobPersistence::Deletable);
     let store_results = client
-        .reserve_and_store_blobs(
-            &[&blob],
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Deletable,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&[&blob], &store_args)
         .await?;
     let store_result = store_results[0].clone();
     let blob_id = store_result.blob_id();
@@ -1167,16 +1156,8 @@ async fn test_blob_operations_with_credits() -> TestResult {
     // Store a blob with credits
     let blob_data = walrus_test_utils::random_data(314);
     let blobs = vec![blob_data.as_slice()];
-    let store_result = client
-        .reserve_and_store_blobs(
-            &blobs,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
-        .await?;
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
+    let store_result = client.reserve_and_store_blobs(&blobs, &store_args).await?;
 
     let blob_object = match &store_result[0] {
         BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.clone(),
@@ -1320,16 +1301,14 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             persistence,
             is_already_certified
         );
-        let results = client
-            .reserve_and_store_blobs(
-                &blobs,
-                encoding_type,
-                epochs,
-                store_optimizations,
-                persistence,
-                PostStoreAction::Keep,
-            )
-            .await?;
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs,
+            store_optimizations,
+            persistence,
+            PostStoreAction::Keep,
+        );
+        let results = client.reserve_and_store_blobs(&blobs, &store_args).await?;
         let store_result = results.first().expect("should have one blob store result");
 
         match store_result {
@@ -1452,16 +1431,10 @@ async fn test_burn_blobs() -> TestResult {
     let mut blob_object_ids = vec![];
     for idx in 0..N_BLOBS {
         let blob = walrus_test_utils::random_data(314 + idx);
+        let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
         let result = client
             .as_ref()
-            .reserve_and_store_blobs(
-                &[blob.as_slice()],
-                DEFAULT_ENCODING,
-                1,
-                StoreOptimizations::none(),
-                BlobPersistence::Permanent,
-                PostStoreAction::Keep,
-            )
+            .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
             .await?;
         blob_object_ids.push({
             let BlobStoreResult::NewlyCreated { blob_object, .. } = result
@@ -1508,16 +1481,12 @@ async fn test_extend_owned_blobs() -> TestResult {
     let current_epoch = client.as_ref().sui_client().current_epoch().await?;
     let blob = walrus_test_utils::random_data(314);
     let encoding_type = DEFAULT_ENCODING;
+
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
+
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(
-            &[blob.as_slice()],
-            encoding_type,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
         .await?;
     let BlobStoreResult::NewlyCreated { blob_object, .. } = result[0].clone() else {
         panic!("expect newly stored blob")
@@ -1541,16 +1510,10 @@ async fn test_extend_owned_blobs() -> TestResult {
     assert_eq!(extended_blob_object.storage.end_epoch, end_epoch + 5);
 
     // Store it again with a longer lifetime, should extend it correctly.
+    let store_args = StoreArgs::default().with_epochs_ahead(20);
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(
-            &[blob.as_slice()],
-            encoding_type,
-            20,
-            StoreOptimizations::all(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
         .await?;
     let BlobStoreResult::NewlyCreated {
         blob_object: second_store_blob_object,
@@ -1581,16 +1544,10 @@ async fn test_share_blobs() -> TestResult {
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     let blob = walrus_test_utils::random_data(314);
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
     let result = client
         .as_ref()
-        .reserve_and_store_blobs(
-            &[blob.as_slice()],
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&[blob.as_slice()], &store_args)
         .await?;
     let (end_epoch, blob_object_id) = {
         let BlobStoreResult::NewlyCreated { blob_object, .. } = result
@@ -1686,17 +1643,12 @@ async fn test_post_store_action(
 
     let blob_data = walrus_test_utils::random_data_list(314, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let store_args = StoreArgs::default()
+        .with_store_optimizations(StoreOptimizations::none())
+        .with_post_store(post_store);
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(
-            &blobs,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            post_store,
-            None,
-        )
+        .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
         .await?;
 
     let owned_blobs = client
@@ -1859,17 +1811,10 @@ async fn test_quorum_contract_upgrade() -> TestResult {
     // Store a blob after the upgrade to check if everything works after the upgrade.
     let blob_data = walrus_test_utils::random_data_list(314, 1);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
     let _results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(
-            &blobs,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-            None,
-        )
+        .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
         .await?;
 
     Ok(())
@@ -2001,16 +1946,12 @@ impl<'a> BlobAttributeTestContext<'a> {
 
         // Store multiple copies of the same blob with different end times.
         for idx in 1..blobs_to_create + 1 {
+            let store_args = StoreArgs::default()
+                .with_epochs_ahead(idx)
+                .with_store_optimizations(StoreOptimizations::none());
             client
                 .as_mut()
-                .reserve_and_store_blobs(
-                    &blobs,
-                    DEFAULT_ENCODING,
-                    idx,
-                    StoreOptimizations::none(),
-                    BlobPersistence::Permanent,
-                    PostStoreAction::Keep,
-                )
+                .reserve_and_store_blobs(&blobs, &store_args)
                 .await
                 .expect("reserve_and_store_blobs should succeed.");
         }

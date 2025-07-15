@@ -40,6 +40,7 @@ use walrus_sdk::{
     client::{
         Client,
         NodeCommunicationFactory,
+        StoreArgs,
         quilt_client::{
             QuiltClientConfig,
             assign_identifiers_with_paths,
@@ -689,15 +690,15 @@ impl ClientCommandRunner {
             .into_iter()
             .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
             .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
         let results = client
-            .reserve_and_store_blobs_retry_committees_with_path(
-                &blobs,
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-            )
+            .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
             .await?;
         let blobs_len = blobs.len();
         if results.len() != blobs_len {
@@ -811,15 +812,15 @@ impl ClientCommandRunner {
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
         let result = quilt_write_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(
-                &quilt,
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-            )
+            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
             .await?;
 
         tracing::info!(

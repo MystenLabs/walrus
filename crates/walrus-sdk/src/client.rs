@@ -155,11 +155,17 @@ impl<E: EncodingAxis> SliverSelector<E> {
 /// Arguments for store operations that are frequently passed together.
 #[derive(Debug, Clone)]
 pub struct StoreArgs {
+    /// The encoding type to use for encoding the files.
     pub encoding_type: EncodingType,
+    /// The number of epochs ahead to store the blob.
     pub epochs_ahead: EpochCount,
+    /// The store optimizations to use for the blob.
     pub store_optimizations: StoreOptimizations,
+    /// The persistence type to use for the blob.
     pub persistence: BlobPersistence,
+    /// The post store action to use for the blob.
     pub post_store: PostStoreAction,
+    /// The metrics to use for the blob.
     pub metrics: Option<Arc<ClientMetrics>>,
 }
 
