@@ -1251,6 +1251,19 @@ impl SuiContractClient {
         .await
     }
 
+    /// Executes the provided transaction.
+    pub async fn sign_and_send_transaction(
+        &self,
+        transaction: TransactionData,
+        method: &'static str,
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        self.inner
+            .lock()
+            .await
+            .sign_and_send_transaction(transaction, method)
+            .await
+    }
+
     async fn retry_on_wrong_version<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
     where
         F: Fn() -> Fut + Send,

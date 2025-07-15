@@ -3,6 +3,7 @@
 #![allow(unused)]
 //! A client for the walrus upload relay.
 use std::{
+    fmt::Debug,
     fs,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -19,8 +20,10 @@ use sui_types::{
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{Argument, Command, Transaction, TransactionData, TransactionKind},
 };
+use walrus_core::messages::BlobPersistenceType;
 use walrus_sui::client::transaction_builder::build_transaction_data_with_min_gas_balance;
 
+use super::{WalrusStoreBlob, WalrusStoreBlobApi};
 use crate::{
     ObjectID,
     client::Client as WalrusClient,
@@ -48,7 +51,7 @@ use crate::{
         ResponseType,
         TIP_CONFIG_ROUTE,
         blob_upload_relay_url,
-        params::{AuthPackage, Params},
+        params::{AuthPackage, NONCE_LEN, Params},
         tip_config::{TipConfig, TipKind},
     },
 };
@@ -160,7 +163,9 @@ pub(crate) async fn run_client(
     Ok(())
 }
 
-pub(crate) struct UploadRelayTipClient {
+pub(crate) struct UploadRelayClient {
+    /// The owner of the upload relay client.
+    owner_address: SuiAddress,
     /// The number of shards for this network.
     n_shards: NonZeroU16,
     /// The upload relay url.
@@ -171,10 +176,11 @@ pub(crate) struct UploadRelayTipClient {
     gas_budget: Option<u64>,
 }
 
-impl UploadRelayTipClient {
+impl UploadRelayClient {
     /// Fetches the tip configuration from the upload relay and creates a new upload relay tip
     /// client.
     pub(crate) async fn new(
+        owner_address: SuiAddress,
         n_shards: NonZeroU16,
         upload_relay: Url,
         gas_budget: Option<u64>,
@@ -185,6 +191,7 @@ impl UploadRelayTipClient {
         );
         let tip_config = get_tip_config(&upload_relay).await?;
         Ok(Self {
+            owner_address,
             n_shards,
             upload_relay,
             tip_config,
@@ -197,19 +204,19 @@ impl UploadRelayTipClient {
     /// Optionally returns the transaction ID of the payment transaction.
     pub(crate) async fn pay_tip_if_required(
         &self,
-        sui_client: &mut SuiContractClient,
-        blob: &[u8],
+        sui_client: &SuiContractClient,
+        auth_package: &AuthPackage,
+        unencoded_length: u64,
         encoding_type: EncodingType,
     ) -> Result<Option<TransactionDigest>> {
         if let TipConfig::SendTip { address, kind } = &self.tip_config {
-            let auth_package = AuthPackage::new(blob);
             let tx_id = self
                 .pay_tip(
                     sui_client,
                     *address,
                     kind,
                     &auth_package,
-                    blob.len().try_into().expect("32 or 64 bit arch"),
+                    unencoded_length,
                     encoding_type,
                 )
                 .await?;
@@ -224,7 +231,7 @@ impl UploadRelayTipClient {
     /// Returns the transaction ID of the payment transaction.
     pub(crate) async fn pay_tip(
         &self,
-        sui_client: &mut SuiContractClient,
+        sui_client: &SuiContractClient,
         relay_address: SuiAddress,
         kind: &TipKind,
         auth_package: &AuthPackage,
@@ -252,26 +259,81 @@ impl UploadRelayTipClient {
         pt_builder.transfer_arg(relay_address, split_coin);
 
         // Sign and execute.
-        let owner_address = sui_client.wallet_mut().active_address()?;
         let gas_price = sui_client.read_client().get_reference_gas_price().await?;
         let transaction_data = build_transaction_data_with_min_gas_balance(
             pt_builder.finish(),
             gas_price,
             sui_client.read_client(),
-            owner_address,
+            self.owner_address,
             self.gas_budget,
             0, // No additional gas budget.
             tip_amount,
         )
         .await?;
 
-        let signed_transaction = sui_client.wallet_mut().sign_transaction(&transaction_data);
         let response = sui_client
-            .sui_client()
-            .execute_transaction(signed_transaction, "pay_tip")
+            .sign_and_send_transaction(transaction_data, "pay_tip")
             .await?;
 
         Ok(response.digest)
+    }
+
+    /// Sends the blob to the upload relay and waits for the certificate.
+    ///
+    /// Additionally, it pays the tip if required.
+    pub(crate) async fn send_blob_data_and_get_certificate(
+        &self,
+        sui_client: &SuiContractClient,
+        blob: &[u8],
+        blob_id: BlobId,
+        encoding_type: EncodingType,
+        blob_persistence_type: BlobPersistenceType,
+    ) -> Result<ConfirmationCertificate> {
+        let auth_package = AuthPackage::new(blob);
+        let unencoded_length = blob.len().try_into().expect("using a u32 or u64 arch");
+        let tx_id = self
+            .pay_tip_if_required(sui_client, &auth_package, unencoded_length, encoding_type)
+            .await?;
+
+        // Only add the nonce if we paid for the transaction.
+        let nonce = tx_id.is_some().then(|| auth_package.nonce);
+        let deletable_blob_object: Option<ObjectID> =
+            if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
+                Some(object_id.into())
+            } else {
+                None
+            };
+
+        let params = Params {
+            blob_id,
+            nonce,
+            tx_id,
+            deletable_blob_object,
+            encoding_type: Some(encoding_type),
+        };
+
+        let response = self.send_to_relay(blob, params).await?;
+        Ok(response.confirmation_certificate)
+    }
+
+    pub(crate) async fn send_to_relay(&self, blob: &[u8], params: Params) -> Result<ResponseType> {
+        let post_url = blob_upload_relay_url(&self.upload_relay, &params)?;
+
+        tracing::debug!(
+            ?post_url,
+            ?params,
+            "sending request to the walrus upload relay"
+        );
+
+        // TODO(now): add the reqwest client as a field.
+        let client = reqwest::Client::new();
+        // TODO(now): better way to send the bytes?
+        // TODO(now): retries.
+        let response = client.post(post_url).body(blob.to_vec()).send().await?;
+        tracing::debug!(?response, "upload relay response received");
+
+        let res = response.json().await?;
+        Ok(res)
     }
 }
 
