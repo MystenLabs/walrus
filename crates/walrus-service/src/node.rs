@@ -1304,7 +1304,7 @@ impl StorageNode {
 
         // Blob extensions do not contain their event emission epoch. So we use this to filter out
         // blob extensions events.
-        let Some(event_epoch) = event.event_epoch() else {
+        let Some(first_new_event_epoch) = event.event_epoch() else {
             return Ok(());
         };
 
@@ -1314,21 +1314,29 @@ impl StorageNode {
         *maybe_epoch_at_start = None;
 
         // Checks if the node is severely lagging behind.
-        if !node_status.is_catching_up() && event_epoch + 1 < epoch_at_start {
+        if !node_status.is_catching_up() && first_new_event_epoch + 1 < epoch_at_start {
             tracing::warn!(
                 "the current epoch ({}) is far ahead of the event epoch ({}); \
                 node entering recovery mode",
                 epoch_at_start,
-                event_epoch,
+                first_new_event_epoch,
             );
             self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
         }
 
-        // Update initial latest event epoch. This is the first (non-extension) event the node
-        // processes.
+        // Set the initial current event epoch. Note that if the first event is an epoch change
+        // start event, the current event epoch is the previous epoch, since the epoch change has
+        // not been executed yet.
+        let current_event_epoch = match event {
+            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(
+                EpochChangeStart { .. },
+            )) => first_new_event_epoch - 1,
+            _ => first_new_event_epoch,
+        };
+
         self.inner
             .latest_event_epoch_sender
-            .send(Some(event_epoch))?;
+            .send(Some(current_event_epoch))?;
 
         Ok(())
     }
