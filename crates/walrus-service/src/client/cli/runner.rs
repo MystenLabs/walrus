@@ -18,6 +18,7 @@ use fastcrypto::encoding::Encoding;
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
+use reqwest::Url;
 use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
 use walrus_core::{
@@ -48,6 +49,7 @@ use walrus_sdk::{
             read_blobs_from_paths,
         },
         resource::RegisterBlobOp,
+        upload_relay_client::UploadRelayClient,
     },
     config::load_configuration,
     error::ClientErrorKind,
@@ -215,25 +217,6 @@ impl ClientCommandRunner {
                 files,
                 common_options,
             } => {
-                if let Some(_upload_relay) = common_options.upload_relay {
-                    todo!()
-                    //self.store_via_upload_relay(
-                    //    files,
-                    //    upload_relay,
-                    //    common_options.epoch_arg,
-                    //    common_options.dry_run,
-                    //    StoreOptimizations::from_force_and_ignore_resources_flags(
-                    //        common_options.force,
-                    //        common_options.ignore_resources,
-                    //    ),
-                    //    BlobPersistence::from_deletable_and_permanent(
-                    //        common_options.deletable,
-                    //        common_options.permanent,
-                    //    )?,
-                    //    PostStoreAction::from_share(common_options.share),
-                    //    common_options.encoding_type,
-                    //)
-                }
                 self.store(
                     files,
                     common_options.epoch_arg,
@@ -248,6 +231,7 @@ impl ClientCommandRunner {
                     )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
+                    common_options.upload_relay,
                 )
                 .await
             }
@@ -659,6 +643,7 @@ impl ClientCommandRunner {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
+        upload_relay: Option<Url>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -690,13 +675,28 @@ impl ClientCommandRunner {
             .into_iter()
             .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
             .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
-        let store_args = StoreArgs::new(
+
+        let mut store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
             persistence,
             post_store,
         );
+
+        if let Some(upload_relay) = upload_relay {
+            let upload_relay_client = UploadRelayClient::new(
+                client.sui_client().address(),
+                client.encoding_config().n_shards(),
+                upload_relay,
+                self.gas_budget,
+                client.config().backoff_config().clone(),
+            )
+            .await?;
+            // Store operations will use the upload relay.
+            store_args = store_args.with_upload_relay_client(upload_relay_client);
+        }
+
         let results = client
             .reserve_and_store_blobs_retry_committees_with_path(&blobs, &store_args)
             .await?;

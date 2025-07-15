@@ -12873,6 +12873,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
+ "url",
  "utoipa",
  "walrus-core",
  "walrus-storage-node-client",

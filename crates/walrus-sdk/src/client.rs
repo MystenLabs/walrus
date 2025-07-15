@@ -1128,7 +1128,9 @@ impl Client<SuiContractClient> {
         // changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
-            .await_while_checking_notification(self.get_all_blob_certificates(to_be_certified))
+            .await_while_checking_notification(
+                self.get_all_blob_certificates(to_be_certified, store_args),
+            )
             .await?;
         debug_assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
         let get_certificates_duration = get_certificates_timer.elapsed();
@@ -1262,6 +1264,7 @@ impl Client<SuiContractClient> {
     async fn get_all_blob_certificates<'a, T: Debug + Clone + Send + Sync>(
         &'a self,
         blobs_to_be_certified: Vec<WalrusStoreBlob<'a, T>>,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         if blobs_to_be_certified.is_empty() {
             return Ok(vec![]);
@@ -1288,6 +1291,7 @@ impl Client<SuiContractClient> {
                             &operation,
                             &registered_blob,
                             multi_pb_arc.as_ref(),
+                            store_args,
                         )
                         .await;
                     registered_blob.with_get_certificate_result(certificate_result)
@@ -1315,6 +1319,7 @@ impl Client<SuiContractClient> {
         resource_operation: &RegisterBlobOp,
         registered_blob: &WalrusStoreBlob<'_, T>,
         multi_pb: &MultiProgress,
+        store_args: &StoreArgs,
     ) -> ClientResult<ConfirmationCertificate> {
         let committees = self.get_committees().await?;
 
@@ -1353,16 +1358,32 @@ impl Client<SuiContractClient> {
                     );
                     tokio::time::sleep(self.config.communication_config.registration_delay).await;
                 }
+
                 let certify_start_timer = Instant::now();
-                let result = self
-                    .send_blob_data_and_get_certificate(
-                        metadata,
-                        pairs,
-                        &blob_object.blob_persistence_type(),
-                        Some(multi_pb),
-                    )
-                    .await?;
+                let result: Result<_, ClientError> =
+                    if let Some(upload_relay_client) = store_args.upload_relay_client_ref() {
+                        let blob = registered_blob.get_blob();
+                        upload_relay_client
+                            .send_blob_data_and_get_certificate(
+                                &self.sui_client,
+                                blob,
+                                blob_object.blob_id,
+                                store_args.encoding_type,
+                                blob_object.blob_persistence_type(),
+                            )
+                            .await
+                            .map_err(|error| ClientErrorKind::UploadRelayError(error).into())
+                    } else {
+                        self.send_blob_data_and_get_certificate(
+                            metadata,
+                            pairs,
+                            &blob_object.blob_persistence_type(),
+                            Some(multi_pb),
+                        )
+                        .await
+                    };
                 let duration = certify_start_timer.elapsed();
+
                 let blob_size = blob_object.size;
                 tracing::info!(
                     blob_id = %metadata.blob_id(),
@@ -1370,7 +1391,7 @@ impl Client<SuiContractClient> {
                     blob_size,
                     "finished sending blob data and collecting certificate"
                 );
-                Ok(result)
+                result
             }
         }
     }

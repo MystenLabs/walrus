@@ -8,7 +8,8 @@ use std::sync::Arc;
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
-use crate::{client::metrics::ClientMetrics, store_optimizations::StoreOptimizations};
+use super::{metrics::ClientMetrics, upload_relay_client::UploadRelayClient};
+use crate::store_optimizations::StoreOptimizations;
 
 /// Arguments for store operations that are frequently passed together.
 #[derive(Debug, Clone)]
@@ -25,6 +26,8 @@ pub struct StoreArgs {
     pub post_store: PostStoreAction,
     /// The metrics to use for the blob.
     pub metrics: Option<Arc<ClientMetrics>>,
+    /// The optional upload relay client, that allows to store the blob via the relay.
+    pub upload_relay_client: Option<UploadRelayClient>,
 }
 
 impl Default for StoreArgs {
@@ -36,6 +39,7 @@ impl Default for StoreArgs {
             persistence: BlobPersistence::Permanent,
             post_store: PostStoreAction::Keep,
             metrics: None,
+            upload_relay_client: None,
         }
     }
 }
@@ -56,7 +60,19 @@ impl StoreArgs {
             persistence,
             post_store,
             metrics: None,
+            upload_relay_client: None,
         }
+    }
+
+    /// Sets the upload relay client.
+    pub fn with_upload_relay_client(mut self, upload_relay_client: UploadRelayClient) -> Self {
+        self.upload_relay_client = Some(upload_relay_client);
+        self
+    }
+
+    /// Returns a reference to the upload relay client if present.
+    pub fn upload_relay_client_ref(&self) -> Option<&UploadRelayClient> {
+        self.upload_relay_client.as_ref()
     }
 
     /// Sets the encoding type.

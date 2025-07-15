@@ -6,12 +6,14 @@
 pub mod params;
 pub mod tip_config;
 
-use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
-use crate::core::{BlobId, messages::ConfirmationCertificate};
+use crate::{
+    client::upload_relay_client::UploadRelayError,
+    core::{BlobId, messages::ConfirmationCertificate},
+};
 
 /// The route to upload blobs using the relay.
 pub const BLOB_UPLOAD_RELAY_ROUTE: &str = "/v1/blob-upload-relay";
@@ -31,8 +33,13 @@ pub struct ResponseType {
 }
 
 /// Constructs the URL for the Walrus Upload Relay API with the given parameters.
-pub fn blob_upload_relay_url(server_url: &Url, params: &params::Params) -> Result<Url> {
-    let mut url = server_url.join(BLOB_UPLOAD_RELAY_ROUTE)?;
+pub fn blob_upload_relay_url(
+    server_url: &Url,
+    params: &params::Params,
+) -> Result<Url, UploadRelayError> {
+    let mut url = server_url
+        .join(BLOB_UPLOAD_RELAY_ROUTE)
+        .map_err(UploadRelayError::UrlEndocodingFailed)?;
 
     // Scope the query_pairs mut variable.
     {
