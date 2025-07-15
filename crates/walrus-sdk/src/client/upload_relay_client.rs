@@ -76,7 +76,7 @@ pub(crate) async fn run_client(
 
     let encoded_size = upload_relay_client
         .encoded_size(metadata.metadata().unencoded_length())
-        .unwrap();
+        .expect("this will be removed");
 
     let auth_package = AuthPackage::new(&blob);
 
@@ -215,7 +215,7 @@ impl UploadRelayClient {
                     sui_client,
                     *address,
                     kind,
-                    &auth_package,
+                    auth_package,
                     unencoded_length,
                     encoding_type,
                 )
@@ -296,7 +296,7 @@ impl UploadRelayClient {
             .await?;
 
         // Only add the nonce if we paid for the transaction.
-        let nonce = tx_id.is_some().then(|| auth_package.nonce);
+        let nonce = tx_id.is_some().then_some(auth_package.nonce);
         let deletable_blob_object: Option<ObjectID> =
             if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
                 Some(object_id.into())

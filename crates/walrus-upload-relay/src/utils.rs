@@ -105,7 +105,7 @@ mod tests {
                 nonce,
                 auth_package: HashedAuthPackage {
                     blob_digest: Sha256::digest(blob.as_slice()).digest,
-                    nonce_digest: Sha256::digest(&nonce).digest,
+                    nonce_digest: Sha256::digest(nonce).digest,
                     unencoded_length: blob.len() as u64,
                 },
             }

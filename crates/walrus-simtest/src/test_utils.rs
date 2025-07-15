@@ -73,7 +73,7 @@ pub mod simtest_utils {
         let store_results = loop {
             let store_args = StoreArgs::default()
                 .with_epochs_ahead(epoch_ahead)
-                .with_store_optimizations(StoreOptimizations::none())
+                .no_store_optimizations()
                 .with_persistence(BlobPersistence::from_deletable_and_permanent(
                     deletable, !deletable,
                 )?);

@@ -24,19 +24,16 @@ use futures::{
     future::{Either, select},
 };
 use indicatif::{HumanDuration, MultiProgress};
-use metrics::ClientMetrics;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
+pub use store_args::StoreArgs;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
-use upload_relay_client::UploadRelayClient;
 use walrus_core::{
     BlobId,
-    DEFAULT_ENCODING,
     EncodingType,
     Epoch,
-    EpochCount,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -56,11 +53,9 @@ use walrus_core::{
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
-        BlobPersistence,
         CertifyAndExtendBlobParams,
         CertifyAndExtendBlobResult,
         ExpirySelectionPolicy,
-        PostStoreAction,
         ReadClient,
         SuiContractClient,
     },
@@ -80,7 +75,6 @@ use crate::{
     client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_optimizations::StoreOptimizations,
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -95,6 +89,7 @@ pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+pub mod store_args;
 pub mod upload_relay_client;
 
 /// The delay between retries when retrieving slivers.
@@ -149,97 +144,6 @@ impl<E: EncodingAxis> SliverSelector<E> {
         self.indices_and_shards
             .remove_by_left(sliver_index)
             .is_some()
-    }
-}
-
-/// Arguments for store operations that are frequently passed together.
-#[derive(Debug, Clone)]
-pub struct StoreArgs {
-    /// The encoding type to use for encoding the files.
-    pub encoding_type: EncodingType,
-    /// The number of epochs ahead to store the blob.
-    pub epochs_ahead: EpochCount,
-    /// The store optimizations to use for the blob.
-    pub store_optimizations: StoreOptimizations,
-    /// The persistence type to use for the blob.
-    pub persistence: BlobPersistence,
-    /// The post store action to use for the blob.
-    pub post_store: PostStoreAction,
-    /// The metrics to use for the blob.
-    pub metrics: Option<Arc<ClientMetrics>>,
-}
-
-impl Default for StoreArgs {
-    fn default() -> Self {
-        Self {
-            encoding_type: DEFAULT_ENCODING,
-            epochs_ahead: 1,
-            store_optimizations: StoreOptimizations::all(),
-            persistence: BlobPersistence::Permanent,
-            post_store: PostStoreAction::Keep,
-            metrics: None,
-        }
-    }
-}
-
-impl StoreArgs {
-    /// Creates a new `StoreArgs` with the given parameters.
-    pub fn new(
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-    ) -> Self {
-        Self {
-            encoding_type,
-            epochs_ahead,
-            store_optimizations,
-            persistence,
-            post_store,
-            metrics: None,
-        }
-    }
-
-    /// Sets the encoding type.
-    pub fn with_encoding_type(mut self, encoding_type: EncodingType) -> Self {
-        self.encoding_type = encoding_type;
-        self
-    }
-
-    /// Sets the number of epochs ahead.
-    pub fn with_epochs_ahead(mut self, epochs_ahead: EpochCount) -> Self {
-        self.epochs_ahead = epochs_ahead;
-        self
-    }
-
-    /// Sets the store optimizations.
-    pub fn with_store_optimizations(mut self, store_optimizations: StoreOptimizations) -> Self {
-        self.store_optimizations = store_optimizations;
-        self
-    }
-
-    /// Sets the persistence type.
-    pub fn with_persistence(mut self, persistence: BlobPersistence) -> Self {
-        self.persistence = persistence;
-        self
-    }
-
-    /// Sets the post store action.
-    pub fn with_post_store(mut self, post_store: PostStoreAction) -> Self {
-        self.post_store = post_store;
-        self
-    }
-
-    /// Adds metrics to the `StoreArgs`.
-    pub fn with_metrics(mut self, metrics: Arc<ClientMetrics>) -> Self {
-        self.metrics = Some(metrics);
-        self
-    }
-
-    /// Returns a reference to the metrics if present.
-    pub fn metrics_ref(&self) -> Option<&Arc<ClientMetrics>> {
-        self.metrics.as_ref()
     }
 }
 
