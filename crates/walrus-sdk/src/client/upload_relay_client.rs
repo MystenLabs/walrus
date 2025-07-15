@@ -161,6 +161,7 @@ impl UploadRelayClient {
         encoding_type: EncodingType,
     ) -> Result<Option<TransactionDigest>, UploadRelayError> {
         if let TipConfig::SendTip { address, kind } = &self.tip_config {
+            tracing::debug!("tip payment required");
             let tip_amount = kind
                 .compute_tip(self.n_shards, unencoded_length, encoding_type)
                 .ok_or(UploadRelayError::TipComputationFailed {
@@ -227,6 +228,7 @@ impl UploadRelayClient {
     /// NOTE: This function is somewhat suboptimal at the moment, as it pays the tip just before
     /// sending the data to the relay client. This means that its gas usage is not optimized -- it
     /// could be bundled in the registration PTBs, which would reduce the total gas usage.
+    #[tracing::instrument(level = tracing::Level::DEBUG, skip_all)]
     pub async fn send_blob_data_and_get_certificate(
         &self,
         sui_client: &SuiContractClient,
@@ -235,6 +237,8 @@ impl UploadRelayClient {
         encoding_type: EncodingType,
         blob_persistence_type: BlobPersistenceType,
     ) -> Result<ConfirmationCertificate, UploadRelayError> {
+        tracing::info!("using the upload relay to store the blob and get the certificate");
+
         let auth_package = AuthPackage::new(blob);
         let unencoded_length = blob.len().try_into().expect("using a u32 or u64 arch");
         let tx_id = self
