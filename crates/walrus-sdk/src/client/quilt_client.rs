@@ -26,7 +26,7 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContra
 use walrus_utils::read_blob_from_file;
 
 use crate::{
-    client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
+    client::{Client, StoreArgs, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
     error::{ClientError, ClientErrorKind, ClientResult},
     store_optimizations::StoreOptimizations,
 };
@@ -771,17 +771,16 @@ impl QuiltClient<'_, SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<QuiltStoreResult> {
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(
-                &[quilt.data()],
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-                None,
-            )
+            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &store_args)
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();

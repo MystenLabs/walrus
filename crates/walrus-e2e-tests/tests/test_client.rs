@@ -47,6 +47,7 @@ use walrus_sdk::{
     client::{
         Blocklist,
         Client,
+        StoreArgs,
         WalrusStoreBlob,
         WalrusStoreBlobApi,
         quilt_client::QuiltClientConfig,
@@ -141,16 +142,10 @@ where
         blobs_with_paths.push((path, data.to_vec()));
     }
 
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees_with_path(
-            &blobs_with_paths,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
         .await?;
 
     for result in store_result {
@@ -468,16 +463,12 @@ async fn test_store_with_existing_blob_resource(
         .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_epochs_ahead(epochs_ahead_required);
     let blob_stores = client
         .inner
-        .reserve_and_store_blobs(
-            &blobs,
-            encoding_type,
-            epochs_ahead_required,
-            StoreOptimizations::all(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&blobs, &store_args)
         .await?
         .into_iter()
         .map(|blob_store_result| match blob_store_result {
@@ -545,16 +536,12 @@ async fn store_blob(
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
 ) -> TestResult<BlobId> {
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_epochs_ahead(epochs_ahead);
     let result = client
         .inner
-        .reserve_and_store_blobs(
-            &[blob],
-            encoding_type,
-            epochs_ahead,
-            StoreOptimizations::all(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&[blob], &store_args)
         .await?;
 
     Ok(result
@@ -588,15 +575,10 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
         blobs_with_paths.push((path, data.to_vec()));
     }
 
+    let store_args = StoreArgs::default().with_store_optimizations(StoreOptimizations::none());
     let store_result_with_path = client
-        .reserve_and_store_blobs_retry_committees_with_path(
-            &blobs_with_paths,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
         .await?;
 
     let read_result =
@@ -650,16 +632,12 @@ async fn test_store_with_existing_blobs() -> TestResult {
 
     let epoch = client.as_ref().sui_client().current_epoch().await?;
     let epochs_ahead = 30;
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_epochs_ahead(epochs_ahead);
     let store_results: Vec<BlobStoreResult> = client
         .inner
-        .reserve_and_store_blobs(
-            &blobs,
-            encoding_type,
-            epochs_ahead,
-            StoreOptimizations::all(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&blobs, &store_args)
         .await?;
     for result in store_results {
         if result.blob_id() == Some(reuse_blob) {
@@ -794,16 +772,12 @@ async fn test_store_with_existing_storage_resource(
         .collect::<Vec<_>>();
     // Now ask the client to store again.
     // Collect all object ids of the newly created blob object.
+    let store_args = StoreArgs::default()
+        .with_encoding_type(encoding_type)
+        .with_epochs_ahead(epochs_ahead_required);
     let blob_store = client
         .inner
-        .reserve_and_store_blobs(
-            &blobs,
-            encoding_type,
-            epochs_ahead_required,
-            StoreOptimizations::all(),
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
+        .reserve_and_store_blobs(&blobs, &store_args)
         .await?
         .into_iter()
         .map(|blob_store_result| match blob_store_result {
@@ -837,16 +811,14 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     // with the same blob ID.
     let encoding_type = DEFAULT_ENCODING;
     for idx in 1..blobs_to_create + 1 {
+        let store_args = StoreArgs::default()
+            .with_encoding_type(encoding_type)
+            .with_epochs_ahead(idx)
+            .with_store_optimizations(StoreOptimizations::none())
+            .with_persistence(BlobPersistence::Deletable);
         client
             .as_ref()
-            .reserve_and_store_blobs(
-                &blobs,
-                encoding_type,
-                idx,
-                StoreOptimizations::none(),
-                BlobPersistence::Deletable,
-                PostStoreAction::Keep,
-            )
+            .reserve_and_store_blobs(&blobs, &store_args)
             .await?;
     }
 
@@ -900,16 +872,11 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
 
-    let results = client
-        .reserve_and_store_blobs(
-            &blobs,
-            DEFAULT_ENCODING,
-            1,
-            StoreOptimizations::none(),
-            BlobPersistence::Deletable,
-            PostStoreAction::Keep,
-        )
-        .await?;
+    let store_args = StoreArgs::default()
+        .with_encoding_type(DEFAULT_ENCODING)
+        .with_store_optimizations(StoreOptimizations::none())
+        .with_persistence(BlobPersistence::Deletable);
+    let results = client.reserve_and_store_blobs(&blobs, &store_args).await?;
     let store_result = results.first().expect("should have one blob store result");
     let blob_id = store_result
         .blob_id()

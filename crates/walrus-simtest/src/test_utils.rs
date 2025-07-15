@@ -71,17 +71,15 @@ pub mod simtest_utils {
 
         let mut retry_count = 0;
         let store_results = loop {
+            let store_args = StoreArgs::default()
+                .with_epochs_ahead(epoch_ahead)
+                .with_store_optimizations(StoreOptimizations::none())
+                .with_persistence(BlobPersistence::from_deletable_and_permanent(
+                    deletable, !deletable,
+                )?);
             let result = client
                 .as_ref()
-                .reserve_and_store_blobs_retry_committees(
-                    &[blob.as_slice()],
-                    DEFAULT_ENCODING,
-                    epoch_ahead,
-                    StoreOptimizations::none(),
-                    BlobPersistence::from_deletable_and_permanent(deletable, !deletable)?,
-                    PostStoreAction::Keep,
-                    None,
-                )
+                .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &store_args)
                 .await;
             if let Ok(result) = result {
                 break result;

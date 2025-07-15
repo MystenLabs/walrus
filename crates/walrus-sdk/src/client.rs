@@ -33,6 +33,7 @@ use tracing::{Instrument as _, Level};
 use upload_relay_client::UploadRelayClient;
 use walrus_core::{
     BlobId,
+    DEFAULT_ENCODING,
     EncodingType,
     Epoch,
     EpochCount,
@@ -162,6 +163,19 @@ pub struct StoreArgs {
     pub metrics: Option<Arc<ClientMetrics>>,
 }
 
+impl Default for StoreArgs {
+    fn default() -> Self {
+        Self {
+            encoding_type: DEFAULT_ENCODING,
+            epochs_ahead: 1,
+            store_optimizations: StoreOptimizations::all(),
+            persistence: BlobPersistence::Permanent,
+            post_store: PostStoreAction::Keep,
+            metrics: None,
+        }
+    }
+}
+
 impl StoreArgs {
     /// Creates a new `StoreArgs` with the given parameters.
     pub fn new(
@@ -179,6 +193,36 @@ impl StoreArgs {
             post_store,
             metrics: None,
         }
+    }
+
+    /// Sets the encoding type.
+    pub fn with_encoding_type(mut self, encoding_type: EncodingType) -> Self {
+        self.encoding_type = encoding_type;
+        self
+    }
+
+    /// Sets the number of epochs ahead.
+    pub fn with_epochs_ahead(mut self, epochs_ahead: EpochCount) -> Self {
+        self.epochs_ahead = epochs_ahead;
+        self
+    }
+
+    /// Sets the store optimizations.
+    pub fn with_store_optimizations(mut self, store_optimizations: StoreOptimizations) -> Self {
+        self.store_optimizations = store_optimizations;
+        self
+    }
+
+    /// Sets the persistence type.
+    pub fn with_persistence(mut self, persistence: BlobPersistence) -> Self {
+        self.persistence = persistence;
+        self
+    }
+
+    /// Sets the post store action.
+    pub fn with_post_store(mut self, post_store: PostStoreAction) -> Self {
+        self.post_store = post_store;
+        self
     }
 
     /// Adds metrics to the `StoreArgs`.

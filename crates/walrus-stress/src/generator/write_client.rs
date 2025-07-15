@@ -99,19 +99,15 @@ impl WriteClient {
         let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epochs_to_store());
 
         let now = Instant::now();
+        let store_args = StoreArgs::default()
+            .with_epochs_ahead(epochs_to_store)
+            .with_store_optimizations(StoreOptimizations::none())
+            .with_metrics(self.metrics.clone());
         let blob_id = self
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_committees(
-                &[blob],
-                DEFAULT_ENCODING,
-                epochs_to_store,
-                StoreOptimizations::none(),
-                BlobPersistence::Permanent,
-                PostStoreAction::Keep,
-                Some(&self.metrics),
-            )
+            .reserve_and_store_blobs_retry_committees(&[blob], &store_args)
             .await?
             .first()
             .expect("should have one blob store result")
