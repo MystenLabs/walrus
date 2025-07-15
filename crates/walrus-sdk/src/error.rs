@@ -7,7 +7,7 @@ use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, enco
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
-use crate::client::upload_relay_client::UploadRelayError;
+use crate::client::upload_relay_client::UploadRelayClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -225,5 +225,5 @@ pub enum ClientErrorKind {
     QuiltError(#[from] QuiltError),
     /// An error occurred while uploading a blob to the upload relay.
     #[error("upload relay error: {0}")]
-    UploadRelayError(#[from] UploadRelayError),
+    UploadRelayError(#[from] UploadRelayClientError),
 }

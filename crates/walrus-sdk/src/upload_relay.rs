@@ -11,7 +11,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::upload_relay_client::UploadRelayError,
+    client::upload_relay_client::UploadRelayClientError,
     core::{BlobId, messages::ConfirmationCertificate},
 };
 
@@ -36,10 +36,10 @@ pub struct ResponseType {
 pub fn blob_upload_relay_url(
     server_url: &Url,
     params: &params::Params,
-) -> Result<Url, UploadRelayError> {
+) -> Result<Url, UploadRelayClientError> {
     let mut url = server_url
         .join(BLOB_UPLOAD_RELAY_ROUTE)
-        .map_err(UploadRelayError::UrlEndocodingFailed)?;
+        .map_err(UploadRelayClientError::UrlEndocodingFailed)?;
 
     // Scope the query_pairs mut variable.
     {

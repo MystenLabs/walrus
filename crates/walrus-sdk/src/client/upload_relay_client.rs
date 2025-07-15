@@ -63,7 +63,7 @@ use crate::{
 
 /// The error type for the upload relay client.
 #[derive(Debug, thiserror::Error)]
-pub enum UploadRelayError {
+pub enum UploadRelayClientError {
     /// The tip configuration could not be fetched from the upload relay.
     #[error("failed to fetch tip configuration from upload relay: {0}")]
     TipConfigFetchFailed(reqwest::Error),
@@ -132,7 +132,7 @@ impl UploadRelayClient {
         upload_relay: Url,
         gas_budget: Option<u64>,
         backoff_config: ExponentialBackoffConfig,
-    ) -> Result<Self, UploadRelayError> {
+    ) -> Result<Self, UploadRelayClientError> {
         tracing::debug!(
             ?upload_relay,
             "fetching the tip confign and creating upload relay tip client"
@@ -159,12 +159,12 @@ impl UploadRelayClient {
         auth_package: &AuthPackage,
         unencoded_length: u64,
         encoding_type: EncodingType,
-    ) -> Result<Option<TransactionDigest>, UploadRelayError> {
+    ) -> Result<Option<TransactionDigest>, UploadRelayClientError> {
         if let TipConfig::SendTip { address, kind } = &self.tip_config {
             tracing::debug!("tip payment required");
             let tip_amount = kind
                 .compute_tip(self.n_shards, unencoded_length, encoding_type)
-                .ok_or(UploadRelayError::TipComputationFailed {
+                .ok_or(UploadRelayClientError::TipComputationFailed {
                     unencoded_length,
                     n_shards: self.n_shards,
                     encoding_type,
@@ -173,7 +173,7 @@ impl UploadRelayClient {
             let tx_id = self
                 .pay_tip(sui_client, *address, auth_package, tip_amount)
                 .await
-                .map_err(|e| UploadRelayError::TipPaymentFailed(Box::new(e)))?;
+                .map_err(|e| UploadRelayClientError::TipPaymentFailed(Box::new(e)))?;
             Ok(Some(tx_id))
         } else {
             Ok(None)
@@ -236,7 +236,7 @@ impl UploadRelayClient {
         blob_id: BlobId,
         encoding_type: EncodingType,
         blob_persistence_type: BlobPersistenceType,
-    ) -> Result<ConfirmationCertificate, UploadRelayError> {
+    ) -> Result<ConfirmationCertificate, UploadRelayClientError> {
         tracing::info!("using the upload relay to store the blob and getting the certificate");
 
         let auth_package = AuthPackage::new(blob);
@@ -264,7 +264,7 @@ impl UploadRelayClient {
 
         let response = self.send_to_relay(blob, params).await?;
         if response.blob_id != blob_id {
-            return Err(UploadRelayError::BlobIdMismatch {
+            return Err(UploadRelayClientError::BlobIdMismatch {
                 expected: blob_id,
                 actual: response.blob_id,
             });
@@ -278,7 +278,7 @@ impl UploadRelayClient {
         &self,
         blob: &[u8],
         params: Params,
-    ) -> Result<ResponseType, UploadRelayError> {
+    ) -> Result<ResponseType, UploadRelayClientError> {
         let post_url = blob_upload_relay_url(&self.upload_relay, &params)?;
 
         tracing::debug!(
@@ -293,7 +293,7 @@ impl UploadRelayClient {
         response
             .json()
             .await
-            .map_err(UploadRelayError::UploadRequestFailed)
+            .map_err(UploadRelayClientError::UploadRequestFailed)
     }
 
     /// Sends the request repeatedly with retries.
@@ -301,7 +301,7 @@ impl UploadRelayClient {
         &self,
         blob: &[u8],
         post_url: &Url,
-    ) -> Result<Response, UploadRelayError> {
+    ) -> Result<Response, UploadRelayClientError> {
         let mut attempts = 0;
         let mut backoff = self
             .backoff_config
@@ -340,12 +340,12 @@ impl UploadRelayClient {
                 ?error,
                 "final attempt to post the blob to the upload relay failed"
             );
-            UploadRelayError::UploadRequestFailed(error)
+            UploadRelayClientError::UploadRequestFailed(error)
         })
     }
 
     /// Gets the tip configuration from the specified Walrus Upload Relay.
-    async fn get_tip_config(&self, server_url: &Url) -> Result<TipConfig, UploadRelayError> {
+    async fn get_tip_config(&self, server_url: &Url) -> Result<TipConfig, UploadRelayClientError> {
         Self::get_tip_config_with_client(&self.http_client, server_url).await
     }
 
@@ -353,18 +353,18 @@ impl UploadRelayClient {
     async fn get_tip_config_with_client(
         client: &reqwest::Client,
         server_url: &Url,
-    ) -> Result<TipConfig, UploadRelayError> {
+    ) -> Result<TipConfig, UploadRelayClientError> {
         client
             .get(
                 server_url
                     .join(TIP_CONFIG_ROUTE)
-                    .map_err(UploadRelayError::UrlEndocodingFailed)?,
+                    .map_err(UploadRelayClientError::UrlEndocodingFailed)?,
             )
             .send()
             .await
-            .map_err(UploadRelayError::TipConfigFetchFailed)?
+            .map_err(UploadRelayClientError::TipConfigFetchFailed)?
             .json()
             .await
-            .map_err(UploadRelayError::TipConfigFetchFailed)
+            .map_err(UploadRelayClientError::TipConfigFetchFailed)
     }
 }
