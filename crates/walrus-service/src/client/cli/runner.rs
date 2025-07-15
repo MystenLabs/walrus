@@ -819,6 +819,20 @@ impl ClientCommandRunner {
             persistence,
             post_store,
         );
+
+        if let Some(upload_relay) = upload_relay {
+            let upload_relay_client = UploadRelayClient::new(
+                client.sui_client().address(),
+                client.encoding_config().n_shards(),
+                upload_relay,
+                self.gas_budget,
+                client.config().backoff_config().clone(),
+            )
+            .await?;
+            // Store operations will use the upload relay.
+            store_args = store_args.with_upload_relay_client(upload_relay_client);
+        }
+
         let result = quilt_write_client
             .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
             .await?;
