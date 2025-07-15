@@ -797,6 +797,7 @@ impl PublisherQuery {
 #[derive(Debug, Deserialize)]
 pub struct QuiltPatchMetadata {
     pub identifier: String,
+    #[serde(default)]
     pub tags: serde_json::Map<String, serde_json::Value>,
 }
 
