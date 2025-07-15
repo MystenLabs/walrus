@@ -1354,7 +1354,7 @@ impl Client<SuiContractClient> {
                     if let Some(upload_relay_client) = store_args.upload_relay_client_ref() {
                         let blob = registered_blob.get_blob();
                         upload_relay_client
-                            .send_blob_data_and_get_certificate(
+                            .send_blob_data_and_get_certificate_with_relay(
                                 &self.sui_client,
                                 blob,
                                 blob_object.blob_id,

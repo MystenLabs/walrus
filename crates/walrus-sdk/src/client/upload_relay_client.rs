@@ -229,7 +229,7 @@ impl UploadRelayClient {
     /// sending the data to the relay client. This means that its gas usage is not optimized -- it
     /// could be bundled in the registration PTBs, which would reduce the total gas usage.
     #[tracing::instrument(level = tracing::Level::DEBUG, skip_all)]
-    pub async fn send_blob_data_and_get_certificate(
+    pub async fn send_blob_data_and_get_certificate_with_relay(
         &self,
         sui_client: &SuiContractClient,
         blob: &[u8],
