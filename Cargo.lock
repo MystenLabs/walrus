@@ -1943,7 +1943,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checkpoint-downloader"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1961,7 +1961,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
- "typed-store 1.28.4",
+ "typed-store 1.28.5",
  "walrus-sui",
  "walrus-utils",
 ]
@@ -12273,7 +12273,7 @@ dependencies = [
 
 [[package]]
 name = "typed-store"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "async-trait",
  "bcs",
@@ -12666,7 +12666,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -12691,7 +12691,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "futures",
@@ -12722,7 +12722,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -12752,7 +12752,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -12763,7 +12763,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
@@ -12802,7 +12802,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "bimap",
@@ -12844,7 +12844,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12933,7 +12933,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "twox-hash 2.1.1",
- "typed-store 1.28.4",
+ "typed-store 1.28.5",
  "utoipa",
  "utoipa-redoc",
  "uuid",
@@ -12948,7 +12948,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "bcs",
@@ -12964,7 +12964,7 @@ dependencies = [
  "sui-types",
  "tokio",
  "tracing",
- "typed-store 1.28.4",
+ "typed-store 1.28.5",
  "walrus-core",
  "walrus-proc-macros",
  "walrus-sdk",
@@ -12976,7 +12976,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-storage-node-client"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "axum 0.8.1",
  "axum-server 0.7.2",
@@ -13014,7 +13014,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -13039,7 +13039,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -13092,7 +13092,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "rand 0.8.5",
@@ -13102,7 +13102,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.28.4"
+version = "1.28.5"
 dependencies = [
  "anyhow",
  "bytes",
