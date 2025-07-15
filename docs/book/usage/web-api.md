@@ -134,7 +134,7 @@ the values in the corresponding HTTP headers.
 Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](./quilt.md).
 The publishers and aggregators support *quilt* related operations.
 
-**Note** Quilt APIs are supported with Walrus 1.29 and higher.
+**Note** Quilt APIs are supported with Walrus *1.29* and higher.
 
 ```admonish warning
 The identifiers must be unique within a quilt.
@@ -142,11 +142,12 @@ The identifiers must be unique within a quilt.
 
 #### Storing quilts
 
-You can store multiple blobs as a quilt using multipart/form-data. The API accepts blobs with
-their identifiers as field names and optional Walrus-native metadata.
-
+```admonish tip
 All the query parameters available for storing regular blobs (see [Store](#store) section above) can
 also be used when storing quilts.
+```
+
+Use the following publisher API to store multiple blobs as a quilt:
 
 ```sh
 # Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
@@ -167,7 +168,8 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
 ```
 
 The quilt store API returns a JSON response with information about the stored quilt, including
-the quilt ID and individual blob patch IDs that can be used to retrieve specific blobs later.
+the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+later.
 
 ```sh
 $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1&quilt_version=V1" \
@@ -224,6 +226,11 @@ Each blob in a quilt has a unique patch ID. You can retrieve a specific blob usi
 ```sh
 # Retrieve a blob using its quilt patch ID.
 curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
+```
+
+```admonish tip
+QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
+[`list-patches-in-quilt`](./client-cli.md#batch-storing-blobs-with-quilt) CLI command.
 ```
 
 ##### By Quilt ID and Identifier
