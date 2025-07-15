@@ -1330,7 +1330,7 @@ with the default storage node configuration.</p>
 <p>Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui Devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally,
 simply <a href="https://docs.sui.io/guides/developer/getting-started/local-network">start a local network with <code>sui start --with-faucet --force-regenesis</code></a>
-(requires <code>sui</code> to be <code>v1.29.0</code> or higher) and specify <code>localnet</code> when starting the Walrus testbed.</p>
+(requires <code>sui</code> to be <code>v1.28.0</code> or higher) and specify <code>localnet</code> when starting the Walrus testbed.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="interacting-with-walrus"><a class="header" href="#interacting-with-walrus">Interacting with Walrus</a></h1>
 <p>We provide 3 ways to interact directly with the Walrus storage system:</p>
@@ -1570,7 +1570,7 @@ share a newly created blob by adding the <code>--share</code> option to the <cod
 <p>Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.</p>
 <p>See <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">this section</a> for more on blob extension.</p>
 <h2 id="batch-storing-blobs-with-quilts"><a class="header" href="#batch-storing-blobs-with-quilts">Batch-storing blobs with quilts</a></h2>
-<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.28</em> or higher.</p>
+<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.29</em> or higher.</p>
 <div id="admonition-warning-1" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-1-title">
 <div class="admonition-title">
 <div id="admonition-warning-1-title">
@@ -1628,13 +1628,13 @@ name is used instead.</p>
 <p>You can retrieve individual blobs (formally "patches") from a quilt without downloading the
 entire quilt. The <code>read-quilt</code> command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.</p>
-<p>To read blobs by their identifiers, repeating the <code>--identifiers</code> flag:</p>
+<p>To read blobs by their identifiers, use the <code>--identifiers</code> flag:</p>
 <pre><code class="language-sh">walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 </code></pre>
 <p>Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
 collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
-you can download all images labeled as cats with the following command:</p>
+you can download <strong>all</strong> images labeled as cats with the following command:</p>
 <pre><code class="language-sh"># Read all blobs with tag "size: medium"
 walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
@@ -1849,7 +1849,7 @@ the values in the corresponding HTTP headers.</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="usage/./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
-<p><strong>Note</strong> Quilt APIs are supported with Walrus 1.29 and higher.</p>
+<p><strong>Note</strong> Quilt APIs are supported with Walrus <em>1.29</em> and higher.</p>
 <div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
 <div class="admonition-title">
 <div id="admonition-warning-title">
@@ -1862,10 +1862,19 @@ The publishers and aggregators support <em>quilt</em> related operations.</p>
 </div>
 </div>
 <h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
-<p>You can store multiple blobs as a quilt using multipart/form-data. The API accepts blobs with
-their identifiers as field names and optional Walrus-native metadata.</p>
+<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
+<div class="admonition-title">
+<div id="admonition-tip-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-tip"></a>
+</div>
+<div>
 <p>All the query parameters available for storing regular blobs (see <a href="usage/web-api.html#store">Store</a> section above) can
 also be used when storing quilts.</p>
+</div>
+</div>
+<p>Use the following publisher API to store multiple blobs as a quilt:</p>
 <pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
 # `logo-2024, # respectively.
 curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&amp;quilt_version=V1" \
@@ -1883,7 +1892,8 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   ]'
 </code></pre>
 <p>The quilt store API returns a JSON response with information about the stored quilt, including
-the quilt ID and individual blob patch IDs that can be used to retrieve specific blobs later.</p>
+the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+later.</p>
 <pre><code class="language-sh">$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1&amp;quilt_version=V1" \
   -F "walrus.jpg=@./walrus-33.jpg" \
   -F "another_walrus.jpg=@./walrus-46.jpg"
@@ -1933,6 +1943,18 @@ the quilt ID and individual blob patch IDs that can be used to retrieve specific
 <pre><code class="language-sh"># Retrieve a blob using its quilt patch ID.
 curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 </code></pre>
+<div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
+<div class="admonition-title">
+<div id="admonition-tip-1-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-tip-1"></a>
+</div>
+<div>
+<p>QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
+<a href="usage/./client-cli.html#batch-storing-blobs-with-quilt"><code>list-patches-in-quilt</code></a> CLI command.</p>
+</div>
+</div>
 <h5 id="by-quilt-id-and-identifier"><a class="header" href="#by-quilt-id-and-identifier">By Quilt ID and Identifier</a></h5>
 <p>You can also retrieve a blob using the quilt ID and the blob's identifier:</p>
 <pre><code class="language-sh"># Retrieve a blob with identifier `walrus.jpg` from the quilt.
