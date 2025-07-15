@@ -82,4 +82,4 @@ lookup, and assist in managing blobs within each quilt, enhancing retrieval and
 management processes.
 
 For details on how to use the CLI to interact with *quilt*, see the
-[CLI documentation](./client-cli.md#batch-storing-blobs-with-quilt).
+[Batch-storing blobs with quilts](./client-cli.md#batch-storing-blobs-with-quilt).

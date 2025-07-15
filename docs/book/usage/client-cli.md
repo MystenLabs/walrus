@@ -304,12 +304,14 @@ walrus read-quilt --out <download dir> \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 ```
 
-To read blobs by a tag:
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download all images labeled as cats with the following command:
 
 ```sh
 # Read all blobs with tag "size: medium"
 walrus read-quilt --out <download dir> \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using
