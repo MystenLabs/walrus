@@ -3,7 +3,7 @@
 
 //! Arguments for the store operations in the client.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction};
@@ -124,5 +124,40 @@ impl StoreArgs {
     /// Convenience method for `with_persistence(BlobPersistence::Deletable)`.
     pub fn deletable(self) -> Self {
         self.with_persistence(BlobPersistence::Deletable)
+    }
+
+    /// Observe the encoding latency, if metrics are present.
+    pub fn maybe_observe_encoding_latency(&self, duration: Duration) {
+        if let Some(metrics) = self.metrics_ref() {
+            metrics.observe_encoding_latency(duration);
+        }
+    }
+
+    /// Observe the blob status check latency, if metrics are present.
+    pub fn maybe_observe_checking_blob_status(&self, duration: Duration) {
+        if let Some(metrics) = self.metrics_ref() {
+            metrics.observe_checking_blob_status(duration);
+        }
+    }
+
+    /// Observe the store operation latency, if metrics are present.
+    pub fn maybe_observe_store_operation(&self, duration: Duration) {
+        if let Some(metrics) = self.metrics_ref() {
+            metrics.observe_store_operation(duration);
+        }
+    }
+
+    /// Observe the latency to get certificates, if metrics are present.
+    pub fn maybe_observe_get_certificates(&self, duration: Duration) {
+        if let Some(metrics) = self.metrics_ref() {
+            metrics.observe_get_certificates(duration);
+        }
+    }
+
+    /// Observe the latency to upload the certificate, if metrics are present.
+    pub fn maybe_observe_upload_certificate(&self, duration: Duration) {
+        if let Some(metrics) = self.metrics_ref() {
+            metrics.observe_upload_certificate(duration);
+        }
     }
 }

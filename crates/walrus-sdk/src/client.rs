@@ -787,9 +787,7 @@ impl Client<SuiContractClient> {
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let start = Instant::now();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
-        if let Some(metrics) = store_args.metrics_ref() {
-            metrics.observe_encoding_latency(start.elapsed());
-        }
+        store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let mut results = self
             .retry_if_error_epoch_change(|| {
@@ -1050,9 +1048,7 @@ impl Client<SuiContractClient> {
             "retrieved {} blob statuses",
             num_encoded_blobs_with_status
         );
-        if let Some(metrics) = store_args.metrics_ref() {
-            metrics.observe_checking_blob_status(status_timer_duration);
-        }
+        store_args.maybe_observe_checking_blob_status(status_timer_duration);
 
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
@@ -1085,9 +1081,7 @@ impl Client<SuiContractClient> {
             (num_registered_blobs = {num_registered_blobs}, num_encoded_blobs = \
             {num_encoded_blobs})"
         );
-        if let Some(metrics) = store_args.metrics_ref() {
-            metrics.observe_store_operation(store_op_duration);
-        }
+        store_args.maybe_observe_store_operation(store_op_duration);
 
         let mut final_result: Vec<WalrusStoreBlob<'_, T>> = Vec::with_capacity(num_encoded_blobs);
         let mut to_be_certified: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
@@ -1139,9 +1133,7 @@ impl Client<SuiContractClient> {
             "fetched certificates for {} blobs",
             blobs_with_certificates.len()
         );
-        if let Some(metrics) = store_args.metrics_ref() {
-            metrics.observe_get_certificates(get_certificates_duration);
-        }
+        store_args.maybe_observe_get_certificates(get_certificates_duration);
 
         // Move completed blobs to final_result and keep only non-completed ones
         let (completed_blobs, to_be_certified): (Vec<_>, Vec<_>) = blobs_with_certificates
@@ -1178,9 +1170,7 @@ impl Client<SuiContractClient> {
             "certified {} blobs on Sui",
             cert_and_extend_params.len()
         );
-        if let Some(metrics) = store_args.metrics_ref() {
-            metrics.observe_upload_certificate(sui_cert_timer_duration);
-        }
+        store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
 
         // Build map from BlobId to CertifyAndExtendBlobResult
         let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
