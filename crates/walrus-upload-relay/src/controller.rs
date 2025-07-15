@@ -7,7 +7,10 @@ use std::{
     net::SocketAddr,
     num::NonZeroU16,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -24,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::digests::TransactionDigest;
-use tokio::time::Instant;
+use tokio::{sync::Notify, task::JoinHandle, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::{OpenApi, ToSchema};
@@ -45,6 +48,7 @@ use walrus_sdk::{
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
     },
     upload_relay::{
+        API_DOCS,
         BLOB_UPLOAD_RELAY_ROUTE,
         ResponseType,
         TIP_CONFIG_ROUTE,
@@ -60,7 +64,7 @@ use crate::{
     utils::check_tx_auth_package,
 };
 
-const API_DOCS: &str = "/v1/api";
+/// The default socket bind address for the Walrus Upload Relay.
 pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 /// The configuration for the Walrus Upload Relay.
@@ -259,44 +263,115 @@ impl Controller {
     }
 }
 
+async fn shutdown_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
+    loop {
+        if flag.load(Ordering::SeqCst) {
+            break;
+        }
+        notify.notified().await;
+    }
+}
+
+/// A handle to the upload relay, which can be used to shut it down.
+pub struct UploadRelayHandle {
+    shutdown_flag: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+    join_handle: JoinHandle<Result<(), anyhow::Error>>,
+}
+
+impl std::fmt::Debug for UploadRelayHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadRelayHandle")
+            .field("shutdown_flag", &self.shutdown_flag.load(Ordering::SeqCst))
+            .finish_non_exhaustive()
+    }
+}
+
+impl UploadRelayHandle {
+    /// Creates a new `UploadRelayCancelTrigger`.
+    fn new(
+        shutdown_flag: Arc<AtomicBool>,
+        notify: Arc<Notify>,
+        join_handle: JoinHandle<Result<(), anyhow::Error>>,
+    ) -> Self {
+        Self {
+            shutdown_flag,
+            notify,
+            join_handle,
+        }
+    }
+
+    /// Allows the upload relay to run indefinitely.
+    pub async fn run_forever(self) -> ! {
+        drop(self.notify);
+        drop(self.shutdown_flag);
+        let result = self
+            .join_handle
+            .await
+            .expect("join handle should never complete");
+        panic!("upload relay task completed unexpectedly: {result:?}")
+    }
+
+    /// Cancels the upload relay.
+    pub async fn shutdown(self) -> Result<(), anyhow::Error> {
+        assert!(!self.shutdown_flag.load(Ordering::SeqCst));
+        self.shutdown_flag.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+        self.join_handle.await.expect("join handle should complete")
+    }
+}
+
 /// Runs the upload relay.
-pub(crate) async fn run_upload_relay(
+pub fn start_upload_relay(
     context: Option<String>,
     walrus_config: PathBuf,
     server_address: SocketAddr,
     relay_config_path: PathBuf,
     registry: Registry,
-) -> Result<()> {
+) -> UploadRelayHandle {
     let metric_set = WalrusUploadRelayMetricSet::new(&registry);
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let notify = Arc::new(Notify::new());
 
-    // Create a client we can use to communicate with the Sui network, which is used to
-    // coordinate the Walrus network.
-    let client = get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
+    UploadRelayHandle::new(
+        shutdown_flag.clone(),
+        notify.clone(),
+        tokio::spawn({
+            async move {
+                // Create a client we can use to communicate with the Sui network, which is used to
+                // coordinate the Walrus network.
+                let client =
+                    get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
 
-    let n_shards = client.get_committees().await?.n_shards();
-    let relay_config: WalrusUploadRelayConfig = load_from_yaml(relay_config_path)?;
-    tracing::debug!(?relay_config, "loaded relay config");
+                let n_shards = client.get_committees().await?.n_shards();
+                let relay_config: WalrusUploadRelayConfig = load_from_yaml(relay_config_path)?;
+                tracing::debug!(?relay_config, "loaded relay config");
 
-    // Build our HTTP application to handle the blob fan-out operations.
-    let app = Router::new()
-        .merge(Redoc::with_url(
-            API_DOCS,
-            WalrusUploadRelayApiDoc::openapi(),
-        ))
-        .route(TIP_CONFIG_ROUTE, get(send_tip_config))
-        .route(BLOB_UPLOAD_RELAY_ROUTE, post(blob_upload_relay_handler))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
-        .with_state(Arc::new(Controller::new(
-            client,
-            n_shards,
-            relay_config,
-            metric_set,
-        )))
-        .layer(cors_layer());
+                // Build our HTTP application to handle the blob fan-out operations.
+                let app = Router::new()
+                    .merge(Redoc::with_url(
+                        API_DOCS,
+                        WalrusUploadRelayApiDoc::openapi(),
+                    ))
+                    .route(TIP_CONFIG_ROUTE, get(send_tip_config))
+                    .route(BLOB_UPLOAD_RELAY_ROUTE, post(blob_upload_relay_handler))
+                    .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
+                    .with_state(Arc::new(Controller::new(
+                        client,
+                        n_shards,
+                        relay_config,
+                        metric_set,
+                    )))
+                    .layer(cors_layer());
 
-    let listener = tokio::net::TcpListener::bind(&server_address).await?;
-    tracing::info!(?server_address, n_shards, "Serving Walrus Upload Relay...");
-    Ok(axum::serve(listener, app).await?)
+                let listener = tokio::net::TcpListener::bind(&server_address).await?;
+                tracing::info!(?server_address, n_shards, "Serving Walrus Upload Relay...");
+                Ok(axum::serve(listener, app)
+                    .with_graceful_shutdown(shutdown_signal(shutdown_flag, notify))
+                    .await?)
+            }
+        }),
+    )
 }
 
 /// Returns a `CorsLayer` for the controller endpoints.

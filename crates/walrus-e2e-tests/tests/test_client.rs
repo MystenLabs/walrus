@@ -13,6 +13,7 @@ use std::sync::{
 };
 use std::{
     collections::{HashMap, HashSet},
+    net::SocketAddr,
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
@@ -24,6 +25,7 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tempfile::TempDir;
+use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -52,6 +54,7 @@ use walrus_sdk::{
         WalrusStoreBlobApi,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
+        upload_relay_client::UploadRelayClient,
     },
     error::{
         ClientError,
@@ -96,7 +99,8 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_upload_relay::UploadRelayHandle;
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -110,7 +114,7 @@ async_param_test! {
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
     telemetry_subscribers::init_for_testing();
     assert!(matches!(
-        run_store_and_read_with_crash_failures(&[], &[], blob_size).await,
+        run_store_and_read_with_crash_failures(&[], &[], blob_size, None).await,
         Ok(()),
     ))
 }
@@ -119,10 +123,11 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 ///
 /// It generates random blobs and stores them.
 /// It then reads the blobs back and verifies that the data is correct.
-pub async fn basic_store_and_read<F>(
+async fn basic_store_and_read<F>(
     client: &WithTempDir<Client<SuiContractClient>>,
     num_blobs: usize,
     data_length: usize,
+    upload_relay_client: Option<UploadRelayClient>,
     pre_read_hook: F,
 ) -> TestResult
 where
@@ -141,7 +146,15 @@ where
         blobs_with_paths.push((path, data.to_vec()));
     }
 
-    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+    let store_args = {
+        let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+        if let Some(upload_relay_client) = upload_relay_client {
+            store_args.with_upload_relay_client(upload_relay_client)
+        } else {
+            store_args
+        }
+    };
+
     let store_result = client
         .as_ref()
         .reserve_and_store_blobs_retry_committees_with_path(&blobs_with_paths, &store_args)
@@ -203,9 +216,13 @@ async fn test_store_and_read_blob_with_crash_failures(
     expected_errors: &[ClientErrorKind],
 ) {
     telemetry_subscribers::init_for_testing();
-    let result =
-        run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read, 31415)
-            .await;
+    let result = run_store_and_read_with_crash_failures(
+        failed_shards_write,
+        failed_shards_read,
+        31415,
+        None,
+    )
+    .await;
 
     match (result, expected_errors) {
         (Ok(()), []) => (),
@@ -232,6 +249,7 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
     data_length: usize,
+    upload_relay_client: Option<UploadRelayClient>,
 ) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -255,7 +273,7 @@ async fn run_store_and_read_with_crash_failures(
     };
 
     // Use basic_store_and_read with our pre_read_hook.
-    basic_store_and_read(&client, 4, data_length, pre_read_hook).await
+    basic_store_and_read(&client, 4, data_length, upload_relay_client, pre_read_hook).await
 }
 
 async_param_test! {
@@ -2405,4 +2423,31 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     }
 
     Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_with_upload_relay() {
+    telemetry_subscribers::init_for_testing();
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, mut cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .build()
+        .await
+        .expect("setup should succeed");
+
+    // TODO: get config for walrus and relay.
+    let walrus_config: PathBuf = PathBuf::from("path/to/walrus/config.toml");
+    let server_address: SocketAddr = "127.0.0.1:8080".parse().expect("valid address");
+    let relay_config_path: PathBuf = PathBuf::from("path/to/relay/config.toml");
+    let registry = Registry::default();
+
+    let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
+        None,
+        walrus_config,
+        server_address,
+        relay_config_path,
+        registry,
+    );
+    // TODO: flesh this out...
+    let i = client.inner;
 }

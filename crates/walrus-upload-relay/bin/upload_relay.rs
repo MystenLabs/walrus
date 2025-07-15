@@ -5,19 +5,12 @@
 
 use std::{env, net::SocketAddr, path::PathBuf};
 
-use anyhow::Result;
 use clap::Parser;
-use controller::{DEFAULT_SERVER_ADDRESS, run_upload_relay};
 use walrus_sdk::core_utils::{
     bin_version,
     metrics::{Registry, monitored_scope},
 };
-
-mod controller;
-mod error;
-mod metrics;
-mod tip;
-mod utils;
+use walrus_upload_relay::{DEFAULT_SERVER_ADDRESS, start_upload_relay};
 
 bin_version!();
 
@@ -28,7 +21,7 @@ bin_version!();
     long_about = None,
     name = env!("CARGO_BIN_NAME"),
     version = VERSION,
-rename_all = "kebab-case",
+    rename_all = "kebab-case",
 )]
 struct Args {
     #[arg(
@@ -52,7 +45,7 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     let args = Args::parse();
 
     let registry_service = mysten_metrics::start_prometheus_server(args.metrics_address);
@@ -68,14 +61,14 @@ async fn main() -> Result<()> {
         .init();
     let registry = Registry::new(walrus_registry);
 
-    run_upload_relay(
+    let upload_relay_handle = start_upload_relay(
         args.context,
         args.walrus_config,
         args.server_address,
         args.relay_config,
         registry,
-    )
-    .await
+    );
+    upload_relay_handle.run_forever().await
 }
 
 #[cfg(test)]

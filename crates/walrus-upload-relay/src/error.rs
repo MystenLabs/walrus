@@ -18,7 +18,7 @@ use crate::tip::error::TipError;
 
 /// Walrus Upload Relay error type.
 #[derive(Debug, Error)]
-pub enum WalrusUploadRelayError {
+pub(crate) enum WalrusUploadRelayError {
     /// The provided blob ID and the blob ID resulting from the blob encoding do not match.
     #[error("the provided blob ID and the blob ID resulting from the blob encoding do not match")]
     BlobIdMismatch,
