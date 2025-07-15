@@ -348,17 +348,6 @@ the values in the corresponding HTTP headers.</p>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
 <p><strong>Note</strong> Quilt APIs are supported with Walrus <em>1.29</em> and higher.</p>
-<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
-<div class="admonition-title">
-<div id="admonition-warning-title">
-<p>Warning</p>
-</div>
-<a class="admonition-anchor-link" href="#admonition-warning"></a>
-</div>
-<div>
-<p>The identifiers must be unique within a quilt.</p>
-</div>
-</div>
 <h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
 <div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
 <div class="admonition-title">
@@ -374,8 +363,8 @@ also be used when storing quilts.</p>
 </div>
 <p>Use the following publisher API to store multiple blobs as a quilt:</p>
 <pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
-# `logo-2024, # respectively.
-curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&amp;quilt_version=V1" \
+# `logo-2024, respectively.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
 
@@ -389,10 +378,35 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
   ]'
 </code></pre>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-warning"></a>
+</div>
+<div>
+<p>Identifiers must be unique within a quilt.</p>
+</div>
+</div>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info"></a>
+</div>
+<div>
+<p>Since identifiers cannot start with <code>_</code>, the field name <code>_metadata</code> is reserved for Walrus native
+metadata and won't conflict with user-defined identifiers. See
+<a href="./quilt.html">Quilt documentation</a> for complete identifier restrictions.</p>
+</div>
+</div>
 <p>The quilt store API returns a JSON response with information about the stored quilt, including
 the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
-later.</p>
-<pre><code class="language-sh">$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1&amp;quilt_version=V1" \
+later. The following example shows the command and response (the actual JSON output is returned
+as a single line; it's formatted here for readability):</p>
+<pre><code class="language-console">$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
   -F "walrus.jpg=@./walrus-33.jpg" \
   -F "another_walrus.jpg=@./walrus-46.jpg"
 {
@@ -436,7 +450,19 @@ later.</p>
 </code></pre>
 <h4 id="reading-quilts"><a class="header" href="#reading-quilts">Reading quilts</a></h4>
 <p>There are two ways to retrieve blobs from a quilt via the aggregator APIs:</p>
-<h5 id="by-quilt-patch-id"><a class="header" href="#by-quilt-patch-id">By Quilt Patch ID</a></h5>
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
+<div class="admonition-title">
+<div id="admonition-info-1-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info-1"></a>
+</div>
+<div>
+<p>Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+quilt in a single request is not yet supported.</p>
+</div>
+</div>
+<h5 id="by-quilt-patch-id"><a class="header" href="#by-quilt-patch-id">By quilt patch ID</a></h5>
 <p>Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:</p>
 <pre><code class="language-sh"># Retrieve a blob using its quilt patch ID.
 curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
@@ -453,7 +479,7 @@ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW
 <a href="./client-cli.html#batch-storing-blobs-with-quilt"><code>list-patches-in-quilt</code></a> CLI command.</p>
 </div>
 </div>
-<h5 id="by-quilt-id-and-identifier"><a class="header" href="#by-quilt-id-and-identifier">By Quilt ID and Identifier</a></h5>
+<h5 id="by-quilt-id-and-identifier"><a class="header" href="#by-quilt-id-and-identifier">By quilt ID and identifier</a></h5>
 <p>You can also retrieve a blob using the quilt ID and the blob's identifier:</p>
 <pre><code class="language-sh"># Retrieve a blob with identifier `walrus.jpg` from the quilt.
 curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
