@@ -136,10 +136,6 @@ The publishers and aggregators support *quilt* related operations.
 
 **Note** Quilt APIs are supported with Walrus *1.29* and higher.
 
-```admonish warning
-The identifiers must be unique within a quilt.
-```
-
 #### Storing quilts
 
 ```admonish tip
@@ -151,8 +147,8 @@ Use the following publisher API to store multiple blobs as a quilt:
 
 ```sh
 # Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
-# `logo-2024, # respectively.
-curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&quilt_version=V1" \
+# `logo-2024, respectively.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
 
@@ -167,12 +163,23 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   ]'
 ```
 
+```admonish warning
+Identifiers must be unique within a quilt.
+```
+
+```admonish info
+Since identifiers cannot start with `_`, the field name `_metadata` is reserved for Walrus native
+metadata and won't conflict with user-defined identifiers. See
+[Quilt documentation](./quilt.md) for complete identifier restrictions.
+```
+
 The quilt store API returns a JSON response with information about the stored quilt, including
 the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
-later.
+later. The following example shows the command and response (the actual JSON output is returned
+as a single line; it's formatted here for readability):
 
-```sh
-$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1&quilt_version=V1" \
+```console
+$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
   -F "walrus.jpg=@./walrus-33.jpg" \
   -F "another_walrus.jpg=@./walrus-46.jpg"
 {
@@ -219,7 +226,12 @@ $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1&quilt_version=V1" \
 
 There are two ways to retrieve blobs from a quilt via the aggregator APIs:
 
-##### By Quilt Patch ID
+```admonish info
+Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+quilt in a single request is not yet supported.
+```
+
+##### By quilt patch ID
 
 Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:
 
@@ -233,7 +245,7 @@ QuiltPatchIds can be obtained from the store quilt output (as shown above) or by
 [`list-patches-in-quilt`](./client-cli.md#batch-storing-blobs-with-quilt) CLI command.
 ```
 
-##### By Quilt ID and Identifier
+##### By quilt ID and identifier
 
 You can also retrieve a blob using the quilt ID and the blob's identifier:
 
