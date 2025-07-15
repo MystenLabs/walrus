@@ -237,7 +237,7 @@ impl UploadRelayClient {
         encoding_type: EncodingType,
         blob_persistence_type: BlobPersistenceType,
     ) -> Result<ConfirmationCertificate, UploadRelayError> {
-        tracing::info!("using the upload relay to store the blob and get the certificate");
+        tracing::info!("using the upload relay to store the blob and getting the certificate");
 
         let auth_package = AuthPackage::new(blob);
         let unencoded_length = blob.len().try_into().expect("using a u32 or u64 arch");

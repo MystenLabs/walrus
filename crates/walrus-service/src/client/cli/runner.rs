@@ -256,6 +256,7 @@ impl ClientCommandRunner {
                     )?,
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
+                    common_options.upload_relay,
                 )
                 .await
             }
@@ -776,6 +777,7 @@ impl ClientCommandRunner {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
         encoding_type: Option<EncodingType>,
+        upload_relay: Option<Url>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -812,7 +814,7 @@ impl ClientCommandRunner {
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
-        let store_args = StoreArgs::new(
+        let mut store_args = StoreArgs::new(
             encoding_type,
             epochs_ahead,
             store_optimizations,
