@@ -1330,7 +1330,7 @@ with the default storage node configuration.</p>
 <p>Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui Devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally,
 simply <a href="https://docs.sui.io/guides/developer/getting-started/local-network">start a local network with <code>sui start --with-faucet --force-regenesis</code></a>
-(requires <code>sui</code> to be <code>v1.28.0</code> or higher) and specify <code>localnet</code> when starting the Walrus testbed.</p>
+(requires <code>sui</code> to be <code>v1.29.0</code> or higher) and specify <code>localnet</code> when starting the Walrus testbed.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="interacting-with-walrus"><a class="header" href="#interacting-with-walrus">Interacting with Walrus</a></h1>
 <p>We provide 3 ways to interact directly with the Walrus storage system:</p>
@@ -1849,6 +1849,7 @@ the values in the corresponding HTTP headers.</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="usage/./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
+<p><strong>Note</strong> Quilt APIs are supported with Walrus 1.29 and higher.</p>
 <div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
 <div class="admonition-title">
 <div id="admonition-warning-title">
@@ -1857,7 +1858,7 @@ The publishers and aggregators support <em>quilt</em> related operations.</p>
 <a class="admonition-anchor-link" href="usage/web-api.html#admonition-warning"></a>
 </div>
 <div>
-<p>Quilts are supported with Walrus 1.29 and higher. The identifiers must be unique within a quilt.</p>
+<p>The identifiers must be unique within a quilt.</p>
 </div>
 </div>
 <h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
@@ -1865,8 +1866,8 @@ The publishers and aggregators support <em>quilt</em> related operations.</p>
 their identifiers as field names and optional Walrus-native metadata.</p>
 <p>All the query parameters available for storing regular blobs (see <a href="usage/web-api.html#store">Store</a> section above) can
 also be used when storing quilts.</p>
-<pre><code class="language-sh"># Store two files document.pdf and image.png, with custom identifiers contract-v2 and logo-2024,
-# respectively.
+<pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, # respectively.
 curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&amp;quilt_version=V1" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"

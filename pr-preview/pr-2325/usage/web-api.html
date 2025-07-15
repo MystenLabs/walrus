@@ -347,6 +347,7 @@ the values in the corresponding HTTP headers.</p>
 <h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
 <p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="./quilt.html">quilt</a>.
 The publishers and aggregators support <em>quilt</em> related operations.</p>
+<p><strong>Note</strong> Quilt APIs are supported with Walrus 1.29 and higher.</p>
 <div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
 <div class="admonition-title">
 <div id="admonition-warning-title">
@@ -355,7 +356,7 @@ The publishers and aggregators support <em>quilt</em> related operations.</p>
 <a class="admonition-anchor-link" href="#admonition-warning"></a>
 </div>
 <div>
-<p>Quilts are supported with Walrus 1.29 and higher. The identifiers must be unique within a quilt.</p>
+<p>The identifiers must be unique within a quilt.</p>
 </div>
 </div>
 <h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
@@ -363,8 +364,8 @@ The publishers and aggregators support <em>quilt</em> related operations.</p>
 their identifiers as field names and optional Walrus-native metadata.</p>
 <p>All the query parameters available for storing regular blobs (see <a href="#store">Store</a> section above) can
 also be used when storing quilts.</p>
-<pre><code class="language-sh"># Store two files document.pdf and image.png, with custom identifiers contract-v2 and logo-2024,
-# respectively.
+<pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, # respectively.
 curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&amp;quilt_version=V1" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
