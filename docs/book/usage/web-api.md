@@ -134,8 +134,10 @@ the values in the corresponding HTTP headers.
 Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](./quilt.md).
 The publishers and aggregators support *quilt* related operations.
 
+**Note** Quilt APIs are supported with Walrus 1.29 and higher.
+
 ```admonish warning
-Quilts are supported with Walrus 1.29 and higher. The identifiers must be unique within a quilt.
+The identifiers must be unique within a quilt.
 ```
 
 #### Storing quilts
@@ -147,8 +149,8 @@ All the query parameters available for storing regular blobs (see [Store](#store
 also be used when storing quilts.
 
 ```sh
-# Store two files document.pdf and image.png, with custom identifiers contract-v2 and logo-2024,
-# respectively.
+# Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, # respectively.
 curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&quilt_version=V1" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
