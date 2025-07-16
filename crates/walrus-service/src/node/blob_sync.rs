@@ -15,7 +15,7 @@ use futures::{
     future::{self, try_join_all},
     stream,
 };
-use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
+use mysten_metrics::{GaugeGuard, InflightGuardFutureExt as _};
 use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore, watch},
@@ -403,7 +403,7 @@ impl BlobSyncHandler {
                         let _permit = permits
                             .blob
                             .acquire_owned()
-                            .count_in_flight(&queued_gauge)
+                            .count_in_flight(queued_gauge)
                             .await
                             .expect("semaphore should not be dropped");
 
