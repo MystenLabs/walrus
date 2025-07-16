@@ -998,6 +998,7 @@ pub(crate) struct WalrusSubsidiesInner {
     pub system_subsidy_rate: u32,
     /// The balance of funds available in the subsidy pool.
     pub subsidy_pool: u64,
+    // TODO(WAL-788): Use a specific type to represent different denominations.
     /// The base subsidy (in FROST) paid directly per storage node per epoch.
     pub base_subsidy: u64,
     /// The additional subsidy (in FROST) paid to each storage node directly per shard.

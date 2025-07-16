@@ -266,6 +266,15 @@ impl CertifyAndExtendBlobResult {
     }
 }
 
+/// The object ID of a shared object with the object ID of an associated admin cap.
+#[derive(Debug, Clone)]
+pub struct SharedObjectWithAdminCap {
+    /// The object ID of the shared object.
+    pub object_id: ObjectID,
+    /// The object ID of the admin cap.
+    pub admin_cap_id: ObjectID,
+}
+
 /// Metadata for a blob object on Sui.
 #[derive(Debug, Clone)]
 pub struct BlobObjectMetadata {
@@ -930,7 +939,7 @@ impl SuiContractClient {
         system_subsidy_rate: u32,
         base_subsidy: u64,
         subsidy_per_shard: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
@@ -964,7 +973,7 @@ impl SuiContractClient {
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
         self.inner
             .lock()
             .await
@@ -2107,7 +2116,7 @@ impl SuiContractClientInner {
         system_subsidy_rate: u32,
         base_subsidy: u64,
         subsidy_per_shard: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
         tracing::info!("creating a new walrus subsidies object");
 
         let mut pt_builder = self.transaction_builder()?;
@@ -2138,7 +2147,10 @@ impl SuiContractClientInner {
             "unexpected number of `WalrusSubsidies`s created: {}",
             subsidies_id.len()
         );
-        Ok((subsidies_id[0], admin_cap[0]))
+        Ok(SharedObjectWithAdminCap {
+            object_id: subsidies_id[0],
+            admin_cap_id: admin_cap[0],
+        })
     }
 
     /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
@@ -2191,7 +2203,7 @@ impl SuiContractClientInner {
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
         tracing::info!("creating a new credits object");
 
         let mut pt_builder = self.transaction_builder()?;
@@ -2220,7 +2232,10 @@ impl SuiContractClientInner {
             "unexpected number of `Subsidies`s created: {}",
             credits_id.len()
         );
-        Ok((credits_id[0], admin_cap[0]))
+        Ok(SharedObjectWithAdminCap {
+            object_id: credits_id[0],
+            admin_cap_id: admin_cap[0],
+        })
     }
 
     /// Exchanges the given `amount` of SUI (in MIST) for WAL using the shared exchange.

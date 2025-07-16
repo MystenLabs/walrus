@@ -253,7 +253,9 @@ impl EpochChangeDriver {
     #[tracing::instrument(skip_all)]
     pub fn schedule_process_subsidies(&self) {
         if !self.contract_service.is_subsidies_object_configured() {
-            tracing::debug!("subsidies are not configured in the contract");
+            tracing::debug!(
+                "subsidies are not configured in the contract, skipping call to process subsidies"
+            );
             return;
         }
 
@@ -266,8 +268,11 @@ impl EpochChangeDriver {
 
         let subsidies_future = ScheduledEpochOperation::new(
             SubsidiesOperation {
-                time_before_epoch_change: (self.system_parameters.epoch_duration / 10)
-                    .min(MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE),
+                // Schedule the call `MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE` before the epoch
+                // change. If the epoch duration is short, e.g. for tests, we use 1/10th of the
+                // epoch duration to make sure to schedule it shortly before the epoch change.
+                time_before_epoch_change: MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE
+                    .min(self.system_parameters.epoch_duration / 10),
                 system_params: self.system_parameters,
                 time_fn: self.utc_now_fn.clone(),
             },
@@ -651,11 +656,13 @@ impl EpochOperation for SubsidiesOperation {
     ) -> Option<Duration> {
         let current_epoch_started_at = match state {
             EpochState::EpochChangeDone(_) | EpochState::EpochChangeSync(_) => {
-                todo!("How should we handle this? Panic? Or return time?")
+                tracing::debug!("next epoch parameters have not been selected yet");
+                return None;
             }
             EpochState::NextParamsSelected(current_epoch_started_at) => current_epoch_started_at,
         };
         if current_epoch == GENESIS_EPOCH {
+            tracing::debug!("subsidies are not distributed in epoch 0");
             return None;
         }
 
@@ -678,7 +685,7 @@ impl EpochOperation for SubsidiesOperation {
         // If the last subsidies call was less than time_before_epoch_change ago, return without
         // calling them again. We use the same duration here to avoid having to configure too
         // many parameters.
-        if current_time - self.time_before_epoch_change > last_subsidies_call {
+        if current_time < last_subsidies_call + self.time_before_epoch_change {
             tracing::debug!("subsidies already called recently");
             return Ok(());
         }

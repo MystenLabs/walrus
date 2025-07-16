@@ -841,8 +841,8 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to create a new walrus subsidies object (`walrus_subsidies::WalrusSubsidies` in
-    /// Move), funded with `amount` WAL, to the PTB. Returns the argument for the AdminCap.
+    /// Adds a call to create a new walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB.
     pub async fn create_walrus_subsidies(
         &mut self,
         package_id: ObjectID,
@@ -862,8 +862,9 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to fund the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`)
-    /// to the PTB, if a walrus subsidies object is configured.
+    /// Adds a call to fund the walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB, if a walrus subsidies object
+    /// is configured.
     pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
         let Some(walrus_subsidies_pkg_id) = self.read_client.get_walrus_subsidies_package_id()
         else {

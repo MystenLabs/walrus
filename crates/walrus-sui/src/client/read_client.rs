@@ -805,8 +805,8 @@ impl SuiReadClient {
         })
     }
 
-    /// Checks if the walrus subsidies object (`walrus_subsidies::WalrusSubsidies` in Move) exist on
-    /// chain and returns the object.
+    /// Checks if the walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) exist on chain and returns the object.
     pub(crate) async fn get_walrus_subsidies_object(
         &self,
         with_inner: bool,
@@ -902,8 +902,8 @@ impl SuiReadClient {
         Ok(())
     }
 
-    /// Sets a walrus subsidies (`walrus_subsidies::WalrusSubsidies`) object to be used by the
-    /// client.
+    /// Sets a walrus subsidies ([`contracts::walrus_subsidies::WalrusSubsidies`]) object to be
+    /// used by the client.
     pub async fn set_walrus_subsidies_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
         let package_id = self
             .sui_client

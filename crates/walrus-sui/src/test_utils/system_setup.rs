@@ -231,14 +231,15 @@ pub async fn create_and_init_system(
 
     // Create credits object if enabled.
     let credits_object = if let Some(pkg_id) = credits_pkg_id {
-        let (credits_object_id, _) = admin_contract_client
+        let credits_object_id = admin_contract_client
             .create_and_fund_credits(
                 pkg_id,
                 DEFAULT_BUYER_CREDITS_RATE,
                 DEFAULT_SYSTEM_CREDITS_RATE,
                 DEFAULT_CREDITS_FUNDS,
             )
-            .await?;
+            .await?
+            .object_id;
 
         admin_contract_client
             .read_client()
@@ -251,14 +252,15 @@ pub async fn create_and_init_system(
 
     // Create walrus subsidies object if enabled.
     let walrus_subsidies_object = if let Some(pkg_id) = walrus_subsidies_pkg_id {
-        let (walrus_subsidies_object_id, _) = admin_contract_client
+        let walrus_subsidies_object_id = admin_contract_client
             .create_walrus_subsidies(
                 pkg_id,
                 DEFAULT_SYSTEM_SUBSIDY_RATE,
                 DEFAULT_BASE_SUBSIDY,
                 DEFAULT_SUBSIDY_PER_SHARD,
             )
-            .await?;
+            .await?
+            .object_id;
         admin_contract_client
             .read_client()
             .set_walrus_subsidies_object(walrus_subsidies_object_id)
@@ -499,9 +501,10 @@ async fn publish_with_default_system_with_epoch_duration(
         .collect();
 
     if let Some(credits_pkg_id) = system_context.credits_pkg_id {
-        let (credits_object_id, _admin_cap_id) = contract_client
+        let credits_object_id = contract_client
             .create_and_fund_credits(credits_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
-            .await?;
+            .await?
+            .object_id;
 
         contract_client
             .read_client()
