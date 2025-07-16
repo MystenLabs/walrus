@@ -22,7 +22,7 @@ use walrus_sui::{
         BlobObjectMetadata,
         CoinType,
         FixedSystemParameters,
-        ReadClient as _,
+        ReadClient,
         SuiClientError,
         SuiClientMetricSet,
         SuiContractClient,
@@ -31,6 +31,7 @@ use walrus_sui::{
     types::{
         StorageNodeCap,
         UpdatePublicKeyParams,
+        move_errors::{MoveExecutionError, StakingInnerError},
         move_structs::{EpochState, EventBlob},
     },
 };
@@ -513,6 +514,27 @@ impl SystemContractService for SuiSystemContractService {
                     tracing::debug!(walrus.epoch = epoch, "repeatedly submitted epoch_sync_done");
                     Some(())
                 }
+                Err(SuiClientError::TransactionExecutionError(
+                    MoveExecutionError::StakingInner(StakingInnerError::EInvalidSyncEpoch(error)),
+                )) => match self.read_client.current_epoch().await {
+                    Ok(latest_epoch_on_chain) => {
+                        if latest_epoch_on_chain > epoch {
+                            tracing::info!(
+                                %error,
+                                "walrus epoch has advanced, skipping epoch sync done"
+                            );
+                            Some(())
+                        } else if latest_epoch_on_chain < epoch {
+                            panic!("walrus epoch onchain cannot be less than event epoch");
+                        } else {
+                            None
+                        }
+                    }
+                    Err(error) => {
+                        tracing::info!(?error, "reading onchain epoch failed");
+                        None
+                    }
+                },
                 Err(error) => {
                     tracing::warn!(?error, "submitting epoch sync done to contract failed");
                     None

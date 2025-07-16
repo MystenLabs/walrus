@@ -88,7 +88,7 @@ async fn collect_garbage(
                                     state = 'archived' AND
                                     (initiate_gc_after IS NULL OR initiate_gc_after < NOW()) AND
                                     COALESCE(
-                                        end_epoch <= (
+                                        end_epoch + 2 <= (
                                             SELECT MAX(epoch) FROM epoch_change_start_event),
                                         FALSE)
                                 LIMIT 15

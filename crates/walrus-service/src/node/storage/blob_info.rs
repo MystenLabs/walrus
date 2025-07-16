@@ -348,6 +348,16 @@ impl BlobInfoTable {
     ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
         self.per_object_blob_info.get(object_id)
     }
+
+    /// Returns the latest event index that has been handled by the node.
+    pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
+        Ok(self
+            .latest_handled_event_index
+            .lock()
+            .expect("acquire latest_handled_event_index lock should not fail")
+            .get(&())?
+            .unwrap_or(0))
+    }
 }
 
 // TODO(#900): Rewrite other tests without relying on blob-info internals.

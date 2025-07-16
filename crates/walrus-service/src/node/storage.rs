@@ -782,6 +782,11 @@ impl Storage {
         self.event_cursor.get_event_cursor_progress()
     }
 
+    /// Returns the latest event index that has been handled by the node.
+    pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
+        self.blob_info.get_latest_handled_event_index()
+    }
+
     /// Clears the metadata in the storage for testing purposes.
     #[cfg(test)]
     pub fn clear_metadata_in_test(&self) -> Result<(), TypedStoreError> {

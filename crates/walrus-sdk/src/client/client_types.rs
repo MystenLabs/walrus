@@ -9,6 +9,7 @@ use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
+use utoipa::ToSchema;
 use walrus_core::{
     BlobId,
     QuiltPatchId,
@@ -30,7 +31,7 @@ use super::{
 pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
 
 /// Identifies a stored quilt patch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredQuiltPatch {
     /// The identifier of the quilt patch.

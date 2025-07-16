@@ -798,6 +798,10 @@ pub struct PublisherArgs {
     #[arg(long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
     pub max_body_size_kib: usize,
+    /// The maximum body size of quilt PUT requests in KiB.
+    #[arg(long = "max-quilt-body-size", default_value_t = default::max_quilt_body_size_kib())]
+    #[serde(default = "default::max_quilt_body_size_kib")]
+    pub max_quilt_body_size_kib: usize,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones.
     #[arg(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
@@ -904,6 +908,10 @@ pub struct PublisherArgs {
 impl PublisherArgs {
     pub(crate) fn max_body_size(&self) -> usize {
         self.max_body_size_kib << 10
+    }
+
+    pub(crate) fn max_quilt_body_size(&self) -> usize {
+        self.max_quilt_body_size_kib << 10
     }
 
     fn format_max_body_size(&self) -> String {
@@ -1625,6 +1633,10 @@ pub(crate) mod default {
         10_240
     }
 
+    pub(crate) fn max_quilt_body_size_kib() -> usize {
+        102_400 // 100MB default for quilts.
+    }
+
     pub(crate) fn max_concurrent_requests() -> usize {
         8
     }
@@ -1777,6 +1789,7 @@ mod tests {
                     blocklist: None,
                 },
                 max_body_size_kib: default::max_body_size_kib(),
+                max_quilt_body_size_kib: default::max_quilt_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
                 max_concurrent_requests: default::max_concurrent_requests(),
                 refill_interval: default::refill_interval(),

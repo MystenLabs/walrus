@@ -167,6 +167,8 @@ mod tests {
             fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
 
             sui_simulator::task::kill_current_node(Some(restart_after));
+            // Do not put any code after this point, as it won't be executed.
+            // kill_current_node is implemented using a panic.
         }
     }
 
@@ -190,6 +192,8 @@ mod tests {
         tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
         fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(crash_duration));
+        // Do not put any code after this point, as it won't be executed.
+        // kill_current_node is implemented using a panic.
     }
 
     // This integration test simulates a scenario where a node is lagging behind and recovers.
@@ -472,7 +476,7 @@ mod tests {
             );
             if last_persist_event_index == node_health_info[0].event_progress.persisted {
                 // We expect that there shouldn't be any stuck event progress.
-                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(60));
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(30));
             } else {
                 last_persist_event_index = node_health_info[0].event_progress.persisted;
                 last_persisted_event_time = Instant::now();

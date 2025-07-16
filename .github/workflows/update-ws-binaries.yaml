@@ -9,7 +9,9 @@ on:
   # on demand
   workflow_dispatch:
 
-concurrency: ci-${{ github.ref }}
+concurrency:
+  group: sui-wallet-operations
+  cancel-in-progress: false
 
 permissions:
   contents: read

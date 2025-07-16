@@ -12,7 +12,9 @@ on:
     # Update Walrus Site every first day of the month at 03:14 UTC.
     - cron: "14 3 1 * *"
 
-concurrency: ci-${{ github.ref }}
+concurrency:
+  group: sui-wallet-operations
+  cancel-in-progress: false
 
 permissions:
   contents: read

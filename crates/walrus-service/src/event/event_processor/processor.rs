@@ -43,8 +43,8 @@ pub struct EventProcessor {
     pub stores: EventProcessorStores,
     /// Event polling interval.
     pub event_polling_interval: Duration,
-    /// The address of the Walrus system package.
-    pub system_pkg_id: ObjectID,
+    /// The original address of the Walrus system package.
+    pub original_system_pkg_id: ObjectID,
     /// Event index before which events are pruned.
     pub event_store_commit_index: Arc<Mutex<u64>>,
     /// Event store pruning interval.
@@ -64,7 +64,7 @@ pub struct EventProcessor {
 impl fmt::Debug for EventProcessor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventProcessor")
-            .field("system_pkg_id", &self.system_pkg_id)
+            .field("original_system_pkg_id", &self.original_system_pkg_id)
             .field("checkpoint_store", &self.stores.checkpoint_store)
             .field("walrus_package_store", &self.stores.walrus_package_store)
             .field("committee_store", &self.stores.committee_store)
@@ -113,13 +113,13 @@ impl EventProcessor {
         let checkpoint_processor = CheckpointProcessor::new(
             stores.clone(),
             package_store.clone(),
-            system_config.system_pkg_id,
+            original_system_package_id,
         );
 
         let event_processor = EventProcessor {
             client_manager: client_manager.clone(),
             stores,
-            system_pkg_id: original_system_package_id,
+            original_system_pkg_id: original_system_package_id,
             event_polling_interval: runtime_config.event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: config.pruning_interval,
@@ -162,7 +162,7 @@ impl EventProcessor {
             let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
                 client_manager.get_sui_client().clone(),
                 client_manager.get_client().clone(),
-                event_processor.system_pkg_id,
+                event_processor.original_system_pkg_id,
             )
             .await?;
             event_processor
