@@ -2183,14 +2183,10 @@ mod tests {
         );
     }
 
-    fn encode_decode_quilt(test_data: QuiltTestData<'_>, config: EncodingConfigEnum) {
+    fn encode_decode_quilt(mut test_data: QuiltTestData<'_>, config: EncodingConfigEnum) {
         let _ = tracing_subscriber::fmt().try_init();
 
-        let quilt_store_blobs = test_data
-            .quilt_store_blobs
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
+        let quilt_store_blobs = test_data.take_blobs();
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs.as_slice());
 
         let (sliver_pairs, quilt_metadata) = encoder

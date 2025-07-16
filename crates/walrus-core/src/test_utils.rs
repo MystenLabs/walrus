@@ -51,7 +51,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct QuiltTestData<'a> {
     /// A map of QuiltStoreBlobs, keyed by their identifiers.
-    pub quilt_store_blobs: HashMap<String, QuiltStoreBlob<'a>>,
+    pub quilt_store_blobs: Vec<QuiltStoreBlob<'a>>,
     /// A map of blob identifiers, keyed by tag keys and then tag values.
     pub blob_identifiers_by_tag: HashMap<String, HashMap<String, HashSet<String>>>,
 }
@@ -91,22 +91,18 @@ impl<'a> QuiltTestData<'a> {
         QuiltTestData::from_quilt_store_blobs(quilt_store_blobs_vec)
     }
 
-    /// Returns the identifiers of the blobs that have the given tag key and value.
-    pub fn get_identifiers_by_tag(&self, tag_key: &str, tag_value: &str) -> Option<HashSet<&str>> {
-        self.blob_identifiers_by_tag
-            .get(tag_key)
-            .and_then(|tag_values| tag_values.get(tag_value))
-            .map(|identifiers| identifiers.iter().map(|s| s.as_str()).collect())
+    /// Returns the quilt store blobs and clears the internal vector.
+    pub fn take_blobs(&mut self) -> Vec<QuiltStoreBlob<'a>> {
+        core::mem::take(&mut self.quilt_store_blobs)
     }
 
     fn from_quilt_store_blobs(
-        quilt_store_blobs_vec: Vec<QuiltStoreBlob<'a>>,
+        quilt_store_blobs: Vec<QuiltStoreBlob<'a>>,
     ) -> Result<Self, QuiltError> {
-        let mut quilt_store_blobs = HashMap::new();
         let mut blob_identifiers_by_tag: HashMap<String, HashMap<String, HashSet<String>>> =
             HashMap::new();
 
-        for blob in quilt_store_blobs_vec {
+        for blob in &quilt_store_blobs {
             let identifier = blob.identifier().to_string();
 
             // Build tag index
@@ -118,8 +114,6 @@ impl<'a> QuiltTestData<'a> {
                     .or_default()
                     .insert(identifier.clone());
             }
-
-            quilt_store_blobs.insert(identifier, blob);
         }
 
         Ok(Self {
