@@ -995,7 +995,7 @@ impl RetriableSuiClient {
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
     /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
-    pub async fn estimate_gas_budget(
+    pub(crate) async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
@@ -1032,7 +1032,7 @@ impl RetriableSuiClient {
 
     /// Executes a transaction.
     #[tracing::instrument(err, skip(self))]
-    pub async fn execute_transaction(
+    pub(crate) async fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,

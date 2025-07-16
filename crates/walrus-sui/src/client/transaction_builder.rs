@@ -12,7 +12,6 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
-use serde::Serialize;
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
@@ -1497,11 +1496,6 @@ impl WalrusPtbBuilder {
         self.transfer_remaining_outputs(None).await?;
         let sui_cost = self.tx_sui_cost;
         Ok((self.pt_builder.finish(), sui_cost))
-    }
-
-    /// Adds a pure input to the PTB, returning the created argument.
-    pub fn add_pure_input<T: Serialize>(&mut self, pure: T) -> SuiClientResult<Argument> {
-        Ok(self.pt_builder.pure(pure)?)
     }
 
     /// Transfers all remaining outputs and returns the [`TransactionData`] containing
