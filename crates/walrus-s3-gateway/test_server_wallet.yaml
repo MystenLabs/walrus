@@ -1,0 +1,11 @@
+---
+# Server wallet configuration
+# This wallet uses the Sui client configuration for server-side signing
+# The actual keys are managed by the Sui client at ~/.sui/sui_config/client.yaml
+accounts:
+  - address: "0x6191cb2964f2468c4bceadb867dae6dd943cb20041851129690dd04de6966d7d"
+    # Note: Keys are managed by Sui client, not stored here
+    description: "Server wallet using Sui client configuration"
+active_address: "0x6191cb2964f2468c4bceadb867dae6dd943cb20041851129690dd04de6966d7d"
+created_at: "2025-07-05T20:24:53.291015+00:00"
+sui_client_managed: true
