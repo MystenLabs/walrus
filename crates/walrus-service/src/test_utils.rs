@@ -468,10 +468,11 @@ impl SimStorageNodeHandle {
                                 // Do not put any code after this point, as it won't be executed.
                                 // kill_current_node is implemented using a panic.
                             } else {
-                                // TODO(WAL-912): we need to alert the test if the node is stopped
-                                // unexpectedly. Currently, node crashing may not be noticed and
-                                // the test will hang.
-                                tracing::info!("node stopped with error: {e}");
+                                tracing::error!("node stopped with error: {e}");
+
+                                // In simtest, we don't expect node to exit with an error. Panic
+                                // the test process to fail the test early.
+                                panic!("node stopped with error: {e}");
                             }
                         }
                         Ok(()) => {
