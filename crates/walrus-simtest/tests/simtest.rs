@@ -16,7 +16,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use rand::{Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, seq::SliceRandom};
     use sui_macros::{
         clear_fail_point,
         register_fail_point,
@@ -25,9 +25,11 @@ mod tests {
     };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
+    use tempfile::TempDir;
     use tokio::sync::RwLock;
-    use walrus_core::EpochCount;
+    use walrus_core::{DEFAULT_ENCODING, EpochCount};
     use walrus_proc_macros::walrus_simtest;
+    use walrus_sdk::{client::Client, store_optimizations::StoreOptimizations};
     use walrus_service::{
         client::ClientCommunicationConfig,
         event::event_processor::config::EventProcessorConfig,
@@ -42,7 +44,13 @@ mod tests {
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
-    use walrus_sui::client::ReadClient;
+    use walrus_sui::{
+        client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
+        system_setup::copy_recursively,
+        test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
+        types::move_structs::EventBlob,
+    };
+    use walrus_test_utils::WithTempDir;
 
     /// Returns a simulator configuration that adds random network latency between nodes.
     ///
@@ -910,5 +918,206 @@ mod tests {
         blob_info_consistency_check.check_storage_node_consistency();
 
         clear_fail_point("start_node_recovery_entry");
+    }
+
+    // Tests upgrading the walrus contracts.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_quorum_contract_upgrade() -> anyhow::Result<()> {
+        let deploy_dir = tempfile::TempDir::new().unwrap();
+        let epoch_duration_secs = Duration::from_secs(20);
+        let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_deploy_directory(deploy_dir.path().to_path_buf())
+                .with_delegate_governance_to_admin_wallet()
+                .with_contract_directory(testnet_contract_dir().unwrap())
+                .with_epoch_duration(epoch_duration_secs)
+                .with_num_checkpoints_per_blob(20)
+                .build_generic::<SimStorageNodeHandle>()
+                .await?;
+        let client = Arc::new(client);
+        let previous_version = client
+            .as_ref()
+            .inner
+            .sui_client()
+            .read_client()
+            .system_object_version()
+            .await?;
+
+        // Copy new contracts to fresh directory
+        let upgrade_dir = TempDir::new()?;
+        copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
+
+        // Copy Move.lock files of walrus contract and dependencies to new directory
+        for contract in ["wal", "walrus"] {
+            std::fs::copy(
+                deploy_dir.path().join(contract).join("Move.lock"),
+                upgrade_dir.path().join(contract).join("Move.lock"),
+            )?;
+        }
+
+        // Change the version in the contracts
+        let walrus_package_path = upgrade_dir.path().join("walrus");
+
+        let upgrade_epoch = client.as_ref().inner.sui_client().current_epoch().await?;
+        tracing::info!("upgrade_epoch: {}", upgrade_epoch);
+
+        let digest = client
+            .as_ref()
+            .inner
+            .sui_client()
+            .read_client()
+            .compute_package_digest(walrus_package_path.clone())
+            .await?;
+
+        for node in walrus_cluster.nodes.iter() {
+            let node_id = node
+                .storage_node_capability
+                .as_ref()
+                .expect("capability should be set")
+                .node_id;
+            client
+                .as_ref()
+                .inner
+                .sui_client()
+                .vote_for_upgrade_with_digest(system_ctx.upgrade_manager_object, node_id, digest)
+                .await?;
+        }
+
+        tracing::info!("voted for upgrade");
+
+        // Commit the upgrade in a loop to handle the case where the upgrade fails
+        // with ENotEnoughVotes due to simtest environment not registering the
+        // upgrade immediately.
+        let new_package_id = loop {
+            match client
+                .as_ref()
+                .inner
+                .sui_client()
+                .upgrade(
+                    system_ctx.upgrade_manager_object,
+                    walrus_package_path.clone(),
+                    UpgradeType::Quorum,
+                )
+                .await
+            {
+                Ok(package_id) => break package_id,
+                Err(e) => {
+                    tracing::info!("Upgrade failed, retrying in 5 seconds: {:?}", e);
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        };
+
+        // Set the migration epoch on the staking object to the following epoch.
+        client
+            .as_ref()
+            .inner
+            .sui_client()
+            .set_migration_epoch(new_package_id)
+            .await?;
+
+        // Check that the upgrade was completed within one epoch. A failure here indicates that the
+        // epoch duration for the test is set too short.
+        let end_upgrade_epoch = client.as_ref().inner.sui_client().current_epoch().await?;
+        assert_eq!(end_upgrade_epoch, upgrade_epoch);
+        tracing::info!(upgrade_epoch, "upgraded contract");
+
+        // Wait for the nodes to reach the migration epoch.
+        let target_epoch = upgrade_epoch + 1;
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..4],
+            target_epoch,
+            2 * epoch_duration_secs,
+        )
+        .await;
+
+        // Migrate the objects
+        client
+            .as_ref()
+            .inner
+            .sui_client()
+            .migrate_contracts(new_package_id)
+            .await?;
+
+        // Check the version
+        assert_eq!(
+            client
+                .as_ref()
+                .inner
+                .sui_client()
+                .read_client()
+                .system_object_version()
+                .await?,
+            previous_version + 1
+        );
+
+        let blob_data = walrus_test_utils::random_data_list(314, 1);
+        let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+        let _results = client
+            .as_ref()
+            .inner
+            .reserve_and_store_blobs_retry_committees(
+                &blobs,
+                DEFAULT_ENCODING,
+                1,
+                StoreOptimizations::none(),
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+                None,
+            )
+            .await?;
+
+        let last_certified_event_blob =
+            simtest_utils::get_last_certified_event_blob_must_succeed(&client).await;
+        println!("last_certified_event_blob: {:?}", last_certified_event_blob);
+
+        // Restart a random subset of nodes. This helps surface quorum issues
+        // if some nodes fall behind during the upgrade.
+        let num_nodes = walrus_cluster.nodes.len();
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        // Restart at least one node and leave at least one running.
+        let num_restart = rng.gen_range(1..num_nodes);
+        let mut node_indices: Vec<usize> = (0..num_nodes).collect();
+        node_indices.shuffle(&mut rng);
+        for i in node_indices.into_iter().take(num_restart) {
+            simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, i, |_| 20).await;
+        }
+
+        wait_for_event_blob_writer_to_make_progress(&client, last_certified_event_blob).await;
+
+        // Store a blob after the upgrade to check if everything works after the upgrade.
+        let blob_data = walrus_test_utils::random_data_list(314, 1);
+        let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+        let _results = client
+            .as_ref()
+            .inner
+            .reserve_and_store_blobs_retry_committees(
+                &blobs,
+                DEFAULT_ENCODING,
+                1,
+                StoreOptimizations::none(),
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+                None,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn wait_for_event_blob_writer_to_make_progress(
+        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+        last_certified_event_blob: EventBlob,
+    ) {
+        loop {
+            let last_certified_event_blob_after_upgrade =
+                simtest_utils::get_last_certified_event_blob_must_succeed(&client).await;
+            if last_certified_event_blob_after_upgrade.blob_id != last_certified_event_blob.blob_id
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
     }
 }

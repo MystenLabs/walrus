@@ -47,7 +47,7 @@ export LD_LIBRARY_PATH=$(echo "$RUST_LIB_PATHS" | tr '\n' ':')${LD_LIBRARY_PATH:
 # Walrus simtest using default setup creates a sui cluster in a single thread, and when initializing
 # the cluster 5 seconds wall time of idle activity is common especially when initializing the
 # database. This often causes the simtest to be killed by the watchdog.
-WATCHDOG_TIMEOUT_MS=30000
+WATCHDOG_TIMEOUT_MS=3000000
 
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
