@@ -17,18 +17,14 @@ pub mod simtest_utils {
     use sui_types::base_types::ObjectID;
     use tokio::{sync::RwLock, task::JoinHandle};
     use walrus_core::{
-        DEFAULT_ENCODING,
         Epoch,
         EpochCount,
         encoding::{Primary, Secondary},
     };
-    use walrus_sdk::{
-        client::{Client, responses::BlobStoreResult},
-        store_optimizations::StoreOptimizations,
-    };
+    use walrus_sdk::client::{Client, StoreArgs, responses::BlobStoreResult};
     use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};
     use walrus_storage_node_client::api::ServiceHealthInfo;
-    use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
+    use walrus_sui::client::{BlobPersistence, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
     /// The fail points related to node crash that can be used to trigger failures in the storage
@@ -71,8 +67,7 @@ pub mod simtest_utils {
 
         let mut retry_count = 0;
         let store_results = loop {
-            let store_args = StoreArgs::default()
-                .with_epochs_ahead(epoch_ahead)
+            let store_args = StoreArgs::default_with_epochs(epoch_ahead)
                 .no_store_optimizations()
                 .with_persistence(BlobPersistence::from_deletable_and_permanent(
                     deletable, !deletable,

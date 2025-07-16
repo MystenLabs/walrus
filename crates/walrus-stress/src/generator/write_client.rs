@@ -99,10 +99,10 @@ impl WriteClient {
         let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epochs_to_store());
 
         let now = Instant::now();
-        let store_args = StoreArgs::default()
-            .with_epochs_ahead(epochs_to_store)
+        let store_args = StoreArgs::default_with_epochs(epochs_to_store)
             .no_store_optimizations()
             .with_metrics(self.metrics.clone());
+
         let blob_id = self
             .client
             .as_ref()

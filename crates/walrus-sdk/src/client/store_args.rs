@@ -16,6 +16,7 @@ use crate::{
 };
 
 /// Arguments for store operations that are frequently passed together.
+// NOTE: In the future, if the struct grows larger, we may need to consider using a builder.
 #[derive(Debug, Clone)]
 pub struct StoreArgs {
     /// The encoding type to use for encoding the files.
@@ -34,21 +35,6 @@ pub struct StoreArgs {
     pub upload_relay_client: Option<UploadRelayClient>,
 }
 
-impl Default for StoreArgs {
-    fn default() -> Self {
-        Self {
-            encoding_type: DEFAULT_ENCODING,
-            epochs_ahead: 1,
-            store_optimizations: StoreOptimizations::all(),
-            // TODO(WAL-911): Ensure this is changed to `Deletable`, once we switch the defaults.
-            persistence: BlobPersistence::Permanent,
-            post_store: PostStoreAction::Keep,
-            metrics: None,
-            upload_relay_client: None,
-        }
-    }
-}
-
 impl StoreArgs {
     /// Creates a new `StoreArgs` with the given parameters.
     pub fn new(
@@ -64,6 +50,24 @@ impl StoreArgs {
             store_optimizations,
             persistence,
             post_store,
+            metrics: None,
+            upload_relay_client: None,
+        }
+    }
+
+    /// Creates a `StoreArgs` with default values and the specified number of epochs ahead.
+    pub fn default_with_epochs(epochs_ahead: EpochCount) -> Self {
+        Self::default_inner().with_epochs_ahead(epochs_ahead)
+    }
+
+    fn default_inner() -> Self {
+        Self {
+            encoding_type: DEFAULT_ENCODING,
+            epochs_ahead: 1,
+            store_optimizations: StoreOptimizations::all(),
+            // TODO(WAL-911): Ensure this is changed to `Deletable`, once we switch the defaults.
+            persistence: BlobPersistence::Permanent,
+            post_store: PostStoreAction::Keep,
             metrics: None,
             upload_relay_client: None,
         }
