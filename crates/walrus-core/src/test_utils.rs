@@ -53,7 +53,7 @@ pub struct QuiltTestData<'a> {
     /// A map of quilt store blobs, keyed by their identifier.
     pub quilt_store_blobs: HashMap<String, QuiltStoreBlob<'a>>,
     /// A map of tag index, keyed by their tag key and value.
-    pub tag_index: HashMap<String, HashMap<String, Vec<String>>>,
+    pub tag_index: HashMap<String, HashMap<String, HashSet<String>>>,
 }
 
 impl<'a> QuiltTestData<'a> {
@@ -95,7 +95,7 @@ impl<'a> QuiltTestData<'a> {
         quilt_store_blobs_vec: Vec<QuiltStoreBlob<'a>>,
     ) -> Result<Self, QuiltError> {
         let mut quilt_store_blobs = HashMap::new();
-        let mut tag_index: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+        let mut tag_index: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
 
         for blob in quilt_store_blobs_vec {
             let identifier = blob.identifier().to_string();
@@ -107,7 +107,7 @@ impl<'a> QuiltTestData<'a> {
                     .or_default()
                     .entry(value.clone())
                     .or_default()
-                    .push(identifier.clone());
+                    .insert(identifier.clone());
             }
 
             quilt_store_blobs.insert(identifier, blob);

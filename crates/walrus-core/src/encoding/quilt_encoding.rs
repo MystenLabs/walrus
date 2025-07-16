@@ -1869,11 +1869,15 @@ mod tests {
     use core::num::NonZeroU16;
     use std::collections::HashSet;
 
-    use rand::{Rng, seq::SliceRandom};
+    use rand::Rng;
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::{encoding::ReedSolomonEncodingConfig, metadata::BlobMetadataApi as _};
+    use crate::{
+        encoding::ReedSolomonEncodingConfig,
+        metadata::BlobMetadataApi as _,
+        test_utils::QuiltTestData,
+    };
 
     /// Get the minimum required columns.
     fn min_required_columns(blobs: &[usize], length: usize) -> usize {
@@ -2159,93 +2163,35 @@ mod tests {
     ) {
         let _ = tracing_subscriber::fmt().try_init();
 
-        let blobs =
-            walrus_test_utils::generate_random_data(num_blobs, min_blob_size, max_blob_size);
-        let blobs_refs = blobs.iter().map(|blob| blob.as_slice()).collect::<Vec<_>>();
-        let quilt_store_blobs = populate_identifiers_and_tags(blobs_refs);
+        const MAX_NUM_TAGS: usize = 10;
+        const MAX_VALUE_LENGTH: usize = 100;
+        let test_data = QuiltTestData::new_owned(
+            num_blobs,
+            min_blob_size,
+            max_blob_size,
+            MAX_VALUE_LENGTH,
+            MAX_NUM_TAGS,
+        )
+        .expect("Should create test data");
 
         let reed_solomon_config =
             ReedSolomonEncodingConfig::new(NonZeroU16::try_from(n_shards).unwrap());
 
         encode_decode_quilt(
-            &quilt_store_blobs,
+            test_data,
             EncodingConfigEnum::ReedSolomon(&reed_solomon_config),
         );
     }
 
-    fn populate_identifiers_and_tags<'a>(blob_data: Vec<&'a [u8]>) -> Vec<QuiltStoreBlob<'a>> {
-        let mut rng = rand::thread_rng();
-        let num_tags = if rng.gen_bool(0.3) {
-            0
-        } else {
-            rng.gen_range(1..=blob_data.len())
-        };
-
-        const NUM_TAG_VALUES: usize = 3;
-        let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, 100);
-        let raw_tag_keys = walrus_test_utils::generate_random_data(NUM_TAG_VALUES, 1, 100);
-        let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
-        let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
-
-        let mut res = Vec::with_capacity(blob_data.len());
-        let mut identifiers = HashSet::with_capacity(blob_data.len());
-        while identifiers.len() < blob_data.len() {
-            identifiers.insert(
-                "a".to_string()
-                    + &hex::encode(walrus_test_utils::random_data(rng.gen_range(1..100))),
-            );
-        }
-        for (data, identifier) in blob_data.iter().zip(identifiers.iter()) {
-            let mut tags = BTreeMap::new();
-            let num_keys_for_blob = rng.gen_range(0..=num_tags);
-            if num_keys_for_blob > 0 {
-                let selected_keys: Vec<_> = tag_keys
-                    .as_slice()
-                    .choose_multiple(&mut rng, num_keys_for_blob)
-                    .collect();
-
-                for key in selected_keys {
-                    let value = tag_values.choose(&mut rng).expect("Should choose a value");
-                    tags.insert(key.clone(), value.clone());
-                }
-            }
-            let mut blob =
-                QuiltStoreBlob::new_owned(data.to_vec(), identifier).expect("Should create blob");
-            if !tags.is_empty() {
-                blob = blob.with_tags(tags);
-            }
-            res.push(blob);
-        }
-
-        res
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn get_tag_blobs_map<'a>(
-        quilt_patches: &'a [QuiltStoreBlob<'a>],
-    ) -> Vec<(&'a str, Vec<(&'a str, HashSet<&'a str>)>)> {
-        let mut map: BTreeMap<&'a str, BTreeMap<&'a str, HashSet<&'a str>>> = BTreeMap::new();
-
-        for patch in quilt_patches {
-            for (tag_key, tag_value) in &patch.tags {
-                map.entry(tag_key.as_str())
-                    .or_default()
-                    .entry(tag_value.as_str())
-                    .or_default()
-                    .insert(patch.identifier.as_str());
-            }
-        }
-
-        map.into_iter()
-            .map(|(key, values)| (key, values.into_iter().collect()))
-            .collect()
-    }
-
-    fn encode_decode_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
+    fn encode_decode_quilt(test_data: QuiltTestData<'_>, config: EncodingConfigEnum) {
         let _ = tracing_subscriber::fmt().try_init();
-        let tag_blobs_map = get_tag_blobs_map(quilt_store_blobs);
 
-        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
+        let quilt_store_blobs = test_data
+            .quilt_store_blobs
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs.as_slice());
 
         let (sliver_pairs, quilt_metadata) = encoder
             .encode_with_metadata()
@@ -2357,7 +2303,7 @@ mod tests {
             Ok(quilt_metadata_v1.index.into())
         );
 
-        for quilt_store_blob in quilt_store_blobs {
+        for quilt_store_blob in &quilt_store_blobs {
             tracing::debug!("decoding blob {}", quilt_store_blob.identifier);
             let blob = quilt_decoder
                 .get_blobs_by_identifiers(&[quilt_store_blob.identifier.as_str()])
@@ -2367,7 +2313,7 @@ mod tests {
             assert_eq!(blob, *quilt_store_blob);
         }
 
-        for (tag, val) in &tag_blobs_map {
+        for (tag, val) in &test_data.tag_index {
             for (tag_value, identifiers) in val {
                 let blobs = quilt_decoder
                     .get_blobs_by_tag(tag, tag_value)
@@ -2377,7 +2323,13 @@ mod tests {
                     .iter()
                     .map(|blob| blob.identifier.as_str())
                     .collect::<HashSet<_>>();
-                assert_eq!(identifiers_set, *identifiers);
+                assert_eq!(
+                    identifiers_set,
+                    identifiers
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<HashSet<_>>()
+                );
             }
         }
 
@@ -2407,7 +2359,7 @@ mod tests {
                 .data()
         );
 
-        for (tag, val) in &tag_blobs_map {
+        for (tag, val) in &test_data.tag_index {
             for (tag_value, identifiers) in val {
                 let blobs = quilt
                     .get_blobs_by_tag(tag, tag_value)
@@ -2417,7 +2369,13 @@ mod tests {
                     .iter()
                     .map(|blob| blob.identifier.as_str())
                     .collect::<HashSet<_>>();
-                assert_eq!(identifiers_set, *identifiers);
+                assert_eq!(
+                    identifiers_set,
+                    identifiers
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<HashSet<_>>()
+                );
             }
         }
     }
