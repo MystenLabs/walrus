@@ -23,7 +23,6 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
-use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -79,14 +78,9 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
-        UpgradeType,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
-    system_setup::copy_recursively,
-    test_utils::{
-        self,
-        system_setup::{development_contract_dir, testnet_contract_dir},
-    },
+    test_utils::{self},
     types::{
         Blob,
         BlobEvent,
@@ -1739,124 +1733,6 @@ async fn test_post_store_action(
             }
         }
     }
-    Ok(())
-}
-
-// Tests upgrading the walrus contracts.
-#[ignore = "ignore E2E tests by default"]
-#[tokio::test]
-async fn test_quorum_contract_upgrade() -> TestResult {
-    telemetry_subscribers::init_for_testing();
-    let deploy_dir = TempDir::new()?;
-    let (_sui_cluster_handle, walrus_cluster, client, system_ctx) =
-        test_cluster::E2eTestSetupBuilder::new()
-            .with_deploy_directory(deploy_dir.path().to_path_buf())
-            .with_delegate_governance_to_admin_wallet()
-            .with_contract_directory(testnet_contract_dir()?)
-            .with_epoch_duration(Duration::from_secs(20))
-            .build()
-            .await?;
-
-    let previous_version = client
-        .as_ref()
-        .sui_client()
-        .read_client()
-        .system_object_version()
-        .await?;
-
-    // Copy new contracts to fresh directory
-    let upgrade_dir = TempDir::new()?;
-    copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
-
-    // Copy Move.lock files of walrus contract and dependencies to new directory
-    for contract in ["wal", "walrus"] {
-        std::fs::copy(
-            deploy_dir.path().join(contract).join("Move.lock"),
-            upgrade_dir.path().join(contract).join("Move.lock"),
-        )?;
-    }
-
-    // Change the version in the contracts
-    let walrus_package_path = upgrade_dir.path().join("walrus");
-
-    let upgrade_epoch = client.as_ref().sui_client().current_epoch().await?;
-
-    // Vote for the upgrade
-    // We can vote on behalf of all nodes from the client wallet since the client
-    // wallet address was authorized for all nodes in the setup.
-    for node in walrus_cluster.nodes.iter() {
-        let node_id = node
-            .storage_node_capability
-            .as_ref()
-            .expect("capability should be set")
-            .node_id;
-        client
-            .as_ref()
-            .sui_client()
-            .vote_for_upgrade(
-                system_ctx.upgrade_manager_object,
-                node_id,
-                walrus_package_path.clone(),
-            )
-            .await?;
-    }
-
-    // Commit the upgrade
-    let new_package_id = client
-        .as_ref()
-        .sui_client()
-        .upgrade(
-            system_ctx.upgrade_manager_object,
-            walrus_package_path,
-            UpgradeType::Quorum,
-        )
-        .await?;
-
-    // Set the migration epoch on the staking object to the following epoch.
-    client
-        .as_ref()
-        .sui_client()
-        .set_migration_epoch(new_package_id)
-        .await?;
-
-    // Check that the upgrade was completed within one epoch. A failure here indicates that the
-    // epoch duration for the test is set too short.
-    let end_upgrade_epoch = client.as_ref().sui_client().current_epoch().await?;
-    assert_eq!(end_upgrade_epoch, upgrade_epoch);
-    tracing::info!(upgrade_epoch, "upgraded contract");
-
-    // Wait for the nodes to reach the migration epoch.
-    walrus_cluster
-        .wait_for_nodes_to_reach_epoch(upgrade_epoch + 1)
-        .await;
-
-    // Migrate the objects
-    client
-        .as_ref()
-        .sui_client()
-        .migrate_contracts(new_package_id)
-        .await?;
-
-    // Check the version
-    assert_eq!(
-        client
-            .as_ref()
-            .sui_client()
-            .read_client()
-            .system_object_version()
-            .await?,
-        previous_version + 1
-    );
-
-    // Store a blob after the upgrade to check if everything works after the upgrade.
-    let blob_data = walrus_test_utils::random_data_list(314, 1);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
-    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
-    let _results = client
-        .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
-        .await?;
-
     Ok(())
 }
 

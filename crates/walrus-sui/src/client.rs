@@ -851,11 +851,38 @@ impl SuiContractClient {
         node_id: ObjectID,
         package_path: PathBuf,
     ) -> SuiClientResult<[u8; 32]> {
+        let digest = self
+            .read_client
+            .compute_package_digest(package_path)
+            .await?;
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .vote_for_upgrade(upgrade_manager, node_id, package_path.clone())
+                .vote_for_upgrade_with_digest(upgrade_manager, node_id, digest)
+                .await
+        })
+        .await
+    }
+
+    /// Vote as node `node_id` for upgrading the walrus package identified by
+    /// its pre-computed `package_digest`.
+    ///
+    /// This variant allows callers that already know the digest (for instance
+    /// when the package has been built elsewhere) to skip re-computing the
+    /// digest from the package path.
+    /// Returns the digest of the package (i.e. the same value supplied).
+    pub async fn vote_for_upgrade_with_digest(
+        &self,
+        upgrade_manager: ObjectID,
+        node_id: ObjectID,
+        package_digest: [u8; 32],
+    ) -> SuiClientResult<[u8; 32]> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .vote_for_upgrade_with_digest(upgrade_manager, node_id, package_digest)
                 .await
         })
         .await
@@ -2017,29 +2044,27 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Vote as node `node_id` for upgrading the walrus package to the package at
-    /// `package_path`.
-    /// Returns the digest of the package.
-    pub async fn vote_for_upgrade(
+    /// Vote as node `node_id` for upgrading the walrus package identified by
+    /// its pre-computed `package_digest`.
+    ///
+    /// This variant allows callers that already know the digest (for instance
+    /// when the package has been built elsewhere) to skip re-computing the
+    /// digest from the package path.
+    /// Returns the digest of the package (i.e. the same value supplied).
+    pub async fn vote_for_upgrade_with_digest(
         &mut self,
         upgrade_manager: ObjectID,
         node_id: ObjectID,
-        package_path: PathBuf,
+        package_digest: [u8; 32],
     ) -> SuiClientResult<[u8; 32]> {
-        let digest = self
-            .read_client
-            .compute_package_digest(package_path)
-            .await?;
-
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .vote_for_upgrade(upgrade_manager, node_id, &digest)
+            .vote_for_upgrade(upgrade_manager, node_id, &package_digest)
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        self.sign_and_send_transaction(transaction, "vote_for_upgrade")
+        self.sign_and_send_transaction(transaction, "vote_for_upgrade_with_digest")
             .await?;
-
-        Ok(digest)
+        Ok(package_digest)
     }
 
     /// Performs an upgrade.

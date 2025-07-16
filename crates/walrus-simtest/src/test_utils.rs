@@ -24,7 +24,10 @@ pub mod simtest_utils {
     use walrus_sdk::client::{Client, StoreArgs, responses::BlobStoreResult};
     use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};
     use walrus_storage_node_client::api::ServiceHealthInfo;
-    use walrus_sui::client::{BlobPersistence, SuiContractClient};
+    use walrus_sui::{
+        client::{BlobPersistence, ReadClient, SuiContractClient},
+        types::move_structs::EventBlob,
+    };
     use walrus_test_utils::WithTempDir;
 
     /// The fail points related to node crash that can be used to trigger failures in the storage
@@ -42,6 +45,54 @@ pub mod simtest_utils {
         "write-event-before",
         "write-event-after",
     ];
+
+    async fn kill_node(node_id: sui_simulator::task::NodeId) {
+        let handle = sui_simulator::runtime::Handle::current();
+        handle.delete_node(node_id);
+    }
+
+    /// Restarts a node with the given checkpoint function.
+    pub async fn restart_node_with_checkpoints(
+        walrus_cluster: &mut TestCluster<SimStorageNodeHandle>,
+        node_index: usize,
+        checkpoint_fn: impl Fn(usize) -> u32,
+    ) {
+        kill_node(walrus_cluster.nodes[node_index].node_id.unwrap()).await;
+        let node = &mut walrus_cluster.nodes[node_index];
+        node.node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                Arc::new(RwLock::new(node.storage_node_config.clone())),
+                Some(checkpoint_fn(node_index)),
+                node.cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+    }
+
+    /// Gets the last certified event blob from the client.
+    /// Returns the last certified event blob if it exists, otherwise panics.
+    pub async fn get_last_certified_event_blob_must_succeed(
+        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+    ) -> EventBlob {
+        const TIMEOUT: Duration = Duration::from_secs(10);
+        let start = Instant::now();
+
+        while start.elapsed() <= TIMEOUT {
+            if let Some(blob) = client
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                return blob;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        panic!("Timeout waiting for last certified event blob");
+    }
 
     /// Helper function to write a random blob, read it back and check that it is the same.
     /// If `write_only` is true, only write the blob and do not read it back.

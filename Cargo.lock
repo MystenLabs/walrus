@@ -13039,6 +13039,7 @@ dependencies = [
  "sui-rpc-api",
  "sui-simulator",
  "sui-types",
+ "tempfile",
  "tokio",
  "tracing",
  "typed-store 1.30.0",
