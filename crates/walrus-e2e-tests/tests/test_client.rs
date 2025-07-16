@@ -76,27 +76,15 @@ use walrus_service::test_utils::{
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
-        BlobPersistence,
-        ExpirySelectionPolicy,
-        PostStoreAction,
-        ReadClient,
-        SuiClientError,
-        SuiContractClient,
-        UpgradeType,
-        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
-    },
-    system_setup::copy_recursively,
-    test_utils::{
+        retry_client::{retriable_sui_client::LazySuiClientBuilder, RetriableSuiClient}, BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient, SuiClientError, SuiContractClient, UpgradeType
+    }, config::WalletConfig, system_setup::copy_recursively, test_utils::{
         self,
+        fund_addresses,
         system_setup::{development_contract_dir, testnet_contract_dir},
-    },
-    types::{
-        Blob,
-        BlobEvent,
-        ContractEvent,
-        move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, Credits, SharedBlob},
-    },
+        wallet_for_testing,
+    }, types::{
+        move_errors::{MoveExecutionError, RawMoveError}, move_structs::{BlobAttribute, Credits, SharedBlob}, Blob, BlobEvent, ContractEvent
+    }
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_upload_relay::UploadRelayHandle;
@@ -2430,13 +2418,73 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 async fn test_store_with_upload_relay() {
     telemetry_subscribers::init_for_testing();
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, mut cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .build()
-        .await
-        .expect("setup should succeed");
 
+    // Start the Sui and Walrus clusters.
+    let (sui_cluster_handle, cluster, client, system_context) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .build()
+            .await
+            .expect("setup should succeed");
+
+    // Get the cluster wallet so we can fund the client wallet.
+    let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(cluster_wallet_path.as_path()),
+        None,
+    )
+    .expect("loading cluster wallet should succeed");
+
+    let mut client_wallet = wallet_for_testing(&mut cluster_wallet, false)
+        .await
+        .expect("wallet creation should succeed");
+
+    fund_addresses(
+        &mut cluster_wallet,
+        vec![
+            client_wallet
+                .inner
+                .active_address()
+                .expect("client wallet active address should exist"),
+        ],
+        Some(10_000_000_000),
+    )
+    .await
+    .expect("funding wallet should succeed");
+
+    // Create the Walrus config for the upload relay.
+    let config_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let config_path = config_dir.path();
+    let system_object = system_context.system_object,
+    let staking_object = system_context.staking_object,
+    let wallet_config_path = cluster_wallet_path.as_path().to_string_lossy();
+    let rpc_url = sui_cluster_handle.lock().await.rpc_url();
+
+    std::fs::create_dir_all(config_path).expect("create config dir");
+    let walrus_config = config_dir.path().join("client_config.yaml");
+    std::fs::write(
+        &walrus_config,
+        ClientConfig {
+            contract_config: ContractConfig {
+                system_object: system_context.system_object,
+                staking_object: system_context.staking_object,
+                subsidies_object: None,
+                credits_object: None,
+            },exchange_objects: vec![],wallet_config: WalletConfig::from_path(cluster_wallet_path),
+            rpc_urls: vec![rpc_url],
+            communication_config: CommunicationConfig::default(),
+            refres
+        format!(
+            r#"
+system_object: {system_object}
+staking_object: {staking_object}Ti
+wallet_config: {wallet_config_path}
+rpc_urls:
+    - {rpc_url}
+"#
+        ),
+    )
+    .expect("write client config");
     // TODO: get config for walrus and relay.
-    let walrus_config: PathBuf = PathBuf::from("path/to/walrus/config.toml");
     let server_address: SocketAddr = "127.0.0.1:8080".parse().expect("valid address");
     let relay_config_path: PathBuf = PathBuf::from("path/to/relay/config.toml");
     let registry = Registry::default();
@@ -2448,6 +2496,5 @@ async fn test_store_with_upload_relay() {
         relay_config_path,
         registry,
     );
-    // TODO: flesh this out...
     let i = client.inner;
 }
