@@ -154,9 +154,12 @@ impl EventProcessor {
             runtime_config.db_path.join("recovery"),
             metrics_registry,
         );
-        catchup_manager
+        if let Err(e) = catchup_manager
             .catchup(config.event_stream_catchup_min_checkpoint_lag)
-            .await?;
+            .await
+        {
+            tracing::error!("failed to catchup using event blobs: {e}");
+        }
 
         if event_processor.stores.checkpoint_store.is_empty() {
             let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
