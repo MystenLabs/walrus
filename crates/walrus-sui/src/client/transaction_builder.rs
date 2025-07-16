@@ -300,7 +300,6 @@ impl WalrusPtbBuilder {
 
         let reserve_arguments = vec![
             self.credits_arg(Mutability::Mutable).await?,
-            self.credits_arg(Mutability::Mutable).await?,
             self.system_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(encoded_size)?,
             self.pt_builder.pure(epochs_ahead)?,
