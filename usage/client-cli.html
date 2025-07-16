@@ -456,7 +456,7 @@ share a newly created blob by adding the <code>--share</code> option to the <cod
 <p>Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.</p>
 <p>See <a href="#extending-the-lifetime-of-a-blob">this section</a> for more on blob extension.</p>
 <h2 id="batch-storing-blobs-with-quilts"><a class="header" href="#batch-storing-blobs-with-quilts">Batch-storing blobs with quilts</a></h2>
-<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.28</em> or higher.</p>
+<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.29</em> or higher.</p>
 <div id="admonition-warning-1" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-1-title">
 <div class="admonition-title">
 <div id="admonition-warning-1-title">
@@ -514,14 +514,16 @@ name is used instead.</p>
 <p>You can retrieve individual blobs (formally "patches") from a quilt without downloading the
 entire quilt. The <code>read-quilt</code> command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.</p>
-<p>To read blobs by their identifiers, repeating the <code>--identifiers</code> flag:</p>
+<p>To read blobs by their identifiers, use the <code>--identifiers</code> flag:</p>
 <pre><code class="language-sh">walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 </code></pre>
-<p>To read blobs by a tag:</p>
+<p>Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download <strong>all</strong> images labeled as cats with the following command:</p>
 <pre><code class="language-sh"># Read all blobs with tag "size: medium"
 walrus read-quilt --out &lt;download dir&gt; \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 </code></pre>
 <p>You can also read a blob using its QuiltPatchId, which can be retrieved using
 <a href="#list-patches-in-a-quilt"><code>list-patches-in-quilt</code></a>.</p>
