@@ -181,6 +181,64 @@ fun exceed_storage_capacity() {
     abort
 }
 
+#[test]
+fun correct_capacity_when_reserving_future_epochs() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut payment = test_utils::mint_frost(10_000_000_000, ctx);
+
+    // Initial state, no storage reserved
+    assert_eq!(system.used_capacity_size(), 0);
+    assert_eq!(system.total_capacity_size(), 1_000_000_000); // default value in tests
+
+    // Reserve half of the available space for some future epochs
+    let storage_amount = 500_000_000;
+    let start_epoch = 5;
+    let end_epoch = 10;
+    let storage = system.reserve_space_for_epochs(
+        storage_amount,
+        start_epoch,
+        end_epoch,
+        &mut payment,
+        ctx,
+    );
+
+    assert_eq!(storage.start_epoch(), start_epoch);
+    assert_eq!(storage.end_epoch(), end_epoch);
+    assert_eq!(storage.size(), storage_amount);
+    assert_eq!(system.used_capacity_size(), 0);
+
+    // No storage capacity should be used before the start epoch.
+    start_epoch.do!(|i| assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), 0));
+    // The storage capacity should be used in the storage period.
+    start_epoch.range_do!(
+        end_epoch,
+        |i| assert_eq!(system.inner().used_capacity_size_at_future_epoch(i), storage_amount),
+    );
+    // The capacity should be freed again after the storage period (end_epoch is exclusive).
+    assert_eq!(system.inner().used_capacity_size_at_future_epoch(end_epoch), 0);
+
+    // Cleanup.
+    storage.destroy();
+    payment.burn_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = walrus::system_state_inner::EStorageExceeded)]
+fun exceed_storage_capacity_in_future_epoch() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut payment = test_utils::mint_frost(10_000_000_000, ctx);
+
+    // Initial state, no storage reserved
+    assert_eq!(system.used_capacity_size(), 0);
+    assert_eq!(system.total_capacity_size(), 1_000_000_000);
+
+    // Reserve space in the future that exceeds the capacity.
+    let _storage = system.reserve_space_for_epochs(1_000_000_001, 5, 10, &mut payment, ctx);
+    abort
+}
+
 #[test, expected_failure(abort_code = walrus::system_state_inner::EInvalidResourceSize)]
 fun test_reserve_space_zero_size() {
     let ctx = &mut tx_context::dummy();

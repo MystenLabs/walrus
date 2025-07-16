@@ -28,7 +28,7 @@ use crate::event::{
         config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
         db::EventProcessorStores,
     },
-    events::{InitState, PositionedStreamEvent, StreamEventWithInitState},
+    events::{IndexedStreamEvent, InitState, StreamEventWithInitState},
 };
 
 /// The maximum number of events to poll per poll.
@@ -39,12 +39,12 @@ const MAX_EVENTS_PER_POLL: usize = 1000;
 pub struct EventProcessor {
     /// Full node REST client.
     pub client_manager: ClientManager,
-    /// Store manager
+    /// Event database.
     pub stores: EventProcessorStores,
     /// Event polling interval.
     pub event_polling_interval: Duration,
-    /// The address of the Walrus system package.
-    pub system_pkg_id: ObjectID,
+    /// The original address of the Walrus system package.
+    pub original_system_pkg_id: ObjectID,
     /// Event index before which events are pruned.
     pub event_store_commit_index: Arc<Mutex<u64>>,
     /// Event store pruning interval.
@@ -53,20 +53,23 @@ pub struct EventProcessor {
     pub metrics: EventProcessorMetrics,
     /// Pipelined checkpoint downloader.
     pub checkpoint_downloader: ParallelCheckpointDownloader,
-    /// Package store
+    /// Package store.
     pub package_store: LocalDBPackageStore,
-    /// Checkpoint processor
+    /// Checkpoint processor.
     pub checkpoint_processor: CheckpointProcessor,
+    /// The interval at which to sample high-frequency tracing logs.
+    pub sampled_tracing_interval: Duration,
 }
 
 impl fmt::Debug for EventProcessor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventProcessor")
-            .field("system_pkg_id", &self.system_pkg_id)
+            .field("original_system_pkg_id", &self.original_system_pkg_id)
             .field("checkpoint_store", &self.stores.checkpoint_store)
             .field("walrus_package_store", &self.stores.walrus_package_store)
             .field("committee_store", &self.stores.committee_store)
             .field("event_store", &self.stores.event_store)
+            .field("sampled_tracing_interval", &self.sampled_tracing_interval)
             .finish()
     }
 }
@@ -84,6 +87,7 @@ impl EventProcessor {
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
             metrics_registry,
+            config.sampled_tracing_interval,
         )
         .await?;
 
@@ -109,13 +113,13 @@ impl EventProcessor {
         let checkpoint_processor = CheckpointProcessor::new(
             stores.clone(),
             package_store.clone(),
-            system_config.system_pkg_id,
+            original_system_package_id,
         );
 
         let event_processor = EventProcessor {
             client_manager: client_manager.clone(),
             stores,
-            system_pkg_id: original_system_package_id,
+            original_system_pkg_id: original_system_package_id,
             event_polling_interval: runtime_config.event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: config.pruning_interval,
@@ -123,6 +127,7 @@ impl EventProcessor {
             checkpoint_downloader,
             package_store,
             checkpoint_processor,
+            sampled_tracing_interval: config.sampled_tracing_interval,
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -138,24 +143,26 @@ impl EventProcessor {
 
         event_processor
             .checkpoint_processor
-            .update_checkpoint_seq_number(current_checkpoint);
+            .update_cached_latest_checkpoint_seq_number(current_checkpoint);
 
         let clients = client_manager.into_client_set();
 
-        let catchup_manager =
-            EventBlobCatchupManager::new(event_processor.stores.clone(), clients, system_config);
+        let catchup_manager = EventBlobCatchupManager::new(
+            event_processor.stores.clone(),
+            clients,
+            system_config,
+            runtime_config.db_path.join("recovery"),
+            metrics_registry,
+        );
         catchup_manager
-            .catchup(
-                config.event_stream_catchup_min_checkpoint_lag,
-                &runtime_config.db_path.join("recovery"),
-            )
+            .catchup(config.event_stream_catchup_min_checkpoint_lag)
             .await?;
 
         if event_processor.stores.checkpoint_store.is_empty() {
             let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
                 client_manager.get_sui_client().clone(),
                 client_manager.get_client().clone(),
-                event_processor.system_pkg_id,
+                event_processor.original_system_pkg_id,
             )
             .await?;
             event_processor
@@ -170,7 +177,7 @@ impl EventProcessor {
             // Also update the cache with the bootstrap checkpoint sequence number.
             event_processor
                 .checkpoint_processor
-                .update_checkpoint_seq_number(*verified_checkpoint.sequence_number());
+                .update_cached_latest_checkpoint_seq_number(*verified_checkpoint.sequence_number());
         }
 
         Ok(event_processor)
@@ -207,12 +214,12 @@ impl EventProcessor {
     }
 
     /// Polls the event store for new events starting from the given sequence number.
-    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
+    pub fn poll(&self, from: u64) -> Result<Vec<IndexedStreamEvent>, TypedStoreError> {
         self.stores
             .event_store
             .safe_iter_with_bounds(Some(from), None)?
             .take(MAX_EVENTS_PER_POLL)
-            .map(|result| result.map(|(_, event)| event))
+            .map(|result| result.map(IndexedStreamEvent::from_index_and_element))
             .collect()
     }
 
@@ -234,7 +241,7 @@ impl EventProcessor {
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
-        tracing::info!("Starting event processor");
+        tracing::info!("starting event processor");
         let pruning_task = self.start_pruning_events(cancellation_token.clone());
         let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
         select! {
@@ -266,19 +273,27 @@ impl EventProcessor {
         };
 
         let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        tracing::info!(
+            next_event_index,
+            next_checkpoint,
+            "starting to tail checkpoints"
+        );
+
         let mut prev_verified_checkpoint =
             VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
-        let mut rx = self
-            .checkpoint_downloader
-            .start(next_checkpoint, cancel_token);
+        let mut rx = self.checkpoint_downloader.start(
+            next_checkpoint,
+            cancel_token,
+            self.sampled_tracing_interval,
+        );
 
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
                 tracing::error!(
                     ?error,
-                    "failed to download checkpoint {}",
-                    entry.sequence_number,
+                    sequence_number = entry.sequence_number,
+                    "failed to download checkpoint",
                 );
                 bail!("failed to download checkpoint: {}", entry.sequence_number);
             };
@@ -288,7 +303,12 @@ impl EventProcessor {
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );
-            tracing_sampled::info!("30s", "Processing checkpoint {}", next_checkpoint);
+            tracing_sampled::info!(
+                self.sampled_tracing_interval,
+                sequence_number = next_checkpoint,
+                next_event_index,
+                "processing checkpoint",
+            );
             self.metrics
                 .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint.try_into()?);

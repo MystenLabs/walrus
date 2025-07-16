@@ -237,6 +237,101 @@ Shared blobs can only contain permanent blobs and as such cannot be deleted befo
 
 See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
 
+## Batch-storing blobs with quilts
+
+ **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
+
+```admonish warning
+- Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
+  is generated based on all blobs in the quilt, so a blob's `QuiltPatchId` will change if it's
+  moved to a different quilt.
+- Standard blob operations like `delete`, `extend`, or `share` cannot target individual blobs
+  inside a quilt; they must be applied to the entire quilt.
+```
+
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches
+multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find
+a more detailed overview of the feature [Quilt](./quilt.md).
+
+You can interact with quilts using a dedicated set of `walrus` subcommands.
+
+### Storing Blobs as a Quilt
+
+To batch-store multiple files as a single quilt, use the `store-quilt` command. You can specify
+the files to include in two ways:
+
+```admonish warning
+You must ensure that all the identifiers are unique within a quilt, the operation will fail otherwise.
+Identifiers are the unique names used to retrieve individual blobs from within a quilt.
+```
+
+#### Using `--paths`
+
+To store all files from one or more directories recursively. The filename of each file will be
+used as its unique identifier within the quilt. Regular expressions are supported for uploading from
+multiple paths, same as the `walrus store` command.
+
+Like the regular `store` command, you can specify the storage duration using `--epochs`,
+`--earliest-expiry-time`, or `--end-epoch`.
+
+```sh
+walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
+```
+
+#### Using `--blobs`
+
+To specify a list of blobs as JSON objects. This gives you more control, allowing you to set a
+custom `identifier` and `tags` for each file. If `identifier` is `null` or omitted, the file's
+name is used instead.
+
+```sh
+walrus store-quilt \
+  --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
+          '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
+  --epochs <EPOCHS>
+```
+
+### Reading Blobs from a Quilt
+
+You can retrieve individual blobs (formally "patches") from a quilt without downloading the
+entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier,
+tags, or unique patch ID.
+
+To read blobs by their identifiers, use the `--identifiers` flag:
+
+```sh
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
+```
+
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download **all** images labeled as cats with the following command:
+
+```sh
+# Read all blobs with tag "size: medium"
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
+```
+
+You can also read a blob using its QuiltPatchId, which can be retrieved using
+[`list-patches-in-quilt`](#list-patches-in-a-quilt).
+
+```sh
+walrus read-quilt --out <download dir> \
+  --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
+  GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
+```
+
+### List patches in a Quilt
+
+To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
+the `list-patches-in-quilt` command.
+
+```sh
+walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
+```
+
 ## Blob object and blob ID utilities
 
 The command `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a

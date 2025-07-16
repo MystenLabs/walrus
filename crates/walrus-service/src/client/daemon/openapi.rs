@@ -5,7 +5,7 @@ use utoipa::OpenApi;
 use walrus_core::{BlobId, EncodingType, EpochSchema};
 use walrus_sdk::client::{
     resource::RegisterBlobOp,
-    responses::{BlobStoreResult, EventOrObjectId},
+    responses::{BlobStoreResult, EventOrObjectId, QuiltStoreResult},
 };
 use walrus_storage_node_client::api::errors::Status;
 use walrus_sui::{
@@ -34,10 +34,11 @@ pub(super) struct AggregatorApiDoc;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Publisher"),
-    paths(routes::put_blob),
+    paths(routes::put_blob, routes::put_quilt),
     components(schemas(
         Blob,
         BlobId,
+        QuiltStoreResult,
         EncodingType,
         EpochSchema,
         EventIdSchema,
@@ -58,6 +59,7 @@ pub(super) struct PublisherApiDoc;
     paths(
         routes::get_blob,
         routes::put_blob,
+        routes::put_quilt,
         routes::get_blob_by_object_id,
         routes::get_blob_by_quilt_patch_id,
         routes::get_blob_by_quilt_id_and_identifier,
@@ -66,6 +68,7 @@ pub(super) struct PublisherApiDoc;
         Blob,
         BlobId,
         BlobStoreResult,
+        QuiltStoreResult,
         EncodingType,
         EpochSchema,
         EventIdSchema,

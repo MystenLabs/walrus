@@ -103,9 +103,9 @@ struct Args {
     /// Benchmark the calls to `certify`. Otherwise, only `reserve_and_register` is benchmarked.
     #[arg(long)]
     with_certify: bool,
-    /// Call the system contract directly, excluding the subsidies contract.
+    /// Call the system contract with credits instead of directly.
     #[arg(long)]
-    no_subsidies: bool,
+    with_credits: bool,
     /// Benchmark the calls to `extend`. This uses the epoch range for the extension instead of
     /// the initial reservation (for which one epoch will be used and no output is produced).
     #[arg(long)]
@@ -142,7 +142,8 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     let (sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_for_testing(
             Duration::from_secs(3600),
-            !args.no_subsidies,
+            args.with_credits,
+            0,
             args.committee_size.get() as usize,
         )
         .await?;

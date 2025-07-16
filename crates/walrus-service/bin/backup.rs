@@ -9,7 +9,6 @@ use clap::{Parser, Subcommand};
 use walrus_service::{
     backup::{
         BackupConfig,
-        VERSION,
         run_backup_database_migrations,
         start_backup_fetcher,
         start_backup_garbage_collector,
@@ -18,6 +17,9 @@ use walrus_service::{
     common::utils::MetricsAndLoggingRuntime,
 };
 use walrus_utils::load_from_yaml;
+
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
 
 /// Manage and run Walrus backup nodes
 #[derive(Parser)]
@@ -79,11 +81,13 @@ fn main() {
         exit_process_on_return(
             match args.command {
                 BackupCommands::Orchestrator => {
-                    start_backup_orchestrator(config, &metrics_runtime).await
+                    start_backup_orchestrator(VERSION, config, &metrics_runtime).await
                 }
-                BackupCommands::Fetcher => start_backup_fetcher(config, &metrics_runtime).await,
+                BackupCommands::Fetcher => {
+                    start_backup_fetcher(VERSION, config, &metrics_runtime).await
+                }
                 BackupCommands::GarbageCollector => {
-                    start_backup_garbage_collector(config, &metrics_runtime).await
+                    start_backup_garbage_collector(VERSION, config, &metrics_runtime).await
                 }
             },
             "backup node",

@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
     system_state_inner::{Self, SystemStateInnerV1}
@@ -24,7 +25,7 @@ const EInvalidMigration: u64 = 0;
 const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 /// The one and only system object.
 public struct System has key {
@@ -47,6 +48,20 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
 }
+
+/// Update epoch to next epoch, and update the committee, price and capacity.
+///
+/// Called by the epoch change function that connects `Staking` and `System`. Returns
+/// the balance of the rewards from the previous epoch.
+public(package) fun advance_epoch(
+    self: &mut System,
+    new_committee: BlsCommittee,
+    new_epoch_params: &EpochParams,
+): VecMap<ID, Balance<WAL>> {
+    self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+}
+
+/// === Public Functions ===
 
 /// Marks blob as invalid given an invalid blob certificate.
 public fun invalidate_blob_id(
@@ -93,6 +108,22 @@ public fun reserve_space(
     ctx: &mut TxContext,
 ): Storage {
     self.inner_mut().reserve_space(storage_amount, epochs_ahead, payment, ctx)
+}
+
+/// Allows buying a storage reservation for a given period of epochs.
+///
+/// Returns a storage resource for the period between `start_epoch` (inclusive) and
+/// `end_epoch` (exclusive). If `start_epoch` has already passed, reserves space starting
+/// from the current epoch.
+public fun reserve_space_for_epochs(
+    self: &mut System,
+    storage_amount: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): Storage {
+    self.inner_mut().reserve_space_for_epochs(storage_amount, start_epoch, end_epoch, payment, ctx)
 }
 
 /// Registers a new blob in the system.
@@ -165,6 +196,25 @@ public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u3
     system.inner_mut().add_subsidy(subsidy, epochs_ahead)
 }
 
+/// Adds rewards to the system for future epochs, where `subsidies[i]` is added to the rewards
+/// of epoch `system.epoch() + i`.
+public fun add_per_epoch_subsidies(system: &mut System, subsidies: vector<Balance<WAL>>) {
+    system.inner_mut().add_per_epoch_subsidies(subsidies)
+}
+
+// === Protocol Version ===
+
+/// Node collects signatures on the protocol version event and emits it.
+public fun update_protocol_version(
+    self: &mut System,
+    cap: &StorageNodeCap,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner().update_protocol_version(cap, signature, members_bitmap, message)
+}
+
 // === Deny List Features ===
 
 /// Register a deny list update.
@@ -220,16 +270,9 @@ public fun n_shards(self: &System): u16 {
     self.inner().n_shards()
 }
 
-/// Update epoch to next epoch, and update the committee, price and capacity.
-///
-/// Called by the epoch change function that connects `Staking` and `System`. Returns
-/// the balance of the rewards from the previous epoch.
-public(package) fun advance_epoch(
-    self: &mut System,
-    new_committee: BlsCommittee,
-    new_epoch_params: &EpochParams,
-): VecMap<ID, Balance<WAL>> {
-    self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+/// Read-only access to the accounting ring buffer.
+public fun future_accounting(self: &System): &FutureAccountingRingBuffer {
+    self.inner().future_accounting()
 }
 
 // === Accessors ===
@@ -238,7 +281,7 @@ public(package) fun package_id(system: &System): ID {
     system.package_id
 }
 
-public(package) fun version(system: &System): u64 {
+public fun version(system: &System): u64 {
     system.version
 }
 
@@ -334,4 +377,9 @@ public(package) fun new_package_id(system: &System): Option<ID> {
 #[test_only]
 public(package) fun destroy_for_testing(self: System) {
     sui::test_utils::destroy(self);
+}
+
+#[test_only]
+public fun get_system_rewards_balance(self: &mut System, epoch_in_future: u32): &mut Balance<WAL> {
+    self.inner_mut().future_accounting_mut().ring_lookup_mut(epoch_in_future).rewards_balance()
 }

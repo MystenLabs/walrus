@@ -28,7 +28,7 @@ const EWrongVersion: u64 = 1;
 const EInvalidMigrationEpoch: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
 
 /// The key for the migration epoch.
 const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";

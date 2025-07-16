@@ -73,7 +73,7 @@ impl std::fmt::Debug for CheckpointDownloadHandler {
             self.skip_primary_until.load(Ordering::Relaxed),
             self.checkpoint_failures
                 .lock()
-                .expect("Mutex should not be poisoned")
+                .expect("mutex should not be poisoned")
         )
     }
 }
@@ -103,7 +103,7 @@ impl CheckpointDownloadHandler {
         let mut failures = self
             .checkpoint_failures
             .lock()
-            .expect("Mutex should not be poisoned");
+            .expect("mutex should not be poisoned");
         failures.remove(&sequence_number);
     }
 
@@ -113,7 +113,7 @@ impl CheckpointDownloadHandler {
         let mut failures = self
             .checkpoint_failures
             .lock()
-            .expect("Mutex should not be poisoned");
+            .expect("mutex should not be poisoned");
         failures.remove(&sequence_number);
     }
 
@@ -151,7 +151,7 @@ impl CheckpointDownloadHandler {
         let mut failures = self
             .checkpoint_failures
             .lock()
-            .expect("Mutex should not be poisoned");
+            .expect("mutex should not be poisoned");
         let consecutive_failures_for_this_seq = failures
             .entry(sequence_number)
             .and_modify(|count| *count += 1)
@@ -415,6 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "ignore long-running test by default"]
     async fn assess_overall_window_exceeded_triggers_fallback_and_sets_skip() {
         let skip_duration = Duration::from_secs(60);
         let config = test_config(3, Duration::from_secs(10), 5, skip_duration);

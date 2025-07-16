@@ -6,18 +6,20 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-backoff = ["dep:anyhow", "dep:rand", "dep:serde", "dep:serde_with", "dep:tracing", "tokio/time"]
-config = ["dep:anyhow", "dep:home", "dep:serde", "dep:tracing"]
+backoff = ["dep:rand", "dep:serde_with", "tokio/time"]
+config = ["dep:home"]
 default = []
 http = ["dep:bytes", "dep:http-body", "dep:pin-project"]
-log = ["dep:humantime", "dep:once_cell", "dep:tracing"]
+log = ["dep:humantime", "dep:once_cell"]
 metrics = ["dep:once_cell", "dep:prometheus", "dep:tap", "dep:thiserror"]
 test-utils = ["dep:tempfile", "tokio/sync"]
 tokio-metrics = ["dep:tokio-metrics"]
 
 [dependencies]
-anyhow = { workspace = true, optional = true }
+anyhow.workspace = true
 bytes = { workspace = true, optional = true }
+const-str.workspace = true
+git-version.workspace = true
 home = { workspace = true, optional = true }
 http-body = { version = "1", optional = true }
 humantime = { workspace = true, optional = true }
@@ -25,7 +27,7 @@ once_cell = { workspace = true, optional = true }
 pin-project = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
-serde = { workspace = true, features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 serde_yaml = { workspace = true }
@@ -35,12 +37,15 @@ thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }
 tokio-metrics = { version = "0.4.2", optional = true, default-features = false }
 tokio-util = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
 tempfile.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
 walrus-test-utils.workspace = true

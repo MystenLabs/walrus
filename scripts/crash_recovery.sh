@@ -61,7 +61,7 @@ function start_storage_nodes() {
 # Prepare client, get gas from faucet, etc
 function prepare_client() {
     cmd="${SUI_CLI} --client.config ${RUN_DIR}/sui_client.yaml faucet \
-    --url https://faucet.devnet.sui.io/v1/gas"
+    --url https://faucet.devnet.sui.io/v2/gas"
     $cmd > "${RUN_DIR}"/"${RUN}"/log/err 2>&1
     log "waiting for coin"
     sleep 10

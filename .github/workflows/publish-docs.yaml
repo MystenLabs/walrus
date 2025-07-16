@@ -65,6 +65,9 @@ jobs:
       RUST_LOG: info
       EPOCHS: 10
       BUILD_DIR: docs/build/html
+    concurrency:
+      group: sui-wallet-operations
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/build-mdbook

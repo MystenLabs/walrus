@@ -410,7 +410,11 @@ pub mod wal_exchange {
 }
 
 /// Module for tags corresponding to the Move module `subsidies`.
-pub mod subsidies {
+///
+/// This module will soon (TODO: WAL-908) only be used for Walrus credits and callsites to this
+/// module have been updated to be named "credits" in the rust codebase to avoid confusion with
+/// the `walrus_subsidies` module.
+pub mod credits {
     use super::*;
 
     contract_ident!(struct subsidies::Subsidies);

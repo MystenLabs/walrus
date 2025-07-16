@@ -187,6 +187,7 @@ pub struct RetriableRpcClient {
     fallback_client: Option<FallbackClient>,
     metrics: Option<Arc<SuiClientMetricSet>>,
     download_handler: Arc<CheckpointDownloadHandler>,
+    sampled_tracing_interval: Duration,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
@@ -196,6 +197,7 @@ impl std::fmt::Debug for RetriableRpcClient {
             .field("client", &"FailoverWrapper<FallibleRpcClient>")
             .field("fallback_client", &"CheckpointDownloadClient")
             .field("download_handler", &self.download_handler)
+            .field("sampled_tracing_interval", &self.sampled_tracing_interval)
             .finish()
     }
 }
@@ -210,6 +212,7 @@ impl RetriableRpcClient {
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
         metrics: Option<Arc<SuiClientMetricSet>>,
+        sampled_tracing_interval: Duration,
     ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
@@ -223,6 +226,7 @@ impl RetriableRpcClient {
             fallback_client,
             metrics: metrics.clone(),
             download_handler: Arc::new(CheckpointDownloadHandler::new(fallback_config, metrics)),
+            sampled_tracing_interval,
         })
     }
 
@@ -353,7 +357,11 @@ impl RetriableRpcClient {
                 self.handle_primary_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::DirectFallback => {
-                tracing_sampled::info!("30s", "Direct fallback for checkpoint {}", sequence_number);
+                tracing_sampled::info!(
+                    self.sampled_tracing_interval,
+                    sequence_number,
+                    "direct fallback for checkpoint",
+                );
                 self.handle_fallback_attempt(sequence_number).await
             }
             CheckpointDownloadDecision::FallbackUponPrimaryFailure(_err) => {
@@ -381,11 +389,11 @@ impl RetriableRpcClient {
                     .download_handler
                     .decision_upon_primary_failure(sequence_number, primary_error)
                 {
-                    CheckpointDownloadDecision::FallbackUponPrimaryFailure(err) => {
+                    CheckpointDownloadDecision::FallbackUponPrimaryFailure(error) => {
                         tracing_sampled::error!(
-                            "30s",
-                            ?err,
-                            "Rpc fallback for checkpoint {}",
+                            self.sampled_tracing_interval,
+                            ?error,
+                            "RPC fallback for checkpoint {}",
                             sequence_number
                         );
                         self.handle_fallback_attempt(sequence_number).await

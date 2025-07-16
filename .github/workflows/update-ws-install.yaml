@@ -1,0 +1,52 @@
+name: Update install.wal.app site
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "setup/walrus-install.sh"
+      - ".github/workflows/update-ws-install.yaml"
+  workflow_dispatch:
+  schedule:
+    # Update Walrus Site every first day of the month at 03:14 UTC.
+    - cron: "14 3 1 * *"
+
+concurrency:
+  group: sui-wallet-operations
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # We store the data for the Sui wallet and the site object in GitHub variables
+  # (https://github.com/MystenLabs/walrus/settings/variables/actions) and secrets
+  # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
+  update-bin-walrus-site:
+    name: Update install.wal.app
+    runs-on: ubuntu-ghcloud
+    env:
+      # Colors don't seem to work properly with the multiline commands.
+      NO_COLOR: 1
+      RUST_LOG: info
+      EPOCHS: max
+      BUILD_DIR: site
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: ./.github/actions/set-up-walrus
+        with:
+          SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
+          SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
+          WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
+          SUI_NETWORK: mainnet
+
+      - name: Create temporary directory
+        run: "mkdir -p ${{ env.BUILD_DIR }}"
+      - name: Copy install script
+        run: "cp setup/walrus-install.sh ${{ env.BUILD_DIR }}"
+      - name: Write WS resources file
+        run: echo '${{ vars.WALRUS_SITE_INSTALL_WS_RESOURCES }}' > ${{ env.BUILD_DIR }}/ws-resources.json
+
+      - name: Update Walrus Site
+        run: site-builder deploy ${{ env.BUILD_DIR }} --epochs ${{ env.EPOCHS }} --check-extend

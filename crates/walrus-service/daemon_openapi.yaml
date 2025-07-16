@@ -39,7 +39,18 @@ paths:
         style: form
       - name: deletable
         in: query
-        description: If true, the publisher creates a deletable blob instead of a permanent one.
+        description: |-
+          If true, the publisher creates a deletable blob instead of a permanent one. *This will
+          become the default behavior in the future.*
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: permanent
+        in: query
+        description: |-
+          If true, the publisher creates a permanent blob. This is currently the default behavior;
+          but *in the future, blobs will be deletable by default*.
         required: false
         schema:
           type: boolean
@@ -54,6 +65,15 @@ paths:
         required: false
         schema:
           type: boolean
+        style: form
+      - name: quilt_version
+        in: query
+        description: |-
+          The quilt version to use (for quilt endpoints only).
+          Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+        required: false
+        schema:
+          $ref: '#/components/schemas/QuiltVersionEnum'
         style: form
       - name: send_or_share
         in: query
@@ -93,11 +113,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/BlobStoreResult'
         '400':
-          description: The request is malformed
+          description: May be returned when (1) The blob cannot be defined as both deletable and permanent. (2) The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '413':
           description: The blob is too large
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as it has been blocked.
           content:
             application/json:
               schema:
@@ -109,7 +133,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
         '504':
-          description: ' The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.'
+          description: The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.
           content:
             application/json:
               schema:
@@ -143,13 +167,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -194,13 +218,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -238,13 +262,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
@@ -280,19 +304,172 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: May be returned when (1)  The requested blob has not yet been stored on Walrus. (2)  The requested quilt patch does not exist on Walrus.
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The blob cannot be returned as has been blocked.'
+          description: The blob cannot be returned as has been blocked.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/quilts:
+    put:
+      tags:
+      - routes
+      summary: Store multiple blobs as a quilt using multipart/form-data.
+      description: |-
+        Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+        The form contains:
+        - Blobs identified by their identifiers as field names
+        - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+
+        # Contents of Walrus-native metadata
+        - `identifier`: The identifier of the blob, must match the corresponding blob field name
+        - `tags`: JSON object with string key-value pairs (optional)
+
+        Blobs without corresponding metadata entries will be stored with empty tags.
+
+        # Examples
+
+        ## Blobs without Walrus-native metadata, with quilt version V1
+        ```bash
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+          -F "contract-v2=@document.pdf" \
+          -F "logo-2024=@image.png"
+        ```
+
+        ## Blobs with Walrus-native metadata, with default quilt version
+        ```bash
+        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+          -F "quilt-manual=@document.pdf" \
+          -F "logo-2025=@image.png" \
+          -F "_metadata=[
+            {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+            {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+          ]'
+        ```
+      operationId: put_quilt
+      parameters:
+      - name: encoding_type
+        in: query
+        description: The encoding type to use for the blob.
+        required: false
+        schema:
+          $ref: '#/components/schemas/EncodingType'
+        style: form
+      - name: epochs
+        in: query
+        description: |-
+          The number of epochs, ahead of the current one, for which to store the blob.
+
+          The default is 1 epoch.
+        required: false
+        schema:
+          $ref: '#/components/schemas/u32'
+        style: form
+      - name: deletable
+        in: query
+        description: |-
+          If true, the publisher creates a deletable blob instead of a permanent one. *This will
+          become the default behavior in the future.*
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: permanent
+        in: query
+        description: |-
+          If true, the publisher creates a permanent blob. This is currently the default behavior;
+          but *in the future, blobs will be deletable by default*.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: force
+        in: query
+        description: |-
+          If true, the publisher will always store the blob, creating a new Blob object.
+
+          The blob will be stored even if the blob is already certified on Walrus for the specified
+          number of epochs.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - name: quilt_version
+        in: query
+        description: |-
+          The quilt version to use (for quilt endpoints only).
+          Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+        required: false
+        schema:
+          $ref: '#/components/schemas/QuiltVersionEnum'
+        style: form
+      - name: send_or_share
+        in: query
+        required: false
+        schema:
+          oneOf:
+          - type: object
+            description: Send the blob to the specified Sui address.
+            required:
+            - send_object_to
+            properties:
+              send_object_to:
+                $ref: '#/components/schemas/SuiAddress'
+                description: Send the blob to the specified Sui address.
+          - type: object
+            description: Turn the created blob into a shared blob.
+            required:
+            - share
+            properties:
+              share:
+                type: boolean
+                description: Turn the created blob into a shared blob.
+          description: The exclusive option to share the blob or to send it to an address.
+        style: form
+      requestBody:
+        description: Multipart form with blobs and their Walrus-native metadata
+        content:
+          multipart/form-data: {}
+      responses:
+        '200':
+          description: The quilt was stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuiltStoreResult'
+        '400':
+          description: May be returned when (1) The blob cannot be defined as both deletable and permanent. (2) The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '413':
+          description: The quilt is too large
+        '451':
+          description: The blob cannot be returned as it has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '504':
+          description: The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.
           content:
             application/json:
               schema:
@@ -513,6 +690,21 @@ components:
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+    QuiltStoreResult:
+      type: object
+      description: Result when attempting to store a quilt.
+      required:
+      - blobStoreResult
+      - storedQuiltBlobs
+      properties:
+        blobStoreResult:
+          $ref: '#/components/schemas/BlobStoreResult'
+          description: The result of storing the quilt data as a blob.
+        storedQuiltBlobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredQuiltPatch'
+          description: The structure of the quilt.
     RegisterBlobOp:
       oneOf:
       - type: object
@@ -684,6 +876,19 @@ components:
           format: int64
           description: The total amount of reserved storage.
           minimum: 0
+    StoredQuiltPatch:
+      type: object
+      description: Identifies a stored quilt patch.
+      required:
+      - identifier
+      - quiltPatchId
+      properties:
+        identifier:
+          type: string
+          description: The identifier of the quilt patch.
+        quiltPatchId:
+          type: string
+          description: The quilt patch id.
     SuiAddress:
       type: string
       title: Sui address

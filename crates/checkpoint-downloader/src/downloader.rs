@@ -60,6 +60,7 @@ impl ParallelCheckpointDownloader {
         &self,
         sequence_number: CheckpointSequenceNumber,
         cancellation_token: CancellationToken,
+        sampled_tracing_interval: Duration,
     ) -> mpsc::Receiver<CheckpointEntry> {
         let inner = ParallelCheckpointDownloaderInner::new(
             self.full_node_client.clone(),
@@ -67,6 +68,7 @@ impl ParallelCheckpointDownloader {
             self.config.clone(),
             cancellation_token,
             self.metrics.clone(),
+            sampled_tracing_interval,
         );
         inner.start(sequence_number)
     }
@@ -79,6 +81,8 @@ struct ParallelCheckpointDownloaderInner {
     config: AdaptiveDownloaderConfig,
     worker_count: Arc<AtomicUsize>,
     cancellation_token: CancellationToken,
+    metrics: AdaptiveDownloaderMetrics,
+    sampled_tracing_interval: Duration,
 }
 
 impl ParallelCheckpointDownloaderInner {
@@ -89,6 +93,7 @@ impl ParallelCheckpointDownloaderInner {
         config: AdaptiveDownloaderConfig,
         cancellation_token: CancellationToken,
         metrics: AdaptiveDownloaderMetrics,
+        sampled_tracing_interval: Duration,
     ) -> Self {
         let (message_sender, message_receiver) =
             async_channel::bounded(config.message_queue_size());
@@ -106,6 +111,7 @@ impl ParallelCheckpointDownloaderInner {
                 cloned_message_receiver,
                 cloned_checkpoint_sender,
                 config.base_config,
+                sampled_tracing_interval,
             );
         }
 
@@ -116,19 +122,27 @@ impl ParallelCheckpointDownloaderInner {
         let cloned_message_sender = message_sender.clone();
         let cloned_config = config.clone();
         let cloned_worker_count = worker_count.clone();
+        let cloned_metrics = metrics.clone();
         tokio::spawn(async move {
             let config = PoolMonitorConfig {
                 downloader_config: cloned_config.clone(),
                 checkpoint_store: cloned_checkpoint_store,
                 client: cloned_client,
-                metrics,
+                metrics: cloned_metrics,
             };
             let channels = PoolMonitorChannels {
                 message_sender: cloned_message_sender,
                 message_receiver,
                 checkpoint_sender,
             };
-            Self::pool_monitor(config, channels, cloned_worker_count, cloned_cancel_token).await?;
+            Self::pool_monitor(
+                config,
+                channels,
+                cloned_worker_count,
+                cloned_cancel_token,
+                sampled_tracing_interval,
+            )
+            .await?;
             anyhow::Ok(())
         });
 
@@ -138,6 +152,8 @@ impl ParallelCheckpointDownloaderInner {
             config,
             worker_count,
             cancellation_token,
+            metrics,
+            sampled_tracing_interval,
         }
     }
 
@@ -147,6 +163,7 @@ impl ParallelCheckpointDownloaderInner {
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
+        sampled_tracing_interval: Duration,
     ) {
         tokio::spawn(async move {
             Self::worker_loop(
@@ -155,6 +172,7 @@ impl ParallelCheckpointDownloaderInner {
                 message_receiver,
                 checkpoint_sender,
                 config,
+                sampled_tracing_interval,
             )
             .await?;
             anyhow::Ok(())
@@ -171,7 +189,7 @@ impl ParallelCheckpointDownloaderInner {
         client: &RetriableRpcClient,
     ) -> Result<u64> {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
-            return Err(anyhow!("Failed to get current checkpoint"));
+            return Err(anyhow!("failed to get current checkpoint"));
         };
 
         #[cfg(msim)]
@@ -200,14 +218,20 @@ impl ParallelCheckpointDownloaderInner {
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
+        sampled_tracing_interval: Duration,
     ) -> Result<()> {
-        monitored_scope::monitored_scope("WorkerLoop");
+        let _scope = monitored_scope::monitored_scope("WorkerLoop");
+
         tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
-            tracing_sampled::info!("30s", "Downloaded checkpoint {}", sequence_number);
+            tracing_sampled::info!(
+                sampled_tracing_interval,
+                sequence_number,
+                "downloaded checkpoint",
+            );
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!(worker_id, "checkpoint download worker shutting down");
@@ -221,6 +245,7 @@ impl ParallelCheckpointDownloaderInner {
         channels: &PoolMonitorChannels,
         config: &PoolMonitorConfig,
         worker_count: &Arc<AtomicUsize>,
+        sampled_tracing_interval: Duration,
     ) -> Result<()> {
         match current_workers.cmp(&target_workers) {
             std::cmp::Ordering::Greater => {
@@ -230,7 +255,7 @@ impl ParallelCheckpointDownloaderInner {
                         .message_sender
                         .send(WorkerMessage::Shutdown)
                         .await?;
-                    let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    let new_count = worker_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     config.metrics.num_workers.set(
                         new_count
                             .try_into()
@@ -251,9 +276,10 @@ impl ParallelCheckpointDownloaderInner {
                         cloned_receiver,
                         cloned_checkpoint_sender,
                         cloned_config,
+                        sampled_tracing_interval,
                     );
                     *next_worker_id += 1;
-                    let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let new_count = worker_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     config.metrics.num_workers.set(
                         new_count
                             .try_into()
@@ -272,6 +298,7 @@ impl ParallelCheckpointDownloaderInner {
         channels: PoolMonitorChannels,
         worker_count: Arc<AtomicUsize>,
         cancellation_token: CancellationToken,
+        sampled_tracing_interval: Duration,
     ) -> Result<()> {
         let downloader_config = config.downloader_config.clone();
         let mut next_worker_id = downloader_config.initial_workers;
@@ -312,7 +339,7 @@ impl ParallelCheckpointDownloaderInner {
                                 - adjusting to average workers"
                             );
                             let current_workers =
-                                worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                                worker_count.load(std::sync::atomic::Ordering::SeqCst);
                             tracing::info!("adjusting to average workers {:?}", average_workers);
                             Self::adjust_workers(
                                 &mut next_worker_id,
@@ -321,6 +348,7 @@ impl ParallelCheckpointDownloaderInner {
                                 &channels,
                                 &config,
                                 &worker_count,
+                                sampled_tracing_interval,
                             ).await?;
                         }
                         continue;
@@ -335,7 +363,7 @@ impl ParallelCheckpointDownloaderInner {
                             .unwrap_or(i64::MAX),
                     );
 
-                    let current = worker_count.load(std::sync::atomic::Ordering::Relaxed);
+                    let current = worker_count.load(std::sync::atomic::Ordering::SeqCst);
                     if lag > downloader_config.scale_up_lag_threshold &&
                         current < downloader_config.max_workers {
                         tracing::info!(
@@ -351,6 +379,7 @@ impl ParallelCheckpointDownloaderInner {
                             &channels,
                             &config,
                             &worker_count,
+                            sampled_tracing_interval,
                         ).await?;
                         last_scale = now;
                     } else if lag < downloader_config.scale_down_lag_threshold &&
@@ -368,6 +397,7 @@ impl ParallelCheckpointDownloaderInner {
                             &channels,
                             &config,
                             &worker_count,
+                            sampled_tracing_interval,
                         ).await?;
                         last_scale = now;
                     }
@@ -378,70 +408,93 @@ impl ParallelCheckpointDownloaderInner {
 
     /// Starts downloading checkpoints from the given sequence number.
     pub fn start(
-        mut self,
+        self,
         sequence_number: CheckpointSequenceNumber,
     ) -> mpsc::Receiver<CheckpointEntry> {
         let (result_tx, result_rx) = mpsc::channel(self.config.result_queue_size());
         let message_sender = self.message_sender.clone();
 
         tokio::task::spawn(async move {
-            let mut sequence_number = sequence_number;
-            let mut in_flight = BTreeSet::new();
-            let mut pending = BTreeMap::new();
-            let mut next_expected = sequence_number;
-
-            while !self.cancellation_token.is_cancelled() {
-                let num_workers = self.worker_count.load(std::sync::atomic::Ordering::Relaxed);
-                let max_in_flight_requests =
-                    num_workers * self.config.channel_config.work_queue_buffer_factor;
-                while in_flight.len() < max_in_flight_requests {
-                    if message_sender
-                        .send(WorkerMessage::Download(sequence_number))
-                        .await
-                        .is_err()
-                    {
-                        tracing::error!("failed to send job to workers; channel closed");
-                        return;
-                    }
-                    tracing_sampled::info!(
-                        "30s",
-                        "Adding checkpoint to worker queue {}",
-                        sequence_number
-                    );
-                    in_flight.insert(sequence_number);
-                    sequence_number += 1;
-                }
-
-                let Some(entry) = self.checkpoint_receiver.recv().await else {
-                    break;
-                };
-
-                in_flight.remove(&entry.sequence_number);
-
-                if entry.sequence_number != next_expected {
-                    // Store out-of-order response
-                    pending.insert(entry.sequence_number, entry);
-                    continue;
-                }
-
-                if result_tx.send(entry).await.is_err() {
-                    tracing::info!("result receiver dropped, stopping checkpoint fetcher");
-                    break;
-                }
-
-                next_expected += 1;
-
-                while let Some(checkpoint) = pending.remove(&next_expected) {
-                    if result_tx.send(checkpoint).await.is_err() {
-                        tracing::debug!("result receiver dropped, stopping checkpoint fetcher");
-                        return;
-                    }
-                    next_expected += 1;
-                }
-            }
+            self.run_download_loop(sequence_number, result_tx, message_sender)
+                .await;
         });
 
         result_rx
+    }
+
+    /// Main download loop that coordinates checkpoint fetching and result delivery.
+    async fn run_download_loop(
+        mut self,
+        sequence_number: CheckpointSequenceNumber,
+        result_tx: mpsc::Sender<CheckpointEntry>,
+        message_sender: async_channel::Sender<WorkerMessage>,
+    ) {
+        let mut sequence_number = sequence_number;
+        let mut in_flight = BTreeSet::new();
+        let mut pending = BTreeMap::new();
+        let mut next_expected = sequence_number;
+
+        while !self.cancellation_token.is_cancelled() {
+            let num_workers = self.worker_count.load(std::sync::atomic::Ordering::SeqCst);
+            let max_in_flight_requests =
+                num_workers * self.config.channel_config.work_queue_buffer_factor;
+            while !message_sender.is_full() && in_flight.len() < max_in_flight_requests {
+                if message_sender
+                    .send(WorkerMessage::Download(sequence_number))
+                    .await
+                    .is_err()
+                {
+                    tracing::error!("failed to send job to workers; channel closed");
+                    return;
+                }
+                tracing_sampled::info!(
+                    self.sampled_tracing_interval,
+                    sequence_number,
+                    "adding checkpoint to worker queue",
+                );
+                in_flight.insert(sequence_number);
+                self.metrics
+                    .num_inflight_downloading
+                    .set(i64::try_from(in_flight.len()).unwrap_or(i64::MAX));
+                sequence_number += 1;
+            }
+
+            let Some(entry) = self.checkpoint_receiver.recv().await else {
+                break;
+            };
+
+            in_flight.remove(&entry.sequence_number);
+            self.metrics
+                .num_inflight_downloading
+                .set(i64::try_from(in_flight.len()).unwrap_or(i64::MAX));
+
+            if entry.sequence_number != next_expected {
+                // Store out-of-order response
+                pending.insert(entry.sequence_number, entry);
+                self.metrics
+                    .num_pending_processing_checkpoints
+                    .set(i64::try_from(pending.len()).unwrap_or(i64::MAX));
+                continue;
+            }
+
+            if result_tx.send(entry).await.is_err() {
+                tracing::info!("result receiver dropped, stopping checkpoint fetcher");
+                break;
+            }
+
+            next_expected += 1;
+
+            while let Some(checkpoint) = pending.remove(&next_expected) {
+                if result_tx.send(checkpoint).await.is_err() {
+                    tracing::debug!("result receiver dropped, stopping checkpoint fetcher");
+                    return;
+                }
+                next_expected += 1;
+            }
+            self.metrics
+                .num_pending_processing_checkpoints
+                .set(i64::try_from(pending.len()).unwrap_or(i64::MAX));
+        }
     }
 
     /// Downloads a checkpoint with retries.
@@ -541,6 +594,7 @@ mod tests {
             },
             None,
             None,
+            Duration::from_secs(30),
         )
         .await?;
         let parallel_config = ParallelDownloaderConfig {
@@ -568,7 +622,7 @@ mod tests {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let root_dir_path = tempfile::tempdir()
-            .expect("Failed to open temporary directory")
+            .expect("failed to open temporary directory")
             .keep();
         let database = {
             let _lock = global_test_lock().lock().await;
@@ -598,7 +652,7 @@ mod tests {
             config,
             &Registry::default(),
         )?;
-        let mut rx = downloader.start(0, cloned_cancel_token);
+        let mut rx = downloader.start(0, cloned_cancel_token, Duration::from_secs(30));
 
         for i in 0..10 {
             match rx.recv().await {

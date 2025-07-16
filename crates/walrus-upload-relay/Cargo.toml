@@ -1,0 +1,48 @@
+[package]
+name = "walrus-upload-relay"
+publish = false
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "walrus-upload-relay"
+path = "src/main.rs"
+
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+axum-server.workspace = true
+base64.workspace = true
+bcs.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+fastcrypto.workspace = true
+futures.workspace = true
+git-version.workspace = true
+mysten-metrics.workspace = true
+prometheus.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+serde_with = { workspace = true, features = ["hex"] }
+serde_yaml.workspace = true
+sui-sdk.workspace = true
+sui-types.workspace = true
+telemetry-subscribers.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+utoipa.workspace = true
+utoipa-redoc.workspace = true
+walrus-sdk.workspace = true
+walrus-test-utils.workspace = true
+
+[lints]
+workspace = true

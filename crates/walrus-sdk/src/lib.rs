@@ -3,6 +3,8 @@
 
 //! The Walrus Rust SDK.
 
+#![recursion_limit = "256"]
+
 pub mod active_committees;
 pub mod blocklist;
 pub mod client;
@@ -14,6 +16,7 @@ pub mod utils;
 pub use sui_types::{base_types::ObjectID, event::EventID};
 pub use walrus_core as core;
 pub use walrus_sui as sui;
+pub use walrus_sui::{client::SuiReadClient, config::load_wallet_context_from_path};
 pub use walrus_utils as core_utils;
 
 /// Format the event ID as the transaction digest and the sequence number.

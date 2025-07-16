@@ -19,7 +19,6 @@ use std::{
     time::Duration,
 };
 
-use indicatif::MultiProgress;
 use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
@@ -93,7 +92,7 @@ use walrus_sui::{
         BlobEvent,
         ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, SharedBlob, Subsidies},
+        move_structs::{BlobAttribute, Credits, SharedBlob},
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
@@ -305,7 +304,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
     // Change a shard that is not in the failure set. Since the mapping of slivers to shards
-    // depends on the blob id, we need to search for an invalid hash for which the modified shard
+    // depends on the blob ID, we need to search for an invalid hash for which the modified shard
     // is not in the failure set.
     loop {
         metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
@@ -347,7 +346,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
             &metadata,
             &pairs,
             &BlobPersistenceType::Permanent,
-            &MultiProgress::new(),
+            None,
         )
         .await?;
 
@@ -539,7 +538,7 @@ async fn register_blob(
     Ok(blob_id)
 }
 
-/// Store a blob and return the blob id.
+/// Store a blob and return the blob ID.
 async fn store_blob(
     client: &WithTempDir<Client<SuiContractClient>>,
     blob: &[u8],
@@ -563,7 +562,7 @@ async fn store_blob(
         .next()
         .expect("should have one blob store result")
         .blob_id()
-        .expect("blob id should be present"))
+        .expect("blob ID should be present"))
 }
 
 /// Tests that the client can store and read duplicate blobs.
@@ -607,7 +606,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
                     &result
                         .blob_store_result
                         .blob_id()
-                        .expect("blob id should be present"),
+                        .expect("blob ID should be present"),
                 )
                 .await
                 .expect("should be able to read blob");
@@ -876,7 +875,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     // Delete the blobs
     let deleted = client
         .as_ref()
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
+        .delete_owned_blob(&blob_id.expect("blob ID should be present"))
         .await?;
     assert_eq!(deleted, blobs_to_create as usize);
 
@@ -893,7 +892,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
+async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -912,24 +911,19 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         )
         .await?;
     let store_result = results.first().expect("should have one blob store result");
-    let blob_id = store_result.blob_id();
+    let blob_id = store_result
+        .blob_id()
+        .expect("blob id should be present after store");
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(
-        client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
-            .await?,
-        blob
-    );
+    assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
-    client
-        .delete_owned_blob(&blob_id.expect("blob id should be present"))
-        .await?;
+    client.delete_owned_blob(&blob_id).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
         .get_verified_blob_status(
-            &blob_id.expect("blob id should be present"),
+            &blob_id,
             client.sui_client().read_client(),
             Duration::from_secs(1),
         )
@@ -939,9 +933,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         "status_result: {status_result:?}"
     );
 
-    let read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
-        .await;
+    let read_result = client.read_blob::<Primary>(&blob_id).await;
     assert!(matches!(
         read_result.unwrap_err().kind(),
         ClientErrorKind::BlobIdDoesNotExist,
@@ -993,7 +985,8 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .iter()
         .enumerate()
         .map(|(i, blob)| {
-            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1));
+            let mut blob = QuiltStoreBlob::new(blob, format!("test-blob-{}", i + 1))
+                .expect("Should create blob");
             if i == 0 {
                 blob = blob.with_tags(vec![("tag1".to_string(), "value1".to_string())]);
             }
@@ -1131,7 +1124,7 @@ async fn test_blocklist() -> TestResult {
 
     assert_eq!(
         client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"),)
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
             .await?,
         blob
     );
@@ -1145,19 +1138,19 @@ async fn test_blocklist() -> TestResult {
         blocklists.push(blocklist);
     }
 
-    tracing::info!("Adding blob to blocklist");
+    tracing::info!("adding blob to blocklist");
 
     for blocklist in blocklists.iter_mut() {
-        blocklist.insert(blob_id.expect("blob id should be present"))?;
+        blocklist.insert(blob_id.expect("blob ID should be present"))?;
     }
 
     // Read the blob using the client until it fails with forbidden
     let mut blob_read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
         .await;
     while let Ok(_blob) = blob_read_result {
         blob_read_result = client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
             .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -1172,18 +1165,18 @@ async fn test_blocklist() -> TestResult {
 
     // Remove the blob from the blocklist
     for blocklist in blocklists.iter_mut() {
-        blocklist.remove(&blob_id.expect("blob id should be present"))?;
+        blocklist.remove(&blob_id.expect("blob ID should be present"))?;
     }
 
-    tracing::info!("Removing blob from blocklist");
+    tracing::info!("removing blob from blocklist");
 
     // Read the blob again until it succeeds
     let mut blob_read_result = client
-        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
         .await;
     while blob_read_result.is_err() {
         blob_read_result = client
-            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .read_blob::<Primary>(&blob_id.expect("blob ID should be present"))
             .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -1196,15 +1189,15 @@ async fn test_blocklist() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_blob_operations_with_subsidies() -> TestResult {
+async fn test_blob_operations_with_credits() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .with_subsidies()
+        .with_credits()
         .build()
         .await?;
     let client = client.as_ref();
 
-    // Store a blob with subsidies
+    // Store a blob with credits
     let blob_data = walrus_test_utils::random_data(314);
     let blobs = vec![blob_data.as_slice()];
     let store_result = client
@@ -1225,10 +1218,10 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
 
     let initial_storage = blob_object.storage.clone();
 
-    // Extend blob storage with subsidies
+    // Extend blob storage with credits
     client.sui_client().extend_blob(blob_object.id, 5).await?;
 
-    // Verify blob storage was extended with subsidies
+    // Verify blob storage was extended with credits
     let extended_blob: Blob = client
         .sui_client()
         .sui_client()
@@ -1239,7 +1232,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
     assert!(extended_blob.storage.end_epoch > initial_storage.end_epoch);
 
     // Verify subsidies were applied by checking remaining funds
-    let subsidies: Subsidies = client
+    let credits: Credits = client
         .sui_client()
         .read_client()
         .sui_client()
@@ -1247,13 +1240,13 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
             client
                 .sui_client()
                 .read_client()
-                .get_subsidies_object_id()
+                .get_credits_object_id()
                 .unwrap(),
         )
         .await?;
     assert!(
-        subsidies.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
-        "Subsidies should have been used"
+        credits.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
+        "Credits should have been used"
     );
 
     Ok(())
@@ -1613,6 +1606,8 @@ async fn test_extend_owned_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_share_blobs() -> TestResult {
+    const EXTEND_EPOCHS: EpochCount = 10;
+    const INITIAL_FUNDS: u64 = 1000000000;
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
@@ -1659,7 +1654,7 @@ async fn test_share_blobs() -> TestResult {
     client
         .as_ref()
         .sui_client()
-        .fund_shared_blob(shared_blob_object_id, 1000000000)
+        .fund_shared_blob(shared_blob_object_id, INITIAL_FUNDS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1667,13 +1662,13 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.funds, 1000000000);
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS);
 
     // Extend the shared blob.
     client
         .as_ref()
         .sui_client()
-        .extend_shared_blob(shared_blob_object_id, 100)
+        .extend_shared_blob(shared_blob_object_id, EXTEND_EPOCHS)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -1681,8 +1676,11 @@ async fn test_share_blobs() -> TestResult {
         .sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
-    assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
-    assert_eq!(shared_blob.funds, 999999500);
+    assert_eq!(
+        shared_blob.blob.storage.end_epoch,
+        end_epoch + EXTEND_EPOCHS
+    );
+    assert_eq!(shared_blob.funds, INITIAL_FUNDS - 50);
 
     // Read the blob object with attributes from the shared blob object id
     let _blob_with_attribute = client
