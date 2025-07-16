@@ -2119,8 +2119,10 @@ impl<T> Client<T> {
         let n_not_found = requests
             .inner_err()
             .iter()
-            .filter(|err| err.is_status_not_found())
-            .count();
+            .filter(|(err, _)| err.is_status_not_found())
+            .map(|(_, weight)| weight)
+            .sum();
+
         if committees.is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
