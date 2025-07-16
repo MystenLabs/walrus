@@ -229,11 +229,17 @@ where
             .collect()
     }
 
-    /// Returns references to all the errors in the struct.
-    pub fn inner_err(&self) -> Vec<&T::Error> {
+    /// Returns references to all the errors in the struct, along with their weight.
+    pub fn inner_err(&self) -> Vec<(&T::Error, usize)> {
         self.results
             .iter()
-            .filter_map(|result| result.inner_result().as_ref().err())
+            .filter_map(|result| {
+                result
+                    .inner_result()
+                    .as_ref()
+                    .err()
+                    .map(|error| (error, result.weight()))
+            })
             .collect()
     }
 }

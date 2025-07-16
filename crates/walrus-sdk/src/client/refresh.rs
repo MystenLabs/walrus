@@ -114,7 +114,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         "auto-refreshing the active committee"
                     );
                     let _ = self.refresh().await.inspect_err(|error| {
-                        tracing::error!(
+                        tracing::warn!(
                             %error,
                             "failed to refresh the active committee; \
                             retrying again at the next interval",
@@ -128,7 +128,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         );
                         if request.is_refresh() {
                             let _ = self.refresh_if_stale().await.inspect_err(|error| {
-                                tracing::error!(
+                                tracing::warn!(
                                     %error,
                                     "failed to refresh the active committee; \
                                     retrying again at the next interval",
@@ -148,7 +148,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                                 tracing::info!("failed to send the committee and price")
                             });
                     } else {
-                        tracing::info!("the channel is closed, stopping the refresher");
+                        tracing::debug!("the channel is closed, stopping the refresher");
                         break;
                     }
                 }

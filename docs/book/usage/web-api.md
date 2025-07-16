@@ -129,6 +129,138 @@ The aggregator recognizes the attribute keys `content-disposition`, `content-enc
 `content-language`, `content-location`, `content-type`, and `link`, and when present returns
 the values in the corresponding HTTP headers.
 
+### Quilt HTTP APIs
+
+Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](./quilt.md).
+The publishers and aggregators support *quilt* related operations.
+
+**Note** Quilt APIs are supported with Walrus *1.29* and higher.
+
+#### Storing quilts
+
+```admonish tip
+All the query parameters available for storing regular blobs (see [Store](#store) section above) can
+also be used when storing quilts.
+```
+
+Use the following publisher API to store multiple blobs as a quilt:
+
+```sh
+# Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, respectively.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "contract-v2=@document.pdf" \
+  -F "logo-2024=@image.png"
+
+# Store two files with Walrus-native metadata. The metadata are assigned to the blob with
+# the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "quilt-manual=@document.pdf" \
+  -F "logo-2025=@image.png" \
+  -F '_metadata=[
+    {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+    {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+  ]'
+```
+
+```admonish warning
+Identifiers must be unique within a quilt.
+```
+
+```admonish info
+Since identifiers cannot start with `_`, the field name `_metadata` is reserved for Walrus native
+metadata and won't conflict with user-defined identifiers. See
+[Quilt documentation](./quilt.md) for complete identifier restrictions.
+```
+
+The quilt store API returns a JSON response with information about the stored quilt, including
+the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+later. The following example shows the command and response (the actual JSON output is returned
+as a single line; it's formatted here for readability):
+
+```console
+$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
+  -F "walrus.jpg=@./walrus-33.jpg" \
+  -F "another_walrus.jpg=@./walrus-46.jpg"
+{
+  "blobStoreResult": {
+    "newlyCreated": {
+      "blobObject": {
+        "id": "0xe6ac1e1ac08a603aef73a34328b0b623ffba6be6586e159a1d79c5ef0357bc02",
+        "registeredEpoch": 103,
+        "blobId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo",
+        "size": 1782224,
+        "encodingType": "RS2",
+        "certifiedEpoch": null,
+        "storage": {
+          "id": "0xbc8ff9b4071927689d59468f887f94a4a503d9c6c5ef4c4d97fcb475a257758f",
+          "startEpoch": 103,
+          "endEpoch": 104,
+          "storageSize": 72040000
+        },
+        "deletable": false
+      },
+      "resourceOperation": {
+        "registerFromScratch": {
+          "encodedLength": 72040000,
+          "epochsAhead": 1
+        }
+      },
+      "cost": 12075000
+    }
+  },
+  "storedQuiltBlobs": [
+    {
+      "identifier": "another_walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA"
+    },
+    {
+      "identifier": "walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoB0AB7Ag"
+    }
+  ]
+}
+```
+
+#### Reading quilts
+
+There are two ways to retrieve blobs from a quilt via the aggregator APIs:
+
+```admonish info
+Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+quilt in a single request is not yet supported.
+```
+
+##### By quilt patch ID
+
+Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:
+
+```sh
+# Retrieve a blob using its quilt patch ID.
+curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
+```
+
+```admonish tip
+QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
+[`list-patches-in-quilt`](./client-cli.md#batch-storing-blobs-with-quilt) CLI command.
+```
+
+##### By quilt ID and identifier
+
+You can also retrieve a blob using the quilt ID and the blob's identifier:
+
+```sh
+# Retrieve a blob with identifier `walrus.jpg` from the quilt.
+curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
+```
+
+Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
+and tags are returned as HTTP headers:
+
+- `X-Quilt-Patch-Identifier`: The identifier of the blob within the quilt
+- `ETag`: The patch ID or quilt ID for caching purposes
+- Additional custom headers from blob tags (if configured)
+
 ## Using a public aggregator or publisher {#public-services}
 
 For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible

@@ -239,7 +239,7 @@ See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension
 
 ## Batch-storing blobs with quilts
 
- **Note:** The *quilt* feature is only available in Walrus version *v1.28* or higher.
+ **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
 
 ```admonish warning
 - Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
@@ -297,19 +297,21 @@ You can retrieve individual blobs (formally "patches") from a quilt without down
 entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.
 
-To read blobs by their identifiers, repeating the `--identifiers` flag:
+To read blobs by their identifiers, use the `--identifiers` flag:
 
 ```sh
 walrus read-quilt --out <download dir> \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 ```
 
-To read blobs by a tag:
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download **all** images labeled as cats with the following command:
 
 ```sh
 # Read all blobs with tag "size: medium"
 walrus read-quilt --out <download dir> \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using

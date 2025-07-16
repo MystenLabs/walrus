@@ -130,11 +130,8 @@ impl EventBlobDownloader {
             event_blob_id
         );
 
-        // When reading the first certified event blob, it may be the case that the event blob is
-        // just certified, and the storage nodes may not know it yet. Therefore, upon encountering
-        // a nonexistent blob, we will retry and wait for the blob to be certified.
-        // For all the earlier blobs, they must have been seen by the storage nodes, since
-        // otherwise, no new certified event blobs would be created.
+        // Track if we are reading the first certified event blob. First event blob has special
+        // handling in `read_event_blob_status()`. See the comment there for more details.
         let mut reading_first_event_blob = true;
 
         loop {
@@ -145,42 +142,9 @@ impl EventBlobDownloader {
 
             // Timer for waiting for the first certified event blob to be certified.
             let start_time = Instant::now();
-
-            let blob_status = loop {
-                let blob_status = match self
-                    .walrus_client
-                    .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
-                    .await
-                {
-                    Ok(blob_status) => blob_status,
-                    Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
-                        BlobStatus::Nonexistent
-                    }
-                    Err(err) => return Err(err.into()),
-                };
-
-                if blob_status == BlobStatus::Nonexistent && reading_first_event_blob {
-                    tracing::debug!(
-                        "reading first certified event blob {} encountered a nonexistent \
-                    blob, waiting for it to be certified",
-                        event_blob_id
-                    );
-
-                    if start_time.elapsed() > Duration::from_secs(30) {
-                        tracing::warn!(
-                            "waiting for first certified event blob to be certified timed out"
-                        );
-                        break blob_status;
-                    }
-                    // Short sleep since we expect storage nodes to keep up with Sui events in most
-                    // of the time.
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-
-                break blob_status;
-            };
-            reading_first_event_blob = false;
+            let blob_status = self
+                .read_event_blob_status(event_blob_id, reading_first_event_blob, start_time)
+                .await?;
 
             if blob_status == BlobStatus::Nonexistent {
                 anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
@@ -195,20 +159,17 @@ impl EventBlobDownloader {
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
             } else {
-                match self
-                    .walrus_client
-                    .read_blob_with_status::<walrus_core::encoding::Primary>(
-                        &event_blob_id,
-                        blob_status,
-                    )
-                    .await
-                {
-                    Ok(blob) => (blob, "network"),
-                    Err(err) => {
-                        return Err(err.into());
-                    }
-                }
+                let start_time = Instant::now();
+                self.read_event_blob(
+                    event_blob_id,
+                    blob_status,
+                    reading_first_event_blob,
+                    start_time,
+                )
+                .await?
             };
+
+            reading_first_event_blob = false;
 
             metrics
                 .event_catchup_manager_event_blob_fetched
@@ -258,5 +219,113 @@ impl EventBlobDownloader {
         }
 
         Ok(blobs)
+    }
+
+    /// Reads the status of an event blob.
+    ///
+    /// When reading the first certified event blob, it may be the case that the event blob is
+    /// just certified, and the storage nodes may not know it yet. Therefore, upon encountering
+    /// a nonexistent blob, we will retry and wait for the blob to be certified.
+    /// For all the earlier blobs, they must have been seen by the storage nodes, since
+    /// otherwise, no new certified event blobs would be created.
+    async fn read_event_blob_status(
+        &self,
+        event_blob_id: BlobId,
+        reading_first_event_blob: bool,
+        start_time: Instant,
+    ) -> Result<BlobStatus> {
+        let blob_status = loop {
+            let blob_status = match self
+                .walrus_client
+                .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
+                .await
+            {
+                Ok(blob_status) => blob_status,
+                Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
+                    BlobStatus::Nonexistent
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            if blob_status == BlobStatus::Nonexistent && reading_first_event_blob {
+                tracing::debug!(
+                    "reading first certified event blob {} encountered a nonexistent \
+                blob, waiting for it to be certified",
+                    event_blob_id
+                );
+
+                if start_time.elapsed() > Duration::from_secs(30) {
+                    tracing::warn!(
+                        "waiting for first certified event blob to be certified timed out"
+                    );
+                    break blob_status;
+                }
+                // Short sleep since we expect storage nodes to keep up with Sui events in most
+                // of the time.
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+
+            break blob_status;
+        };
+        Ok(blob_status)
+    }
+
+    /// Reads an event blob.
+    ///
+    /// When reading the first certified event blob, it may be the case that the event blob is
+    /// just certified, and the storage nodes may not know it yet. Therefore, upon encountering
+    /// a nonexistent blob, we will retry reading the blob.
+    async fn read_event_blob(
+        &self,
+        event_blob_id: BlobId,
+        blob_status: BlobStatus,
+        reading_first_event_blob: bool,
+        start_time: Instant,
+    ) -> Result<(Vec<u8>, &'static str)> {
+        let (blob, blob_source) = loop {
+            match self
+                .walrus_client
+                .read_blob_with_status::<walrus_core::encoding::Primary>(
+                    &event_blob_id,
+                    blob_status,
+                )
+                .await
+            {
+                Ok(blob) => break (blob, "network"),
+                Err(err)
+                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist)
+                        && reading_first_event_blob =>
+                {
+                    tracing::info!(
+                        blob_id = %event_blob_id,
+                        "reading first event blob encountered non-existent blob error: {:?}, \
+                        retrying",
+                        err
+                    );
+
+                    if start_time.elapsed() > Duration::from_secs(30) {
+                        tracing::warn!(
+                            blob_id = %event_blob_id,
+                            "waiting for first certified event blob to be certified timed out"
+                        );
+                        return Err(err.into());
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(
+                        blob_id = %event_blob_id,
+                        reading_first_event_blob,
+                        "reading event blob encountered error: {:?}",
+                        err,
+                    );
+                    return Err(err.into());
+                }
+            }
+        };
+        Ok((blob, blob_source))
     }
 }
