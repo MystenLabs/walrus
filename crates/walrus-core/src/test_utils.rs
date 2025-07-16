@@ -103,16 +103,13 @@ impl<'a> QuiltTestData<'a> {
             HashMap::new();
 
         for blob in &quilt_store_blobs {
-            let identifier = blob.identifier().to_string();
-
-            // Build tag index
             for (key, value) in blob.tags() {
                 blob_identifiers_by_tag
                     .entry(key.clone())
                     .or_default()
                     .entry(value.clone())
                     .or_default()
-                    .insert(identifier.clone());
+                    .insert(blob.identifier().to_string());
             }
         }
 
