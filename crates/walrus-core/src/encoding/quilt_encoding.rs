@@ -2313,7 +2313,7 @@ mod tests {
             assert_eq!(blob, *quilt_store_blob);
         }
 
-        for (tag, val) in &test_data.tag_index {
+        for (tag, val) in &test_data.blob_identifiers_by_tag {
             for (tag_value, identifiers) in val {
                 let blobs = quilt_decoder
                     .get_blobs_by_tag(tag, tag_value)
@@ -2359,7 +2359,7 @@ mod tests {
                 .data()
         );
 
-        for (tag, val) in &test_data.tag_index {
+        for (tag, val) in &test_data.blob_identifiers_by_tag {
             for (tag_value, identifiers) in val {
                 let blobs = quilt
                     .get_blobs_by_tag(tag, tag_value)
