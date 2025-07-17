@@ -149,7 +149,6 @@ impl EventBlobDownloader {
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
             } else {
-                // Timer for waiting for the first certified event blob to be certified.
                 let result = self
                     .read_event_blob(event_blob_id, reading_first_event_blob)
                     .await;
@@ -238,6 +237,7 @@ impl EventBlobDownloader {
         event_blob_id: BlobId,
         reading_first_event_blob: bool,
     ) -> ClientResult<Vec<u8>> {
+        // Timer for waiting for the first certified event blob to be certified.
         let start_time = Instant::now();
         let blob = loop {
             match self
