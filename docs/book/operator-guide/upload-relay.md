@@ -5,13 +5,13 @@
 A goal of Walrus is to enable dApps to `store` to Walrus from within their end-users’ browsers
 having low to moderate machine specifications (mobile devices, low-powered laptops, etc.). This
 browser-based scenario is difficult to achieve in practice with an in-browser process that directly
-communicates with the storage nodes, because of the high number of network connections required to
-upload all slivers to all shards.
+communicates with the storage nodes due to the high number of network connections required to upload
+all slivers to all shards.
 
 The upload relay is a downloadable program that community members, Mysten Labs, and/or dApp writers
-themselves can run on internet-facing hosts to facilitate storing the blob slivers onto the storage
-node on behalf of the end-users, thus mitigating browser resource consumption and enabling web-based
-`store` operations.
+themselves can run on internet-facing hosts to facilitate storing blob slivers onto the storage
+nodes on behalf of the end-users, thus mitigating browser resource consumption and enabling
+web-based `store` operations.
 
 ## Design
 
