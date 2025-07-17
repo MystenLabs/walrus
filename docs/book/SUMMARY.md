@@ -40,7 +40,6 @@
     - [The authenticated publisher](./operator-guide/auth-publisher.md)
   - [Operating a storage node](./operator-guide/storage-node.md)
     - [Commission and governance](./operator-guide/commission-governance.md)
-  - [Upload relay: functioning and operation](./operator-guide/upload-relay.md)
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)

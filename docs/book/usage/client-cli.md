@@ -143,29 +143,6 @@ following:
 We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
 ```
 
-### Using a Walrus upload relay
-
-A Walrus upload relay is a third party service that can help clients with limited bandwidth and
-networking capabilities (a browser, for example) in storing blobs on Walrus.
-
-The asset management on chain (buying storage, registering and certifying blobs) still happens on
-the client; the upload relay just takes the unencoded blob, encodes it, and sends the slivers to the
-storage nodes, finally returning the certificate. See in-depth details in the [Walrus upload relay
-section](../operator-guide/upload-relay.md) of these docs.
-
-When storing blobs with the `walrus store` command (and also when [storing
-quilts](#storing-blobs-as-a-quilt)) you can use the `--upload-relay` flag with a URL to specify an
-upload relay server be used by the CLI.
-
-```admonish tip title="Tipping"
-The upload relay is a third party service that may require a fee, or "tip". This tip may be a
-constant SUI amount per blob stored, or dependent on the size of the blob being stored. The Walrus CLI will show you
-how much tip the upload relay requires, and will ask for confirmation before continuing.
-
-The technical details on how the tip is computed and paid are
-[here](../operator-guide/upload-relay.md).
-```
-
 ## Querying blob status
 
 The status of a blob can be queried through one of the following commands:
