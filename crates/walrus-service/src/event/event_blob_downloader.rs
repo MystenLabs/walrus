@@ -156,7 +156,7 @@ impl EventBlobDownloader {
 
                 match result {
                     Ok(blob) => (blob, "network"),
-                    Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
+                    Err(err) if event_blob_does_not_exist_error(err.kind()) => {
                         anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
                         tracing::info!(
                             "stopping downloading event blobs with expired blob {}",
@@ -247,7 +247,7 @@ impl EventBlobDownloader {
             {
                 Ok(blob) => break blob,
                 Err(err)
-                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist)
+                    if (event_blob_does_not_exist_error(err.kind()))
                         && reading_first_event_blob =>
                 {
                     tracing::info!(
@@ -282,4 +282,14 @@ impl EventBlobDownloader {
 
         Ok(blob)
     }
+}
+
+/// Returns `true` if the error indicates that the event blob is not available for reading.
+fn event_blob_does_not_exist_error(err: &ClientErrorKind) -> bool {
+    matches!(
+        err,
+        // Blob may be expired, not processed by storage nodes yet, or is partially expired in some
+        // of the storage nodes.
+        ClientErrorKind::BlobIdDoesNotExist | ClientErrorKind::NotEnoughSlivers
+    )
 }
