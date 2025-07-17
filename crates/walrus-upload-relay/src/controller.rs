@@ -71,16 +71,16 @@ pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) struct WalrusUploadRelayConfig {
+pub struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
-    tip_config: TipConfig,
+    pub tip_config: TipConfig,
     /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is
     /// paid), and the request to store is made to the Walrus upload relay.
-    tx_freshness_threshold: Duration,
+    pub tx_freshness_threshold: Duration,
     /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
-    tx_max_future_threshold: Duration,
+    pub tx_max_future_threshold: Duration,
 }
 
 /// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
@@ -88,9 +88,12 @@ pub(crate) struct WalrusUploadRelayConfig {
 /// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
 /// `deletable_blob_object` are not necessary.
 #[derive(Debug, Clone)]
-pub(crate) struct PaidTipParams {
+pub struct PaidTipParams {
+    /// The ID of the transaction that paid the tip.
     pub tx_id: TransactionDigest,
+    /// The nonce used to generate the hash.
     pub nonce: [u8; NONCE_LEN],
+    /// The encoding type of the blob.
     pub encoding_type: Option<EncodingType>,
 }
 

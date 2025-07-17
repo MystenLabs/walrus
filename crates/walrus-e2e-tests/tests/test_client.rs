@@ -68,6 +68,7 @@ use walrus_sdk::{
         },
     },
     store_optimizations::StoreOptimizations,
+    upload_relay::tip_config::TipConfig,
 };
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
@@ -104,7 +105,11 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
-use walrus_upload_relay::UploadRelayHandle;
+use walrus_upload_relay::{
+    DEFAULT_SERVER_ADDRESS,
+    UploadRelayHandle,
+    controller::WalrusUploadRelayConfig,
+};
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 async_param_test! {
@@ -2495,7 +2500,12 @@ async fn test_store_with_upload_relay() {
     )
     .expect("write client config");
     // TODO: get config for walrus and relay.
-    let server_address: SocketAddr = "127.0.0.1:8080".parse().expect("valid address");
+    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS;
+    let relay_config = WalrusUploadRelayConfig {
+        tip_config: TipConfig::NoTip,
+        tx_freshness_threshold: Duration::from_secs(300),
+        tx_max_future_threshold: Duration::from_secs(10),
+    };
     let relay_config_path: PathBuf = PathBuf::from("path/to/relay/config.toml");
     let registry = Registry::default();
 
