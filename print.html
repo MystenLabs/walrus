@@ -578,8 +578,8 @@ storage node, and plans around light nodes, will be shared in subsequent posts.<
 <a class="admonition-anchor-link" href="blog/04_testnet_update.html#admonition-warning"></a>
 </div>
 <div>
-<p>This blog post is shown in its original form and may contain information that is no longer accurate.
-Some broken links may have been updated or removed.</p>
+<p>This blog post is mostly shown in its original form and may contain information that is no longer
+accurate. Some broken links may have been updated or removed.</p>
 </div>
 </div>
 <p>Today, a community of operators launches the first public Walrus Testnet.
@@ -611,10 +611,21 @@ through the CLI.</li>
 <p>Walrus Testnet enables multiple epochs. Initially, the epoch duration is set to a single day to
 ensure the logic of epoch change is thoroughly tested. At Mainnet, epochs will likely be multiple
 weeks long.</p>
-<p>The progress of epochs makes the expiry epoch of blobs meaningful, and blobs will become unavailable
-after their expiry epoch. The store command may be used to extend the expiry epoch of a blob that is
-still available. This operation is efficient and only affects payments and metadata, and does not
-re-upload blob contents.</p>
+<p>The progress of epochs makes the end epoch of blobs meaningful, and blobs will <em>become unavailable
+when they reach their end epoch</em>. The store command may be used to extend the end epoch of a blob
+that is still available. This operation is efficient and only affects payments and metadata, and
+does not re-upload blob contents.</p>
+<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div class="admonition-title">
+<div id="admonition-note-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="blog/04_testnet_update.html#admonition-note"></a>
+</div>
+<div>
+<p>The previous paragraph was edited on 2025-07-16 for improved clarity.</p>
+</div>
+</div>
 <ul>
 <li>Find out the <a href="blog/../usage/client-cli.html#walrus-system-information">current epoch</a> through the CLI.</li>
 <li>Find out how to store a blob for
@@ -1449,23 +1460,42 @@ command.</p>
 <p>Storing one or multiple blobs on Walrus can be achieved through the following command:</p>
 <pre><code class="language-sh">walrus store &lt;FILES&gt; --epochs &lt;EPOCHS&gt;
 </code></pre>
-<p>A mandatory CLI argument must be set to specify the end epoch for the blob.
-The <code>--epochs &lt;EPOCHS&gt;</code> option indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
-corresponding to two years. In addition to a positive integer,
-you can also use <code>--epochs max</code> to store the blob for the maximum number of epochs.</p>
-<p>Moreover, the end epoch for the stored blob can be provided through other options. The
-<code>--earliest-expiry-time &lt;EARLIEST_EXPIRY_TIME&gt;</code> option takes a date in RFC3339 format
+<p>A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
+ways for this:</p>
+<ol>
+<li>The <code>--epochs &lt;EPOCHS&gt;</code> option indicates the number of epochs the blob should be stored for.
+There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
+to two years. In addition to a positive integer, you can also use <code>--epochs max</code> to store the blob
+for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
+specified number of epochs.</li>
+<li>The <code>--earliest-expiry-time &lt;EARLIEST_EXPIRY_TIME&gt;</code> option takes a date in RFC3339 format
 (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-the blob expires after that date if possible. Finally, the <code>--end-epoch &lt;END_EPOCH&gt;</code> option takes
-a specific end epoch for the blob.</p>
+the blob expires after that date if possible.</li>
+<li>The <code>--end-epoch &lt;END_EPOCH&gt;</code> option takes a specific end epoch for the blob.</li>
+</ol>
+<div id="admonition-end-epoch" class="admonition admonish-warning" role="note" aria-labelledby="admonition-end-epoch-title">
+<div class="admonition-title">
+<div id="admonition-end-epoch-title">
+<p>End epoch</p>
+</div>
+<a class="admonition-anchor-link" href="usage/client-cli.html#admonition-end-epoch"></a>
+</div>
+<div>
+<p>A blob expires <em>at the beginning of its end epoch</em>. For example, a blob with end epoch <code>314</code> will
+become unavailable at the beginning of epoch <code>314</code>. One consequence of this is that when storing a
+blob with <code>--epochs 1</code> immediately before an epoch change, it will expire and become unavailable
+almost immediately. Note that blobs can be <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">extended</a> only if
+they have not expired.</p>
+</div>
+</div>
 <p>You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, <code>walrus store *.png --epochs &lt;EPOCHS&gt;</code> will store all PNG files
 in the current directory.</p>
-<p>By default, the command will store the blob as a <em>permanent</em> blob. See the <a href="usage/client-cli.html#reclaiming-space-via-deletable-blobs">section on deletable
-blobs</a> for more details on deletable blobs. Also, by default
-an owned <code>Blob</code> object is created. It is possible to wrap this into a shared object, which can be
-funded and extended by anyone, see the <a href="usage/client-cli.html#shared-blobs">shared blobs section</a>.</p>
+<p>By default, the command will store the blob as a <em>permanent</em> blob, although this is going to change
+in the near future. See the <a href="usage/client-cli.html#reclaiming-space-via-deletable-blobs">section on deletable blobs</a> for more
+details on deletable blobs. Also, by default an owned <code>Blob</code> object is created. It is possible to
+wrap this into a shared object, which can be funded and extended by anyone, see the <a href="usage/client-cli.html#shared-blobs">shared blobs
+section</a>.</p>
 <p>When storing a blob, the client performs a number of automatic optimizations, including the
 following:</p>
 <ul>
@@ -1512,12 +1542,12 @@ a Sui RPC node to use instead of the one set in the wallet configuration or the 
 <p>Recall that when you stored your blob, it was necessary to specify its <a href="usage/client-cli.html#storing-blobs">end epoch</a>.
 By specifying the end epoch you ensured that the blob would be available via <code>walrus read</code> (or other
 SDK access to Walrus) until that end epoch is reached.</p>
-<p>Walrus blob lifetimes can be extended using the <code>walrus extend --blob-obj-id &lt;blob object id&gt; ...</code>
-command. Both regular single-address owned blobs and <a href="usage/client-cli.html#shared-blobs">shared blobs</a> may be extended.
-Shared blobs may be extended by anyone, but owned blobs may only be extended by their owner. When
-extending a shared blob, you will need to supply the <code>--shared</code> flag to inform the command that the
-blob is shared.</p>
-<p>Note that the blob's <em>object ID</em> will be needed in order to extend it. The blob ID is not needed.
+<p>Walrus blob lifetimes can be extended <em>as long as the blobs are not expired</em> using the
+<code>walrus extend --blob-obj-id &lt;blob object id&gt; ...</code> command. Both regular single-address owned blobs
+and <a href="usage/client-cli.html#shared-blobs">shared blobs</a> may be extended. Shared blobs may be extended by anyone, but owned
+blobs may only be extended by their owner. When extending a shared blob, you will need to supply the
+<code>--shared</code> flag to inform the command that the blob is shared.</p>
+<p>Note that the blob's <em>object ID</em> will be needed in order to extend it, the blob ID is not needed.
 See <code>walrus extend --help</code> for more information on blob extension.</p>
 <h2 id="reclaiming-space-via-deletable-blobs"><a class="header" href="#reclaiming-space-via-deletable-blobs">Reclaiming space via deletable blobs</a></h2>
 <p>By default <code>walrus store</code> uploads a permanent blob available until after its expiry
@@ -5580,40 +5610,41 @@ concepts, their canonical name, and how they relate to or differ from other term
 <p>Italicized terms in the description indicate other specific Walrus terms contained in the table.</p>
 <div class="table-wrapper"><table><thead><tr><th>Approved name</th><th>Description</th></tr></thead><tbody>
 <tr><td>2D encoding</td><td>encoding scheme used in <em>RedStuff</em> where each <em>blob</em> is encoded in two dimensions—<em>primary</em> and <em>secondary</em>—to ensure robust recovery and redundancy</td></tr>
-<tr><td>aggregator</td><td>service that reconstructs <em>blobs</em> by interacting with <em>SNs</em> and exposes a simple <code>HTTP GET</code> endpoint to <em>end users</em></td></tr>
-<tr><td>availability period</td><td>the period specified in <em>storage epochs</em> for which a <em>blob</em> is certified to be available on Walrus</td></tr>
+<tr><td>aggregator</td><td>service that reconstructs <em>blobs</em> by interacting with <em>storage nodes</em> and exposes a simple <code>HTTP GET</code> endpoint to <em>users</em></td></tr>
+<tr><td>availability period</td><td>the period specified in (Walrus) <em>epochs</em> for which a <em>blob</em> is certified to be available on Walrus</td></tr>
 <tr><td>blob</td><td>single unstructured data object stored on Walrus</td></tr>
 <tr><td>blob ID</td><td>cryptographic ID computed from a <em>blob</em>’s <em>slivers</em></td></tr>
 <tr><td>blob metadata</td><td>metadata of one <em>blob</em>; in particular, this contains a hash per <em>shard</em> to enable the authentication of <em>slivers</em> and recovery symbols</td></tr>
 <tr><td>cache</td><td>an <em>aggregator</em> with additional caching capabilities</td></tr>
-<tr><td>certificate of availability (CoA)</td><td>a <em>blob ID</em> with signatures of <em>SNs</em> holding at least <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.10764em;">f</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> <em>shards</em> in a specific <em>epoch</em></td></tr>
-<tr><td>client</td><td>entity interacting directly with the <em>SNs</em>; this can be an <em>aggregator</em>/<em>cache</em>, a <em>publisher</em>, or an <em>end user</em></td></tr>
+<tr><td>certificate of availability (CoA)</td><td>a <em>blob ID</em> with signatures of <em>storage nodes</em> holding at least <span class="katex"><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.10764em;">f</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> <em>shards</em> in a specific <em>epoch</em></td></tr>
+<tr><td>client</td><td>entity interacting directly with the <em>storage nodes</em>; this can be an <em>aggregator</em>/<em>cache</em>, a <em>publisher</em>, or an <em>user</em></td></tr>
+<tr><td>committee</td><td>the set of <em>storage nodes</em> for a particular <em>epoch</em>, including metadata about the <em>shards</em> they are responsible for and other metadata</td></tr>
 <tr><td>deletable blob</td><td>blob which can be deleted by its owner at any time to be able to reuse the storage resource</td></tr>
-<tr><td>expiry</td><td>the end epoch at which a blob is no longer available and can be deleted; the end epoch is always exclusive</td></tr>
-<tr><td>(end) user</td><td>any entity/person that wants to store or read <em>blobs</em> on/from Walrus; can act as a Walrus client itself or use the simple interface exposed by <em>publishers</em> and <em>caches</em></td></tr>
+<tr><td>end epoch</td><td>the <em>epoch</em> at which a blob will no longer be available for reads; the end epoch is always <strong>exclusive</strong></td></tr>
+<tr><td>epoch</td><td>Walrus uses epochs to track committee changes (like Sui) and measure lifetimes of blobs; the epoch duration for Walrus differs from Sui; on Mainnet the epoch duration is two weeks</td></tr>
+<tr><td>expiry</td><td>a blob becomes unavailable and can be deleted by storage nodes at its <em>end epoch</em></td></tr>
 <tr><td>FROST</td><td>the smallest unit of WAL (similar to MIST for SUI); 1 WAL is equal to 1 billion (1000000000) FROST</td></tr>
-<tr><td>inconsistency certificate</td><td>an aggregated signature from 2/3 of <em>SNs</em> (weighted by their number of <em>shards</em>) that they have seen and stored an <em>inconsistency proof</em> for a <em>blob ID</em></td></tr>
+<tr><td>inconsistency certificate</td><td>an aggregated signature from 2/3 of <em>storage nodes</em> (weighted by their number of <em>shards</em>) that they have seen and stored an <em>inconsistency proof</em> for a <em>blob ID</em></td></tr>
 <tr><td>inconsistency proof</td><td>set of several recovery symbols with their Merkle proofs such that the decoded <em>sliver</em> does not match the corresponding hash; this proves an incorrect/inconsistent encoding by the client</td></tr>
-<tr><td>member</td><td>an <em>SN</em> that is part of a <em>committee</em> at some <em>epoch</em></td></tr>
+<tr><td>member</td><td>an <em>storage node</em> that is part of a <em>committee</em> at some <em>epoch</em></td></tr>
 <tr><td>permanent blob</td><td>blob which cannot be deleted by its owner and is guaranteed to be available until at least its expiry epoch (assuming it is valid)</td></tr>
 <tr><td>point of availability (PoA)</td><td>point in time when a <em>CoA</em> is submitted to Sui and the corresponding <em>blob</em> is guaranteed to be available until its expiration</td></tr>
-<tr><td>publisher</td><td>service interacting with Sui and the <em>SNs</em> to store <em>blobs</em> on Walrus; offers a simple <code>HTTP POST</code> endpoint to <em>end users</em></td></tr>
+<tr><td>publisher</td><td>service interacting with Sui and the <em>storage nodes</em> to store <em>blobs</em> on Walrus; offers a simple <code>HTTP POST</code> endpoint to <em>users</em></td></tr>
 <tr><td>quilt</td><td>structured data object consisting of one or multiple unstructured <em>blobs</em></td></tr>
 <tr><td>quilt ID</td><td><em>blob ID</em> of a <em>quilt</em></td></tr>
 <tr><td>quilt patch</td><td>a single <em>blob</em> stored in a <em>quilt</em>, including the unstructured data and metadata</td></tr>
 <tr><td>quilt patch ID</td><td>a unique ID to identify a <em>quilt patch</em> in Walrus; the <em>quilt patch ID</em> is computed from the entire <em>quilt</em>, not a single <em>quilt patch</em></td></tr>
 <tr><td>reconstruction (of a blob)</td><td>decoding of the primary <em>slivers</em> to obtain the blob; includes re-encoding the <em>blob</em> and checking the Merkle proofs</td></tr>
-<tr><td>recovery</td><td>process of an <em>SN</em> recovering one or multiple <em>blobs</em>, <em>slivers</em>, or full <em>shards</em> by obtaining recovery symbols from other <em>SNs</em></td></tr>
+<tr><td>recovery</td><td>process of an <em>storage node</em> recovering one or multiple <em>blobs</em>, <em>slivers</em>, or full <em>shards</em> by obtaining recovery symbols from other <em>storage nodes</em></td></tr>
 <tr><td>RedStuff</td><td>our erasure-encoding approach, which uses two different encodings (<em>primary</em> and <em>secondary</em>) to enable shard recovery; details are available in the <a href="./walrus.pdf">whitepaper</a></td></tr>
-<tr><td>shard</td><td>(disjoint) subset of erasure-encoded data of all <em>blobs</em>; at every point in time, a <em>shard</em> is assigned to and stored on a single <em>SN</em></td></tr>
+<tr><td>shard</td><td>(disjoint) subset of erasure-encoded data of all <em>blobs</em>; at every point in time, a <em>shard</em> is assigned to and stored on a single <em>storage node</em></td></tr>
 <tr><td>sliver</td><td>erasure-encoded data of one <em>shard</em> corresponding to a single blob for one of the two encodings; this contains several erasure-encoded symbols of that blob but not the <em>blob metadata</em></td></tr>
 <tr><td>sliver pair</td><td>the combination of a shard’s primary and secondary sliver</td></tr>
 <tr><td>staker</td><td>entity that locks (stakes) <em>WAL</em> tokens to support the network's integrity and participate in the selection or validation of <em>storage nodes</em> and <em>committees</em>.</td></tr>
-<tr><td>storage challenge</td><td>cryptographic proof mechanism where <em>SNs</em> periodically verify each other’s storage of assigned <em>shards</em> by issuing random challenges during <em>storage attestation</em>.</td></tr>
-<tr><td>storage attestation</td><td>process where <em>SNs</em> exchange challenges and responses to demonstrate that they are storing their currently assigned <em>shards</em></td></tr>
-<tr><td>storage committee</td><td>the set of <em>SNs</em> for a <em>storage epoch</em>, including metadata about the <em>shards</em> they are responsible for and other metadata</td></tr>
-<tr><td>storage epoch</td><td>the epoch for Walrus as distinct to the epoch for Sui; the epoch duration for Mainnet is two weeks</td></tr>
-<tr><td>storage node (SN)</td><td>entity storing data for Walrus; holds one or several <em>shards</em></td></tr>
+<tr><td>storage challenge</td><td>cryptographic proof mechanism where <em>storage nodes</em> periodically verify each other’s storage of assigned <em>shards</em> by issuing random challenges during <em>storage attestation</em>.</td></tr>
+<tr><td>storage attestation</td><td>process where <em>storage nodes</em> exchange challenges and responses to demonstrate that they are storing their currently assigned <em>shards</em></td></tr>
+<tr><td>storage node</td><td>entity storing data for Walrus; holds one or several <em>shards</em></td></tr>
+<tr><td>user</td><td>any entity/person that wants to store or read <em>blobs</em> on/from Walrus; can act as a Walrus client itself or use the simple interface exposed by <em>publishers</em> and <em>caches</em></td></tr>
 <tr><td>WAL</td><td>the native Token of Walrus</td></tr>
 <tr><td>Walrus-native metadata</td><td>user-defined metadata per <em>quilt patch</em>, stored on Walrus together with the corresponding <em>quilt</em></td></tr>
 </tbody></table>
