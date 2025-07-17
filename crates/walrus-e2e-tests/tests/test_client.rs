@@ -2446,6 +2446,8 @@ async fn test_store_with_upload_relay() {
             .build()
             .await
             .expect("setup should succeed");
+    assert!((0..65536).contains(&cluster.n_shards));
+
     // Get the cluster wallet so we can fund the client wallet.
     let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
     let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
