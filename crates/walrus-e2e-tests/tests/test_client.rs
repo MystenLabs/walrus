@@ -25,7 +25,6 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tempfile::TempDir;
-use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -2447,7 +2446,6 @@ async fn test_store_with_upload_relay() {
             .build()
             .await
             .expect("setup should succeed");
-
     // Get the cluster wallet so we can fund the client wallet.
     let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
     let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
@@ -2499,22 +2497,56 @@ async fn test_store_with_upload_relay() {
         .as_str(),
     )
     .expect("write client config");
-    // TODO: get config for walrus and relay.
-    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS;
-    let relay_config = WalrusUploadRelayConfig {
-        tip_config: TipConfig::NoTip,
-        tx_freshness_threshold: Duration::from_secs(300),
-        tx_max_future_threshold: Duration::from_secs(10),
-    };
-    let relay_config_path: PathBuf = PathBuf::from("path/to/relay/config.toml");
+    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
+        .parse()
+        .expect("valid server address");
+
+    let relay_config = config_dir.path().join("relay_config.yaml");
+    std::fs::write(
+        &relay_config,
+        serde_yaml::to_string(&WalrusUploadRelayConfig {
+            tip_config: TipConfig::NoTip,
+            tx_freshness_threshold: Duration::from_secs(300),
+            tx_max_future_threshold: Duration::from_secs(10),
+        })
+        .expect("serialize relay config")
+        .as_str(),
+    )
+    .expect("write relay config");
+
     let registry = Registry::default();
 
     let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
         None,
         walrus_config,
         server_address,
-        relay_config_path,
+        relay_config,
         registry,
     );
-    let i = client.inner;
+
+    let n_shards =
+        NonZeroU16::new(u16::try_from(cluster.n_shards).expect("n_shards should fit in u16"))
+            .expect("number of shards should be non-zero");
+
+    let upload_relay_client = UploadRelayClient::new(
+        client_wallet
+            .inner
+            .active_address()
+            .expect("client wallet active address should exist"),
+        n_shards,
+        format!("http://{server_address}")
+            .parse()
+            .expect("valid URL"),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("upload relay client creation should succeed");
+    basic_store_and_read(&client, 1, 40000, Some(upload_relay_client), || Ok(()))
+        .await
+        .expect("store and read with upload relay should succeed");
+    upload_relay_handle
+        .shutdown()
+        .await
+        .expect("shutdown upload relay");
 }
