@@ -209,10 +209,10 @@ impl EventBlobDownloader {
                 event_blob.store_as_file(&blob_path)?;
             }
 
-            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process {
-                if event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process {
-                    break;
-                }
+            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process
+                && event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process
+            {
+                break;
             }
 
             event_blob_id = event_blob.prev_blob_id();

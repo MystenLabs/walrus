@@ -926,15 +926,15 @@ impl StorageNode {
         )?;
 
         // Reposition the event blob writer if it is behind the first available event.
-        if let Some(writer) = event_blob_writer {
-            if writer_starting_index < first_available_event_index {
-                tracing::info!(
-                    "repositioning event blob writer cursor from {} to {}",
-                    writer_starting_index,
-                    first_available_event_index
-                );
-                writer.update(init_state).await?;
-            }
+        if let Some(writer) = event_blob_writer
+            && writer_starting_index < first_available_event_index
+        {
+            tracing::info!(
+                "repositioning event blob writer cursor from {} to {}",
+                writer_starting_index,
+                first_available_event_index
+            );
+            writer.update(init_state).await?;
         }
 
         // Reset the starting indices to the first event that is available for processing and
@@ -1152,12 +1152,12 @@ impl StorageNode {
                     sui_macros::fail_point!("process-event-after");
                 }
 
-                if element_index >= writer_starting_index {
-                    if let Some(writer) = &mut event_blob_writer {
-                        sui_macros::fail_point!("write-event-before");
-                        writer.write(stream_element.clone(), element_index).await?;
-                        sui_macros::fail_point!("write-event-after");
-                    }
+                if element_index >= writer_starting_index
+                    && let Some(writer) = &mut event_blob_writer
+                {
+                    sui_macros::fail_point!("write-event-before");
+                    writer.write(stream_element.clone(), element_index).await?;
+                    sui_macros::fail_point!("write-event-after");
                 }
 
                 anyhow::Result::<()>::Ok(())
@@ -1242,14 +1242,14 @@ impl StorageNode {
             "error.type" = field::Empty,
         );
 
-        if maybe_epoch_at_start.is_some() {
-            if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                self.check_if_node_lagging_and_enter_recovery_mode(
-                    event,
-                    node_status,
-                    maybe_epoch_at_start,
-                )?;
-            }
+        if maybe_epoch_at_start.is_some()
+            && let EventStreamElement::ContractEvent(ref event) = stream_element.element
+        {
+            self.check_if_node_lagging_and_enter_recovery_mode(
+                event,
+                node_status,
+                maybe_epoch_at_start,
+            )?;
         }
 
         // Ignore the error here since this is a best effort operation, and we don't
