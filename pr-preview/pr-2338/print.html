@@ -1484,8 +1484,8 @@ the blob expires after that date if possible.</li>
 <p>A blob expires <em>at the beginning of its end epoch</em>. For example, a blob with end epoch <code>314</code> will
 become unavailable at the beginning of epoch <code>314</code>. One consequence of this is that when storing a
 blob with <code>--epochs 1</code> immediately before an epoch change, it will expire and become unavailable
-almost immediately. Note that blobs can only be <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">extended</a> as
-long as they are not expired.</p>
+almost immediately. Note that blobs can be <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">extended</a> only if
+they have not expired.</p>
 </div>
 </div>
 <p>You can store a single file or multiple files, separated by spaces. Notably, this is compatible
@@ -1600,7 +1600,7 @@ share a newly created blob by adding the <code>--share</code> option to the <cod
 <p>Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.</p>
 <p>See <a href="usage/client-cli.html#extending-the-lifetime-of-a-blob">this section</a> for more on blob extension.</p>
 <h2 id="batch-storing-blobs-with-quilts"><a class="header" href="#batch-storing-blobs-with-quilts">Batch-storing blobs with quilts</a></h2>
-<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.28</em> or higher.</p>
+<p><strong>Note:</strong> The <em>quilt</em> feature is only available in Walrus version <em>v1.29</em> or higher.</p>
 <div id="admonition-warning-1" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-1-title">
 <div class="admonition-title">
 <div id="admonition-warning-1-title">
@@ -1658,14 +1658,16 @@ name is used instead.</p>
 <p>You can retrieve individual blobs (formally "patches") from a quilt without downloading the
 entire quilt. The <code>read-quilt</code> command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.</p>
-<p>To read blobs by their identifiers, repeating the <code>--identifiers</code> flag:</p>
+<p>To read blobs by their identifiers, use the <code>--identifiers</code> flag:</p>
 <pre><code class="language-sh">walrus read-quilt --out &lt;download dir&gt; \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 </code></pre>
-<p>To read blobs by a tag:</p>
+<p>Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download <strong>all</strong> images labeled as cats with the following command:</p>
 <pre><code class="language-sh"># Read all blobs with tag "size: medium"
 walrus read-quilt --out &lt;download dir&gt; \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 </code></pre>
 <p>You can also read a blob using its QuiltPatchId, which can be retrieved using
 <a href="usage/client-cli.html#list-patches-in-a-quilt"><code>list-patches-in-quilt</code></a>.</p>
@@ -1874,6 +1876,153 @@ cURL command downloads the blob corresponding to a Sui blob with a specific obje
 The aggregator recognizes the attribute keys <code>content-disposition</code>, <code>content-encoding</code>,
 <code>content-language</code>, <code>content-location</code>, <code>content-type</code>, and <code>link</code>, and when present returns
 the values in the corresponding HTTP headers.</p>
+<h3 id="quilt-http-apis"><a class="header" href="#quilt-http-apis">Quilt HTTP APIs</a></h3>
+<p>Walrus supports storing and retrieving multiple blobs as a single unit called a <a href="usage/./quilt.html">quilt</a>.
+The publishers and aggregators support <em>quilt</em> related operations.</p>
+<p><strong>Note</strong> Quilt APIs are supported with Walrus <em>1.29</em> and higher.</p>
+<h4 id="storing-quilts"><a class="header" href="#storing-quilts">Storing quilts</a></h4>
+<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
+<div class="admonition-title">
+<div id="admonition-tip-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-tip"></a>
+</div>
+<div>
+<p>All the query parameters available for storing regular blobs (see <a href="usage/web-api.html#store">Store</a> section above) can
+also be used when storing quilts.</p>
+</div>
+</div>
+<p>Use the following publisher API to store multiple blobs as a quilt:</p>
+<pre><code class="language-sh"># Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
+# `logo-2024, respectively.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "contract-v2=@document.pdf" \
+  -F "logo-2024=@image.png"
+
+# Store two files with Walrus-native metadata. The metadata are assigned to the blob with
+# the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
+curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
+  -F "quilt-manual=@document.pdf" \
+  -F "logo-2025=@image.png" \
+  -F '_metadata=[
+    {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+    {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+  ]'
+</code></pre>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-warning"></a>
+</div>
+<div>
+<p>Identifiers must be unique within a quilt.</p>
+</div>
+</div>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-info"></a>
+</div>
+<div>
+<p>Since identifiers cannot start with <code>_</code>, the field name <code>_metadata</code> is reserved for Walrus native
+metadata and won't conflict with user-defined identifiers. See
+<a href="usage/./quilt.html">Quilt documentation</a> for complete identifier restrictions.</p>
+</div>
+</div>
+<p>The quilt store API returns a JSON response with information about the stored quilt, including
+the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+later. The following example shows the command and response (the actual JSON output is returned
+as a single line; it's formatted here for readability):</p>
+<pre><code class="language-console">$ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
+  -F "walrus.jpg=@./walrus-33.jpg" \
+  -F "another_walrus.jpg=@./walrus-46.jpg"
+{
+  "blobStoreResult": {
+    "newlyCreated": {
+      "blobObject": {
+        "id": "0xe6ac1e1ac08a603aef73a34328b0b623ffba6be6586e159a1d79c5ef0357bc02",
+        "registeredEpoch": 103,
+        "blobId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo",
+        "size": 1782224,
+        "encodingType": "RS2",
+        "certifiedEpoch": null,
+        "storage": {
+          "id": "0xbc8ff9b4071927689d59468f887f94a4a503d9c6c5ef4c4d97fcb475a257758f",
+          "startEpoch": 103,
+          "endEpoch": 104,
+          "storageSize": 72040000
+        },
+        "deletable": false
+      },
+      "resourceOperation": {
+        "registerFromScratch": {
+          "encodedLength": 72040000,
+          "epochsAhead": 1
+        }
+      },
+      "cost": 12075000
+    }
+  },
+  "storedQuiltBlobs": [
+    {
+      "identifier": "another_walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA"
+    },
+    {
+      "identifier": "walrus.jpg",
+      "quiltPatchId": "6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoB0AB7Ag"
+    }
+  ]
+}
+</code></pre>
+<h4 id="reading-quilts"><a class="header" href="#reading-quilts">Reading quilts</a></h4>
+<p>There are two ways to retrieve blobs from a quilt via the aggregator APIs:</p>
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
+<div class="admonition-title">
+<div id="admonition-info-1-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-info-1"></a>
+</div>
+<div>
+<p>Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+quilt in a single request is not yet supported.</p>
+</div>
+</div>
+<h5 id="by-quilt-patch-id"><a class="header" href="#by-quilt-patch-id">By quilt patch ID</a></h5>
+<p>Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:</p>
+<pre><code class="language-sh"># Retrieve a blob using its quilt patch ID.
+curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
+</code></pre>
+<div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
+<div class="admonition-title">
+<div id="admonition-tip-1-title">
+<p>Tip</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-tip-1"></a>
+</div>
+<div>
+<p>QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
+<a href="usage/./client-cli.html#batch-storing-blobs-with-quilt"><code>list-patches-in-quilt</code></a> CLI command.</p>
+</div>
+</div>
+<h5 id="by-quilt-id-and-identifier"><a class="header" href="#by-quilt-id-and-identifier">By quilt ID and identifier</a></h5>
+<p>You can also retrieve a blob using the quilt ID and the blob's identifier:</p>
+<pre><code class="language-sh"># Retrieve a blob with identifier `walrus.jpg` from the quilt.
+curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
+</code></pre>
+<p>Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
+and tags are returned as HTTP headers:</p>
+<ul>
+<li><code>X-Quilt-Patch-Identifier</code>: The identifier of the blob within the quilt</li>
+<li><code>ETag</code>: The patch ID or quilt ID for caching purposes</li>
+<li>Additional custom headers from blob tags (if configured)</li>
+</ul>
 <h2 id="public-services"><a class="header" href="#public-services">Using a public aggregator or publisher</a></h2>
 <p>For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
 aggregator and/or publisher is required. On Walrus Testnet, many entities run public aggregators and
@@ -2361,7 +2510,9 @@ WAL it might be cheaper to burn a long lived blob object, and subsequently re-re
 re-certifying them close to the end of its lifetime to extend it.</p>
 <h3 id="reducing-costs-for-small-blobs"><a class="header" href="#reducing-costs-for-small-blobs">Reducing costs for small blobs</a></h3>
 <p>Walrus <a href="dev-guide/../usage/quilt.html">Quilt</a> is a batch storage tool that reduces storage costs for small
-blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.</p>
+blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.
+Quilt can also significantly reduce Sui computation and storage costs, as detailed in the
+<a href="dev-guide/../usage/quilt.html#lower-cost">Lower Cost</a> section.</p>
 <h2 id="the-future"><a class="header" href="#the-future">The future</a></h2>
 <p>The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
 smaller, as well as further improving the efficiency of Quilt for small blob storage.</p>
@@ -2465,7 +2616,7 @@ If your app needs encryption or access control, secure data before uploading to 
 </ul>
 <p>To get started, refer to the <a href="https://www.npmjs.com/package/@mysten/seal">Seal SDK</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
-<h1 id="quilt-walrus-native-batch-store-tool"><a class="header" href="#quilt-walrus-native-batch-store-tool">Quilt: Walrus Native Batch Store Tool</a></h1>
+<h1 id="quilt-walrus-native-batch-store-tool"><a class="header" href="#quilt-walrus-native-batch-store-tool">Quilt: Walrus native batch store tool</a></h1>
 <p><em>Quilt</em> is a batch storage feature, aiming to optimize the storage cost and efficiency of large
 numbers of small blobs. Prior to <em>quilt</em>, storing small blobs (less than 10MB) in Walrus
 involved higher per-byte costs due to internal system data overhead. <em>Quilt</em> addresses this by
@@ -2484,19 +2635,32 @@ Blob Metadata store on-chain, however, there are some fundamental distinctions. 
 simplifies management. Second, this metadata can be used for efficient lookup of blobs within a
 quilt, for example, reading blobs with a particular tag. When storing a quilt, users can set
 the <code>Walrus-native</code> metadata via the <em>quilt</em> APIs.</p>
-<h2 id="important-considerations"><a class="header" href="#important-considerations">Important Considerations</a></h2>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="usage/quilt.html#admonition-warning"></a>
+</div>
+<div>
+<p>An identifier must start with an alphanumeric character, contain no trailing whitespace,
+and not exceed 64 KB in length.</p>
+<p>The total size of all tags combined must not exceed 64 KB.</p>
+</div>
+</div>
+<h2 id="important-considerations"><a class="header" href="#important-considerations">Important considerations</a></h2>
 <p>It's important to note that blobs stored in a quilt are assigned a unique ID, called <code>QuiltPatchId</code>,
 that differs from the <code>BlobId</code> used for regular Walrus blobs, and a <code>QuiltPatchId</code> is determined by
 the composition of the entire quilt, ranther than the single blob, and hence it may change if the
 blob is stored in a different quilt. Moreover, individual blobs cannot be deleted, extended or shared
 separately; these operations can only be applied to the entire quilt.</p>
-<h2 id="target-use-cases"><a class="header" href="#target-use-cases">Target Use Cases</a></h2>
+<h2 id="target-use-cases"><a class="header" href="#target-use-cases">Target use cases</a></h2>
 <p>Using <em>quilt</em> requires minimal additional effort beyond standard procedures. The primary
 considerations are that the unique ID assigned to each blob within a quilt cannot be
 directly derived from its contents, unlike a regular Walrus blob_id, deletion, extension
 and share operations are not allowed on individual blobs in the quilt, only the quilt
 can be the target.</p>
-<h3 id="lower-cost"><a class="header" href="#lower-cost">Lower Cost</a></h3>
+<h3 id="lower-cost"><a class="header" href="#lower-cost">Lower cost</a></h3>
 <p>This is the most clear and significant use case. <em>quilt</em> is especially advantageous for
 managing large volumes of small blobs, as long as they can be grouped together by the
 user. By consolidating multiple small blobs into a single quilt, storage costs can be
@@ -2524,17 +2688,17 @@ standard blobs (with <code>walrus store</code> command, with 25 blobs per comman
 costs), which is a savings factor of <strong>238x</strong>. These values are not affected by the blob size.
 Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
 blobs under 100KB where both SUI and WAL costs can be reduced by over <strong>100x</strong>.</p>
-<h3 id="organizing-collections"><a class="header" href="#organizing-collections">Organizing Collections</a></h3>
+<h3 id="organizing-collections"><a class="header" href="#organizing-collections">Organizing collections</a></h3>
 <p><em>Quilt</em> provides a straightforward way to organize and manage collections of small blobs
 within a single unit. This can simplify data handling and improve operational efficiency
 when working with related small files, such as NFT image collections.</p>
-<h3 id="walrus-native-blob-metadata"><a class="header" href="#walrus-native-blob-metadata">Walrus Native Blob Metadata</a></h3>
+<h3 id="walrus-native-blob-metadata"><a class="header" href="#walrus-native-blob-metadata">Walrus native blob metadata</a></h3>
 <p><em>Quilt</em> supports immutable, custom metadata stored directly in Walrus, including
 identifiers and tags. These features facilitate better organization, enable flexible
 lookup, and assist in managing blobs within each quilt, enhancing retrieval and
 management processes.</p>
 <p>For details on how to use the CLI to interact with <em>quilt</em>, see the
-<a href="usage/./client-cli.html#batch-storing-blobs-with-quilt">CLI documentation</a>.</p>
+<a href="usage/./client-cli.html#batch-storing-blobs-with-quilt">Batch-storing blobs with quilts</a> section.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="operator-guide"><a class="header" href="#operator-guide">Operator guide</a></h1>
 <p>This guide contains information about operating services in the network, specifically storage nodes,
