@@ -963,6 +963,15 @@ pub struct WalrusSubsidies {
     pub(crate) inner: Option<WalrusSubsidiesInner>,
 }
 
+#[cfg(feature = "test-utils")]
+impl WalrusSubsidies {
+    /// Returns the subsidy pool funds for the WalrusSubsidies object if it was requested with
+    /// the inner object.
+    pub fn subsidy_pool_funds(&self) -> Option<u64> {
+        self.inner.as_ref().map(|inner| inner.subsidy_pool)
+    }
+}
+
 /// Sui type for outer system object. Used for deserialization.
 #[derive(Debug, Deserialize)]
 pub(crate) struct WalrusSubsidiesForDeserialization {

@@ -1260,6 +1260,47 @@ async fn test_blob_operations_with_credits() -> TestResult {
     Ok(())
 }
 
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .build()
+        .await?;
+
+    let initial_subsidies_funds = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .subsidy_pool_funds()
+        .expect("should return some, subsidies were requested with inner");
+    assert!(initial_subsidies_funds > 0);
+
+    let epoch = client.as_ref().sui_client().current_epoch().await?;
+    // Use basic_store_and_read with our pre_read_hook.
+    basic_store_and_read(&client, 4, 314, || Ok(())).await?;
+
+    // Wait for the cluster to reach the next epoch.
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+
+    let final_subsidies_funds = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .subsidy_pool_funds()
+        .expect("should return some, subsidies were requested with inner");
+
+    assert!(final_subsidies_funds < initial_subsidies_funds);
+
+    Ok(())
+}
+
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]

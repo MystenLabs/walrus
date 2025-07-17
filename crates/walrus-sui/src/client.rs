@@ -1965,6 +1965,7 @@ impl SuiContractClientInner {
     ///
     /// Requires the new walrus subsidy contract to be set.
     pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+        tracing::debug!("sending transaction to call process_subsidies");
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.process_subsidies().await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;

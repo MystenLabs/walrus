@@ -807,7 +807,7 @@ impl SuiReadClient {
 
     /// Checks if the walrus subsidies object
     /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) exist on chain and returns the object.
-    pub(crate) async fn get_walrus_subsidies_object(
+    pub async fn get_walrus_subsidies_object(
         &self,
         with_inner: bool,
     ) -> SuiClientResult<WalrusSubsidies> {

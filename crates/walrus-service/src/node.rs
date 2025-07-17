@@ -1435,6 +1435,7 @@ impl StorageNode {
                 self.epoch_change_driver.schedule_initiate_epoch_change(
                     NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
                 );
+                self.epoch_change_driver.schedule_process_subsidies();
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
