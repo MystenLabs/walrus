@@ -98,8 +98,7 @@ impl BlobSyncHandler {
                     let mut completed_blob_ids = Vec::new();
 
                     for (blob_id, handle) in syncs.iter_mut() {
-<<<<<<< HEAD
-<<<<<<< HEAD
+                        // Collect handles to be awaited.
                         if let Some(sync_handle) = &handle.blob_sync_handle
                             && sync_handle.is_finished()
                         {
@@ -108,33 +107,9 @@ impl BlobSyncHandler {
                                 "blob sync monitor observed blob sync finished"
                             );
                             if let Some(join_handle) = handle.blob_sync_handle.take() {
-                                handles.push((*blob_id, join_handle));
-=======
-                        // Cancel the sync if the blob is no longer certified.
-                        if node.is_blob_not_certified(blob_id) {
-                            tracing::debug!(
-                                walrus.blob_id = %blob_id,
-                                "cancelling blob sync because blob is no longer certified"
-                            );
-                            handle.cancel();
-                        }
-
-=======
->>>>>>> 10b24fe8 (address review comments)
-                        // Collect handles to be awaited.
-                        if let Some(sync_handle) = &handle.blob_sync_handle {
-                            if sync_handle.is_finished() {
-                                tracing::info!(
-                                    walrus.blob_id = %blob_id,
-                                    "blob sync monitor observed blob sync finished"
-                                );
-                                if let Some(join_handle) = handle.blob_sync_handle.take() {
-                                    finished_sync_handles.push((*blob_id, join_handle));
-                                }
-                                completed_blob_ids.push(*blob_id);
->>>>>>> 55c8bbd8 (fix(node): cancel blob syncs for expired blobs)
+                                finished_sync_handles.push((*blob_id, join_handle));
                             }
-                            completed.push(*blob_id);
+                            completed_blob_ids.push(*blob_id);
                         }
 
                         // Cancel the sync if the blob is no longer certified.
