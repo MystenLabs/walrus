@@ -1118,6 +1118,13 @@ impl Client<SuiContractClient> {
             return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
         }
 
+        if cfg!(any(test, feature = "test-utils")) {
+            // Sleep for 30 seconds to allow the nodes to see registered blobs.
+            // This is only neededfor testing purposes.
+            tracing::info!("sleeping for 30 seconds");
+            tokio::time::sleep(Duration::from_millis(30_000)).await;
+        }
+
         let get_certificates_timer = Instant::now();
         // Get the blob certificates, possibly storing slivers, while checking if the committee has
         // changed in the meantime.

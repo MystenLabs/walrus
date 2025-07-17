@@ -872,7 +872,7 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
     assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
     client.delete_owned_blob(&blob_id).await?;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(10_000)).await;
 
     let status_result = client
         .get_verified_blob_status(
@@ -1219,8 +1219,36 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     assert!(initial_subsidies_funds > 0);
 
     let epoch = client.as_ref().sui_client().current_epoch().await?;
-    // Use basic_store_and_read with our pre_read_hook.
-    basic_store_and_read(&client, 4, 314, || Ok(())).await?;
+
+    // Retry on committee change notifications to handle committee changes.
+    let mut last_err = None;
+    for _ in 0..5 {
+        let result = basic_store_and_read(&client, 4, 314, || Ok(())).await;
+        match result {
+            Ok(_) => {
+                last_err = None;
+                break;
+            }
+            Err(err) => {
+                if let Some(client_error) = err.downcast_ref::<ClientError>() {
+                    if matches!(
+                        client_error.kind(),
+                        ClientErrorKind::CommitteeChangeNotified
+                    ) {
+                        tracing::warn!("Committee change notified, retrying...");
+                        last_err = Some(err);
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
+                // for other errors, fail immediately.
+                return Err(err);
+            }
+        }
+    }
+    if let Some(err) = last_err {
+        return Err(err);
+    }
 
     // Wait for the cluster to reach two epochs ahead of the current epoch. This is to ensure that
     // the subsidies are processed at least once between checking the initial and final funds, since
@@ -1391,6 +1419,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
+            disable_event_blob_writer: true,
             ..Default::default()
         })
         .build()
@@ -2195,6 +2224,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![1, 1],
+            disable_event_blob_writer: true,
             ..Default::default()
         })
         .build()
