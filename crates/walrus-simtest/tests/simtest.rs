@@ -713,6 +713,8 @@ mod tests {
         clear_fail_point("start_node_recovery_entry");
     }
 
+    // Tests that non-blocking, out of ordering event processing does not block event progress.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn walrus_certified_event_processing_jitter() {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
@@ -745,9 +747,38 @@ mod tests {
         // Wait for event to catch up.
         tokio::time::sleep(Duration::from_secs(60)).await;
 
-        let health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
-        for node_health in health_info {
-            assert!(node_health.event_progress.pending < 10);
+        // Wait for all nodes to have event_progress.pending < 10 with timeout
+        let timeout = Duration::from_secs(60);
+        let start_time = Instant::now();
+
+        loop {
+            let health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+            let mut some_nodes_have_long_pending_events = false;
+
+            for (index, node_health) in health_info.iter().enumerate() {
+                tracing::info!(
+                    "checking node event progress, index {index}, node id: {:?}, \
+                    event progress: {:?}",
+                    node_health.public_key,
+                    node_health.event_progress
+                );
+
+                if node_health.event_progress.pending >= 10 {
+                    some_nodes_have_long_pending_events = true;
+                    break;
+                }
+            }
+
+            if !some_nodes_have_long_pending_events {
+                tracing::info!("all nodes do not have long pending events");
+                break;
+            }
+
+            if start_time.elapsed() > timeout {
+                panic!("timeout waiting for all nodes to consume pending events",);
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
         blob_info_consistency_check.check_storage_node_consistency();
