@@ -93,10 +93,10 @@ impl ExponentialBackoffState {
     }
 
     pub fn next_delay<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Duration> {
-        if let Some(max_retries) = self.max_retries {
-            if self.sequence_index >= max_retries {
-                return None;
-            }
+        if let Some(max_retries) = self.max_retries
+            && self.sequence_index >= max_retries
+        {
+            return None;
         }
 
         let next_delay_value = self

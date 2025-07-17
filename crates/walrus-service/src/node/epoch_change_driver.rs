@@ -305,20 +305,20 @@ impl Future for EpochChangeDriverInner<'_> {
             .clone_from(cx.waker());
 
         tracing::info_span!("scheduled_end_voting").in_scope(|| {
-            if let Some((_, end_voting_future)) = this.end_voting_future.as_mut() {
-                if let Poll::Ready(()) = end_voting_future.poll_unpin(cx) {
-                    tracing::trace!("voting-end future completed");
-                    this.end_voting_future = None;
-                }
+            if let Some((_, end_voting_future)) = this.end_voting_future.as_mut()
+                && let Poll::Ready(()) = end_voting_future.poll_unpin(cx)
+            {
+                tracing::trace!("voting-end future completed");
+                this.end_voting_future = None;
             }
         });
 
         tracing::info_span!("scheduled_initiate_epoch_change").in_scope(|| {
-            if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut() {
-                if let Poll::Ready(()) = epoch_change_start.poll_unpin(cx) {
-                    tracing::trace!("epoch-change-start future completed");
-                    this.epoch_change_start_future = None;
-                }
+            if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut()
+                && let Poll::Ready(()) = epoch_change_start.poll_unpin(cx)
+            {
+                tracing::trace!("epoch-change-start future completed");
+                this.epoch_change_start_future = None;
             }
         });
 

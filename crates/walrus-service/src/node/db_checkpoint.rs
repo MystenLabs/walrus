@@ -748,11 +748,11 @@ impl DbCheckpointManager {
             return Err(DbCheckpointError::Other(error.into()));
         }
 
-        if let Some(handle) = self.schedule_loop_handle.take() {
-            if let Err(error) = handle.await {
-                tracing::warn!(?error, "error joining schedule loop");
-                return Err(DbCheckpointError::Other(error.into()));
-            }
+        if let Some(handle) = self.schedule_loop_handle.take()
+            && let Err(error) = handle.await
+        {
+            tracing::warn!(?error, "error joining schedule loop");
+            return Err(DbCheckpointError::Other(error.into()));
         }
 
         Ok(())

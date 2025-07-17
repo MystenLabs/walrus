@@ -155,7 +155,7 @@ mod tests {
             // Fetch the remote config.
             let remote_config = test_get_synced_node_config_set(client, node_id).await?;
 
-            let local_config = config.read().await;
+            let local_config = config.read().await.clone();
 
             tracing::info!(
                 "Comparing local and remote configs:\n\
@@ -205,8 +205,6 @@ mod tests {
                 tracing::info!("node config is now in sync with on-chain state");
                 return Ok(());
             }
-            // Release the read lock explicitly before sleeping.
-            drop(local_config);
 
             tokio::time::sleep(Duration::from_secs(5)).await;
         }

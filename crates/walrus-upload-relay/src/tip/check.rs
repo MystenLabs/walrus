@@ -56,11 +56,11 @@ pub(crate) fn check_tx_freshness(
         }
     };
 
-    if let Some(diff) = cur_timestamp.checked_sub(tx_timestamp) {
-        if diff > freshness_threshold {
-            tracing::debug!(?diff, "the transaction is too old");
-            return Err(TipError::TxTooOld);
-        }
+    if let Some(diff) = cur_timestamp.checked_sub(tx_timestamp)
+        && diff > freshness_threshold
+    {
+        tracing::debug!(?diff, "the transaction is too old");
+        return Err(TipError::TxTooOld);
     }
 
     Ok(())

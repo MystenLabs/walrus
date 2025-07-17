@@ -375,10 +375,11 @@ impl<T: ReadClient> Client<T> {
         };
 
         // Return an error if the blob is not registered.
-        if let Some(status) = blob_status {
-            if matches!(status, BlobStatus::Nonexistent | BlobStatus::Invalid { .. }) {
-                return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
-            }
+        if matches!(
+            blob_status,
+            Some(BlobStatus::Nonexistent | BlobStatus::Invalid { .. })
+        ) {
+            return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
         }
 
         // Read from the epoch of certification, or the current epoch if so far we have not been
@@ -2119,8 +2120,10 @@ impl<T> Client<T> {
         let n_not_found = requests
             .inner_err()
             .iter()
-            .filter(|err| err.is_status_not_found())
-            .count();
+            .filter(|(err, _)| err.is_status_not_found())
+            .map(|(_, weight)| weight)
+            .sum();
+
         if committees.is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
@@ -2151,11 +2154,11 @@ impl<T> Client<T> {
     /// Returns a [`ClientError`] with [`ClientErrorKind::BlobIdBlocked`] if the provided blob ID is
     /// contained in the blocklist.
     fn check_blob_id(&self, blob_id: &BlobId) -> ClientResult<()> {
-        if let Some(blocklist) = &self.blocklist {
-            if blocklist.is_blocked(blob_id) {
-                tracing::debug!(%blob_id, "encountered blocked blob ID");
-                return Err(ClientErrorKind::BlobIdBlocked(*blob_id).into());
-            }
+        if let Some(blocklist) = &self.blocklist
+            && blocklist.is_blocked(blob_id)
+        {
+            tracing::debug!(%blob_id, "encountered blocked blob ID");
+            return Err(ClientErrorKind::BlobIdBlocked(*blob_id).into());
         }
         Ok(())
     }
