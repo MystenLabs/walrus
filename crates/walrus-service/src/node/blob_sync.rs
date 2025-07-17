@@ -15,7 +15,7 @@ use futures::{
     future::{self, try_join_all},
     stream,
 };
-use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
+use mysten_metrics::{GaugeGuard, InflightGuardFutureExt as _};
 use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore, watch},
@@ -93,17 +93,17 @@ impl BlobSyncHandler {
 
                     // Collect handles to be awaited
                     for (blob_id, handle) in syncs.iter_mut() {
-                        if let Some(sync_handle) = &handle.blob_sync_handle {
-                            if sync_handle.is_finished() {
-                                tracing::info!(
-                                    walrus.blob_id = %blob_id,
-                                    "blob sync monitor observed blob sync finished"
-                                );
-                                if let Some(join_handle) = handle.blob_sync_handle.take() {
-                                    handles.push((*blob_id, join_handle));
-                                }
-                                completed.push(*blob_id);
+                        if let Some(sync_handle) = &handle.blob_sync_handle
+                            && sync_handle.is_finished()
+                        {
+                            tracing::info!(
+                            walrus.blob_id = %blob_id,
+                                "blob sync monitor observed blob sync finished"
+                            );
+                            if let Some(join_handle) = handle.blob_sync_handle.take() {
+                                handles.push((*blob_id, join_handle));
                             }
+                            completed.push(*blob_id);
                         }
                     }
 
@@ -403,7 +403,7 @@ impl BlobSyncHandler {
                         let _permit = permits
                             .blob
                             .acquire_owned()
-                            .count_in_flight(&queued_gauge)
+                            .count_in_flight(queued_gauge)
                             .await
                             .expect("semaphore should not be dropped");
 

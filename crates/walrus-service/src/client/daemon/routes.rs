@@ -162,12 +162,12 @@ fn populate_response_headers_from_attributes(
     allowed_headers: Option<&HashSet<String>>,
 ) {
     for (key, value) in attribute.iter() {
-        if !key.is_empty() && allowed_headers.is_none_or(|headers| headers.contains(key)) {
-            if let (Ok(header_name), Ok(header_value)) =
+        if !key.is_empty()
+            && allowed_headers.is_none_or(|headers| headers.contains(key))
+            && let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
-            {
-                headers.insert(header_name, header_value);
-            }
+        {
+            headers.insert(header_name, header_value);
         }
     }
 }
@@ -210,14 +210,14 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
             .await;
 
             // If the response was successful, add our additional metadata headers
-            if response.status() == StatusCode::OK {
-                if let Some(attribute) = attribute {
-                    populate_response_headers_from_attributes(
-                        response.headers_mut(),
-                        &attribute,
-                        Some(&response_header_config.allowed_headers),
-                    );
-                }
+            if response.status() == StatusCode::OK
+                && let Some(attribute) = attribute
+            {
+                populate_response_headers_from_attributes(
+                    response.headers_mut(),
+                    &attribute,
+                    Some(&response_header_config.allowed_headers),
+                );
             }
 
             response
@@ -306,10 +306,10 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     blob: Bytes,
 ) -> Response {
     // Check if there is an authorization claim, and use it to check the size.
-    if let Some(TypedHeader(header)) = bearer_header {
-        if let Err(error) = check_blob_size(header, blob.len()) {
-            return error.into_response();
-        }
+    if let Some(TypedHeader(header)) = bearer_header
+        && let Err(error) = check_blob_size(header, blob.len())
+    {
+        return error.into_response();
     }
 
     let blob_persistence = match query.blob_persistence() {
@@ -365,15 +365,15 @@ fn check_blob_size(
 
     match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
         Ok(claim) => {
-            if let Some(max_size) = claim.max_size {
-                if blob_size as u64 > max_size {
-                    return Err(PublisherAuthError::InvalidSize);
-                }
+            if let Some(max_size) = claim.max_size
+                && blob_size as u64 > max_size
+            {
+                return Err(PublisherAuthError::InvalidSize);
             }
-            if let Some(size) = claim.size {
-                if blob_size as u64 != size {
-                    return Err(PublisherAuthError::InvalidSize);
-                }
+            if let Some(size) = claim.size
+                && blob_size as u64 != size
+            {
+                return Err(PublisherAuthError::InvalidSize);
             }
             Ok(())
         }
@@ -898,10 +898,10 @@ pub(super) async fn put_quilt<T: WalrusWriteClient>(
         }
     };
 
-    if let Some(TypedHeader(header)) = bearer_header {
-        if let Err(error) = check_blob_size(header, quilt.data().len()) {
-            return error.into_response();
-        }
+    if let Some(TypedHeader(header)) = bearer_header
+        && let Err(error) = check_blob_size(header, quilt.data().len())
+    {
+        return error.into_response();
     }
 
     let result = client

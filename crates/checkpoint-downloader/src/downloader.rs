@@ -547,17 +547,16 @@ impl ParallelCheckpointDownloaderInner {
 /// it is logged as an error.
 /// Otherwise, it is logged as a debug.
 fn handle_checkpoint_error(err: &RetriableClientError, next_checkpoint: u64) {
-    if let RetriableClientError::RpcError(rpc_error) = err {
-        if let Some(checkpoint_height) = rpc_error.status.checkpoint_height() {
-            if next_checkpoint > checkpoint_height {
-                return tracing::trace!(
-                    next_checkpoint,
-                    checkpoint_height,
-                    message = rpc_error.status.message(),
-                    "failed to read next checkpoint, probably not produced yet",
-                );
-            }
-        }
+    if let RetriableClientError::RpcError(rpc_error) = err
+        && let Some(checkpoint_height) = rpc_error.status.checkpoint_height()
+        && next_checkpoint > checkpoint_height
+    {
+        return tracing::trace!(
+            next_checkpoint,
+            checkpoint_height,
+            message = rpc_error.status.message(),
+            "failed to read next checkpoint, probably not produced yet",
+        );
     }
     tracing::warn!(next_checkpoint, ?err, "failed to read next checkpoint");
 }

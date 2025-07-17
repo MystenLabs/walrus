@@ -136,6 +136,7 @@ impl ToErrorType for sui_sdk::error::Error {
             Self::ServerVersionMismatch { .. } => "version_mismatch".to_string(),
             Self::InsufficientFund { .. } => "insufficient_fund".to_string(),
             Self::InvalidSignature => "invalid_sig".to_string(),
+            Self::CustomHeadersError(_) => "custom_headers".to_string(),
         }
     }
 }

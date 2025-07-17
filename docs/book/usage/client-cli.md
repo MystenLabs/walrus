@@ -95,26 +95,36 @@ Storing one or multiple blobs on Walrus can be achieved through the following co
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-A mandatory CLI argument must be set to specify the end epoch for the blob.
-The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
-corresponding to two years. In addition to a positive integer,
-you can also use `--epochs max` to store the blob for the maximum number of epochs.
+A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
+ways for this:
 
-Moreover, the end epoch for the stored blob can be provided through other options. The
-`--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
-(e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-the blob expires after that date if possible. Finally, the `--end-epoch <END_EPOCH>` option takes
-a specific end epoch for the blob.
+1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for.
+   There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
+   to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
+   for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
+   specified number of epochs.
+1. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
+   (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+   the blob expires after that date if possible.
+1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
+
+```admonish warning title="End epoch"
+A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` will
+become unavailable at the beginning of epoch `314`. One consequence of this is that when storing a
+blob with `--epochs 1` immediately before an epoch change, it will expire and become unavailable
+almost immediately. Note that blobs can be [extended](#extending-the-lifetime-of-a-blob) only if
+they have not expired.
+```
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
 in the current directory.
 
-By default, the command will store the blob as a *permanent* blob. See the [section on deletable
-blobs](#reclaiming-space-via-deletable-blobs) for more details on deletable blobs. Also, by default
-an owned `Blob` object is created. It is possible to wrap this into a shared object, which can be
-funded and extended by anyone, see the [shared blobs section](#shared-blobs).
+By default, the command will store the blob as a *permanent* blob, although this is going to change
+in the near future. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs) for more
+details on deletable blobs. Also, by default an owned `Blob` object is created. It is possible to
+wrap this into a shared object, which can be funded and extended by anyone, see the [shared blobs
+section](#shared-blobs).
 
 When storing a blob, the client performs a number of automatic optimizations, including the
 following:
@@ -168,13 +178,13 @@ Recall that when you stored your blob, it was necessary to specify its [end epoc
 By specifying the end epoch you ensured that the blob would be available via `walrus read` (or other
 SDK access to Walrus) until that end epoch is reached.
 
-Walrus blob lifetimes can be extended using the `walrus extend --blob-obj-id <blob object id> ...`
-command. Both regular single-address owned blobs and [shared blobs](#shared-blobs) may be extended.
-Shared blobs may be extended by anyone, but owned blobs may only be extended by their owner. When
-extending a shared blob, you will need to supply the `--shared` flag to inform the command that the
-blob is shared.
+Walrus blob lifetimes can be extended *as long as the blobs are not expired* using the
+`walrus extend --blob-obj-id <blob object id> ...` command. Both regular single-address owned blobs
+and [shared blobs](#shared-blobs) may be extended. Shared blobs may be extended by anyone, but owned
+blobs may only be extended by their owner. When extending a shared blob, you will need to supply the
+`--shared` flag to inform the command that the blob is shared.
 
-Note that the blob's *object ID* will be needed in order to extend it. The blob ID is not needed.
+Note that the blob's *object ID* will be needed in order to extend it, the blob ID is not needed.
 See `walrus extend --help` for more information on blob extension.
 
 ## Reclaiming space via deletable blobs
@@ -239,7 +249,7 @@ See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension
 
 ## Batch-storing blobs with quilts
 
- **Note:** The *quilt* feature is only available in Walrus version *v1.28* or higher.
+ **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
 
 ```admonish warning
 - Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
@@ -297,19 +307,21 @@ You can retrieve individual blobs (formally "patches") from a quilt without down
 entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier,
 tags, or unique patch ID.
 
-To read blobs by their identifiers, repeating the `--identifiers` flag:
+To read blobs by their identifiers, use the `--identifiers` flag:
 
 ```sh
 walrus read-quilt --out <download dir> \
   --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
 ```
 
-To read blobs by a tag:
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download **all** images labeled as cats with the following command:
 
 ```sh
 # Read all blobs with tag "size: medium"
 walrus read-quilt --out <download dir> \
-  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag size medium
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
 ```
 
 You can also read a blob using its QuiltPatchId, which can be retrieved using

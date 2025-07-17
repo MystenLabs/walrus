@@ -140,6 +140,8 @@ re-certifying them close to the end of its lifetime to extend it.
 
 Walrus [Quilt](../usage/quilt.md) is a batch storage tool that reduces storage costs for small
 blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.
+Quilt can also significantly reduce Sui computation and storage costs, as detailed in the
+[Lower Cost](../usage/quilt.md#lower-cost) section.
 
 ## The future
 

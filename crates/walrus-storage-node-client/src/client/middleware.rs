@@ -568,10 +568,10 @@ struct HeaderInjector<'a>(pub &'a mut HeaderMap);
 
 impl Injector for HeaderInjector<'_> {
     fn set(&mut self, key: &str, value: String) {
-        if let Ok(name) = HeaderName::from_bytes(key.as_bytes()) {
-            if let Ok(val) = HeaderValue::from_str(&value) {
-                self.0.insert(name, val);
-            }
+        if let Ok(name) = HeaderName::from_bytes(key.as_bytes())
+            && let Ok(val) = HeaderValue::from_str(&value)
+        {
+            self.0.insert(name, val);
         }
     }
 }

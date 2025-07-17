@@ -1,4 +1,4 @@
-# Quilt: Walrus Native Batch Store Tool
+# Quilt: Walrus native batch store tool
 
 *Quilt* is a batch storage feature, aiming to optimize the storage cost and efficiency of large
 numbers of small blobs. Prior to *quilt*, storing small blobs (less than 10MB) in Walrus
@@ -21,7 +21,14 @@ simplifies management. Second, this metadata can be used for efficient lookup of
 quilt, for example, reading blobs with a particular tag. When storing a quilt, users can set
 the `Walrus-native` metadata via the *quilt* APIs.
 
-## Important Considerations
+```admonish warning
+An identifier must start with an alphanumeric character, contain no trailing whitespace,
+and not exceed 64 KB in length.
+
+The total size of all tags combined must not exceed 64 KB.
+```
+
+## Important considerations
 
 It's important to note that blobs stored in a quilt are assigned a unique ID, called `QuiltPatchId`,
 that differs from the `BlobId` used for regular Walrus blobs, and a `QuiltPatchId` is determined by
@@ -29,7 +36,7 @@ the composition of the entire quilt, ranther than the single blob, and hence it 
 blob is stored in a different quilt. Moreover, individual blobs cannot be deleted, extended or shared
 separately; these operations can only be applied to the entire quilt.
 
-## Target Use Cases
+## Target use cases
 
 Using *quilt* requires minimal additional effort beyond standard procedures. The primary
 considerations are that the unique ID assigned to each blob within a quilt cannot be
@@ -37,7 +44,7 @@ directly derived from its contents, unlike a regular Walrus blob_id, deletion, e
 and share operations are not allowed on individual blobs in the quilt, only the quilt
 can be the target.
 
-### Lower Cost
+### Lower cost
 
 This is the most clear and significant use case. *quilt* is especially advantageous for
 managing large volumes of small blobs, as long as they can be grouped together by the
@@ -68,13 +75,13 @@ costs), which is a savings factor of **238x**. These values are not affected by 
 Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
 blobs under 100KB where both SUI and WAL costs can be reduced by over **100x**.
 
-### Organizing Collections
+### Organizing collections
 
 *Quilt* provides a straightforward way to organize and manage collections of small blobs
 within a single unit. This can simplify data handling and improve operational efficiency
 when working with related small files, such as NFT image collections.
 
-### Walrus Native Blob Metadata
+### Walrus native blob metadata
 
 *Quilt* supports immutable, custom metadata stored directly in Walrus, including
 identifiers and tags. These features facilitate better organization, enable flexible
@@ -82,4 +89,4 @@ lookup, and assist in managing blobs within each quilt, enhancing retrieval and
 management processes.
 
 For details on how to use the CLI to interact with *quilt*, see the
-[CLI documentation](./client-cli.md#batch-storing-blobs-with-quilt).
+[Batch-storing blobs with quilts](./client-cli.md#batch-storing-blobs-with-quilt) section.

@@ -126,10 +126,10 @@ impl<P> Orchestrator<P> {
             if client_instances.len() == parameters.clients {
                 break;
             }
-            if let Some(regional_instances) = instances_by_regions.get_mut(region) {
-                if let Some(instance) = regional_instances.pop_front() {
-                    client_instances.push(instance.clone());
-                }
+            if let Some(regional_instances) = instances_by_regions.get_mut(region)
+                && let Some(instance) = regional_instances.pop_front()
+            {
+                client_instances.push(instance.clone());
             }
         }
 
