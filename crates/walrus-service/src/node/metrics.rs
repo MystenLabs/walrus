@@ -330,6 +330,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::Other(_) => "unknown",
             ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
             ClientErrorKind::QuiltError(_) => "quilt-error",
+            ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
         }
     }
 }

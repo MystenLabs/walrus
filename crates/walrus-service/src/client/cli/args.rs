@@ -15,6 +15,7 @@ use std::{
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -1045,6 +1046,17 @@ pub struct CommonStoreOptions {
     #[arg(long, hide = true)]
     #[serde(default)]
     pub encoding_type: Option<EncodingType>,
+    /// Walrus Upload Relay URL to use for storing the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub upload_relay: Option<Url>,
+    /// Whether to ask for user confirmations.
+    ///
+    /// If yes is specified, the client will not ask for confirmations and proceed with the
+    /// operation.
+    #[arg(long)]
+    #[serde(default)]
+    pub yes: bool,
 }
 
 #[serde_as]
@@ -1751,6 +1763,8 @@ mod tests {
                 permanent: false,
                 share: false,
                 encoding_type: Default::default(),
+                upload_relay: None,
+                yes: false,
             },
         })
     }

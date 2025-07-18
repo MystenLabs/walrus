@@ -146,9 +146,11 @@ components:
             properties:
               address:
                 $ref: '#/components/schemas/SuiAddress'
+                description: The address to which a tip.
               kind:
                 $ref: '#/components/schemas/TipKind'
-      description: The configuration for the tips to the proxy.
+                description: The formula to compute the tip.
+      description: The configuration for the tips to the relay.
     TipKind:
       oneOf:
       - type: object
@@ -162,32 +164,29 @@ components:
             description: A constant tip.
             minimum: 0
       - type: object
-        description: |-
-          A tip that linearly depends on the encoded size of the blob.
-
-          If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
-          `base + encoded_size * encoded_size_mul_per_kib`.
+        description: A tip that linearly depends on the encoded size of the blob.
         required:
         - linear
         properties:
           linear:
             type: object
-            description: |-
-              A tip that linearly depends on the encoded size of the blob.
-
-              If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
-              `base + encoded_size * encoded_size_mul_per_kib`.
+            description: A tip that linearly depends on the encoded size of the blob.
             required:
             - base
-            - encoded_size_mul_per_kib
+            - encoded_size_mul_per_kb
             properties:
               base:
                 type: integer
                 format: int64
+                description: The base tip amount to be charged for each upload.
                 minimum: 0
-              encoded_size_mul_per_kib:
+              encoded_size_mul_per_kb:
                 type: integer
                 format: int64
+                description: |-
+                  The amount of tip charged per kilobyte of the encoded blob size. Note that this adds to
+                  the base tip, so the total tip for a blob is:
+                  `base + encoded_size_mul_per_kb * ⌊encoded_size_in_bytes / 1024⌋`.
                 minimum: 0
       description: The kinds of tip that the proxy can choose to configure.
       examples:
@@ -196,7 +195,7 @@ components:
       - linear:
           base:
             $serde_json::private::Number: '101'
-          encoded_size_mul_per_kib:
+          encoded_size_mul_per_kb:
             $serde_json::private::Number: '42'
     TransactionDigest:
       type: string
