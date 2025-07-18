@@ -10,6 +10,9 @@ use single_client_workload_config::{
 };
 
 pub(crate) mod blob_generator;
+pub(crate) mod blob_pool;
+pub(crate) mod client_op_generator;
+pub(crate) mod epoch_length_generator;
 pub(crate) mod single_client_workload_arg;
 pub(crate) mod single_client_workload_config;
 
