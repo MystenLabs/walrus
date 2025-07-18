@@ -1978,6 +1978,7 @@ impl TestClusterBuilder {
 
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
+        assert!(!self.storage_node_configs.is_empty());
         let committee_members: Vec<_> = self
             .storage_node_configs
             .iter()
@@ -1990,6 +1991,8 @@ impl TestClusterBuilder {
             .iter()
             .map(|config| config.shards.len())
             .sum::<usize>();
+
+        assert!(n_shards > 0);
 
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;

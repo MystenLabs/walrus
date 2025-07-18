@@ -84,7 +84,6 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         UpgradeType,
-        contract_config::ContractConfig,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     config::WalletConfig,
@@ -2441,11 +2440,10 @@ async fn test_store_with_upload_relay() {
     let _ = tracing_subscriber::fmt::try_init();
 
     // Start the Sui and Walrus clusters.
-    let (sui_cluster_handle, cluster, client, system_context) =
-        test_cluster::E2eTestSetupBuilder::new()
-            .build()
-            .await
-            .expect("setup should succeed");
+    let (sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .build()
+        .await
+        .expect("setup should succeed");
     assert!((0..65536).contains(&cluster.n_shards));
 
     // Get the cluster wallet so we can fund the client wallet.
@@ -2476,24 +2474,15 @@ async fn test_store_with_upload_relay() {
     // Create the Walrus config for the upload relay.
     let config_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let config_path = config_dir.path();
-    let rpc_url = sui_cluster_handle.lock().await.rpc_url();
 
     std::fs::create_dir_all(config_path).expect("create config dir");
     let walrus_config = config_dir.path().join("client_config.yaml");
+    let cluster_config = client.inner.config();
     std::fs::write(
         &walrus_config,
         serde_yaml::to_string(&ClientConfig {
-            contract_config: ContractConfig {
-                system_object: system_context.system_object,
-                staking_object: system_context.staking_object,
-                subsidies_object: None,
-                credits_object: None,
-            },
-            exchange_objects: vec![],
             wallet_config: Some(WalletConfig::from_path(cluster_wallet_path)),
-            rpc_urls: vec![rpc_url],
-            communication_config: Default::default(),
-            refresh_config: Default::default(),
+            ..cluster_config.clone()
         })
         .expect("serialize client config")
         .as_str(),
@@ -2526,16 +2515,12 @@ async fn test_store_with_upload_relay() {
         registry,
     );
 
-    let n_shards =
-        NonZeroU16::new(u16::try_from(cluster.n_shards).expect("n_shards should fit in u16"))
-            .expect("number of shards should be non-zero");
-
     let upload_relay_client = UploadRelayClient::new(
         client_wallet
             .inner
             .active_address()
             .expect("client wallet active address should exist"),
-        n_shards,
+        cluster.encoding_config().n_shards(),
         format!("http://{server_address}")
             .parse()
             .expect("valid URL"),
