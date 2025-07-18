@@ -5,6 +5,7 @@
 
 use rand::Rng;
 use walrus_core::{BlobId, EpochCount};
+use walrus_sdk::ObjectID;
 
 use super::{
     blob_generator::BlobGenerator,
@@ -18,6 +19,7 @@ use super::{
     },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WalrusClientOp {
     Read {
         blob_id: BlobId,
@@ -32,6 +34,7 @@ pub(crate) enum WalrusClientOp {
     },
     Extend {
         blob_id: BlobId,
+        object_id: ObjectID,
         store_length: EpochCount,
     },
 }
@@ -93,6 +96,9 @@ impl ClientOpGenerator {
         let store_length = self.epoch_length_generator.generate_epoch_length(rng);
         WalrusClientOp::Extend {
             blob_id,
+            object_id: blob_pool
+                .get_blob_object_id(blob_id)
+                .expect("blob should exist in the blob pool"),
             store_length,
         }
     }
