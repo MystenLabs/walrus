@@ -63,7 +63,13 @@ impl ClientOpGenerator {
     pub fn generate_client_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
         let request_type = self.request_type_distribution.sample(rng);
         match request_type {
-            RequestType::Read => self.generate_read_op(blob_pool, rng),
+            RequestType::Read => {
+                if !blob_pool.is_empty() {
+                    self.generate_read_op(blob_pool, rng)
+                } else {
+                    self.generate_write_op(false, rng)
+                }
+            }
             RequestType::WritePermanent => self.generate_write_op(false, rng),
             RequestType::WriteDeletable => self.generate_write_op(true, rng),
             RequestType::Delete => self.generate_delete_op(blob_pool, rng),
@@ -72,7 +78,9 @@ impl ClientOpGenerator {
     }
 
     fn generate_read_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
-        let blob_id = blob_pool.select_random_blob_id(rng).unwrap();
+        let blob_id = blob_pool
+            .select_random_blob_id(rng)
+            .expect("blob must exist");
         WalrusClientOp::Read { blob_id }
     }
 
@@ -87,12 +95,16 @@ impl ClientOpGenerator {
     }
 
     fn generate_delete_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
-        let blob_id = blob_pool.select_random_deletable_blob_id(rng).unwrap();
+        let blob_id = blob_pool
+            .select_random_deletable_blob_id(rng)
+            .expect("deletable blob must exist");
         WalrusClientOp::Delete { blob_id }
     }
 
     fn generate_extend_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
-        let blob_id = blob_pool.select_random_blob_id(rng).unwrap();
+        let blob_id = blob_pool
+            .select_random_blob_id(rng)
+            .expect("blob must exist");
         let store_length = self.epoch_length_generator.generate_epoch_length(rng);
         WalrusClientOp::Extend {
             blob_id,

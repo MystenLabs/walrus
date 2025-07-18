@@ -9,18 +9,30 @@ use walrus_sui::test_utils::system_setup::DEFAULT_MAX_EPOCHS_AHEAD;
 /// Configuration for request type distribution that can be used by the load generator
 #[derive(Debug, Clone)]
 pub struct RequestTypeDistributionConfig {
+    /// The weight for read requests.
     pub read_weight: u32,
+    /// The weight for write permanent requests.
     pub write_permanent_weight: u32,
+    /// The weight for write deletable requests.
     pub write_deletable_weight: u32,
+    /// The weight for delete requests.
     pub delete_weight: u32,
+    /// The weight for extend requests.
     pub extend_weight: u32,
 }
 
+/// The type of request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestType {
+    /// Read request.
     Read,
+    /// Write permanent request.
     WritePermanent,
+    /// Write deletable request.
     WriteDeletable,
+    /// Delete request.
     Delete,
+    /// Extend request.
     Extend,
 }
 
@@ -37,32 +49,12 @@ impl RequestTypeDistributionConfig {
     /// Validate that at least one weight is greater than 0
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.total_weight() == 0 {
-            anyhow::bail!("At least one request type weight must be greater than 0");
+            anyhow::bail!("at least one request type weight must be greater than 0");
         }
         Ok(())
     }
 
-    /// Get the probability ratio for each request type
-    pub fn read_ratio(&self) -> f64 {
-        self.read_weight as f64 / self.total_weight() as f64
-    }
-
-    pub fn write_permanent_ratio(&self) -> f64 {
-        self.write_permanent_weight as f64 / self.total_weight() as f64
-    }
-
-    pub fn write_deletable_ratio(&self) -> f64 {
-        self.write_deletable_weight as f64 / self.total_weight() as f64
-    }
-
-    pub fn delete_ratio(&self) -> f64 {
-        self.delete_weight as f64 / self.total_weight() as f64
-    }
-
-    pub fn extend_ratio(&self) -> f64 {
-        self.extend_weight as f64 / self.total_weight() as f64
-    }
-
+    /// Sample a request type based on the weight distribution.
     pub fn sample<R: Rng>(&self, rng: &mut R) -> RequestType {
         let total_weight = self.total_weight();
         let random_value = rng.gen_range(0..total_weight);
@@ -92,14 +84,22 @@ impl RequestTypeDistributionConfig {
 pub enum SizeDistributionConfig {
     /// Use uniform size distribution with min and max size bounds
     Uniform {
+        /// The minimum size in bytes.
         min_size_bytes: usize,
+        /// The maximum size in bytes.
         max_size_bytes: usize,
     },
     /// Use Poisson distribution for request sizes
-    Poisson { lambda: f64, size_multiplier: u32 },
+    Poisson {
+        /// The lambda parameter for Poisson distribution of request sizes.
+        lambda: f64,
+        /// The size multiplier for Poisson distribution of request sizes.
+        size_multiplier: u32,
+    },
 }
 
 impl SizeDistributionConfig {
+    /// Validates the size distribution configuration.
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             SizeDistributionConfig::Uniform {
@@ -130,17 +130,26 @@ impl SizeDistributionConfig {
 /// Configuration for store length distribution that can be used by the load generator
 #[derive(Debug, Clone)]
 pub enum StoreLengthDistributionConfig {
+    /// Use uniform store length distribution with min and max epoch bounds
     Uniform {
+        /// The minimum store length in epochs.
         min_epochs: u32,
+        /// The maximum store length in epochs.
         max_epochs: u32,
     },
+    /// Use Poisson distribution for store lengths
     Poisson {
+        /// The lambda parameter for Poisson distribution of store lengths.
         lambda: f64,
-        base_epochs: u32, // Added to Poisson result to ensure minimum store length
+        /// The minimum store length to add to Poisson result.
+        base_epochs: u32,
     },
 }
 
 impl StoreLengthDistributionConfig {
+    /// Validates the store length distribution configuration.
+    ///
+    /// Returns an error if the configuration is invalid.
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             StoreLengthDistributionConfig::Uniform {
@@ -168,7 +177,7 @@ impl StoreLengthDistributionConfig {
                 if *lambda <= 0.0 {
                     anyhow::bail!("lambda must be positive for Poisson distribution");
                 }
-                if *lambda > DEFAULT_MAX_EPOCHS_AHEAD as f64 {
+                if *lambda > f64::from(DEFAULT_MAX_EPOCHS_AHEAD) {
                     anyhow::bail!(
                         "lambda must be less or equal to {}",
                         DEFAULT_MAX_EPOCHS_AHEAD
@@ -200,25 +209,8 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),
-            "At least one request type weight must be greater than 0"
+            "at least one request type weight must be greater than 0"
         );
-    }
-
-    #[test]
-    fn test_ratio_calculations() {
-        let config = RequestTypeDistributionConfig {
-            read_weight: 10,
-            write_permanent_weight: 5,
-            write_deletable_weight: 3,
-            delete_weight: 1,
-            extend_weight: 1,
-        };
-
-        assert_eq!(config.read_ratio(), 0.5);
-        assert_eq!(config.write_permanent_ratio(), 0.25);
-        assert_eq!(config.write_deletable_ratio(), 0.15);
-        assert_eq!(config.delete_ratio(), 0.05);
-        assert_eq!(config.extend_ratio(), 0.05);
     }
 
     #[test]
@@ -246,25 +238,8 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),
-            "At least one request type weight must be greater than 0"
+            "at least one request type weight must be greater than 0"
         );
-    }
-
-    #[test]
-    fn test_request_type_distribution_config_ratios() {
-        let config = RequestTypeDistributionConfig {
-            read_weight: 10,
-            write_permanent_weight: 5,
-            write_deletable_weight: 3,
-            delete_weight: 1,
-            extend_weight: 1,
-        };
-
-        assert_eq!(config.read_ratio(), 0.5);
-        assert_eq!(config.write_permanent_ratio(), 0.25);
-        assert_eq!(config.write_deletable_ratio(), 0.15);
-        assert_eq!(config.delete_ratio(), 0.05);
-        assert_eq!(config.extend_ratio(), 0.05);
     }
 
     #[test]
@@ -374,6 +349,21 @@ mod tests {
         );
     }
 
+    // max_epoch must be less than max epochs ahead
+    #[test]
+    fn test_uniform_validate_failure_max_epoch_greater_than_max_epochs_ahead() {
+        let config = StoreLengthDistributionConfig::Uniform {
+            min_epochs: 1,
+            max_epochs: 100,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "max_epochs must be less or equal to 53"
+        );
+    }
+
     #[test]
     fn test_poisson_validate_failure_zero_base_epochs() {
         let config = StoreLengthDistributionConfig::Poisson {
@@ -385,6 +375,20 @@ mod tests {
         assert_eq!(
             result.unwrap_err().to_string(),
             "base_epochs must be at least 1"
+        );
+    }
+
+    #[test]
+    fn test_poisson_validate_failure_lambda_greater_than_max_epochs_ahead() {
+        let config = StoreLengthDistributionConfig::Poisson {
+            lambda: 100.0,
+            base_epochs: 1,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "lambda must be less or equal to 53"
         );
     }
 }

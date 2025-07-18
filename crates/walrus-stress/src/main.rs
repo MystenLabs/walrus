@@ -16,13 +16,13 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
-use single_client_workload::{
-    SingleClientWorkload,
-    single_client_workload_arg::SingleClientWorkloadArgs,
-};
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::{Client, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
+use walrus_stress::single_client_workload::{
+    SingleClientWorkload,
+    single_client_workload_arg::SingleClientWorkloadArgs,
+};
 use walrus_sui::{
     client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
     config::WalletConfig,
@@ -34,7 +34,6 @@ use walrus_utils::load_from_yaml;
 use crate::generator::LoadGenerator;
 
 mod generator;
-mod single_client_workload;
 
 /// The amount of gas or MIST to refill each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
@@ -342,7 +341,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
 async fn run_single_client_workload(
     client_config: ClientConfig,
     _metrics: Arc<ClientMetrics>,
-    sui_network: SuiNetwork,
+    _sui_network: SuiNetwork,
     args: SingleClientWorkloadArgs,
 ) -> anyhow::Result<()> {
     tracing::info!("starting the single client stress runner");
@@ -351,6 +350,10 @@ async fn run_single_client_workload(
     let data_size_config = args.workload_config.get_size_config();
     let store_length_config = args.workload_config.get_store_length_config();
     let request_type_distribution = args.request_type_distribution.to_config();
+
+    data_size_config.validate()?;
+    store_length_config.validate()?;
+    request_type_distribution.validate()?;
 
     let wallet = WalletConfig::load_wallet(
         client_config.wallet_config.as_ref(),
@@ -369,7 +372,6 @@ async fn run_single_client_workload(
         data_size_config,
         store_length_config,
         request_type_distribution,
-        args.check_read_result,
     );
 
     single_client_workload.run().await?;
