@@ -11,6 +11,7 @@ use super::single_client_workload_config::{
     StoreLengthDistributionConfig,
 };
 
+/// Arguments for the single client workload.
 #[derive(Parser, Debug, Clone)]
 #[command(rename_all = "kebab-case")]
 pub struct SingleClientWorkloadArgs {
@@ -20,14 +21,15 @@ pub struct SingleClientWorkloadArgs {
     /// Check read result
     #[arg(long, default_value_t = true)]
     pub check_read_result: bool,
-    // Define the distribution of request types: read, write, delete, extend
+    /// Define the distribution of request types: read, write, delete, extend
     #[command(flatten)]
     pub request_type_distribution: RequestTypeDistributionArgs,
-    // Define the workload configuration including size and store length distributions
+    /// Define the workload configuration including size and store length distributions
     #[command(subcommand)]
     pub workload_config: WorkloadConfig,
 }
 
+/// Arguments for the request type distribution.
 #[derive(clap::Args, Debug, Clone)]
 pub struct RequestTypeDistributionArgs {
     /// Weight for read requests
@@ -61,16 +63,17 @@ impl RequestTypeDistributionArgs {
     }
 }
 
+/// Arguments for the workload configuration.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum WorkloadConfig {
     /// Configure workload with uniform size distribution
     UniformSize {
         /// Minimum size in bytes (log2)
         #[arg(long, default_value_t = 1024)]
-        min_size_bytes: u64,
+        min_size_bytes: usize,
         /// Maximum size in bytes
         #[arg(long, default_value_t = 20 * 1024 * 1024)]
-        max_size_bytes: u64,
+        max_size_bytes: usize,
         /// Store length distribution configuration
         #[command(subcommand)]
         store_length_distribution: RequestStoreLengthDistributionArgs,
@@ -98,8 +101,8 @@ impl WorkloadConfig {
                 max_size_bytes,
                 ..
             } => SizeDistributionConfig::Uniform {
-                min_size_bytes: *min_size_bytes as usize,
-                max_size_bytes: *max_size_bytes as usize,
+                min_size_bytes: *min_size_bytes,
+                max_size_bytes: *max_size_bytes,
             },
             WorkloadConfig::PoissonSize {
                 lambda,
@@ -127,6 +130,7 @@ impl WorkloadConfig {
     }
 }
 
+/// Arguments for the store length distribution.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum RequestStoreLengthDistributionArgs {
     /// Use uniform store length distribution with min and max epoch bounds

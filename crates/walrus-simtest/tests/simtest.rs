@@ -44,6 +44,14 @@ mod tests {
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
+    use walrus_stress::single_client_workload::{
+        SingleClientWorkload,
+        single_client_workload_config::{
+            RequestTypeDistributionConfig,
+            SizeDistributionConfig,
+            StoreLengthDistributionConfig,
+        },
+    };
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
@@ -1113,5 +1121,59 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
+    }
+
+    // Tests that we can create a Walrus cluster with a Sui cluster and run basic
+    // operations deterministically.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_single_client_workload() {
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                ..Default::default()
+            })
+            // TODO: test single client workload with epoch change.
+            .with_epoch_duration(Duration::from_secs(600))
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            let single_client_workload = SingleClientWorkload::new(
+                client.inner,
+                60,
+                true,
+                SizeDistributionConfig::Poisson {
+                    lambda: 10.0,
+                    size_multiplier: 1024,
+                },
+                StoreLengthDistributionConfig::Uniform {
+                    min_epochs: 1,
+                    max_epochs: 10,
+                },
+                RequestTypeDistributionConfig {
+                    read_weight: 4,
+                    write_permanent_weight: 7,
+                    write_deletable_weight: 7,
+                    delete_weight: 1,
+                    extend_weight: 1,
+                },
+            );
+            single_client_workload.run().await.unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_secs(240)).await;
+
+        handle.abort();
+
+        blob_info_consistency_check.check_storage_node_consistency();
     }
 }

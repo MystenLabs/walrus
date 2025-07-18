@@ -52,7 +52,7 @@ pub(crate) struct UniformEpochLengthGenerator {
 impl RandomEpochLengthGenerator for UniformEpochLengthGenerator {
     fn generate_epoch_length<R: Rng>(&self, rng: &mut R) -> EpochCount {
         let epoch_length = rng.gen_range(self.min_epochs..=self.max_epochs);
-        epoch_length.max(1).min(DEFAULT_MAX_EPOCHS_AHEAD)
+        epoch_length.clamp(1, DEFAULT_MAX_EPOCHS_AHEAD)
     }
 }
 
@@ -73,7 +73,13 @@ impl PoissonEpochLengthGenerator {
 
 impl RandomEpochLengthGenerator for PoissonEpochLengthGenerator {
     fn generate_epoch_length<R: Rng>(&self, rng: &mut R) -> EpochCount {
-        let epoch_length = self.base_epochs + self.poisson.sample(rng).round() as EpochCount;
-        epoch_length.max(1).min(DEFAULT_MAX_EPOCHS_AHEAD)
+        #[allow(clippy::cast_possible_truncation)]
+        let epoch_length = self.base_epochs
+            + self
+                .poisson
+                .sample(rng)
+                .round()
+                .clamp(0.0, f64::from(EpochCount::MAX)) as EpochCount;
+        epoch_length.clamp(1, DEFAULT_MAX_EPOCHS_AHEAD)
     }
 }

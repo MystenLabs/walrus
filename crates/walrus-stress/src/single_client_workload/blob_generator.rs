@@ -73,7 +73,12 @@ impl PoissonBlobGenerator {
 
 impl RandomBlobGenerator for PoissonBlobGenerator {
     fn generate_blob<R: Rng>(&self, rng: &mut R) -> Vec<u8> {
-        let size_base = (self.poisson.sample(rng).round() as usize).max(1);
+        #[allow(clippy::cast_possible_truncation)]
+        let size_base = self
+            .poisson
+            .sample(rng)
+            .round()
+            .clamp(1.0, usize::MAX as f64) as usize;
         let size = size_base * self.size_multiplier;
         random_data_from_rng(size, rng)
     }

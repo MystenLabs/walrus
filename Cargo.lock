@@ -13100,6 +13100,7 @@ dependencies = [
  "walrus-sdk",
  "walrus-service",
  "walrus-storage-node-client",
+ "walrus-stress",
  "walrus-sui",
  "walrus-test-utils",
 ]
