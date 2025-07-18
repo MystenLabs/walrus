@@ -17,8 +17,12 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
-use walrus_sdk::client::metrics::ClientMetrics;
+use walrus_sdk::client::{Client, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
+use walrus_stress::single_client_workload::{
+    SingleClientWorkload,
+    single_client_workload_arg::SingleClientWorkloadArgs,
+};
 use walrus_sui::{
     client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
     config::WalletConfig,
@@ -71,6 +75,8 @@ enum Commands {
     Stress(StressArgs),
     /// Deploy the Walrus system contract on the Sui network.
     Staking,
+    /// Run a single client with a specified workload.
+    SingleClient(SingleClientWorkloadArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -144,6 +150,10 @@ async fn main() -> anyhow::Result<()> {
             run_stress(client_config, metrics, args.sui_network, stress_args).await
         }
         Commands::Staking => run_staking(client_config, metrics).await,
+        Commands::SingleClient(single_client_args) => {
+            run_single_client_workload(client_config, metrics, args.sui_network, single_client_args)
+                .await
+        }
     }
 }
 
@@ -326,4 +336,45 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
             }
         }
     }
+}
+
+async fn run_single_client_workload(
+    client_config: ClientConfig,
+    _metrics: Arc<ClientMetrics>,
+    _sui_network: SuiNetwork,
+    args: SingleClientWorkloadArgs,
+) -> anyhow::Result<()> {
+    tracing::info!("starting the single client stress runner");
+    tracing::info!("args: {:?}", args);
+
+    let data_size_config = args.workload_config.get_size_config();
+    let store_length_config = args.workload_config.get_store_length_config();
+    let request_type_distribution = args.request_type_distribution.to_config();
+
+    data_size_config.validate()?;
+    store_length_config.validate()?;
+    request_type_distribution.validate()?;
+
+    let wallet = WalletConfig::load_wallet(
+        client_config.wallet_config.as_ref(),
+        client_config
+            .communication_config
+            .sui_client_request_timeout,
+    )
+    .context("Failed to load wallet context")?;
+    let contract_client = client_config.new_contract_client(wallet, None).await?;
+    let client = Client::new_contract_client_with_refresher(client_config, contract_client).await?;
+
+    let single_client_workload = SingleClientWorkload::new(
+        client,
+        args.target_requests_per_minute,
+        args.check_read_result,
+        data_size_config,
+        store_length_config,
+        request_type_distribution,
+    );
+
+    single_client_workload.run().await?;
+
+    Ok(())
 }
