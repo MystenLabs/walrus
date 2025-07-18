@@ -4,6 +4,7 @@
 //! Configuration for the single client workload.
 
 use rand::Rng;
+use walrus_sui::test_utils::system_setup::DEFAULT_MAX_EPOCHS_AHEAD;
 
 /// Configuration for request type distribution that can be used by the load generator
 #[derive(Debug, Clone)]
@@ -13,6 +14,14 @@ pub struct RequestTypeDistributionConfig {
     pub write_deletable_weight: u32,
     pub delete_weight: u32,
     pub extend_weight: u32,
+}
+
+pub enum RequestType {
+    Read,
+    WritePermanent,
+    WriteDeletable,
+    Delete,
+    Extend,
 }
 
 impl RequestTypeDistributionConfig {
@@ -52,6 +61,29 @@ impl RequestTypeDistributionConfig {
 
     pub fn extend_ratio(&self) -> f64 {
         self.extend_weight as f64 / self.total_weight() as f64
+    }
+
+    pub fn sample<R: Rng>(&self, rng: &mut R) -> RequestType {
+        let total_weight = self.total_weight();
+        let random_value = rng.gen_range(0..total_weight);
+        if random_value < self.read_weight {
+            RequestType::Read
+        } else if random_value < self.read_weight + self.write_permanent_weight {
+            RequestType::WritePermanent
+        } else if random_value
+            < self.read_weight + self.write_permanent_weight + self.write_deletable_weight
+        {
+            RequestType::WriteDeletable
+        } else if random_value
+            < self.read_weight
+                + self.write_permanent_weight
+                + self.write_deletable_weight
+                + self.delete_weight
+        {
+            RequestType::Delete
+        } else {
+            RequestType::Extend
+        }
     }
 }
 
@@ -118,8 +150,14 @@ impl StoreLengthDistributionConfig {
                 if min_epochs > max_epochs {
                     anyhow::bail!("min_epochs must be less or equal to max_epochs");
                 }
-                if *min_epochs == 0 {
+                if *min_epochs < 1 {
                     anyhow::bail!("min_epochs must be at least 1");
+                }
+                if *max_epochs > DEFAULT_MAX_EPOCHS_AHEAD {
+                    anyhow::bail!(
+                        "max_epochs must be less or equal to {}",
+                        DEFAULT_MAX_EPOCHS_AHEAD
+                    );
                 }
                 Ok(())
             }
@@ -129,6 +167,12 @@ impl StoreLengthDistributionConfig {
             } => {
                 if *lambda <= 0.0 {
                     anyhow::bail!("lambda must be positive for Poisson distribution");
+                }
+                if *lambda > DEFAULT_MAX_EPOCHS_AHEAD as f64 {
+                    anyhow::bail!(
+                        "lambda must be less or equal to {}",
+                        DEFAULT_MAX_EPOCHS_AHEAD
+                    );
                 }
                 if *base_epochs == 0 {
                     anyhow::bail!("base_epochs must be at least 1");
