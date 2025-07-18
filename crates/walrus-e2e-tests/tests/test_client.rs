@@ -2435,7 +2435,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_store_with_upload_relay() {
+async fn test_store_with_upload_relay_no_tip() {
     telemetry_subscribers::init_for_testing();
     let _ = tracing_subscriber::fmt::try_init();
 
