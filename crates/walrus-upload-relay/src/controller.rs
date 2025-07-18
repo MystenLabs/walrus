@@ -266,7 +266,7 @@ impl Controller {
     }
 }
 
-async fn shutdown_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
+async fn wait_for_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
     loop {
         if flag.load(Ordering::SeqCst) {
             break;
@@ -278,7 +278,9 @@ async fn shutdown_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
 /// A handle to the upload relay, which can be used to shut it down.
 pub struct UploadRelayHandle {
     shutdown_flag: Arc<AtomicBool>,
-    notify: Arc<Notify>,
+    shutdown_notify: Arc<Notify>,
+    tcp_bind_flag: Arc<AtomicBool>,
+    tcp_bind_notify: Arc<Notify>,
     join_handle: JoinHandle<Result<(), anyhow::Error>>,
 }
 
@@ -294,19 +296,23 @@ impl UploadRelayHandle {
     /// Creates a new `UploadRelayCancelTrigger`.
     fn new(
         shutdown_flag: Arc<AtomicBool>,
-        notify: Arc<Notify>,
+        shutdown_notify: Arc<Notify>,
+        tcp_bind_flag: Arc<AtomicBool>,
+        tcp_bind_notify: Arc<Notify>,
         join_handle: JoinHandle<Result<(), anyhow::Error>>,
     ) -> Self {
         Self {
             shutdown_flag,
-            notify,
+            shutdown_notify,
+            tcp_bind_flag,
+            tcp_bind_notify,
             join_handle,
         }
     }
 
     /// Allows the upload relay to run indefinitely.
     pub async fn run_forever(self) -> ! {
-        drop(self.notify);
+        drop(self.shutdown_notify);
         drop(self.shutdown_flag);
         let result = self
             .join_handle
@@ -319,33 +325,67 @@ impl UploadRelayHandle {
     pub async fn shutdown(self) -> Result<(), anyhow::Error> {
         assert!(!self.shutdown_flag.load(Ordering::SeqCst));
         self.shutdown_flag.store(true, Ordering::SeqCst);
-        self.notify.notify_waiters();
+        self.shutdown_notify.notify_waiters();
         self.join_handle.await.expect("join handle should complete")
+    }
+
+    /// Waits for the upload relay to bind to the TCP socket.
+    pub async fn wait_for_tcp_bind(&self) -> Result<(), anyhow::Error> {
+        loop {
+            if self.tcp_bind_flag.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                anyhow::bail!("upload relay shutdown while waiting for TCP bind");
+            }
+
+            tokio::select! {
+                _ = self.tcp_bind_notify.notified() => {
+                    continue;
+                },
+                _ = self.shutdown_notify.notified() => {
+                    anyhow::bail!("upload relay shutdown while waiting for TCP bind");
+                },
+            }
+        }
     }
 }
 
 /// Runs the upload relay.
-pub fn start_upload_relay(
+pub async fn start_upload_relay(
     context: Option<String>,
     walrus_config: PathBuf,
     server_address: SocketAddr,
     relay_config_path: PathBuf,
     registry: Registry,
-) -> UploadRelayHandle {
+) -> Result<UploadRelayHandle> {
     let metric_set = WalrusUploadRelayMetricSet::new(&registry);
     let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let notify = Arc::new(Notify::new());
+    let shutdown_notify = Arc::new(Notify::new());
+    let tcp_bind_flag = Arc::new(AtomicBool::new(false));
+    let tcp_bind_notify = Arc::new(Notify::new());
 
-    UploadRelayHandle::new(
+    // Create a client we can use to communicate with the Sui network, which is used to
+    // coordinate the Walrus network.
+    let client = get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
+
+    Ok(UploadRelayHandle::new(
         shutdown_flag.clone(),
-        notify.clone(),
+        shutdown_notify.clone(),
+        tcp_bind_flag.clone(),
+        tcp_bind_notify.clone(),
         tokio::spawn({
-            async move {
-                // Create a client we can use to communicate with the Sui network, which is used to
-                // coordinate the Walrus network.
-                let client =
-                    get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
-
+            #[allow(clippy::too_many_arguments)]
+            async fn run_server(
+                client: Client<SuiReadClient>,
+                relay_config_path: PathBuf,
+                metric_set: WalrusUploadRelayMetricSet,
+                server_address: SocketAddr,
+                shutdown_flag: Arc<AtomicBool>,
+                shutdown_notify: Arc<Notify>,
+                tcp_bind_flag: Arc<AtomicBool>,
+                tcp_bind_notify: Arc<Notify>,
+            ) -> Result<(), anyhow::Error> {
                 let n_shards = client.get_committees().await?.n_shards();
                 let relay_config: WalrusUploadRelayConfig = load_from_yaml(relay_config_path)?;
                 tracing::debug!(?relay_config, "loaded relay config");
@@ -368,13 +408,39 @@ pub fn start_upload_relay(
                     .layer(cors_layer());
 
                 let listener = tokio::net::TcpListener::bind(&server_address).await?;
+
+                // Notify that the server has bound to the TCP socket.
+                tcp_bind_flag.store(true, Ordering::SeqCst);
+                tcp_bind_notify.notify_waiters();
+
                 tracing::info!(?server_address, n_shards, "Serving Walrus Upload Relay...");
                 Ok(axum::serve(listener, app)
-                    .with_graceful_shutdown(shutdown_signal(shutdown_flag, notify))
+                    .with_graceful_shutdown(wait_for_signal(shutdown_flag, shutdown_notify))
                     .await?)
             }
+
+            async move {
+                let result = run_server(
+                    client,
+                    relay_config_path,
+                    metric_set,
+                    server_address,
+                    shutdown_flag.clone(),
+                    shutdown_notify.clone(),
+                    tcp_bind_flag.clone(),
+                    tcp_bind_notify.clone(),
+                )
+                .await;
+
+                // Notify that the server is shutting down.
+                shutdown_flag.store(true, Ordering::SeqCst);
+                shutdown_notify.notify_waiters();
+
+                tracing::error!(result = ?result, "upload relay server task exited");
+                result
+            }
         }),
-    )
+    ))
 }
 
 /// Returns a `CorsLayer` for the controller endpoints.

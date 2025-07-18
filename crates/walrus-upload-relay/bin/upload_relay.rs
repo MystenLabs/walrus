@@ -67,7 +67,9 @@ async fn main() {
         args.server_address,
         args.relay_config,
         registry,
-    );
+    )
+    .await
+    .expect("Failed to start the upload relay");
     upload_relay_handle.run_forever().await
 }
 

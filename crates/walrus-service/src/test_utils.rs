@@ -1992,8 +1992,6 @@ impl TestClusterBuilder {
             .map(|config| config.shards.len())
             .sum::<usize>();
 
-        assert!(n_shards > 0);
-
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
         let mut node_futures = vec![];

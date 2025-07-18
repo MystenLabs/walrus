@@ -2440,7 +2440,7 @@ async fn test_store_with_upload_relay() {
     let _ = tracing_subscriber::fmt::try_init();
 
     // Start the Sui and Walrus clusters.
-    let (sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+    let (sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .build()
         .await
         .expect("setup should succeed");
@@ -2481,6 +2481,14 @@ async fn test_store_with_upload_relay() {
         &walrus_config,
         serde_yaml::to_string(&ClientConfig {
             wallet_config: Some(WalletConfig::from_path(cluster_wallet_path)),
+            rpc_urls: vec![
+                sui_cluster_handle
+                    .lock()
+                    .await
+                    .cluster()
+                    .rpc_url()
+                    .to_string(),
+            ],
             ..cluster_config.clone()
         })
         .expect("serialize client config")
@@ -2512,18 +2520,29 @@ async fn test_store_with_upload_relay() {
         server_address,
         relay_config,
         registry,
-    );
+    )
+    .await
+    .expect("start upload relay should succeed");
+
+    upload_relay_handle
+        .wait_for_tcp_bind()
+        .await
+        .expect("wait for TCP bind");
 
     let n_shards = client.inner.encoding_config().n_shards();
+    let upload_relay_url = format!(
+        "http://1.1.1.1:{server_port}",
+        server_port = server_address.port()
+    )
+    .parse()
+    .expect("valid URL");
     let upload_relay_client = UploadRelayClient::new(
         client_wallet
             .inner
             .active_address()
             .expect("client wallet active address should exist"),
         n_shards,
-        format!("http://{server_address}")
-            .parse()
-            .expect("valid URL"),
+        upload_relay_url,
         None,
         Default::default(),
     )
