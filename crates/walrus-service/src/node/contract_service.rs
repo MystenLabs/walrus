@@ -11,6 +11,7 @@ use std::{
 
 use anyhow::Context as _;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use prometheus::core::{AtomicU64, GenericGaugeVec};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sui_types::base_types::ObjectID;
@@ -91,6 +92,12 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Initiates epoch change.
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
 
+    /// Initiates subsidy distribution.
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error>;
+
+    /// Returns the time at which process_subsidies was last called on the walrus subsidies object.
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError>;
+
     /// Certify an event blob to the contract.
     ///
     /// If `node_capability` is provided, it will be used to set the node capability object ID.
@@ -121,6 +128,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Returns the system object version.
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError>;
+
+    /// Checks if subsidies are configured in the contract.
+    fn is_subsidies_object_configured(&self) -> bool;
 
     /// Returns the last certified event blob.
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
@@ -553,6 +563,19 @@ impl SystemContractService for SuiSystemContractService {
         Ok(())
     }
 
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
+        self.read_client.last_walrus_subsidies_call().await
+    }
+
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+        self.contract_tx_client
+            .lock()
+            .await
+            .process_subsidies()
+            .await?;
+        Ok(())
+    }
+
     async fn certify_event_blob(
         &self,
         blob_metadata: BlobObjectMetadata,
@@ -619,6 +642,10 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
         self.read_client.system_object_version().await
+    }
+
+    fn is_subsidies_object_configured(&self) -> bool {
+        self.read_client.get_walrus_subsidies_object_id().is_some()
     }
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {

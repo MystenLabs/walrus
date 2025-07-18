@@ -66,7 +66,6 @@ use walrus_sdk::{
     store_optimizations::StoreOptimizations,
 };
 use walrus_service::test_utils::{
-    DEFAULT_SUBSIDY_FUNDS,
     StorageNodeHandleTrait,
     TestNodesConfig,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
@@ -1143,6 +1142,20 @@ async fn test_blob_operations_with_credits() -> TestResult {
         .await?;
     let client = client.as_ref();
 
+    // Get initial funds in credits object.
+    let credits_object_id = client
+        .sui_client()
+        .read_client()
+        .get_credits_object_id()
+        .expect("credits object ID should be set");
+    let initial_credits_funds = client
+        .sui_client()
+        .read_client()
+        .sui_client()
+        .get_sui_object::<Credits>(credits_object_id)
+        .await?
+        .subsidy_pool;
+
     // Store a blob with credits
     let blob_data = walrus_test_utils::random_data(314);
     let blobs = vec![blob_data.as_slice()];
@@ -1170,22 +1183,58 @@ async fn test_blob_operations_with_credits() -> TestResult {
     assert!(extended_blob.storage.end_epoch > initial_storage.end_epoch);
 
     // Verify subsidies were applied by checking remaining funds
-    let credits: Credits = client
+    let credits_funds = client
         .sui_client()
         .read_client()
         .sui_client()
-        .get_sui_object(
-            client
-                .sui_client()
-                .read_client()
-                .get_credits_object_id()
-                .unwrap(),
-        )
-        .await?;
+        .get_sui_object::<Credits>(credits_object_id)
+        .await?
+        .subsidy_pool;
     assert!(
-        credits.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
+        credits_funds < initial_credits_funds,
         "Credits should have been used"
     );
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .build()
+        .await?;
+
+    let initial_subsidies_funds = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .subsidy_pool_funds()
+        .expect("should return some, subsidies were requested with inner");
+    assert!(initial_subsidies_funds > 0);
+
+    let epoch = client.as_ref().sui_client().current_epoch().await?;
+    // Use basic_store_and_read with our pre_read_hook.
+    basic_store_and_read(&client, 4, 314, || Ok(())).await?;
+
+    // Wait for the cluster to reach the next epoch.
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+
+    let final_subsidies_funds = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .subsidy_pool_funds()
+        .expect("should return some, subsidies were requested with inner");
+
+    assert!(final_subsidies_funds < initial_subsidies_funds);
 
     Ok(())
 }

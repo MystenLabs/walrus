@@ -840,6 +840,59 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to create a new walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB.
+    pub async fn create_walrus_subsidies(
+        &mut self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<Argument> {
+        let args = vec![
+            self.system_arg(Mutability::Immutable).await?,
+            self.staking_arg(Mutability::Immutable).await?,
+            self.pt_builder.pure(system_subsidy_rate)?,
+            self.pt_builder.pure(base_subsidy)?,
+            self.pt_builder.pure(subsidy_per_shard)?,
+        ];
+        let result_arg = self.move_call(package_id, contracts::walrus_subsidies::new, args)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to fund the walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB, if a walrus subsidies object
+    /// is configured.
+    pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
+        let Some(walrus_subsidies_pkg_id) = self.read_client.get_walrus_subsidies_package_id()
+        else {
+            return Err(SuiClientError::WalrusSubsidiesNotConfigured);
+        };
+        self.fill_wal_balance(amount).await?;
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_walrus_subsidies_obj(Mutability::Mutable)
+                    .await?,
+            )?,
+            split_coin,
+        ];
+        self.move_call(
+            walrus_subsidies_pkg_id,
+            contracts::walrus_subsidies::add_coin,
+            args,
+        )?;
+        self.reduce_wal_balance(amount)?;
+        Ok(())
+    }
+
     /// Adds a call to `invalidate_blob_id` to the PTB.
     pub async fn invalidate_blob_id(
         &mut self,
@@ -891,6 +944,26 @@ impl WalrusPtbBuilder {
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
         ];
         self.walrus_move_call(contracts::staking::voting_end, args)?;
+        Ok(())
+    }
+
+    /// Adds a call to `walrus_subsidies::process_subsidies` to the PTB.
+    pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+        let args = vec![
+            self.walrus_subsidies_arg(Mutability::Mutable).await?,
+            self.staking_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
+        ];
+        let Some(walrus_subsidies_package_id) = self.read_client.get_walrus_subsidies_package_id()
+        else {
+            return Err(SuiClientError::CreditsNotEnabled);
+        };
+        self.move_call(
+            walrus_subsidies_package_id,
+            contracts::walrus_subsidies::process_subsidies,
+            args,
+        )?;
         Ok(())
     }
 
@@ -1664,6 +1737,14 @@ impl WalrusPtbBuilder {
         Ok(self
             .pt_builder
             .obj(self.read_client.object_arg_for_credits_obj(mutable).await?)?)
+    }
+
+    async fn walrus_subsidies_arg(&mut self, mutable: Mutability) -> SuiClientResult<Argument> {
+        Ok(self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_walrus_subsidies_obj(mutable)
+                .await?,
+        )?)
     }
 
     fn wal_coin_arg(&mut self) -> SuiClientResult<Argument> {

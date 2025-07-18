@@ -350,7 +350,7 @@ pub async fn deploy_walrus_contract(
     tracing::debug!("creating working directory at {}", working_dir.display());
 
     // Load or create wallet for publishing contracts on sui and setting up system object
-    let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
+    let admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
         tracing::debug!(
             "loading existing admin wallet from '{}'",
             admin_wallet_path.display()
@@ -389,8 +389,8 @@ pub async fn deploy_walrus_contract(
         Some(working_dir.join("contracts"))
     };
 
-    let system_ctx = create_and_init_system(
-        &mut admin_wallet,
+    let (system_ctx, contract_client) = create_and_init_system(
+        admin_wallet,
         InitSystemParams {
             n_shards,
             epoch_zero_duration,
@@ -401,6 +401,7 @@ pub async fn deploy_walrus_contract(
             use_existing_wal_token,
             with_wal_exchange,
             with_credits: false,
+            with_walrus_subsidies: true,
         },
         gas_budget,
     )
@@ -411,20 +412,7 @@ pub async fn deploy_walrus_contract(
         n_shards
     );
 
-    let contract_config = system_ctx.contract_config();
-
     tracing::debug!("retrieved contract configuration from system context");
-
-    let rpc_urls = &[admin_wallet.get_rpc_url()?];
-
-    let contract_client = SuiContractClient::new(
-        admin_wallet,
-        rpc_urls,
-        &contract_config,
-        ExponentialBackoffConfig::default(),
-        gas_budget,
-    )
-    .await?;
 
     let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
         // Create WAL exchange.

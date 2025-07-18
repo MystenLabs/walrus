@@ -561,6 +561,10 @@ pub struct BlobRecoveryConfig {
     /// Configuration of the committee service timeouts and retries
     #[serde(flatten)]
     pub committee_service_config: CommitteeServiceConfig,
+    /// The interval at which to monitor ongoing blob syncs.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "monitor_interval_secs")]
+    pub monitor_interval: Duration,
 }
 
 impl Default for BlobRecoveryConfig {
@@ -570,6 +574,18 @@ impl Default for BlobRecoveryConfig {
             max_concurrent_sliver_syncs: 2_000,
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
+            monitor_interval: Duration::from_secs(60),
+        }
+    }
+}
+
+impl BlobRecoveryConfig {
+    /// Returns a default configuration with a shorter monitor interval for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            monitor_interval: Duration::from_secs(5),
+            ..Default::default()
         }
     }
 }

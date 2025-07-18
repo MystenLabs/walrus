@@ -9,6 +9,7 @@ contracts=(
   wal_exchange
   walrus
   subsidies
+  walrus_subsidies
 )
 
 for contract in "${contracts[@]}"; do
