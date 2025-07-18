@@ -151,6 +151,7 @@ walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-storage-node-client = { path = "crates/walrus-storage-node-client" }
+walrus-stress = { path = "crates/walrus-stress" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-utils = { path = "crates/walrus-utils" }
