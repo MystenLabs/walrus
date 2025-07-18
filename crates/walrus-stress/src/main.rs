@@ -16,6 +16,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
+use single_client_workload::single_client_workload_arg::SingleClientWorkloadArgs;
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::metrics::ClientMetrics;
 use walrus_service::client::{ClientConfig, Refiller};
@@ -27,10 +28,7 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-use crate::{
-    generator::LoadGenerator,
-    single_client_workload::single_client_workload_args::SingleClientWorkloadArgs,
-};
+use crate::generator::LoadGenerator;
 
 mod generator;
 mod single_client_workload;
@@ -151,7 +149,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Staking => run_staking(client_config, metrics).await,
         Commands::SingleClient(single_client_args) => {
-            run_single_client(client_config, metrics, args.sui_network, single_client_args).await
+            run_single_client_workload(client_config, metrics, args.sui_network, single_client_args)
+                .await
         }
     }
 }
@@ -337,7 +336,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
     }
 }
 
-async fn run_single_client(
+async fn run_single_client_workload(
     client_config: ClientConfig,
     metrics: Arc<ClientMetrics>,
     sui_network: SuiNetwork,
@@ -345,5 +344,10 @@ async fn run_single_client(
 ) -> anyhow::Result<()> {
     tracing::info!("starting the single client stress runner");
     tracing::info!("args: {:?}", args);
+
+    let data_size_config = args.workload_config.get_size_config();
+    let store_length_config = args.workload_config.get_store_length_config();
+    let request_type_distribution = args.request_type_distribution;
+
     Ok(())
 }
