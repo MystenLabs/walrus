@@ -2531,6 +2531,7 @@ async fn test_store_with_upload_relay() {
 
     let n_shards = client.inner.encoding_config().n_shards();
     let upload_relay_url = format!(
+        // REVIEW: I don't know where msim handles port remapping, but... it does.
         "http://1.1.1.1:{server_port}",
         server_port = server_address.port()
     )
