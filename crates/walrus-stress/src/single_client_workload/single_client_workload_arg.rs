@@ -45,6 +45,7 @@ pub struct RequestTypeDistributionArgs {
     /// Weight for extend requests
     #[arg(long, default_value_t = 1)]
     pub extend_weight: u32,
+    // TODO: add inconsistent blob weight.
 }
 
 impl RequestTypeDistributionArgs {
