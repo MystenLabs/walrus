@@ -2153,6 +2153,7 @@ mod tests {
             case_3: (1, 10, 1000, 7),
             case_4: (60, 1, 1000, 100),
             case_5: (2, 1, 5, 100),
+            case_6: (10, 0, 2, 100),
         ]
     }
     fn test_quilt_encoder_and_decoder(
@@ -2187,6 +2188,7 @@ mod tests {
         let _ = tracing_subscriber::fmt().try_init();
 
         let quilt_store_blobs = test_data.take_blobs();
+
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs.as_slice());
 
         let (sliver_pairs, quilt_metadata) = encoder

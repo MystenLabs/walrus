@@ -57,22 +57,15 @@ pub struct QuiltTestData<'a> {
 }
 
 impl<'a> QuiltTestData<'a> {
-    /// Generates a new QuiltTestData from existing data.
-    pub fn new(
-        blob_data: &'a [&'a [u8]],
-        max_value_length: usize,
-        max_num_tags: usize,
-    ) -> Result<Self, QuiltError> {
-        let cow_data: Vec<Cow<'a, [u8]>> =
-            blob_data.iter().map(|&data| Cow::Borrowed(data)).collect();
-
-        let quilt_store_blobs_vec =
-            Self::generate_random_quilt_store_blobs(cow_data, max_value_length, max_num_tags)?;
-
-        Self::from_quilt_store_blobs(quilt_store_blobs_vec)
-    }
-
     /// Generates a new QuiltTestData with new owned random data.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_blobs` - The number of blobs to be used to construct a quilt.
+    /// * `min_blob_size` - The minimum size of each blob.
+    /// * `max_blob_size` - The maximum size of each blob.
+    /// * `max_value_length` - The maximum length of each tag and identifier value.
+    /// * `max_num_tags` - The maximum number of tags per blob.
     pub fn new_owned(
         num_blobs: usize,
         min_blob_size: usize,
@@ -130,7 +123,11 @@ impl<'a> QuiltTestData<'a> {
     ) -> Result<Vec<QuiltStoreBlob<'b>>, QuiltError> {
         tracing::debug!("generating random quilt store blobs...");
         let mut rng = rand::thread_rng();
-        let num_tags = rng.gen_range(0..=max_num_tags);
+        let num_tags = if rng.gen_bool(0.3) {
+            0
+        } else {
+            rng.gen_range(1..=max_num_tags)
+        };
 
         let mut res = Vec::with_capacity(blob_data.len());
         let mut identifiers = HashSet::with_capacity(blob_data.len());
