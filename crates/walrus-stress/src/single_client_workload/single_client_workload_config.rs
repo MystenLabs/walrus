@@ -3,6 +3,8 @@
 
 //! Configuration for the single client workload.
 
+use rand::Rng;
+
 /// Configuration for request type distribution that can be used by the load generator
 #[derive(Debug, Clone)]
 pub struct RequestTypeDistributionConfig {
@@ -58,8 +60,8 @@ impl RequestTypeDistributionConfig {
 pub enum SizeDistributionConfig {
     /// Use uniform size distribution with min and max size bounds
     Uniform {
-        min_size_bytes: u64,
-        max_size_bytes: u64,
+        min_size_bytes: usize,
+        max_size_bytes: usize,
     },
     /// Use Poisson distribution for request sizes
     Poisson { lambda: f64, size_multiplier: u32 },
