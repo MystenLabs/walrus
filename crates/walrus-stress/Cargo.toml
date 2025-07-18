@@ -14,6 +14,7 @@ indicatif.workspace = true
 mysten-metrics.workspace = true
 prometheus.workspace = true
 rand.workspace = true
+rand_distr.workspace = true
 sui-sdk.workspace = true
 sui-types.workspace = true
 tokio.workspace = true

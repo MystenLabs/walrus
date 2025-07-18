@@ -97,8 +97,8 @@ impl WorkloadConfig {
                 max_size_bytes,
                 ..
             } => SizeDistributionConfig::Uniform {
-                min_size_bytes: *min_size_bytes,
-                max_size_bytes: *max_size_bytes,
+                min_size_bytes: *min_size_bytes as usize,
+                max_size_bytes: *max_size_bytes as usize,
             },
             WorkloadConfig::PoissonSize {
                 lambda,

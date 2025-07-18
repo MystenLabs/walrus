@@ -9,6 +9,7 @@ use single_client_workload_config::{
     StoreLengthDistributionConfig,
 };
 
+pub(crate) mod blob_generator;
 pub(crate) mod single_client_workload_arg;
 pub(crate) mod single_client_workload_config;
 
