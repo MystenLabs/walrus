@@ -27,9 +27,13 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-use crate::generator::LoadGenerator;
+use crate::{
+    generator::LoadGenerator,
+    single_client_workload::single_client_workload_args::SingleClientWorkloadArgs,
+};
 
 mod generator;
+mod single_client_workload;
 
 /// The amount of gas or MIST to refill each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
@@ -71,6 +75,8 @@ enum Commands {
     Stress(StressArgs),
     /// Deploy the Walrus system contract on the Sui network.
     Staking,
+    /// Run a single client with a specified workload.
+    SingleClient(SingleClientWorkloadArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -144,6 +150,9 @@ async fn main() -> anyhow::Result<()> {
             run_stress(client_config, metrics, args.sui_network, stress_args).await
         }
         Commands::Staking => run_staking(client_config, metrics).await,
+        Commands::SingleClient(single_client_args) => {
+            run_single_client(client_config, metrics, args.sui_network, single_client_args).await
+        }
     }
 }
 
@@ -326,4 +335,15 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
             }
         }
     }
+}
+
+async fn run_single_client(
+    client_config: ClientConfig,
+    metrics: Arc<ClientMetrics>,
+    sui_network: SuiNetwork,
+    args: SingleClientWorkloadArgs,
+) -> anyhow::Result<()> {
+    tracing::info!("starting the single client stress runner");
+    tracing::info!("args: {:?}", args);
+    Ok(())
 }
