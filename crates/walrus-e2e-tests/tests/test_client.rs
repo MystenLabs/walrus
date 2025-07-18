@@ -1246,7 +1246,7 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
 
     let epoch = client.as_ref().sui_client().current_epoch().await?;
     // Use basic_store_and_read with our pre_read_hook.
-    basic_store_and_read(&client, 4, 314, || Ok(())).await?;
+    basic_store_and_read(&client, 4, 314, None, || Ok(())).await?;
 
     // Wait for the cluster to reach the next epoch.
     cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
