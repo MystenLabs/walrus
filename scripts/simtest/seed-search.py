@@ -82,8 +82,28 @@ if __name__ == "__main__":
         binary = os.path.join(repo_root, "target/simulator/deps", args.test)
         # binary is a prefix of some test file, find the most recent one that matches the prefix
         if not os.path.isfile(binary):
-            path = os.path.join(repo_root, "target/simulator/deps", args.test + "*")
-            binary = subprocess.getstatusoutput(f"ls -ltr {path} | tail -n 1")[1].split()[-1]
+            import glob, pathlib
+
+            binary_dir = os.path.join(repo_root, "target/simulator/deps")
+            pattern = os.path.join(binary_dir, args.test + "-*")
+
+            # Glob for all files that start with the binary prefix. We expect files to be
+            # large executables, so we additionally check the executable bit to avoid
+            # accidentally selecting e.g. object files.
+            candidates = [pathlib.Path(p) for p in glob.glob(pattern)]
+
+            # Filter to regular files that have the executable bit set.
+            candidates = [c for c in candidates if c.is_file() and os.access(c, os.X_OK)]
+
+            if not candidates:
+                print("Error: could not locate a built test binary that matches the prefix '\"%s\"'." % args.test)
+                print("Make sure the test binary has been built (try without --no-build) or check the contents of target/simulator/deps/.")
+                sys.exit(1)
+
+            # Pick the most recently modified candidate. This avoids hitting the shell's
+            # "argument list too long" limitation and is portable across platforms.
+            binary_path = max(candidates, key=lambda p: p.stat().st_mtime)
+            binary = str(binary_path)
             print(f"Found binary: {binary}")
 
     # check that binary is an executable file

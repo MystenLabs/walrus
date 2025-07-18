@@ -191,6 +191,7 @@ pub async fn create_and_init_system(
     init_system_params: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<(SystemContext, SuiContractClient)> {
+    tracing::error!("create_and_init_system");
     let init_system_params_cloned = init_system_params.clone();
     let PublishSystemPackageResult {
         walrus_pkg_id,
@@ -205,7 +206,7 @@ pub async fn create_and_init_system(
         gas_budget,
     )
     .await?;
-
+    tracing::error!("published system package");
     let (system_object, staking_object, upgrade_manager_object) =
         system_setup::create_system_and_staking_objects(
             &mut admin_wallet,
@@ -217,8 +218,9 @@ pub async fn create_and_init_system(
         )
         .await?;
 
+    tracing::error!("created system and staking objects");
     let contract_config = ContractConfig::new(system_object, staking_object);
-
+    tracing::error!("created contract config");
     let rpc_urls = &[admin_wallet.get_rpc_url()?];
     let admin_contract_client = SuiContractClient::new(
         admin_wallet,
@@ -229,8 +231,10 @@ pub async fn create_and_init_system(
     )
     .await?;
 
+    tracing::error!("created admin contract client");
     // Create credits object if enabled.
     let credits_object = if let Some(pkg_id) = credits_pkg_id {
+        tracing::error!("creating credits object");
         let credits_object_id = admin_contract_client
             .create_and_fund_credits(
                 pkg_id,
@@ -249,9 +253,10 @@ pub async fn create_and_init_system(
     } else {
         None
     };
-
+    tracing::error!("created credits object");
     // Create walrus subsidies object if enabled.
     let walrus_subsidies_object = if let Some(pkg_id) = walrus_subsidies_pkg_id {
+        tracing::error!("creating walrus subsidies object");
         let walrus_subsidies_object_id = admin_contract_client
             .create_walrus_subsidies(
                 pkg_id,
@@ -272,7 +277,7 @@ pub async fn create_and_init_system(
     } else {
         None
     };
-
+    tracing::error!("created walrus subsidies object");
     Ok((
         SystemContext {
             walrus_pkg_id,
