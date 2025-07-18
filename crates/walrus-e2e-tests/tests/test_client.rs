@@ -2444,7 +2444,6 @@ async fn test_store_with_upload_relay() {
         .build()
         .await
         .expect("setup should succeed");
-    assert!((0..65536).contains(&cluster.n_shards));
 
     // Get the cluster wallet so we can fund the client wallet.
     let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
@@ -2515,12 +2514,13 @@ async fn test_store_with_upload_relay() {
         registry,
     );
 
+    let n_shards = client.inner.encoding_config().n_shards();
     let upload_relay_client = UploadRelayClient::new(
         client_wallet
             .inner
             .active_address()
             .expect("client wallet active address should exist"),
-        cluster.encoding_config().n_shards(),
+        n_shards,
         format!("http://{server_address}")
             .parse()
             .expect("valid URL"),
