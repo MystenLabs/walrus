@@ -10,10 +10,7 @@ use std::{
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch};
-use walrus_sdk::{
-    client::Client as WalrusClient,
-    error::{ClientErrorKind, ClientResult},
-};
+use walrus_sdk::{client::Client as WalrusClient, error::ClientResult};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::move_structs::EventBlob,
@@ -155,7 +152,7 @@ impl EventBlobDownloader {
 
                 match result {
                     Ok(blob) => (blob, "network"),
-                    Err(err) if event_blob_does_not_exist_error(err.kind()) => {
+                    Err(err) if err.is_blob_not_available_to_read_error() => {
                         anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
                         tracing::info!(
                             "stopping downloading event blobs with expired blob {}",
@@ -247,8 +244,7 @@ impl EventBlobDownloader {
             {
                 Ok(blob) => break blob,
                 Err(err)
-                    if (event_blob_does_not_exist_error(err.kind()))
-                        && reading_first_event_blob =>
+                    if err.is_blob_not_available_to_read_error() && reading_first_event_blob =>
                 {
                     tracing::info!(
                         blob_id = %event_blob_id,
@@ -282,14 +278,4 @@ impl EventBlobDownloader {
 
         Ok(blob)
     }
-}
-
-/// Returns `true` if the error indicates that the event blob is not available for reading.
-fn event_blob_does_not_exist_error(err: &ClientErrorKind) -> bool {
-    matches!(
-        err,
-        // Blob may be expired, not processed by storage nodes yet, or is partially expired in some
-        // of the storage nodes.
-        ClientErrorKind::BlobIdDoesNotExist | ClientErrorKind::NotEnoughSlivers
-    )
 }

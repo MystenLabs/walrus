@@ -106,6 +106,24 @@ impl ClientError {
                 | ClientErrorKind::CommitteeChangeNotified
         )
     }
+
+    /// Returns `true` if the error indicates that a blob is not available to read.
+    ///
+    /// Reading a blob that is being uploaded or being expired can result in different errors,
+    /// depending on the state of the blob.
+    pub fn is_blob_not_available_to_read_error(&self) -> bool {
+        matches!(
+            self.kind.as_ref(),
+            // Blob does not exist in the system.
+            ClientErrorKind::BlobIdDoesNotExist
+                // Blob may be exist, but we do not have enough slivers to reconstruct it.
+                | ClientErrorKind::NotEnoughSlivers
+                // Blob may be exist, but no metadata is uploaded yet
+                | ClientErrorKind::NoMetadataReceived
+                // Blob does not have a valid status in all storage nodes.
+                | ClientErrorKind::NoValidStatusReceived
+        )
+    }
 }
 
 impl From<QuiltError> for ClientError {
