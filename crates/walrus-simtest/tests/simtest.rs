@@ -930,7 +930,7 @@ mod tests {
             test_cluster::E2eTestSetupBuilder::new()
                 .with_deploy_directory(deploy_dir.path().to_path_buf())
                 .with_delegate_governance_to_admin_wallet()
-                .with_contract_directory(testnet_contract_dir().unwrap())
+                .with_contract_directory(development_contract_dir().unwrap())
                 .with_epoch_duration(epoch_duration_secs)
                 .with_num_checkpoints_per_blob(20)
                 .build_generic::<SimStorageNodeHandle>()
@@ -946,7 +946,7 @@ mod tests {
 
         // Copy new contracts to fresh directory
         let upgrade_dir = TempDir::new()?;
-        copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
+        copy_recursively(testnet_contract_dir()?, upgrade_dir.path()).await?;
 
         // Copy Move.lock files of walrus contract and dependencies to new directory
         for contract in ["wal", "walrus"] {
