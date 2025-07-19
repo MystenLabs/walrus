@@ -218,7 +218,6 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
-                    use_legacy_event_processor: false,
                     enable_node_config_synchronizer: true,
                     ..Default::default()
                 })
@@ -406,7 +405,6 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4, 2],
-                use_legacy_event_processor: false,
                 enable_node_config_synchronizer: true,
                 ..Default::default()
             })
@@ -486,7 +484,6 @@ mod tests {
                 .with_epoch_duration(Duration::from_secs(30))
                 .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
-                    use_legacy_event_processor: false,
                     enable_node_config_synchronizer: true,
                     ..Default::default()
                 })
@@ -731,7 +728,6 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4, 2],
-                use_legacy_event_processor: false,
                 enable_node_config_synchronizer: true,
                 ..Default::default()
             })

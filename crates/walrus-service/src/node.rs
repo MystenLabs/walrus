@@ -147,7 +147,7 @@ use self::{
         ShardStorage,
         blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     },
-    system_events::{EventManager, SuiSystemEventProvider},
+    system_events::EventManager,
 };
 use crate::{
     common::config::SuiConfig,
@@ -404,19 +404,14 @@ impl StorageNodeBuilder {
                 None
             };
 
-        let event_manager: Box<dyn EventManager> = if let Some(event_manager) = self.event_manager {
-            event_manager
-        } else {
-            let (read_client, sui_config) = sui_config_and_client
-                .as_ref()
-                .expect("this is always created if self.event_manager.is_none()");
-
-            if config.use_legacy_event_provider {
-                Box::new(SuiSystemEventProvider::new(
-                    read_client.clone(),
-                    sui_config.event_polling_interval,
-                ))
+        let event_manager: Box<dyn EventManager> = {
+            if let Some(event_manager) = self.event_manager {
+                event_manager
             } else {
+                let (read_client, sui_config) = sui_config_and_client
+                    .as_ref()
+                    .expect("this is always created if self.event_manager.is_none()");
+
                 let rpc_addresses =
                     combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
                 let processor_config = EventProcessorRuntimeConfig {
