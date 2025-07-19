@@ -50,3 +50,13 @@ public fun extend(
     system.extend_blob(&mut self.blob, extended_epochs, &mut coin);
     self.funds.join(coin.into_balance());
 }
+
+/// Returns a reference to the wrapped `Blob`.
+public fun blob(self: &SharedBlob): &Blob {
+    &self.blob
+}
+
+/// Returns the balance of funds stored in the `SharedBlob`.
+public fun funds(self: &SharedBlob): &Balance<WAL> {
+    &self.funds
+}

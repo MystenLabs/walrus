@@ -11,11 +11,18 @@ const INTENT_VERSION: u8 = 0;
 const BLS_KEY_LEN: u64 = 48;
 
 // Message Types
+// Please, refer to `walrus-core/src/messages.rs` for the list of message types.
+// Make sure to update the list of intents in `contracts/walrus/docs/msg_formats.txt` as well.
+
 const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
-const DENY_LIST_UPDATE_MSG_TYPE: u8 = 3;
-const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 4;
+#[allow(unused_const)]
+// Only used in Rust.
+const SYNC_SHARD_MSG_TYPE: u8 = 3;
+const DENY_LIST_UPDATE_MSG_TYPE: u8 = 4;
+const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 5;
+const PROTOCOL_VERSION_MSG_TYPE: u8 = 6;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -120,6 +127,12 @@ public struct CertifiedInvalidBlobId has drop {
     blob_id: u256,
 }
 
+/// Message type for protocol version updates.
+public struct ProtocolVersionMessage has drop {
+    start_epoch: u32,
+    protocol_version: u64,
+}
+
 /// Message type for DenyList updates.
 ///
 /// Constructed from a `CertifiedMessage`, states that the deny list has been updated in `epoch` for
@@ -207,6 +220,19 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
     CertifiedInvalidBlobId { blob_id }
 }
 
+/// Construct the certified protocol version message, note that constructing
+/// implies a certified message, that is already checked.
+public(package) fun protocol_version_message(message: CertifiedMessage): ProtocolVersionMessage {
+    assert!(message.intent_type() == PROTOCOL_VERSION_MSG_TYPE, EInvalidMsgType);
+
+    let message_body = message.into_message();
+    let mut bcs_body = bcs::new(message_body);
+    let start_epoch = bcs_body.peel_u32();
+    let protocol_version = bcs_body.peel_u64();
+
+    ProtocolVersionMessage { start_epoch, protocol_version }
+}
+
 /// Construct the certified deny list update message, note that constructing
 /// implies a certified message, that is already checked.
 public(package) fun deny_list_update_message(message: CertifiedMessage): DenyListUpdateMessage {
@@ -285,6 +311,16 @@ public(package) fun blob_persistence_type(self: &CertifiedBlobMessage): BlobPers
 
 public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
     self.blob_id
+}
+
+// === Accessors for ProtocolVersionMessage ===
+
+public(package) fun start_epoch(self: &ProtocolVersionMessage): u32 {
+    self.start_epoch
+}
+
+public(package) fun protocol_version(self: &ProtocolVersionMessage): u64 {
+    self.protocol_version
 }
 
 // === Accessors for DenyListUpdateMessage ===

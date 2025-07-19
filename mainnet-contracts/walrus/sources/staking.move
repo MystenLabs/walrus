@@ -6,7 +6,7 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
@@ -24,9 +24,14 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
+/// The migration epoch is not set or has not started yet.
+const EInvalidMigrationEpoch: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
+
+/// The key for the migration epoch.
+const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";
 
 /// The one and only staking object.
 public struct Staking has key {
@@ -37,7 +42,8 @@ public struct Staking has key {
 }
 
 /// Creates and shares a new staking object.
-/// Must only be called by the initialization function.
+///
+/// This function must only be called by the initialization function.
 public(package) fun create(
     epoch_zero_duration: u64,
     epoch_duration: u64,
@@ -163,6 +169,11 @@ public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16
     staking.inner().get_current_node_weight(node_id)
 }
 
+/// Get the current committee.
+public fun committee(staking: &Staking): &Committee {
+    staking.inner().committee()
+}
+
 /// Computes the committee for the next epoch.
 public fun compute_next_committee(staking: &Staking): Committee {
     staking.inner().compute_next_committee()
@@ -231,14 +242,16 @@ public fun set_node_metadata(self: &mut Staking, cap: &StorageNodeCap, metadata:
 // === Epoch Change ===
 
 /// Ends the voting period and runs the apportionment if the current time allows.
-/// Permissionless, can be called by anyone.
-/// Emits: `EpochParametersSelected` event.
+///
+/// This function is permissionless and can be called by anyone.
+/// Emits the `EpochParametersSelected` event.
 public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
 /// Initiates the epoch change if the current time allows.
-/// Emits: `EpochChangeStart` event.
+///
+/// Emits the `EpochChangeStart` event.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
     let staking_inner = staking.inner_mut();
     let rewards = system.advance_epoch(
@@ -271,9 +284,11 @@ public fun stake_with_pool(
     staking.inner_mut().stake_with_pool(to_stake, node_id, ctx)
 }
 
-/// Marks the amount as a withdrawal to be processed and removes it from the stake weight of the
-/// node. Allows the user to call withdraw_stake after the epoch change to the next epoch and
-/// shard transfer is done.
+/// Marks the amount as a withdrawal to be processed and removes it from
+/// the stake weight of the node.
+///
+/// Allows the user to call `withdraw_stake` after the epoch change to the next epoch
+/// and shard transfer is done.
 public fun request_withdraw_stake(
     staking: &mut Staking,
     staked_wal: &mut StakedWal,
@@ -292,12 +307,21 @@ public fun withdraw_stake(
 }
 
 /// Allows a node to join the active set if it has sufficient stake.
-/// This can be useful if another node in the active had its stake
-/// reduced to be lower than that of the current node.
-/// In that case, the current node will be added to the active set either
-/// the next time stake is added or by calling this function.
+///
+/// This can be useful if another node in the active set had its stake reduced
+/// below that of the current node. In that case, the current node will be added
+/// to the active set either the next time stake is added or by calling this function.
 public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
+}
+
+/// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+public fun add_commission_to_pools(
+    staking: &mut Staking,
+    node_ids: vector<ID>,
+    commissions: vector<Balance<WAL>>,
+) {
+    staking.inner_mut().add_commission_to_pools(node_ids, commissions)
 }
 
 // === Accessors ===
@@ -322,11 +346,12 @@ public(package) fun is_quorum(staking: &Staking, weight: u16): bool {
 
 // === Utility functions ===
 
-/// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
-/// the given `node_id` between `activation_epoch` and `withdraw_epoch`.
+/// Calculates the rewards for an amount with value `staked_principal`, staked in the pool
+/// with the given `node_id` between `activation_epoch` and `withdraw_epoch`.
 ///
-/// This function can be used with `dev_inspect` to calculate the expected rewards for a `StakedWal`
-/// object or, more generally, the returns provided by a given node over a given period.
+/// This function can be used with `dev_inspect` to calculate the expected rewards for a
+/// `StakedWal` object or, more generally, the returns provided by a given node over a
+/// given period.
 public fun calculate_rewards(
     staking: &Staking,
     node_id: ID,
@@ -348,6 +373,16 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
     staking.new_package_id = option::some(new_package_id);
 }
 
+/// Sets the epoch in which the staking and system objects can be migrated after an upgrade.
+entry fun set_migration_epoch(staking: &mut Staking) {
+    assert!(staking.version < VERSION, EInvalidMigration);
+    if (df::exists_(&staking.id, MIGRATION_EPOCH_KEY)) {
+        return
+    };
+    let migration_epoch = staking.inner_without_version_check().epoch() + 1;
+    df::add(&mut staking.id, MIGRATION_EPOCH_KEY, migration_epoch);
+}
+
 /// Migrate the staking object to the new package id.
 ///
 /// This function sets the new package id and version and can be modified in future versions
@@ -355,7 +390,17 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
 public(package) fun migrate(staking: &mut Staking) {
     assert!(staking.version < VERSION, EInvalidMigration);
 
-    // Move the old system state inner to the new version.
+    // Check that the migration epoch is set and that the current epoch is greater than or equal to
+    // the migration epoch.
+    let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
+        abort EInvalidMigrationEpoch,
+    );
+    assert!(
+        staking.inner_without_version_check().epoch() >= migration_epoch,
+        EInvalidMigrationEpoch,
+    );
+
+    // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
     df::add(&mut staking.id, VERSION, staking_inner);
     staking.version = VERSION;
@@ -379,11 +424,15 @@ fun inner(staking: &Staking): &StakingInnerV1 {
     df::borrow(&staking.id, VERSION)
 }
 
+/// Get an immutable reference to `StakingInner` from the `Staking` without checking the version.
+fun inner_without_version_check(staking: &Staking): &StakingInnerV1 {
+    df::borrow(&staking.id, staking.version)
+}
+
 // === Tests ===
 
 #[test_only]
 use sui::clock;
-
 #[test_only]
 public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
     staking.inner()
@@ -416,4 +465,9 @@ fun new_id(ctx: &mut TxContext): ID {
 #[test_only]
 public(package) fun new_package_id(staking: &Staking): Option<ID> {
     staking.new_package_id
+}
+
+#[test_only]
+public fun pool_commission(staking: &Staking, node_id: ID): u64 {
+    staking.inner().pool_commission(node_id)
 }
