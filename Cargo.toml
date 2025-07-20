@@ -101,7 +101,7 @@ rustls = { version = "0.23.29", default-features = false, features = ["logging",
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+serde_json = "1.0.141"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
 serde_with = { version = "3.14", features = ["base64"] }
