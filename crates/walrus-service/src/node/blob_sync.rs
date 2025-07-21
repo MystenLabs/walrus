@@ -81,20 +81,28 @@ impl BlobSyncHandler {
 
     /// Periodically checks the status of all in-progress blob syncs, cancelling those that are no
     /// longer certified and returning any that panicked.
-    pub fn spawn_task_monitor(&self) -> JoinHandle<()> {
-        let blob_syncs = self.blob_syncs_in_progress.clone();
-        let node = self.node.clone();
-        let monitor_interval = self.monitor_interval;
-
+    pub fn spawn_task_monitor(this: Arc<BlobSyncHandler>) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
+                {
+                    if let Err(error) = this
+                        .cancel_all_expired_syncs_and_mark_events_completed()
+                        .await
+                    {
+                        tracing::error!(?error, "error cancelling expired blob syncs");
+                    }
+                }
+
                 // Collect all finished in-progress syncs. Note that at the end of blob sync, the
                 // handle should have been removed from the map. So handles that are still in the
                 // map are either still running or panicked.
                 let mut finished_sync_handles = Vec::new();
 
                 {
-                    let mut syncs = blob_syncs.lock().expect("should be able to acquire lock");
+                    let mut syncs = this
+                        .blob_syncs_in_progress
+                        .lock()
+                        .expect("should be able to acquire lock");
                     let mut completed_blob_ids = Vec::new();
 
                     for (blob_id, handle) in syncs.iter_mut() {
@@ -110,15 +118,6 @@ impl BlobSyncHandler {
                                 finished_sync_handles.push((*blob_id, join_handle));
                             }
                             completed_blob_ids.push(*blob_id);
-                        }
-
-                        // Cancel the sync if the blob is no longer certified.
-                        if node.is_blob_not_certified(blob_id) {
-                            tracing::debug!(
-                                walrus.blob_id = %blob_id,
-                                "cancelling blob sync because blob is no longer certified"
-                            );
-                            handle.cancel();
                         }
                     }
 
@@ -151,7 +150,7 @@ impl BlobSyncHandler {
                     }
                 }
 
-                tokio::time::sleep(monitor_interval).await;
+                tokio::time::sleep(this.monitor_interval).await;
             }
         })
     }

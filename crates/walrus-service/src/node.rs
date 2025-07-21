@@ -813,7 +813,9 @@ impl StorageNode {
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
             },
-            blob_sync_result = self.blob_sync_handler.spawn_task_monitor() => {
+            blob_sync_result = BlobSyncHandler::spawn_task_monitor(
+                self.blob_sync_handler.clone()
+            ) => {
                 match blob_sync_result {
                     Ok(()) => unreachable!("blob sync task monitor never returns"),
                     Err(e) => {
@@ -2497,6 +2499,10 @@ impl StorageNodeInner {
     }
 
     /// Returns true if the blob is currently not certified.
+    ///
+    /// If an error occurs while retrieving the blob info, this returns `false`. The intention
+    /// is that if this is used to cancel a blob sync or to delete blob data, we need to be *sure*
+    /// that the blob is not certified.
     fn is_blob_not_certified(&self, blob_id: &BlobId) -> bool {
         if let Ok(false) = self.is_blob_certified(blob_id) {
             return true;
