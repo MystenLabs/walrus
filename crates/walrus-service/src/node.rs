@@ -4148,31 +4148,37 @@ mod tests {
     // Tests that a panic thrown by a blob sync task is propagated to the node runtime.
     #[tokio::test]
     #[ignore = "ignore long-running test by default"]
-    async fn blob_sync_panic_thrown() {
+    async fn blob_sync_panic_thrown() -> TestResult {
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
         let test_shard = ShardIndex(1);
 
-        let (mut cluster, _events, blob) =
+        let (mut cluster, events, blob) =
             cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != test_shard)
-                .await
-                .unwrap();
+                .await?;
 
         // Start a sync to trigger the blob sync task.
-        // Use a epoch number in the future will trigger a panic in reading the committee.
+        // Using an epoch number in the future will trigger a panic in reading the committee.
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 100, None)
-            .await
-            .unwrap();
+            .start_sync(*blob.blob_id(), 40, None)
+            .await?;
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
         // Wait for the node runtime to finish, and check that a panic was thrown.
-        let result = cluster.nodes[0].node_runtime_handle.as_mut().unwrap().await;
-        if let Err(e) = result {
-            assert!(e.is_panic());
-        } else {
-            panic!("expected panic");
+        match tokio::time::timeout(
+            Duration::from_secs(120),
+            cluster.nodes[0].node_runtime_handle.as_mut().unwrap(),
+        )
+        .await
+        {
+            Ok(Err(e)) => assert!(e.is_panic()),
+            Err(_) => panic!("node didn't panic within timeout"),
+            Ok(Ok(_)) => panic!("expected node to panic"),
         }
+
+        Ok(())
     }
 
     #[walrus_simtest]
