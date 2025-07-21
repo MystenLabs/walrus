@@ -370,9 +370,10 @@ impl<'a> ResourceManager<'a> {
             debug_assert!(b.is_with_status());
         });
 
-        let encoded_lengths: Result<Vec<_>, _> = blobs
+        let indexed_blobs: Vec<(usize, WalrusStoreBlob<'b, T>)> = blobs.into_iter().enumerate().collect();
+        let encoded_lengths: Result<Vec<_>, _> = indexed_blobs
             .iter()
-            .map(|blob| {
+            .map(|(_, blob)| {
                 blob.encoded_size().ok_or_else(|| {
                     ClientError::store_blob_internal(format!(
                         "could not compute the encoded size of the blob: {:?}",
@@ -382,9 +383,9 @@ impl<'a> ResourceManager<'a> {
             })
             .collect();
 
-        let metadata_list: Vec<_> = blobs
+        let metadata_list: Vec<_> = indexed_blobs
             .iter()
-            .map(|b| {
+            .map(|(_, b)| {
                 b.get_metadata()
                     .expect("metadata is present on the allowed blob types")
             })
@@ -409,43 +410,25 @@ impl<'a> ResourceManager<'a> {
             .await?
         };
 
-        debug_assert_eq!(results.len(), blobs.len());
+        debug_assert_eq!(results.len(), indexed_blobs.len());
 
-        // TODO(WAL-754): Check if we can make sure results and blobs have the same order.
-        let mut blob_id_map = HashMap::new();
-        results.into_iter().for_each(|(blob, op)| {
-            let blob_id = blob.blob_id;
-            blob_id_map
-                .entry(blob_id)
-                .or_insert_with(Vec::new)
-                .push((blob, op));
-        });
-
-        Ok(blobs
-            .into_iter()
-            .map(|blob| {
-                // Get the blob ID if available
-                let blob_id = blob.get_blob_id().expect("blob ID should be present");
-
-                // Get the vec of (blob, op) pairs for this blob ID
-                let Some(entries) = blob_id_map.get_mut(&blob_id) else {
-                    panic!("missing blob ID: {blob_id}");
-                };
-
-                // Pop one (blob, op) pair from the vec
-                if let Some((blob_obj, operation)) = entries.pop() {
-                    // If vec is now empty, remove the entry from the map
-                    if entries.is_empty() {
-                        blob_id_map.remove(&blob_id);
-                    }
-
-                    blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
-                        .expect("should succeed on a Ok result")
-                } else {
-                    panic!("missing blob ID: {blob_id}");
-                }
-            })
-            .collect())
+        let mut result_pairs: Vec<(usize, WalrusStoreBlob<'b, T>)> = Vec::with_capacity(results.len());
+        let mut used = vec![false; results.len()];
+        for (i, (orig_idx, blob)) in indexed_blobs.into_iter().enumerate() {
+            let blob_id = blob.get_blob_id().expect("blob ID should be present");
+            if let Some((j, (result_blob, operation))) = results.iter().enumerate().find(|(j, (result_blob, _))| {
+                !used[*j] && result_blob.blob_id == blob_id
+            }) {
+                used[j] = true;
+                let new_blob = blob.with_register_result(Ok(StoreOp::new(operation.clone(), result_blob.clone())))
+                    .expect("should succeed on a Ok result");
+                result_pairs.push((orig_idx, new_blob));
+            } else {
+                panic!("missing blob ID: {blob_id}");
+            }
+        }
+        result_pairs.sort_by_key(|(idx, _)| *idx);
+        Ok(result_pairs.into_iter().map(|(_, blob)| blob).collect())
     }
 
     async fn get_existing_or_register_with_resources(
