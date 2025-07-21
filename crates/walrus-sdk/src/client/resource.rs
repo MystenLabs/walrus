@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Manages the storage and blob resources in the Wallet on behalf of the client.
-use std::{collections::HashMap, fmt::Debug};
+use std::{fmt::Debug};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -414,7 +414,7 @@ impl<'a> ResourceManager<'a> {
 
         let mut result_pairs: Vec<(usize, WalrusStoreBlob<'b, T>)> = Vec::with_capacity(results.len());
         let mut used = vec![false; results.len()];
-        for (i, (orig_idx, blob)) in indexed_blobs.into_iter().enumerate() {
+        for (orig_idx, blob) in indexed_blobs.into_iter() {
             let blob_id = blob.get_blob_id().expect("blob ID should be present");
             if let Some((j, (result_blob, operation))) = results.iter().enumerate().find(|(j, (result_blob, _))| {
                 !used[*j] && result_blob.blob_id == blob_id
