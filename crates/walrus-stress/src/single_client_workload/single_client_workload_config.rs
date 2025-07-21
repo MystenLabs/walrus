@@ -94,7 +94,7 @@ pub enum SizeDistributionConfig {
         /// The lambda parameter for Poisson distribution of request sizes.
         lambda: f64,
         /// The size multiplier for Poisson distribution of request sizes.
-        size_multiplier: u32,
+        size_multiplier: usize,
     },
 }
 

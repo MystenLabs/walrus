@@ -13061,6 +13061,7 @@ dependencies = [
  "walrus-stress",
  "walrus-sui",
  "walrus-test-utils",
+ "walrus-utils",
 ]
 
 [[package]]

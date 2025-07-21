@@ -132,6 +132,8 @@ async fn main() -> anyhow::Result<()> {
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);
     let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
     let prometheus_registry = registry_service.default_registry();
+
+    // TODO(WAL-935): we should different metrics used in sdk::client and stress client.
     let metrics = Arc::new(ClientMetrics::new(&walrus_utils::metrics::Registry::new(
         prometheus_registry,
     )));
@@ -151,8 +153,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Staking => run_staking(client_config, metrics).await,
         Commands::SingleClient(single_client_args) => {
-            run_single_client_workload(client_config, metrics, args.sui_network, single_client_args)
-                .await
+            run_single_client_workload(client_config, metrics, single_client_args).await
         }
     }
 }
@@ -340,8 +341,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
 
 async fn run_single_client_workload(
     client_config: ClientConfig,
-    _metrics: Arc<ClientMetrics>,
-    _sui_network: SuiNetwork,
+    metrics: Arc<ClientMetrics>,
     args: SingleClientWorkloadArgs,
 ) -> anyhow::Result<()> {
     tracing::info!("starting the single client stress runner");
@@ -355,6 +355,7 @@ async fn run_single_client_workload(
     store_length_config.validate()?;
     request_type_distribution.validate()?;
 
+    // Create the client to run the workload.
     let wallet = WalletConfig::load_wallet(
         client_config.wallet_config.as_ref(),
         client_config
@@ -372,6 +373,7 @@ async fn run_single_client_workload(
         data_size_config,
         store_length_config,
         request_type_distribution,
+        metrics,
     );
 
     single_client_workload.run().await?;

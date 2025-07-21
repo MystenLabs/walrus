@@ -30,6 +30,8 @@ pub struct SingleClientWorkloadArgs {
 }
 
 /// Arguments for the request type distribution.
+///
+/// The ratio of each request type is the weight divided by the sum of all weights.
 #[derive(clap::Args, Debug, Clone)]
 pub struct RequestTypeDistributionArgs {
     /// Weight for read requests
@@ -47,7 +49,7 @@ pub struct RequestTypeDistributionArgs {
     /// Weight for extend requests
     #[arg(long, default_value_t = 1)]
     pub extend_weight: u32,
-    // TODO: add inconsistent blob weight.
+    // TODO(WAL-938): allow sending inconsistent blob data.
 }
 
 impl RequestTypeDistributionArgs {
@@ -85,7 +87,7 @@ pub enum WorkloadConfig {
         lambda: f64,
         /// Size multiplier to scale the Poisson values
         #[arg(long, default_value_t = 1024)]
-        size_multiplier: u32,
+        size_multiplier: usize,
         /// Store length distribution configuration
         #[command(subcommand)]
         store_length_distribution: RequestStoreLengthDistributionArgs,
