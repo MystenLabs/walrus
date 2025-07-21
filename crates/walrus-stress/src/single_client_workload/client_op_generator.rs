@@ -4,7 +4,7 @@
 //! Client operation generator.
 
 use rand::Rng;
-use walrus_core::{BlobId, EpochCount};
+use walrus_core::{BlobId, EpochCount, SliverType};
 use walrus_sdk::ObjectID;
 
 use super::{
@@ -23,6 +23,7 @@ use super::{
 pub(crate) enum WalrusClientOp {
     Read {
         blob_id: BlobId,
+        sliver_type: SliverType,
     },
     Write {
         blob: Vec<u8>,
@@ -81,7 +82,15 @@ impl ClientOpGenerator {
         let blob_id = blob_pool
             .select_random_blob_id(rng)
             .expect("blob must exist");
-        WalrusClientOp::Read { blob_id }
+        let sliver_type = if rng.gen_bool(0.5) {
+            SliverType::Primary
+        } else {
+            SliverType::Secondary
+        };
+        WalrusClientOp::Read {
+            blob_id,
+            sliver_type,
+        }
     }
 
     fn generate_write_op<R: Rng>(&self, deletable: bool, rng: &mut R) -> WalrusClientOp {

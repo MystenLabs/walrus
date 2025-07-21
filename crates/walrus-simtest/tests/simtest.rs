@@ -1123,8 +1123,7 @@ mod tests {
         }
     }
 
-    // Tests that we can create a Walrus cluster with a Sui cluster and run basic
-    // operations deterministically.
+    // Basic test for single client workload.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_single_client_workload() {
@@ -1135,7 +1134,8 @@ mod tests {
                 node_weights: vec![1, 2, 3, 3, 4],
                 ..Default::default()
             })
-            // TODO: test single client workload with epoch change.
+            // Use a long epoch duration to avoid operation across epoch change.
+            // TODO(WAL-937): shorten this and fix any issues exposed by this.
             .with_epoch_duration(Duration::from_secs(600))
             .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -1145,6 +1145,10 @@ mod tests {
             .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
+
+        let metrics = Arc::new(ClientMetrics::new(&walrus_utils::metrics::Registry::new(
+            prometheus::Registry::new(),
+        )));
 
         let handle = tokio::spawn(async move {
             let single_client_workload = SingleClientWorkload::new(
@@ -1166,8 +1170,13 @@ mod tests {
                     delete_weight: 1,
                     extend_weight: 1,
                 },
+                metrics,
             );
-            single_client_workload.run().await.unwrap();
+
+            single_client_workload
+                .run()
+                .await
+                .expect("single client workload exited with error");
         });
 
         tokio::time::sleep(Duration::from_secs(240)).await;

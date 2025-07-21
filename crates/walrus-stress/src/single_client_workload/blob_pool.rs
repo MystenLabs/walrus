@@ -11,21 +11,29 @@ use walrus_sdk::ObjectID;
 
 use super::client_op_generator::WalrusClientOp;
 
+/// Data and info of a blob.
 pub(crate) struct BlobDataAndInfo {
-    blob: Vec<u8>,
+    /// The user blob data. Only stored if `store_blob_data` is true in BlobPool.
+    blob: Option<Vec<u8>>,
+    /// The object id of the blob.
     blob_object_id: ObjectID,
+    /// Whether the blob is deletable.
     deletable: bool,
+    /// The epoch at which the blob will be deleted.
     end_epoch: Epoch,
 }
 
+/// Manages a pool of blobs that are live in the system.
 pub(crate) struct BlobPool {
     blobs: HashMap<BlobId, BlobDataAndInfo>,
+    store_blob_data: bool,
 }
 
 impl BlobPool {
-    pub fn new() -> Self {
+    pub fn new(store_blob_data: bool) -> Self {
         Self {
             blobs: HashMap::new(),
+            store_blob_data,
         }
     }
 
@@ -41,6 +49,7 @@ impl BlobPool {
             .map(|(blob_id, _)| *blob_id)
     }
 
+    /// Updates the blob pool with a client operation.
     pub fn update_blob_pool(
         &mut self,
         blob_id: BlobId,
@@ -71,12 +80,16 @@ impl BlobPool {
             } => {
                 self.extend_blob(blob_id, store_length);
             }
-            WalrusClientOp::Read { blob_id: _blob_id } => {
+            WalrusClientOp::Read {
+                blob_id: _blob_id,
+                sliver_type: _sliver_type,
+            } => {
                 // Do nothing.
             }
         }
     }
 
+    /// Adds a new blob to the pool.
     fn add_new_blob(
         &mut self,
         blob_id: BlobId,
@@ -88,7 +101,11 @@ impl BlobPool {
         self.blobs.insert(
             blob_id,
             BlobDataAndInfo {
-                blob,
+                blob: if self.store_blob_data {
+                    Some(blob)
+                } else {
+                    None
+                },
                 blob_object_id,
                 deletable,
                 end_epoch,
@@ -96,20 +113,25 @@ impl BlobPool {
         );
     }
 
+    /// Deletes a blob from the pool.
     fn delete_blob(&mut self, blob_id: BlobId) {
         self.blobs.remove(&blob_id);
     }
 
+    /// Extends the end epoch of a blob.
     fn extend_blob(&mut self, blob_id: BlobId, additional_epochs: EpochCount) {
         let blob_data = self.blobs.get_mut(&blob_id).expect("blob must exist");
         blob_data.end_epoch += additional_epochs;
     }
 
+    /// Asserts that the blob data matches the expected data.
     pub fn assert_blob_data(&self, blob_id: BlobId, blob: &[u8]) {
+        assert!(self.store_blob_data);
         let blob_data = self.blobs.get(&blob_id).expect("blob must exist");
-        assert_eq!(blob_data.blob, blob);
+        assert_eq!(blob_data.blob.as_ref().expect("blob must be stored"), blob);
     }
 
+    /// Expire blobs that have expired at the given epoch.
     pub fn expire_blobs_in_new_epoch(&mut self, epoch: Epoch) {
         let expired_blob_ids: Vec<BlobId> = self
             .blobs
@@ -123,12 +145,14 @@ impl BlobPool {
         }
     }
 
+    /// Returns the object id of a blob.
     pub fn get_blob_object_id(&self, blob_id: BlobId) -> Option<ObjectID> {
         self.blobs
             .get(&blob_id)
             .map(|blob_data| blob_data.blob_object_id)
     }
 
+    /// Returns true if the blob pool is empty.
     pub fn is_empty(&self) -> bool {
         self.blobs.is_empty()
     }
@@ -137,7 +161,7 @@ impl BlobPool {
 #[cfg(test)]
 mod tests {
     use rand::thread_rng;
-    use walrus_core::BlobId;
+    use walrus_core::{BlobId, SliverType};
     use walrus_sdk::ObjectID;
 
     use super::*;
@@ -156,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_write_operation() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(true);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
@@ -174,7 +198,7 @@ mod tests {
         assert!(pool.blobs.contains_key(&blob_id));
 
         let stored_blob = &pool.blobs[&blob_id];
-        assert_eq!(stored_blob.blob, blob_data);
+        assert_eq!(stored_blob.blob, Some(blob_data));
         assert_eq!(stored_blob.blob_object_id, object_id);
         assert!(stored_blob.deletable);
         assert_eq!(stored_blob.end_epoch, 10);
@@ -182,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_delete_operation() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(false);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -205,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_extend_operation() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(false);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -231,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_read_operation() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(false);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -244,7 +268,10 @@ mod tests {
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
         // Read operation should not change anything
-        let read_op = WalrusClientOp::Read { blob_id };
+        let read_op = WalrusClientOp::Read {
+            blob_id,
+            sliver_type: SliverType::Primary,
+        };
         pool.update_blob_pool(blob_id, None, read_op);
 
         assert_eq!(pool.blobs.len(), 1);
@@ -254,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_assert_blob_data_success() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(true);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
@@ -273,7 +300,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_assert_blob_data_failure() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(true);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -290,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_expire_blobs_in_new_epoch() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(false);
 
         // Add blobs with different expiration epochs
         let blob_id1 = BlobId([1; 32]);
@@ -332,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_multiple_blobs_with_mixed_deletable_flags() {
-        let mut pool = BlobPool::new();
+        let mut pool = BlobPool::new(false);
         let mut rng = thread_rng();
 
         // Add deletable blob

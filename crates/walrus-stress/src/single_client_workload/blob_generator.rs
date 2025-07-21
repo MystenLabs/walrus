@@ -32,7 +32,7 @@ impl BlobGenerator {
             SizeDistributionConfig::Poisson {
                 lambda,
                 size_multiplier,
-            } => Self::Poisson(PoissonBlobGenerator::new(lambda, size_multiplier as usize)),
+            } => Self::Poisson(PoissonBlobGenerator::new(lambda, size_multiplier)),
         }
     }
 
