@@ -1284,8 +1284,10 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     // Use basic_store_and_read with our pre_read_hook.
     basic_store_and_read(&client, 4, 314, || Ok(())).await?;
 
-    // Wait for the cluster to reach the next epoch.
-    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+    // Wait for the cluster to reach two epochs ahead of the current epoch. This is to ensure that
+    // the subsidies are processed at least once between checking the initial and final funds, since
+    // there is a full epoch between the two checks.
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 2).await;
 
     let final_subsidies_funds = client
         .as_ref()
