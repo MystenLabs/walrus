@@ -64,9 +64,9 @@ blobs for 1 epoch as a quilt compared to storing them as separate blobs.
 |     500KB |                 2.136 WAL |          0.084 WAL |                25x |
 |       1MB |                 2.208 WAL |          0.170 WAL |                13x |
 
-> **Note:** The costs shown in this table are for illustrative purposes only. Actual
-> costs may vary due to changes in smart contract parameters, network conditions, and
-> other factors.
+> **Note:** The costs shown in this table are for illustrative purposes only and were obtained
+> from test runs on Walrus Testnet. Actual costs may vary due to changes in smart contract
+> parameters, networks, and other factors.
 
 The table only shows the Walrus storage cost. Similar savings are possible for Sui gas fees. Storing
 600 blobs as a quilt results in gas fees of 0.00725 SUI compared to 1.725 SUI when storing them as
