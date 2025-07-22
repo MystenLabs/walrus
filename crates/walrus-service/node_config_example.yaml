@@ -41,7 +41,13 @@ db_config:
   node_status: null
   metadata:
     enable_blob_files: false
-    blob_compression_type: zstd
+    min_blob_size: 0
+    blob_file_size: 0
+    blob_compression_type: none
+    enable_blob_garbage_collection: false
+    blob_garbage_collection_age_cutoff: 0.0
+    blob_garbage_collection_force_threshold: 0.0
+    blob_compaction_read_ahead_size: 0
     write_buffer_size: 536870912
     target_file_size_base: 536870912
     max_bytes_for_level_base: 5368709120
@@ -49,10 +55,8 @@ db_config:
     block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
-  blob_info:
-    block_cache_size: 536870912
-  per_object_blob_info:
-    block_cache_size: 536870912
+  blob_info: null
+  per_object_blob_info: null
   event_cursor: null
   shard: null
   shard_status: null
