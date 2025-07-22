@@ -1050,13 +1050,13 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub upload_relay: Option<Url>,
-    /// Whether to ask for user confirmations.
+    /// Skip the tip confirmation prompt when using the upload relay.
     ///
-    /// If yes is specified, the client will not ask for confirmations and proceed with the
-    /// operation.
+    /// If specified, the client will not ask for a tip confirmation and proceed with the upload
+    /// relay store operation.
     #[arg(long)]
     #[serde(default)]
-    pub yes: bool,
+    pub skip_tip_confirmation: bool,
 }
 
 #[serde_as]
@@ -1764,7 +1764,7 @@ mod tests {
                 share: false,
                 encoding_type: Default::default(),
                 upload_relay: None,
-                yes: false,
+                skip_tip_confirmation: false,
             },
         })
     }

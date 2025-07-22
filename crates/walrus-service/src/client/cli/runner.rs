@@ -232,7 +232,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
-                    common_options.yes.into(),
+                    common_options.skip_tip_confirmation.into(),
                 )
                 .await
             }
@@ -258,7 +258,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
-                    common_options.yes.into(),
+                    common_options.skip_tip_confirmation.into(),
                 )
                 .await
             }
