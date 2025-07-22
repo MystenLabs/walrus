@@ -71,8 +71,8 @@ jobs:
           echo "walrus_release_version=${walrus_release_version}" >> $GITHUB_ENV
 
           echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
-          echo "{\"sha\": \"${{ inputs.walrus_commit }}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} \
-            --header "Accept: application/vnd.github+json" --input -
+          echo "{\"sha\": \"${{ inputs.walrus_commit }}\", \"force\": true}" | gh api -X PATCH \
+            /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} --header "Accept: application/vnd.github+json" --input -
 
       - name: Create ${{ inputs.network }}-v${{ env.WALRUS_RELEASE_VERSION }} release tag
         shell: bash
