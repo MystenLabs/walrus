@@ -57,7 +57,7 @@ jobs:
           export previous_release_branch="releases/walrus-v${previous_release_version}-release"
           echo "previous_release_branch=${previous_release_branch}" >> $GITHUB_ENV
 
-      - name: Checkout release branch
+      - name: Checkout commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
         with:
           fetch-depth: 0
