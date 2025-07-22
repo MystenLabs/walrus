@@ -1702,7 +1702,7 @@ pub struct TestCluster<T: StorageNodeHandleTrait = StorageNodeHandle> {
     /// A handle to the stub lookup service, is used.
     pub lookup_service_handle: Option<StubLookupServiceHandle>,
     /// The number of shards in the system.
-    pub n_shards: usize,
+    pub n_shards: std::num::NonZero<u16>,
 }
 
 impl<T: StorageNodeHandleTrait> TestCluster<T> {
@@ -1713,8 +1713,7 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
 
     /// Returns an encoding config valid for use with the storage nodes.
     pub fn encoding_config(&self) -> EncodingConfig {
-        let n_shards: u16 = self.n_shards.try_into().expect("valid number of shards");
-        EncodingConfig::new(NonZeroU16::new(n_shards).expect("more than 1 shard"))
+        EncodingConfig::new(self.n_shards)
     }
 
     /// Stops the storage node with index `idx` by cancelling its task.
@@ -1772,6 +1771,7 @@ pub struct TestClusterBuilder {
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<EpochCount>,
+    n_shards: u16,
 }
 
 impl TestClusterBuilder {
@@ -1811,8 +1811,8 @@ impl TestClusterBuilder {
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
     /// assigned to each storage.
     ///
-    /// Resets any prior calls to [`Self::with_test_configs`],
-    /// [`Self::with_system_event_providers`], and [`Self::with_committee_services`].
+    /// Resets any prior calls to [`Self::with_system_event_providers`], and
+    /// [`Self::with_committee_services`].
     pub fn with_shard_assignment<S, I>(mut self, assignment: &[S]) -> Self
     where
         S: Borrow<[I]>,
@@ -1826,21 +1826,21 @@ impl TestClusterBuilder {
         self.storage_capabilities = configs.iter().map(|_| None).collect();
         self.node_wallet_dirs = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
+
+        self.n_shards = assignment
+            .iter()
+            .map(|shards| shards.borrow().len())
+            .sum::<usize>()
+            .try_into()
+            .expect("invalid number of shards");
         self
     }
 
-    /// Sets the configurations for each storage node based on `configs`.
-    ///
-    /// Resets any prior calls to [`Self::with_shard_assignment`],
-    /// [`Self::with_system_event_providers`], [`Self::with_committee_services`],
-    /// and [`Self::with_system_contract_services`].
-    pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
-        self.event_providers = configs.iter().map(|_| None).collect();
-        self.committee_services = configs.iter().map(|_| None).collect();
-        self.contract_services = configs.iter().map(|_| None).collect();
-        self.storage_capabilities = configs.iter().map(|_| None).collect();
-        self.node_wallet_dirs = configs.iter().map(|_| None).collect();
-        self.storage_node_configs = configs;
+    /// For e2e integration tests where shard assignment is controlled by the contract, we just
+    /// need to create StorageNodeTestConfig for each node with empty shard assignment.
+    pub fn with_empty_shard_assignment(mut self, n_nodes: usize, n_shards: u16) -> Self {
+        self = self.with_shard_assignment(&vec![vec![]; n_nodes]);
+        self.n_shards = n_shards;
         self
     }
 
@@ -1985,12 +1985,6 @@ impl TestClusterBuilder {
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
 
-        let n_shards = self
-            .storage_node_configs
-            .iter()
-            .map(|config| config.shards.len())
-            .sum::<usize>();
-
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
         let mut node_futures = vec![];
@@ -2130,7 +2124,7 @@ impl TestClusterBuilder {
         Ok(TestCluster {
             nodes,
             lookup_service_handle: lookup_service_and_handle.map(|(_, handle)| handle),
-            n_shards,
+            n_shards: NonZeroU16::new(self.n_shards).expect("invalid number of shards"),
         })
     }
 }
@@ -2228,6 +2222,13 @@ impl Default for TestClusterBuilder {
             ShardIndex::range(6..9).collect(),
             ShardIndex::range(9..13).collect(),
         ];
+        let n_shards = shard_assignment
+            .iter()
+            .map(|shards| shards.len())
+            .sum::<usize>()
+            .try_into()
+            .expect("valid number of shards");
+
         Self {
             shard_sync_config: None,
             event_providers: shard_assignment.iter().map(|_| None).collect(),
@@ -2250,6 +2251,7 @@ impl Default for TestClusterBuilder {
             node_recovery_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
+            n_shards,
         }
     }
 }
@@ -2521,10 +2523,9 @@ pub mod test_cluster {
 
             // Specify an empty assignment to ensure that storage nodes are not created with invalid
             // shard assignments.
-            let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
-                .expect("sum of non-zero weights is not zero");
+            let n_shards = test_nodes_config.node_weights.iter().sum();
             let cluster_builder = TestCluster::<T>::builder()
-                .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
+                .with_empty_shard_assignment(test_nodes_config.node_weights.len(), n_shards);
 
             // Get the default committee from the test cluster builder
             let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
@@ -2543,7 +2544,7 @@ pub mod test_cluster {
                 .and_then_async(async |wallet| {
                     create_and_init_system_for_test(
                         wallet,
-                        n_shards,
+                        NonZeroU16::new(n_shards).expect("invalid number of shards"),
                         Duration::from_secs(0),
                         self.epoch_duration
                             .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
