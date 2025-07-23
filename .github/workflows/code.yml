@@ -44,7 +44,8 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' || steps.diff.outputs.isTestnetContracts == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isMainnetContracts: ${{ steps.diff.outputs.isMainnetContracts }}
@@ -158,8 +159,7 @@ jobs:
     env:
       MSIM_TEST_NUM: 5
       # Turn off Sui logging since it can be very distractive in CI
-      RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      MSIM_WATCHDOG_TIMEOUT_MS: 3000000
+      RUST_LOG: info
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -208,7 +208,8 @@ jobs:
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+        run:
+          cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_coverage.sh
