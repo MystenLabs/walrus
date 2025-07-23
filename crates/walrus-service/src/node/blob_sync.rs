@@ -196,14 +196,14 @@ impl BlobSyncHandler {
     where
         F: Fn((&BlobId, &mut InProgressSyncHandle)) -> Option<SyncJoinHandle> + Sync + Send,
     {
-        tracing::info!("cancelling matching blob syncs");
+        tracing::debug!("cancelling matching blob syncs");
 
         let join_handles: Vec<_> = {
             let mut in_progress_guard = self
                 .blob_syncs_in_progress
                 .lock()
                 .expect("should be able to acquire lock");
-            tracing::info!("acquired lock on the in-progress blob recoveries");
+            tracing::debug!("acquired lock on the in-progress blob recoveries");
 
             if cfg!(not(msim)) {
                 in_progress_guard
@@ -217,7 +217,7 @@ impl BlobSyncHandler {
                     .collect()
             }
         };
-        tracing::info!("released lock on the in-progress blob recoveries");
+        tracing::debug!("released lock on the in-progress blob recoveries");
 
         let count = join_handles.len();
 
@@ -229,7 +229,11 @@ impl BlobSyncHandler {
                 .for_each(CompletableHandle::mark_as_complete);
         }
 
-        tracing::info!("cancelled {count} blob syncs");
+        if count > 0 {
+            tracing::info!("cancelled {count} blob syncs");
+        } else {
+            tracing::debug!("no blob syncs cancelled");
+        }
         Ok(count)
     }
 
@@ -245,7 +249,7 @@ impl BlobSyncHandler {
     pub async fn cancel_all_expired_syncs_and_mark_events_completed(
         &self,
     ) -> anyhow::Result<usize> {
-        tracing::info!("cancelling all blob syncs for expired blobs");
+        tracing::debug!("cancelling all blob syncs for expired blobs");
 
         let closure = |(blob_id, sync): (&BlobId, &mut InProgressSyncHandle)| {
             self.node
