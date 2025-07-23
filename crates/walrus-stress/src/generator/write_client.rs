@@ -19,7 +19,7 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{Client, StoreArgs, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
     error::ClientError,
     store_optimizations::StoreOptimizations,
 };
@@ -99,19 +99,15 @@ impl WriteClient {
         let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epochs_to_store());
 
         let now = Instant::now();
+        let store_args = StoreArgs::default_with_epochs(epochs_to_store)
+            .no_store_optimizations()
+            .with_metrics(self.metrics.clone());
+
         let blob_id = self
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_committees(
-                &[blob],
-                DEFAULT_ENCODING,
-                epochs_to_store,
-                StoreOptimizations::none(),
-                BlobPersistence::Permanent,
-                PostStoreAction::Keep,
-                Some(&self.metrics),
-            )
+            .reserve_and_store_blobs_retry_committees(&[blob], &store_args)
             .await?
             .first()
             .expect("should have one blob store result")

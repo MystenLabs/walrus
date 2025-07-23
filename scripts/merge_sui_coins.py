@@ -72,9 +72,9 @@ def pay_sui_to_smash(coins: list[str], recipient: str) -> None:
     Uses the gas-smashing property of the pay-sui command. Assumes that the list
     of coins contains less than `MAX_NUM_COINS` elements.
     """
-    assert (
-        len(coins) <= MAX_NUM_COINS
-    ), "The list of coins contains more than `MAX_NUM_COINS` elements."
+    assert len(coins) <= MAX_NUM_COINS, (
+        "The list of coins contains more than `MAX_NUM_COINS` elements."
+    )
 
     cmd = [
         "sui",
