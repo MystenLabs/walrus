@@ -196,7 +196,7 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
         with:
           path: "./tmp"
-          destination: "mysten-walrus-binaries"
+          destination: "mysten-walrus-releases"
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
