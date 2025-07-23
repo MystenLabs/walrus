@@ -19,7 +19,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
     use walrus_service::{
-        node::{DatabaseConfig, event_blob_writer::CertifiedEventBlobMetadata},
+        node::{DatabaseTableOptionsFactory, event_blob_writer::CertifiedEventBlobMetadata},
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
@@ -154,25 +154,26 @@ mod tests {
             .storage_path
             .join("event_blob_writer")
             .join("db");
+        let db_table_options_factory = DatabaseTableOptionsFactory::default();
         let db = Arc::new(rocksdb::DB::open_cf_with_opts_for_read_only(
             &RocksdbOptions::default(),
             db_path,
             [
                 (
                     "pending_blob_store",
-                    DatabaseConfig::default().pending().to_options(),
+                    db_table_options_factory.pending().to_options(),
                 ),
                 (
                     "attested_blob_store",
-                    DatabaseConfig::default().attested().to_options(),
+                    db_table_options_factory.attested().to_options(),
                 ),
                 (
                     "certified_blob_store",
-                    DatabaseConfig::default().certified().to_options(),
+                    db_table_options_factory.certified().to_options(),
                 ),
                 (
                     "failed_to_attest_blob_store",
-                    DatabaseConfig::default().failed_to_attest().to_options(),
+                    db_table_options_factory.failed_to_attest().to_options(),
                 ),
             ],
             false,

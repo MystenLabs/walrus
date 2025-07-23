@@ -18,8 +18,8 @@ use typed_store::{
 };
 
 use super::{
-    DatabaseConfig,
     constants::{event_cursor_cf_name, event_cursor_key},
+    database_config::DatabaseTableOptionsFactory,
     event_sequencer::EventSequencer,
 };
 
@@ -108,8 +108,8 @@ impl EventCursorTable {
         Ok(this)
     }
 
-    pub fn options(config: &DatabaseConfig) -> (&'static str, Options) {
-        let mut options = config.event_cursor().to_options();
+    pub fn options(db_options: &DatabaseTableOptionsFactory) -> (&'static str, Options) {
+        let mut options = db_options.event_cursor().to_options();
         options.set_merge_operator(
             "update_cursor_and_progress",
             update_cursor_and_progress,

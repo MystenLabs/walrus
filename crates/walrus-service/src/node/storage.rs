@@ -61,7 +61,7 @@ pub(crate) mod blob_info;
 pub(crate) mod constants;
 
 mod database_config;
-pub use database_config::DatabaseConfig;
+pub use database_config::{DatabaseConfig, DatabaseTableOptionsFactory};
 
 mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
@@ -82,12 +82,14 @@ pub(crate) use shard::{
     shard_sync_progress_column_family_options,
 };
 
-pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
-    db_config.metadata().to_options()
+pub(crate) fn metadata_options(db_table_options_factory: &DatabaseTableOptionsFactory) -> Options {
+    db_table_options_factory.metadata().to_options()
 }
 
-pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
-    db_config.node_status().to_options()
+pub(crate) fn node_status_options(
+    db_table_options_factory: &DatabaseTableOptionsFactory,
+) -> Options {
+    db_table_options_factory.node_status().to_options()
 }
 
 /// The status of the node.
@@ -183,7 +185,7 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
-    config: DatabaseConfig,
+    db_table_options_factory: DatabaseTableOptionsFactory,
     metrics: Arc<CommonDatabaseMetrics>,
     metrics_registry: Registry,
 }
@@ -211,7 +213,9 @@ impl Storage {
         metrics_config: MetricConf,
         registry: Registry,
     ) -> Result<Self, anyhow::Error> {
-        let mut db_opts = Options::from(&db_config.global);
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(db_config);
+
+        let mut db_opts = Options::from(&db_table_options_factory.global_db_options());
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
@@ -230,34 +234,35 @@ impl Storage {
                 [
                     (
                         primary_slivers_column_family_name(id),
-                        primary_slivers_column_family_options(&db_config),
+                        primary_slivers_column_family_options(&db_table_options_factory),
                     ),
                     (
                         secondary_slivers_column_family_name(id),
-                        secondary_slivers_column_family_options(&db_config),
+                        secondary_slivers_column_family_options(&db_table_options_factory),
                     ),
                     (
                         shard_status_column_family_name(id),
-                        shard_status_column_family_options(&db_config),
+                        shard_status_column_family_options(&db_table_options_factory),
                     ),
                     (
                         shard_sync_progress_column_family_name(id),
-                        shard_sync_progress_column_family_options(&db_config),
+                        shard_sync_progress_column_family_options(&db_table_options_factory),
                     ),
                     (
                         pending_recover_slivers_column_family_name(id),
-                        pending_recover_slivers_column_family_options(&db_config),
+                        pending_recover_slivers_column_family_options(&db_table_options_factory),
                     ),
                 ]
             })
             .collect::<Vec<_>>();
 
         let node_status_cf_name = node_status_cf_name();
-        let node_status_options = node_status_options(&db_config);
-        let metadata_options = metadata_options(&db_config);
+        let node_status_options = node_status_options(&db_table_options_factory);
+        let metadata_options = metadata_options(&db_table_options_factory);
         let metadata_cf_name = metadata_cf_name();
-        let blob_info_column_families = BlobInfoTable::options(&db_config);
-        let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
+        let blob_info_column_families = BlobInfoTable::options(&db_table_options_factory);
+        let (event_cursor_cf_name, event_cursor_options) =
+            EventCursorTable::options(&db_table_options_factory);
 
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -300,8 +305,14 @@ impl Storage {
             existing_shards_ids
                 .into_iter()
                 .map(|id| {
-                    ShardStorage::create_or_reopen(id, &database, &db_config, None, &registry)
-                        .map(|shard| (id, Arc::new(shard)))
+                    ShardStorage::create_or_reopen(
+                        id,
+                        &database,
+                        &db_table_options_factory,
+                        None,
+                        &registry,
+                    )
+                    .map(|shard| (id, Arc::new(shard)))
                 })
                 .collect::<Result<_, _>>()?,
         ));
@@ -313,7 +324,7 @@ impl Storage {
             blob_info,
             event_cursor,
             shards,
-            config: db_config,
+            db_table_options_factory,
             metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
                 &registry,
                 "storage".to_owned(),
@@ -382,7 +393,7 @@ impl Storage {
                     let shard_storage = ShardStorage::create_or_reopen(
                         shard_index,
                         &self.database,
-                        &self.config,
+                        &self.db_table_options_factory,
                         Some(ShardStatus::None),
                         &self.metrics_registry,
                     )
@@ -1338,22 +1349,24 @@ pub(crate) mod tests {
         let storage = empty_storage().await;
 
         let primary_cfs_name = primary_slivers_column_family_name(test_shard_index);
-        let primary_cfs_options = primary_slivers_column_family_options(&DatabaseConfig::default());
+        let primary_cfs_options =
+            primary_slivers_column_family_options(&DatabaseTableOptionsFactory::default());
 
         let secondary_cfs_name = secondary_slivers_column_family_name(test_shard_index);
         let secondary_cfs_options =
-            secondary_slivers_column_family_options(&DatabaseConfig::default());
+            secondary_slivers_column_family_options(&DatabaseTableOptionsFactory::default());
 
         let status_cfs_name = shard_status_column_family_name(test_shard_index);
-        let status_cfs = shard_status_column_family_options(&DatabaseConfig::default());
+        let status_cfs =
+            shard_status_column_family_options(&DatabaseTableOptionsFactory::default());
 
         let sync_progress_cfs_name = shard_sync_progress_column_family_name(test_shard_index);
         let sync_progress_cfs =
-            shard_sync_progress_column_family_options(&DatabaseConfig::default());
+            shard_sync_progress_column_family_options(&DatabaseTableOptionsFactory::default());
 
         let pending_recover_cfs_name = pending_recover_slivers_column_family_name(test_shard_index);
         let pending_recover_cfs =
-            pending_recover_slivers_column_family_options(&DatabaseConfig::default());
+            pending_recover_slivers_column_family_options(&DatabaseTableOptionsFactory::default());
 
         // Create all but secondary sliver column family. When restarting the storage, the
         // shard should not be detected as existing.

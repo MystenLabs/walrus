@@ -27,12 +27,9 @@ mod tests {
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tempfile::TempDir;
     use tokio::sync::RwLock;
-    use walrus_core::{DEFAULT_ENCODING, EncodingType, EpochCount};
+    use walrus_core::EpochCount;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{
-        client::{Client, StoreArgs},
-        store_optimizations::StoreOptimizations,
-    };
+    use walrus_sdk::client::{Client, StoreArgs};
     use walrus_service::{
         client::ClientCommunicationConfig,
         event::event_processor::config::EventProcessorConfig,
