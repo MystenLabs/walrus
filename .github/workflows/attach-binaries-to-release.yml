@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-releases | \
+          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-binaries | \
             grep -w "walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz" | \
             head -n 1 || echo '')
 
@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p ${{ env.TMP_BUILD_DIR }}
-          gcloud storage cp gs://mysten-walrus-releases/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+          gcloud storage cp gs://mysten-walrus-binaries/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
       - name: Install nexttest (Windows)
@@ -196,7 +196,7 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
         with:
           path: "./tmp"
-          destination: "mysten-walrus-releases"
+          destination: "mysten-walrus-binaries"
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
