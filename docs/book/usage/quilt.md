@@ -57,8 +57,8 @@ user. The cost savings come from two sources:
 - **Sui computation and object storage fees**: Storing many blobs as a single quilt
     significantly reduces Sui gas costs. In our test runs with 600 files stored in a quilt,
     we observed **238x** savings in Sui fees compared to storing them as individual blobs.
-    Notably, Sui cost savings depend primarily on the number of files per quilt rather than
-    the individual file sizes.
+    Notably, Sui cost savings only depend on the number of files per quilt rather than the
+    individual file sizes.
 
 The following table demonstrates the potential cost savings in WAL when storing 600 small
 blobs for 1 epoch as a quilt compared to storing them as separate blobs.
