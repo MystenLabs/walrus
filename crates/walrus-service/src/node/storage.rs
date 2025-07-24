@@ -149,6 +149,14 @@ impl NodeStatus {
             NodeStatus::RecoveryCatchUp | NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
         )
     }
+
+    /// Returns `true` if the node is catching up with incomplete history.
+    pub fn is_catching_up_with_incomplete_history(&self) -> bool {
+        matches!(
+            self,
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
+        )
+    }
 }
 
 impl Display for NodeStatus {

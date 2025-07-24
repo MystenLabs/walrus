@@ -284,8 +284,7 @@ impl EventBlobWriterFactory {
         if !blobs_path.exists() {
             return Ok(());
         }
-        let blobs = fs::read_dir(blobs_path)?;
-        for blob in blobs {
+        for blob in fs::read_dir(blobs_path)? {
             let blob_path = blob?.path();
             if !blob_path.is_file() {
                 continue;
@@ -585,8 +584,8 @@ impl EventBlobWriterFactory {
             "found last certified event blob with metadata"
         );
         let current_certified = self.certified.get(&())?;
-        tracing::info!("current certified: {:?}", current_certified);
-        if current_certified.is_some_and(|current_certified| {
+        tracing::info!("current certified event blob: {current_certified:?}");
+        if current_certified.is_none_or(|current_certified| {
             event_blob.event_stream_cursor.element_index
                 > current_certified.event_cursor.element_index
         }) {
@@ -774,11 +773,9 @@ impl EventBlobWriterFactory {
 
         if !should_reset {
             tracing::info!(
-                "skipping reset: uncertified blobs ({}/{}) below threshold {}; last certified at \
-                checkpoint {}",
-                consecutive_uncertified,
-                total_uncertified_blobs,
-                num_uncertified_blob_threshold,
+                "skipping event-blob-writer reset: uncertified blobs \
+                ({consecutive_uncertified}/{total_uncertified_blobs}) below threshold \
+                {num_uncertified_blob_threshold}; last certified at checkpoint {}",
                 last_certified_event_blob.ending_checkpoint_sequence_number
             );
             return Ok(());

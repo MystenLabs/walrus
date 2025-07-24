@@ -430,6 +430,7 @@ mod tests {
     // - The catching-up node crashes and restarts.
     // - A blob is registered and certified in different epochs.
     // - A blob is deleted.
+    // - A blob is marked as invalid.
     // - The cursor of the event-blob writer is lagging more than MAX_EPOCHS_AHEAD epochs, but the
     //   node cursor is not.
     #[ignore = "ignore integration simtests by default"]
