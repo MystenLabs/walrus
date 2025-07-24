@@ -199,11 +199,6 @@ curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_co
 ~~~
 <!-- markdownlint-enable code-fence-style -->
 
-```admonish warning title="Walrus Testnet redeployment"
-The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
-```
-
 ### Custom path (optional) {#config-custom-path}
 
 By default, the Walrus client will look for the `client_config.yaml` (or `client_config.yml`)
