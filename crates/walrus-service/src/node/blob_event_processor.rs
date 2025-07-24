@@ -48,10 +48,10 @@ impl BackgroundEventProcessor {
             )
             .dec();
 
-            if let Err(e) = self.process_event(event_handle, blob_event).await {
+            if let Err(error) = self.process_event(event_handle, blob_event).await {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
-                tracing::error!("error processing blob event: {}", e);
+                tracing::error!(?error, "error processing blob event");
             }
         }
     }
@@ -162,6 +162,17 @@ impl BackgroundEventProcessor {
                 tracing::debug!("deleting data for deleted blob");
                 // TODO (WAL-201): Actually delete blob data.
             }
+        } else if self
+            .node
+            .storage
+            .node_status()?
+            .is_catching_up_with_incomplete_history()
+        {
+            tracing::debug!(
+                walrus.blob_id = %blob_id,
+                "skipping processing of `BlobDeleted` event while catching up with incomplete \
+                history"
+            );
         } else {
             tracing::warn!(
                 walrus.blob_id = %blob_id,

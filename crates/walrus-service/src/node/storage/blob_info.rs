@@ -1273,40 +1273,57 @@ impl Mergeable for BlobInfoV1 {
     }
 
     fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
-        let BlobInfoMergeOperand::ChangeStatus {
-            change_type: BlobStatusChangeType::Register,
-            change_info:
-                BlobStatusChangeInfo {
-                    deletable,
-                    epoch: _,
-                    end_epoch,
-                    status_event,
-                    blob_id: _,
-                },
-        } = operand
-        else {
-            tracing::error!(
-                ?operand,
-                "encountered an update other than 'register' for an untracked blob ID"
-            );
-            return None;
-        };
-
-        Some(
-            if deletable {
+        match operand {
+            BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info:
+                    BlobStatusChangeInfo {
+                        deletable,
+                        epoch: _,
+                        end_epoch,
+                        status_event,
+                        blob_id: _,
+                    },
+            } => Some(
+                if deletable {
+                    ValidBlobInfoV1 {
+                        count_deletable_total: 1,
+                        latest_seen_deletable_registered_epoch: Some(end_epoch),
+                        ..Default::default()
+                    }
+                } else {
+                    ValidBlobInfoV1 {
+                        permanent_total: Some(PermanentBlobInfoV1::new_first(
+                            end_epoch,
+                            status_event,
+                        )),
+                        ..Default::default()
+                    }
+                }
+                .into(),
+            ),
+            BlobInfoMergeOperand::MarkInvalid {
+                epoch,
+                status_event,
+            } => Some(BlobInfoV1::Invalid {
+                epoch,
+                event: status_event,
+            }),
+            BlobInfoMergeOperand::MarkMetadataStored(_) => Some(
                 ValidBlobInfoV1 {
-                    count_deletable_total: 1,
-                    latest_seen_deletable_registered_epoch: Some(end_epoch),
+                    is_metadata_stored: true,
                     ..Default::default()
                 }
-            } else {
-                ValidBlobInfoV1 {
-                    permanent_total: Some(PermanentBlobInfoV1::new_first(end_epoch, status_event)),
-                    ..Default::default()
-                }
+                .into(),
+            ),
+            BlobInfoMergeOperand::ChangeStatus { .. } => {
+                tracing::error!(
+                    ?operand,
+                    "encountered an unexpected update for an untracked blob ID"
+                );
+                None
             }
-            .into(),
-        )
+        }
     }
 }
 
@@ -1673,29 +1690,23 @@ mod tests {
 
     param_test! {
         test_merge_new_expected_failure_cases: [
-            invalidate: (BlobInfoMergeOperand::MarkInvalid {
-                epoch: 0,
-                status_event: event_id_for_testing()
-            }),
-            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
-            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
-            certify_deletable_false: (BlobInfoMergeOperand::new_change_for_testing(
+            certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify,false, 42, 314, event_id_for_testing()
             )),
-            certify_deletable_true: (BlobInfoMergeOperand::new_change_for_testing(
+            certify_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify, true, 42, 314, event_id_for_testing()
             )),
             extend: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Extend, false, 42, 314, event_id_for_testing()
             )),
-            delete_true: (BlobInfoMergeOperand::new_change_for_testing(
+            delete_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Delete { was_certified: true },
                 false,
                 42,
                 314,
                 event_id_for_testing(),
             )),
-            delete_false: (BlobInfoMergeOperand::new_change_for_testing(
+            delete_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Delete { was_certified: false },
                 false,
                 42,
@@ -1710,12 +1721,18 @@ mod tests {
 
     param_test! {
         test_merge_new_expected_success_cases_invariants: [
-            register_deletable_false: (BlobInfoMergeOperand::new_change_for_testing(
+            register_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Register, false, 42, 314, event_id_for_testing()
             )),
-            register_deletable_true: (BlobInfoMergeOperand::new_change_for_testing(
+            register_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Register, true, 42, 314, event_id_for_testing()
             )),
+            invalidate: (BlobInfoMergeOperand::MarkInvalid {
+                epoch: 0,
+                status_event: event_id_for_testing()
+            }),
+            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
+            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
         ]
     }
     fn test_merge_new_expected_success_cases_invariants(operand: BlobInfoMergeOperand) {
@@ -1731,16 +1748,16 @@ mod tests {
             }),
             metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
             metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
-            register_deletable_false: (BlobInfoMergeOperand::new_change_for_testing(
+            register_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Register, false, 42, 314, event_id_for_testing()
             )),
-            register_deletable_true: (BlobInfoMergeOperand::new_change_for_testing(
+            register_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Register, true, 42, 314, event_id_for_testing()
             )),
-            certify_deletable_false: (BlobInfoMergeOperand::new_change_for_testing(
+            certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify, false, 42, 314, event_id_for_testing()
             )),
-            certify_deletable_true: (BlobInfoMergeOperand::new_change_for_testing(
+            certify_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify, true, 42, 314, event_id_for_testing()
             )),
             extend: (BlobInfoMergeOperand::new_change_for_testing(
