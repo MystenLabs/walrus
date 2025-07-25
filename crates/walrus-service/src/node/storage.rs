@@ -642,9 +642,13 @@ impl Storage {
 
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     #[tracing::instrument(skip_all)]
-    pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+    pub async fn delete_blob_data(
+        &self,
+        blob_id: &BlobId,
+        update_blob_info: bool,
+    ) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id, true)?;
+        self.delete_metadata(&mut batch, blob_id, update_blob_info)?;
         self.delete_slivers(&mut batch, blob_id).await?;
         batch.write()?;
         Ok(())
