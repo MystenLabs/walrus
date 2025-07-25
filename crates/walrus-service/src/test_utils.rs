@@ -208,8 +208,6 @@ pub trait StorageNodeHandleTrait {
 pub struct TestNodesConfig {
     /// The weights of the nodes in the cluster.
     pub node_weights: Vec<u16>,
-    /// Whether to use the legacy event processor.
-    pub use_legacy_event_processor: bool,
     /// Whether to disable the event blob writer.
     pub disable_event_blob_writer: bool,
     /// The directory to store the blocklist.
@@ -224,8 +222,6 @@ impl Default for TestNodesConfig {
     fn default() -> Self {
         Self {
             node_weights: vec![1, 2, 3, 3, 4],
-            // TODO(WAL-405): change default to checkpoint-based event processor
-            use_legacy_event_processor: true,
             disable_event_blob_writer: false,
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
@@ -514,12 +510,7 @@ impl SimStorageNodeHandle {
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-        let event_provider: Box<dyn EventManager> = if config.use_legacy_event_provider {
-            Box::new(crate::node::system_events::SuiSystemEventProvider::new(
-                sui_read_client.clone(),
-                Duration::from_millis(100),
-            ))
-        } else {
+        let event_provider: Box<dyn EventManager> = {
             let processor_config = EventProcessorRuntimeConfig {
                 rpc_addresses: combine_rpc_urls(
                     &sui_config.rpc,
@@ -1111,7 +1102,6 @@ impl StorageNodeHandleBuilder {
                 },
                 ..Default::default()
             },
-            use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_rpc_urls.remove(0),
@@ -2654,19 +2644,15 @@ pub mod test_cluster {
                 .with_system_contract_services(node_contract_services);
 
             let event_processor_config = Default::default();
-            let mut cluster_builder = if test_nodes_config.use_legacy_event_processor {
-                setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
-            } else {
-                setup_checkpoint_based_event_processors(
-                    &event_processor_config,
-                    sui_rpc_urls.as_slice(),
-                    sui_read_client.clone(),
-                    cluster_builder,
-                    system_ctx.system_object,
-                    system_ctx.staking_object,
-                )
-                .await?
-            };
+            let mut cluster_builder = setup_checkpoint_based_event_processors(
+                &event_processor_config,
+                sui_rpc_urls.as_slice(),
+                sui_read_client.clone(),
+                cluster_builder,
+                system_ctx.system_object,
+                system_ctx.staking_object,
+            )
+            .await?;
 
             if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
                 cluster_builder =
@@ -2848,18 +2834,6 @@ pub mod test_cluster {
         Ok(res)
     }
 
-    async fn setup_legacy_event_processors(
-        sui_read_client: SuiReadClient,
-        test_cluster_builder: TestClusterBuilder,
-    ) -> anyhow::Result<TestClusterBuilder> {
-        let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
-            sui_read_client.clone(),
-            Duration::from_millis(100),
-        );
-        let res = test_cluster_builder.with_system_event_providers(event_provider);
-        Ok(res)
-    }
-
     // Prevent tests running simultaneously to avoid interferences or race conditions.
     fn global_test_lock() -> &'static TokioMutex<()> {
         static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
@@ -2893,7 +2867,6 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 ..Default::default()
             },
             event_processor_config: Default::default(),
-            use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParams {
