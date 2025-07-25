@@ -57,7 +57,6 @@ use walrus_sdk::{
     client::{
         Client,
         StoreArgs,
-        quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{ClientError, ClientResult},
@@ -179,9 +178,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         &self,
         quilt_patch_ids: &[QuiltPatchId],
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
-        self.quilt_client(QuiltClientConfig::default())
-            .get_blobs_by_ids(quilt_patch_ids)
-            .await
+        self.quilt_client().get_blobs_by_ids(quilt_patch_ids).await
     }
 
     async fn get_blob_by_quilt_id_and_identifier(
@@ -190,7 +187,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         identifier: &str,
     ) -> ClientResult<QuiltStoreBlob<'static>> {
         let blobs = self
-            .quilt_client(QuiltClientConfig::default())
+            .quilt_client()
             .get_blobs_by_identifiers(quilt_id, &[identifier])
             .await?;
 
@@ -240,7 +237,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
-        self.quilt_client(QuiltClientConfig::default())
+        self.quilt_client()
             .construct_quilt::<V>(blobs, encoding_type)
             .await
     }
@@ -263,7 +260,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             persistence,
             post_store,
         );
-        self.quilt_client(QuiltClientConfig::default())
+        self.quilt_client()
             .reserve_and_store_quilt::<V>(&quilt, &store_args)
             .await
     }

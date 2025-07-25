@@ -26,6 +26,8 @@ use walrus_sui::{
 };
 use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_if_exist};
 
+use crate::client::quilt_client::QuiltClientConfig;
+
 mod committees_refresh_config;
 mod communication_config;
 mod reqwest_config;
@@ -98,6 +100,9 @@ pub struct ClientConfig {
     /// The configuration of the committee refresh from chain.
     #[serde(default)]
     pub refresh_config: CommitteesRefreshConfig,
+    /// The configuration of the QuiltClient.
+    #[serde(default)]
+    pub quilt_client_config: QuiltClientConfig,
 }
 
 impl ClientConfig {
@@ -111,6 +116,7 @@ impl ClientConfig {
             rpc_urls: Default::default(),
             communication_config: Default::default(),
             refresh_config: Default::default(),
+            quilt_client_config: Default::default(),
         }
     }
 
@@ -261,6 +267,7 @@ mod tests {
             rpc_urls: vec!["https://fullnode.testnet.sui.io:443".into()],
             communication_config: Default::default(),
             refresh_config: Default::default(),
+            quilt_client_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

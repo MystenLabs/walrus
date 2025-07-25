@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use serde::{Deserialize, Serialize};
 use walrus_core::{
     BlobId,
     EncodingType,
@@ -327,7 +328,7 @@ where
 }
 
 /// Configuration for the QuiltClient.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuiltClientConfig {
     /// The maximum number of attempts to retrieve slivers.
     pub max_retrieve_slivers_attempts: usize,
@@ -365,6 +366,12 @@ impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient.
     pub fn new(client: &'a Client<T>, config: QuiltClientConfig) -> Self {
         Self { client, config }
+    }
+
+    /// Update quilt client config.
+    pub fn with_config(mut self, config: QuiltClientConfig) -> Self {
+        self.config = config;
+        self
     }
 }
 
