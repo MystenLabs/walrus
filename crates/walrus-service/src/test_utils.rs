@@ -300,6 +300,42 @@ impl StorageNodeHandle {
     pub fn builder() -> StorageNodeHandleBuilder {
         StorageNodeHandleBuilder::default()
     }
+
+    /// Creates a new storage node handle with the given keypair.
+    pub async fn new_with_keypair(
+        _storage_dir: PathBuf,
+        keypair: ProtocolKeyPair,
+    ) -> anyhow::Result<Self> {
+        let test_config = StorageNodeTestConfig {
+            key_pair: keypair,
+            ..StorageNodeTestConfig::new(vec![], false)
+        };
+
+        StorageNodeHandle::builder()
+            .with_storage(empty_storage_with_shards(&[]).await)
+            .with_test_config(test_config)
+            .build()
+            .await
+    }
+
+    /// Creates a new storage node handle with the given keypair and contract service.
+    pub async fn new_with_keypair_and_contract_service(
+        _storage_dir: PathBuf,
+        keypair: ProtocolKeyPair,
+        stub_contract_service: Arc<StubContractService>,
+    ) -> anyhow::Result<Self> {
+        let test_config = StorageNodeTestConfig {
+            key_pair: keypair,
+            ..StorageNodeTestConfig::new(vec![], false)
+        };
+
+        StorageNodeHandle::builder()
+            .with_storage(empty_storage_with_shards(&[]).await)
+            .with_test_config(test_config)
+            .with_system_contract_service(stub_contract_service)
+            .build()
+            .await
+    }
 }
 
 impl AsRef<StorageNode> for StorageNodeHandle {
@@ -910,20 +946,9 @@ impl StorageNodeHandleBuilder {
             })
         });
 
-        let contract_service = self.contract_service.unwrap_or_else(|| {
-            Arc::new(StubContractService {
-                system_parameters: FixedSystemParameters {
-                    n_shards: committee_service.active_committees().n_shards(),
-                    max_epochs_ahead: self.max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
-                    epoch_duration: Duration::from_secs(600),
-                    epoch_zero_end: Utc::now() + Duration::from_secs(60),
-                },
-                node_capability_object: self
-                    .storage_node_capability
-                    .clone()
-                    .unwrap_or_else(StorageNodeCap::new_for_testing),
-            })
-        });
+        let contract_service = self
+            .contract_service
+            .unwrap_or_else(|| Arc::new(StubContractService::default()));
 
         // Create the node's config using the previously generated keypair and address.
         let mut config = StorageNodeConfig {
@@ -1529,6 +1554,28 @@ impl CommitteeService for StubCommitteeService {
 pub struct StubContractService {
     pub(crate) system_parameters: FixedSystemParameters,
     pub(crate) node_capability_object: StorageNodeCap,
+    pub(crate) certify_event_blob_tx:
+        Arc<std::sync::Mutex<tokio::sync::mpsc::Sender<BlobObjectMetadata>>>,
+    #[allow(dead_code)]
+    pub(crate) certify_event_blob_rx:
+        Arc<std::sync::Mutex<tokio::sync::mpsc::Receiver<BlobObjectMetadata>>>,
+}
+
+impl Default for StubContractService {
+    fn default() -> Self {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        Self {
+            system_parameters: FixedSystemParameters {
+                n_shards: NonZeroU16::new(4).unwrap(),
+                max_epochs_ahead: DEFAULT_MAX_EPOCHS_AHEAD,
+                epoch_duration: Duration::from_secs(600),
+                epoch_zero_end: Utc::now() + Duration::from_secs(60),
+            },
+            node_capability_object: StorageNodeCap::new_for_testing(),
+            certify_event_blob_tx: Arc::new(std::sync::Mutex::new(tx)),
+            certify_event_blob_rx: Arc::new(std::sync::Mutex::new(rx)),
+        }
+    }
 }
 
 #[async_trait]
@@ -1571,11 +1618,16 @@ impl SystemContractService for StubContractService {
 
     async fn certify_event_blob(
         &self,
-        _blob_metadata: BlobObjectMetadata,
+        blob_metadata: BlobObjectMetadata,
         _ending_checkpoint_seq_num: u64,
         _epoch: u32,
         _node_capability_object_id: ObjectID,
     ) -> Result<(), SuiClientError> {
+        let sender = {
+            let lock = self.certify_event_blob_tx.lock().unwrap();
+            lock.clone()
+        };
+        sender.send(blob_metadata).await.unwrap();
         Ok(())
     }
 
@@ -2139,9 +2191,24 @@ pub struct StorageNodeTestConfig {
 }
 
 impl StorageNodeTestConfig {
-    fn new(shards: Vec<ShardIndex>, use_distinct_ip: bool) -> Self {
+    /// Creates a new storage node test config.
+    pub fn new(shards: Vec<ShardIndex>, use_distinct_ip: bool) -> Self {
         Self {
             key_pair: ProtocolKeyPair::generate(),
+            network_key_pair: NetworkKeyPair::generate(),
+            rest_api_address: unused_socket_address(use_distinct_ip),
+            shards,
+        }
+    }
+
+    /// Creates a new storage node test config with the given keypair.
+    pub fn new_with_keypair(
+        shards: Vec<ShardIndex>,
+        use_distinct_ip: bool,
+        key_pair: ProtocolKeyPair,
+    ) -> Self {
+        Self {
+            key_pair,
             network_key_pair: NetworkKeyPair::generate(),
             rest_api_address: unused_socket_address(use_distinct_ip),
             shards,
@@ -2259,7 +2326,7 @@ impl Default for TestClusterBuilder {
 #[async_trait]
 impl<T> SystemContractService for Arc<WithTempDir<T>>
 where
-    T: SystemContractService,
+    T: SystemContractService + 'static,
 {
     async fn sync_node_params(
         &self,
@@ -2975,6 +3042,19 @@ fn committee_from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Ep
         .expect("committee cannot have zero shards");
     Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
         .expect("valid members to be provided for tests")
+}
+
+/// Creates a new test node with a stub contract service.
+pub async fn create_test_node_with_contract_service(
+    stub_contract_service: Arc<StubContractService>,
+) -> anyhow::Result<StorageNodeHandle> {
+    StorageNodeHandle::builder()
+        .with_system_event_provider(vec![])
+        .with_shard_assignment(&[ShardIndex(0)])
+        .with_node_started(true)
+        .with_system_contract_service(stub_contract_service)
+        .build()
+        .await
 }
 
 #[cfg(test)]
