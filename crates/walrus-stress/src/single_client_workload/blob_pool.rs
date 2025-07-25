@@ -25,6 +25,8 @@ pub(crate) struct BlobDataAndInfo {
 
 /// Manages a pool of blobs that are live in the system.
 pub(crate) struct BlobPool {
+    // TODO(WAL-946): when writing the same blob but with different properties (e.g. deletable or
+    // permanent), we may want to keep the object id in the map as well.
     blobs: HashMap<BlobId, BlobDataAndInfo>,
     store_blob_data: bool,
 }
@@ -60,14 +62,14 @@ impl BlobPool {
             WalrusClientOp::Write {
                 blob,
                 deletable,
-                store_length,
+                store_epoch_ahead,
             } => {
                 self.add_new_blob(
                     blob_id,
                     blob_object_id.expect("write op must set object id"),
                     blob,
                     deletable,
-                    store_length,
+                    store_epoch_ahead,
                 );
             }
             WalrusClientOp::Delete { blob_id } => {
@@ -76,9 +78,9 @@ impl BlobPool {
             WalrusClientOp::Extend {
                 blob_id,
                 object_id: _object_id,
-                store_length,
+                store_epoch_ahead,
             } => {
-                self.extend_blob(blob_id, store_length);
+                self.extend_blob(blob_id, store_epoch_ahead);
             }
             WalrusClientOp::Read {
                 blob_id: _blob_id,
@@ -188,7 +190,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: blob_data.clone(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
 
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
@@ -214,7 +216,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
         assert!(!pool.is_empty());
@@ -237,7 +239,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
@@ -245,7 +247,7 @@ mod tests {
         let extend_op = WalrusClientOp::Extend {
             blob_id,
             object_id,
-            store_length: 5,
+            store_epoch_ahead: 5,
         };
         pool.update_blob_pool(blob_id, None, extend_op);
 
@@ -263,7 +265,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
@@ -289,7 +291,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: blob_data.clone(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
@@ -307,7 +309,7 @@ mod tests {
         let write_op = WalrusClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
@@ -328,17 +330,17 @@ mod tests {
         let write_op1 = WalrusClientOp::Write {
             blob: vec![1],
             deletable: true,
-            store_length: 5,
+            store_epoch_ahead: 5,
         };
         let write_op2 = WalrusClientOp::Write {
             blob: vec![2],
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         let write_op3 = WalrusClientOp::Write {
             blob: vec![3],
             deletable: true,
-            store_length: 15,
+            store_epoch_ahead: 15,
         };
 
         pool.update_blob_pool(blob_id1, Some(object_id), write_op1);
@@ -367,7 +369,7 @@ mod tests {
         let write_op1 = WalrusClientOp::Write {
             blob: vec![1],
             deletable: true,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(deletable_blob_id, Some(create_test_object_id()), write_op1);
 
@@ -376,7 +378,7 @@ mod tests {
         let write_op2 = WalrusClientOp::Write {
             blob: vec![2],
             deletable: false,
-            store_length: 10,
+            store_epoch_ahead: 10,
         };
         pool.update_blob_pool(permanent_blob_id, Some(create_test_object_id()), write_op2);
 

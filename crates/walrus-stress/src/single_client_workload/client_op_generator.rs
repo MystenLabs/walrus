@@ -28,7 +28,7 @@ pub(crate) enum WalrusClientOp {
     Write {
         blob: Vec<u8>,
         deletable: bool,
-        store_length: EpochCount,
+        store_epoch_ahead: EpochCount,
     },
     Delete {
         blob_id: BlobId,
@@ -36,7 +36,7 @@ pub(crate) enum WalrusClientOp {
     Extend {
         blob_id: BlobId,
         object_id: ObjectID,
-        store_length: EpochCount,
+        store_epoch_ahead: EpochCount,
     },
 }
 
@@ -93,13 +93,14 @@ impl ClientOpGenerator {
         }
     }
 
+    // TODO(WAL-946): generate write to existing blob.
     fn generate_write_op<R: Rng>(&self, deletable: bool, rng: &mut R) -> WalrusClientOp {
         let blob = self.blob_generator.generate_blob(rng);
-        let store_length = self.epoch_length_generator.generate_epoch_length(rng);
+        let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
         WalrusClientOp::Write {
             blob,
             deletable,
-            store_length,
+            store_epoch_ahead,
         }
     }
 
@@ -114,13 +115,13 @@ impl ClientOpGenerator {
         let blob_id = blob_pool
             .select_random_blob_id(rng)
             .expect("blob must exist");
-        let store_length = self.epoch_length_generator.generate_epoch_length(rng);
+        let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
         WalrusClientOp::Extend {
             blob_id,
             object_id: blob_pool
                 .get_blob_object_id(blob_id)
                 .expect("blob should exist in the blob pool"),
-            store_length,
+            store_epoch_ahead,
         }
     }
 }
