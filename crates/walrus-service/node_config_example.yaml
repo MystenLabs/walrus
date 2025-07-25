@@ -38,8 +38,7 @@ db_config:
     block_cache_size: 1073741824
     block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
-  node_status: null
-  metadata:
+  metadata_template:
     enable_blob_files: false
     min_blob_size: 0
     blob_file_size: 0
@@ -55,6 +54,23 @@ db_config:
     block_size: 65536
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
+  blob_info_template:
+    enable_blob_files: false
+    min_blob_size: 0
+    blob_file_size: 0
+    blob_compression_type: none
+    enable_blob_garbage_collection: false
+    blob_garbage_collection_age_cutoff: 0.0
+    blob_garbage_collection_force_threshold: 0.0
+    blob_compaction_read_ahead_size: 0
+    write_buffer_size: 67108864
+    target_file_size_base: 67108864
+    max_bytes_for_level_base: 536870912
+    block_cache_size: 536870912
+    block_size: 65536
+    pin_l0_filter_and_index_blocks_in_block_cache: true
+  node_status: null
+  metadata: null
   blob_info: null
   per_object_blob_info: null
   event_cursor: null
