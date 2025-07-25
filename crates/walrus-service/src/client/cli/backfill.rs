@@ -208,7 +208,7 @@ async fn pull_archive_blob(
     if pulled_blobs.contains(&blob_id) {
         tracing::info!(?blob_id, "Blob already exists, skipping download");
         // Emit the blob ID to stdout for further downstream processing.
-        println!("{}", blob_id);
+        println!("{blob_id}");
         return Ok(());
     }
 
@@ -223,7 +223,7 @@ async fn pull_archive_blob(
             drop(file);
 
             // Emit the blob ID to stdout for further downstream processing.
-            println!("{}", blob_id);
+            println!("{blob_id}");
             pulled_blobs.insert(blob_id);
 
             tracing::info!(?blob_id, ?blob_filename, "Blob pulled successfully");
@@ -235,7 +235,7 @@ async fn pull_archive_blob(
     }
 
     // Update the pulled state file.
-    pulled_state.write_all(format!("{}\n", blob_id).as_bytes())?;
+    pulled_state.write_all(format!("{blob_id}\n").as_bytes())?;
     pulled_state.flush()?;
     Ok(())
 }
@@ -427,7 +427,7 @@ async fn backfill_blob(
         .await
     {
         Ok(node_results) => {
-            pushed_state.write_all(format!("{}\n", blob_id).as_bytes())?;
+            pushed_state.write_all(format!("{blob_id}\n").as_bytes())?;
             pushed_state.flush()?;
             pushed_blobs.insert(blob_id);
             tracing::info!(?node_results, ?blob_id, "backfill_blob_to_nodes succeeded");
