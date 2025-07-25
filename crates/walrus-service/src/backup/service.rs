@@ -19,7 +19,7 @@ use diesel_async::{
 };
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use futures::{StreamExt, stream};
-use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder};
+use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
 use prometheus::core::{AtomicU64, GenericCounter};
 use sha2::Digest;
 use sui_types::event::EventID;
