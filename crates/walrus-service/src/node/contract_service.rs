@@ -5,9 +5,22 @@
 //! Currently, this is only used for submitting inconsistency proofs to the contract.
 
 use std::{
+    any::Any,
     sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
+
+/// A trait that allows down-casting to a `dyn Any` reference.
+pub trait AsAny {
+    /// Returns this trait as a `dyn Any` reference.
+    fn as_any(&self) -> &(dyn Any + Send + Sync);
+}
+
+impl<T: Any + Send + Sync> AsAny for T {
+    fn as_any(&self) -> &(dyn Any + Send + Sync) {
+        self
+    }
+}
 
 use anyhow::Context as _;
 use async_trait::async_trait;
@@ -61,7 +74,7 @@ enum ProtocolKeyAction {
 /// A service for interacting with the system contract.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait SystemContractService: std::fmt::Debug + Sync + Send {
+pub trait SystemContractService: std::fmt::Debug + Sync + Send + AsAny {
     /// Syncs the node parameters with the on-chain values.
     async fn sync_node_params(
         &self,
