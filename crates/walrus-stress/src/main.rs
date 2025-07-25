@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
     let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
     let prometheus_registry = registry_service.default_registry();
 
-    // TODO(WAL-935): we should different metrics used in sdk::client and stress client.
+    // TODO(WAL-935): we should use different metrics in sdk::client and stress client.
     let metrics = Arc::new(ClientMetrics::new(&walrus_utils::metrics::Registry::new(
         prometheus_registry,
     )));
@@ -344,8 +344,7 @@ async fn run_single_client_workload(
     metrics: Arc<ClientMetrics>,
     args: SingleClientWorkloadArgs,
 ) -> anyhow::Result<()> {
-    tracing::info!("starting the single client stress runner");
-    tracing::info!("args: {:?}", args);
+    tracing::info!("starting the single client stress runner, args: {:?}", args);
 
     let data_size_config = args.workload_config.get_size_config();
     let store_length_config = args.workload_config.get_store_length_config();

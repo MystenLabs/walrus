@@ -25,6 +25,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         Client,
+        StoreArgs,
         metrics::{self, ClientMetrics},
         responses::BlobStoreResult,
     },
@@ -148,20 +149,21 @@ impl SingleClientWorkload {
             WalrusClientOp::Write {
                 blob,
                 deletable,
-                store_length,
+                store_epoch_ahead,
             } => {
                 let now = Instant::now();
+                // TODO(WAL-945): test more StoreOptimizations.
+                let mut store_args = StoreArgs::new(
+                    DEFAULT_ENCODING,
+                    *store_epoch_ahead,
+                    StoreOptimizations::none(),
+                    BlobPersistence::from_deletable_and_permanent(*deletable, !deletable)?,
+                    PostStoreAction::Keep,
+                );
+                store_args = store_args.with_metrics(self.metrics.clone());
                 let store_result = self
                     .client
-                    .reserve_and_store_blobs_retry_committees(
-                        &[blob.as_slice()],
-                        DEFAULT_ENCODING,
-                        *store_length,
-                        StoreOptimizations::none(),
-                        BlobPersistence::from_deletable_and_permanent(*deletable, !deletable)?,
-                        PostStoreAction::Keep,
-                        Some(&self.metrics),
-                    )
+                    .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &store_args)
                     .await?;
                 self.metrics.observe_latency("store_blob", now.elapsed());
                 match &store_result[0] {
@@ -190,12 +192,12 @@ impl SingleClientWorkload {
             WalrusClientOp::Extend {
                 blob_id,
                 object_id,
-                store_length,
+                store_epoch_ahead,
             } => {
                 let now = Instant::now();
                 self.client
                     .sui_client()
-                    .extend_blob(*object_id, *store_length)
+                    .extend_blob(*object_id, *store_epoch_ahead)
                     .await?;
                 self.metrics.observe_latency("extend_blob", now.elapsed());
                 blob_pool.update_blob_pool(*blob_id, Some(*object_id), client_op.clone());
