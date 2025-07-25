@@ -1,8 +1,21 @@
 #!/bin/bash
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# This script runs the blob backfill from a backup store on GCS.
+#
+# The script will spawn multiple processes in pairs. In each pair, one process pull the blobs from
+# GCS into a subdirectory based on the blob's prefix, and the other process encodes the blobs and
+# pushes the slivers to the node to backfill.
+#
+# Before running the script, set the node IDs for the storage nodes to be backfilled, and the name
+# of the GCS bucket in which the backup is stored.
+
 root_dir=/tmp/backfill
 all_blobs_file="$root_dir"/all-blobs.txt
 walrus_bin="$root_dir"/bin/walrus
-node_ids="0x1173be0a597b193938b392bf9a6cab78d09b7faccde2883683758b2d8dc21e30"
+node_ids="0xCHANGE_NODE_ID"
+gcs_bucket=add-gcs-bucket  # E.g., walrus-backup-mainnet
 
 run_pull_with_prefix() {
   prefix="$1"
@@ -21,7 +34,7 @@ run_pull_with_prefix() {
     pull-archive-blobs \
       --prefix "$prefix" \
       --pulled-state "$dir"/pulled-state.txt \
-      --gcs-bucket walrus-backup-mainnet \
+      --gcs-bucket $gcs_bucket \
       --backfill-dir "$backfill_dir" \
     |& tee -a "$log_file" \
     >/dev/null
