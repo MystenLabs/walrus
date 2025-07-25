@@ -33,6 +33,7 @@ use walrus_core::{
     ensure,
     metadata::VerifiedBlobMetadataWithId,
 };
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
     client::SuiClientError,
     types::{
@@ -1314,6 +1315,7 @@ impl EventBlobWriter {
         &mut self,
         metadata: &VerifiedBlobMetadataWithId,
         checkpoint_sequence_number: CheckpointSequenceNumber,
+        active_committees: &ActiveCommittees,
     ) -> Result<()> {
         let blob_id = *metadata.blob_id();
 
@@ -1321,6 +1323,20 @@ impl EventBlobWriter {
             tracing::debug!("attestations are paused, skipping blob: {}", blob_id);
             return Ok(());
         }
+
+        // Nodes which are not in the latest committee should not try and attest the blob.
+        // They should just add the blob to the attested list and move on.
+        if !active_committees
+            .current_committee()
+            .contains(self.node.public_key())
+        {
+            tracing::debug!(
+                "node is not in the latest committee, skipping blob attestation: {}",
+                blob_id
+            );
+            return Ok(());
+        }
+
         tracing::info!(
             blob_id = %blob_id,
             epoch = self.current_epoch,
@@ -1332,6 +1348,7 @@ impl EventBlobWriter {
             .latest_attested_checkpoint_sequence_number
             .set(checkpoint_sequence_number.try_into()?);
 
+        let node_capability_object_id = self.node.node_capability();
         match self
             .node
             .contract_service
@@ -1339,7 +1356,7 @@ impl EventBlobWriter {
                 metadata.try_into()?,
                 checkpoint_sequence_number,
                 self.current_epoch,
-                self.node.node_capability(),
+                node_capability_object_id,
             )
             .await
         {
@@ -1439,7 +1456,11 @@ impl EventBlobWriter {
         let blob_id = *blob_metadata.blob_id();
 
         let mut batch = self.pending.batch();
-        match self.attest_blob(&blob_metadata, metadata.end).await {
+        let active_committees = self.node.committee_service.active_committees();
+        match self
+            .attest_blob(&blob_metadata, metadata.end, &active_committees)
+            .await
+        {
             Ok(_) => {
                 let attested_metadata = metadata.to_attested(blob_metadata.clone());
                 batch.insert_batch(&self.attested, std::iter::once(((), attested_metadata)))?;
@@ -1477,7 +1498,11 @@ impl EventBlobWriter {
         let blob_metadata = self.store_slivers(&metadata.to_pending()).await?;
         let blob_id = *blob_metadata.blob_id();
 
-        match self.attest_blob(&blob_metadata, metadata.end).await {
+        let active_committees = self.node.committee_service.active_committees();
+        match self
+            .attest_blob(&blob_metadata, metadata.end, &active_committees)
+            .await
+        {
             Ok(_) => {
                 let mut batch = self.failed_to_attest.batch();
                 batch.insert_batch(&self.attested, std::iter::once(((), metadata)))?;
@@ -1821,7 +1846,7 @@ mod tests {
             DatabaseConfig,
             event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
         },
-        test_utils::StorageNodeHandle,
+        test_utils::{StorageNodeHandle, StubContractService},
     };
 
     #[tokio::test]
@@ -1992,6 +2017,24 @@ mod tests {
             .expect("attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
 
+        let stub_contract_service = node
+            .storage_node
+            .inner()
+            .contract_service
+            .as_any()
+            .downcast_ref::<StubContractService>()
+            .unwrap();
+
+        // Assert that one event is in the channel
+        assert!(
+            stub_contract_service
+                .certify_event_blob_rx
+                .lock()
+                .unwrap()
+                .try_recv()
+                .is_ok()
+        );
+
         let pending_blobs = blob_writer
             .pending
             .safe_iter()?
@@ -2013,6 +2056,66 @@ mod tests {
         assert_eq!(
             blob_writer.pending.safe_iter()?.count() as u64,
             NUM_BLOBS - 2
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_attestation_is_skipped_when_node_is_not_in_committee() -> Result<()> {
+        const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
+
+        let dir: PathBuf = tempfile::tempdir()?.keep();
+        let registry = Registry::default();
+
+        // Create a keypair for a node that is NOT part of the default committee
+        // created by StorageNodeHandle.
+        let outside_committee_keypair = walrus_core::keys::ProtocolKeyPair::generate();
+
+        // Create a test node with the keypair that is not in the committee.
+        let node = StorageNodeHandle::new_with_keypair(
+            dir.as_path().to_path_buf(),
+            outside_committee_keypair,
+        )
+        .await?;
+
+        let blob_writer_factory = EventBlobWriterFactory::new(
+            &dir,
+            &DatabaseConfig::default(),
+            node.storage_node.inner().clone(),
+            &registry,
+            Some(10),
+            None,
+            None,
+        )
+        .await?;
+        let mut blob_writer = blob_writer_factory.create().await?;
+        let num_checkpoints: u64 = u64::from(blob_writer.num_checkpoints_per_blob());
+
+        generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
+            .await?;
+
+        // The blob should now be in the attested state.
+        assert_eq!(blob_writer.attested.safe_iter()?.count(), 1);
+        assert!(blob_writer.pending.is_empty());
+
+        // Crucially, the contract service should NOT have been called to certify the blob.
+        // We check this by seeing if anything was sent on the mock channel.
+        let stub_contract_service = node
+            .storage_node
+            .inner()
+            .contract_service
+            .as_any()
+            .downcast_ref::<StubContractService>()
+            .unwrap();
+        // Check that no event blob certification was attempted
+        assert!(
+            stub_contract_service
+                .certify_event_blob_rx
+                .lock()
+                .unwrap()
+                .try_recv()
+                .is_err()
         );
 
         Ok(())
