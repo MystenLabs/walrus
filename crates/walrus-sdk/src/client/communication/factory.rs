@@ -175,8 +175,7 @@ impl NodeCommunicationFactory {
             .collect::<Result<Vec<_>, ClientBuildError>>()
             .map_err(|error| {
                 ClientError::store_blob_internal(format!(
-                    "cannot communicate with one or more of the storage nodes: {}",
-                    error
+                    "cannot communicate with one or more of the storage nodes: {error}",
                 ))
             })?;
 
