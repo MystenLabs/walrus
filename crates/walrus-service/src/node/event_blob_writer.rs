@@ -45,6 +45,7 @@ use walrus_sui::{
 };
 use walrus_utils::metrics::Registry;
 
+use super::storage::DatabaseTableOptionsFactory;
 use crate::{
     event::{
         event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
@@ -361,7 +362,9 @@ impl EventBlobWriterFactory {
         let db_path = Self::db_path(root_dir_path);
         fs::create_dir_all(db_path.as_path())?;
 
-        let mut db_opts = Options::from(&db_config.global());
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(db_config.clone());
+
+        let mut db_opts = Options::from(&db_table_options_factory.global_db_options());
         let metric_conf = MetricConf::new("event_blob_writer");
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
@@ -370,30 +373,39 @@ impl EventBlobWriterFactory {
             Some(db_opts),
             metric_conf,
             &[
-                (PENDING, db_config.pending().to_options()),
-                (ATTESTED, db_config.attested().to_options()),
-                (CERTIFIED, db_config.certified().to_options()),
-                (FAILED_TO_ATTEST, db_config.failed_to_attest().to_options()),
+                (PENDING, db_table_options_factory.pending().to_options()),
+                (ATTESTED, db_table_options_factory.attested().to_options()),
+                (CERTIFIED, db_table_options_factory.certified().to_options()),
+                (
+                    FAILED_TO_ATTEST,
+                    db_table_options_factory.failed_to_attest().to_options(),
+                ),
             ],
         )?;
         if database.cf_handle(CERTIFIED).is_none() {
             database
-                .create_cf(CERTIFIED, &db_config.certified().to_options())
+                .create_cf(
+                    CERTIFIED,
+                    &db_table_options_factory.certified().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(ATTESTED).is_none() {
             database
-                .create_cf(ATTESTED, &db_config.attested().to_options())
+                .create_cf(ATTESTED, &db_table_options_factory.attested().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(PENDING).is_none() {
             database
-                .create_cf(PENDING, &db_config.pending().to_options())
+                .create_cf(PENDING, &db_table_options_factory.pending().to_options())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(FAILED_TO_ATTEST).is_none() {
             database
-                .create_cf(FAILED_TO_ATTEST, &db_config.failed_to_attest().to_options())
+                .create_cf(
+                    FAILED_TO_ATTEST,
+                    &db_table_options_factory.failed_to_attest().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let certified: DBMap<(), CertifiedEventBlobMetadata> = DBMap::reopen(

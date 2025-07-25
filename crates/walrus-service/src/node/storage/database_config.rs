@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use typed_store::rocks::get_block_options;
 
 /// Options for configuring a column family.
+/// One option object can be mapped to a specific RocksDB column family option used to create and
+/// open a RocksDB column family.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseTableOptions {
@@ -72,7 +74,11 @@ pub struct DatabaseTableOptions {
     hard_pending_compaction_bytes_limit: Option<usize>,
 }
 
+// DatabaseTableOptions specifies 4 generally column family options for different tables to adopt.
+// They are the basic template for each column family type, and can be overridden in DatabaseConfig
+// before building column family options in DatabaseTableOptionsFactory.
 impl DatabaseTableOptions {
+    /// Used by all tables except for slivers, metadata, and blob_info column families.
     fn standard() -> Self {
         Self {
             enable_blob_files: Some(false),
@@ -94,7 +100,10 @@ impl DatabaseTableOptions {
         }
     }
 
-    fn optimized_for_blobs() -> Self {
+    /// Used by sliver column families.
+    fn optimized_for_blobs_template() -> Self {
+        // - Use blob mode
+        // - Large block cache size
         Self {
             enable_blob_files: Some(true),
             min_blob_size: Some(1 << 20),
@@ -115,40 +124,37 @@ impl DatabaseTableOptions {
         }
     }
 
-    fn metadata() -> Self {
+    /// Used by metadata column family.
+    /// Metadata column family by far is the most frequently accessed column family and also
+    /// stores the most data.
+    fn metadata_template() -> Self {
         Self {
-            enable_blob_files: Some(false),
-            min_blob_size: None,
-            blob_file_size: None,
-            blob_compression_type: Some("zstd".to_string()),
-            enable_blob_garbage_collection: None,
-            blob_garbage_collection_age_cutoff: None,
-            blob_garbage_collection_force_threshold: None,
-            blob_compaction_read_ahead_size: None,
             write_buffer_size: Some(512 << 20),      // 512 MB,
             target_file_size_base: Some(512 << 20),  // 512 MB,
             max_bytes_for_level_base: Some(5 << 30), // 5 GB,
             block_cache_size: Some(512 << 20),       // 512 MB,
             block_size: Some(64 << 10),              // 64 KiB,
-            pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
             soft_pending_compaction_bytes_limit: None,
             // TODO(WAL-840): decide whether we want to keep this option even after all the nodes
             // applied RocksDB 0.22.0, or apply it to all column families.
             hard_pending_compaction_bytes_limit: Some(0), // Disable write stall.
+            ..Default::default()
         }
+        .inherit_from(Self::standard())
     }
 
-    fn blob_info() -> Self {
+    /// Used by blob_info and per_object_blob_info column families.
+    fn blob_info_template() -> Self {
         Self {
             block_cache_size: Some(512 << 20),
             ..Default::default()
         }
+        .inherit_from(Self::standard())
     }
 
-    /// Inherit from the default options. If a field is None, use the value from the
-    /// default_override.
+    /// Inherit from the `default_override` options. If a field in `self` is None, use the value
+    /// from the `default_override`.
     pub fn inherit_from(&self, default_override: DatabaseTableOptions) -> DatabaseTableOptions {
-        // for all fields that are None, use the value from the default_override
         DatabaseTableOptions {
             enable_blob_files: self
                 .enable_blob_files
@@ -195,6 +201,7 @@ impl DatabaseTableOptions {
         }
     }
 
+    /// Converts the DatabaseTableOptions to a RocksDB Options object.
     pub fn to_options(&self) -> Options {
         let mut options = Options::default();
         if let Some(enable_blob_files) = self.enable_blob_files {
@@ -317,33 +324,57 @@ impl From<&GlobalDatabaseOptions> for Options {
     }
 }
 
-/// Database configuration for Walrus storage nodes.
+/// Database configuration for Walrus storage nodes. Note that any populated fields in this struct
+/// will only override the same field in the default options in `DatabaseTableOptionsFactory`.
 ///
 /// The `standard` options are applied to all tables except for slivers and metadata. The
-/// `optimized_for_blobs` options are applied to sliver and metadata tables.
+/// `optimized_for_blobs` options are applied to sliver tables. The `metadata` options are applied
+/// to metadata tables. The `blob_info` options are applied to blob info tables.
 ///
 /// Options for all individual tables can be set as well through the `node_status`, `metadata`,
 /// `blob_info`, `per_object_blob_info`, `event_cursor`, `shard`, `shard_status`,
 /// `shard_sync_progress`, and `pending_recover_slivers` fields.
 ///
-/// **Warning:** Note that the configuration is currently not properly hierarchical. For example, if
-/// the `metadata` options are defined, they are *not* merged with the `optimized_for_blobs` or
-/// `standard` options. Any options that should not be `None` need to be set explicitly, even if
-/// they are equal to those from the `standard` or `optimized_for_blobs` options.
+/// For any `DatabaseTableOptions`, they have a default options to inherit from. For any partial
+/// options, unset fields will inherit from the default options.
+///
+/// Note that when changing `standard` or `optimized_for_blobs` options, the changes will affect any
+/// existing column families that inherit from them.
+///
+/// Example 1: if `block_cache_size` is set in `standard` field, it will only override the
+/// `block_cache_size` in the default `standard` options in `DatabaseTableOptionsFactory`. All
+/// other fields in `standard` will inherit from the default `standard` options. All the column
+/// families who is based on `standard` will inherit from the overridden `standard` options.
+///
+/// Example 2: if `block_cache_size` is set in `node_status` field, it will only override the
+/// `block_cache_size` in the default `node_status` options in `DatabaseTableOptionsFactory`. All
+/// other fields in `node_status` will inherit from the default `node_status` options.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseConfig {
     /// Global database options.
     pub(super) global: GlobalDatabaseOptions,
-    /// Default database table options used by all tables except for slivers and metadata.
+
+    /// Below are the column family option templates. Any specific column family can adopt one of
+    /// these templates.
+    ///
+    /// Default database table options used by all tables except for slivers, metadata, and blob
+    /// info.
     pub(super) standard: DatabaseTableOptions,
-    /// Database table options applied to sliver and metadata tables.
+    /// Database table options applied to sliver tables.
     pub(super) optimized_for_blobs: DatabaseTableOptions,
+    /// Default metadata database table options.
+    pub(super) metadata_template: DatabaseTableOptions,
+    /// Default blob info database table options.
+    pub(super) blob_info_template: DatabaseTableOptions,
+
+    /// Below are the column family option overrides specific to a single column family.
+    ///
     /// Node status database options.
     pub(super) node_status: Option<DatabaseTableOptions>,
     /// Metadata database options.
-    pub(super) metadata: DatabaseTableOptions,
+    pub(super) metadata: Option<DatabaseTableOptions>,
     /// Blob info database options.
     pub(super) blob_info: Option<DatabaseTableOptions>,
     /// Per object blob info database options.
@@ -378,155 +409,18 @@ pub struct DatabaseConfig {
     pub(super) init_state: Option<DatabaseTableOptions>,
 }
 
-impl DatabaseConfig {
-    /// Returns the global database options.
-    pub fn global(&self) -> GlobalDatabaseOptions {
-        self.global.clone()
-    }
-
-    /// Returns the node status database option.
-    pub fn node_status(&self) -> DatabaseTableOptions {
-        self.node_status
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the metadata database option.
-    pub fn metadata(&self) -> DatabaseTableOptions {
-        self.metadata.clone()
-    }
-
-    /// Returns the blob info database option.
-    pub fn blob_info(&self) -> DatabaseTableOptions {
-        self.blob_info
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the per object blob info database option.
-    pub fn per_object_blob_info(&self) -> DatabaseTableOptions {
-        self.per_object_blob_info
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event cursor database option.
-    pub fn event_cursor(&self) -> DatabaseTableOptions {
-        self.event_cursor
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the shard database option.
-    pub fn shard(&self) -> DatabaseTableOptions {
-        self.shard
-            .clone()
-            .map(|options| options.inherit_from(self.optimized_for_blobs.clone()))
-            .unwrap_or_else(|| self.optimized_for_blobs.clone())
-    }
-
-    /// Returns the shard status database option.
-    pub fn shard_status(&self) -> DatabaseTableOptions {
-        self.shard_status
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the shard sync progress database option.
-    pub fn shard_sync_progress(&self) -> DatabaseTableOptions {
-        self.shard_sync_progress
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the pending recover slivers database option.
-    pub fn pending_recover_slivers(&self) -> DatabaseTableOptions {
-        self.pending_recover_slivers
-            .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event blob writer certified database option.
-    pub fn certified(&self) -> DatabaseTableOptions {
-        self.certified
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event blob writer pending database option.
-    pub fn pending(&self) -> DatabaseTableOptions {
-        self.pending
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event blob writer attested database option.
-    pub fn attested(&self) -> DatabaseTableOptions {
-        self.attested
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event blob writer failed to attest database option.
-    pub fn failed_to_attest(&self) -> DatabaseTableOptions {
-        self.failed_to_attest
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the checkpoint store database option.
-    pub fn checkpoint_store(&self) -> DatabaseTableOptions {
-        self.checkpoint_store
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the walrus package store database option.
-    pub fn walrus_package_store(&self) -> DatabaseTableOptions {
-        self.walrus_package_store
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the committee store database option.
-    pub fn committee_store(&self) -> DatabaseTableOptions {
-        self.committee_store
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the event store database option.
-    pub fn event_store(&self) -> DatabaseTableOptions {
-        self.event_store
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-
-    /// Returns the init state store database option.
-    pub fn init_state(&self) -> DatabaseTableOptions {
-        self.init_state
-            .clone()
-            .unwrap_or_else(|| self.standard.clone())
-    }
-}
-
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             global: GlobalDatabaseOptions::default(),
             standard: DatabaseTableOptions::standard(),
-            optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
+            optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs_template(),
+            metadata_template: DatabaseTableOptions::metadata_template(),
+            blob_info_template: DatabaseTableOptions::blob_info_template(),
             node_status: None,
-            metadata: DatabaseTableOptions::metadata(),
-            blob_info: Some(DatabaseTableOptions::blob_info()),
-            per_object_blob_info: Some(DatabaseTableOptions::blob_info()),
+            metadata: None,
+            blob_info: None,
+            per_object_blob_info: None,
             event_cursor: None,
             shard: None,
             shard_status: None,
@@ -545,6 +439,239 @@ impl Default for DatabaseConfig {
     }
 }
 
+/// Database table options factory for the Walrus node.
+///
+/// This factory is used to create a `DatabaseTableOptions` object for each column family based on
+/// the `DatabaseConfig` and the default options in `DatabaseTableOptionsFactory`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DatabaseTableOptionsFactory {
+    /// Holds the database config from the node config. Any config specifically set in this struct
+    /// will only override the same field of the corresponding column family's option.
+    database_config: DatabaseConfig,
+    /// Holds the default options for the `standard` column family option.
+    default_standard_options: DatabaseTableOptions,
+    /// Holds the default options for the `optimized_for_blobs` column family option.
+    default_optimized_for_blobs_options: DatabaseTableOptions,
+    /// Holds the default options for the `metadata` column family option.
+    default_metadata_options: DatabaseTableOptions,
+    /// Holds the default options for the `blob_info` column family option.
+    default_blob_info_options: DatabaseTableOptions,
+}
+
+impl DatabaseTableOptionsFactory {
+    /// Creates a new `DatabaseTableOptionsFactory` from a `DatabaseConfig`.
+    pub fn new(database_config: DatabaseConfig) -> Self {
+        // Set the default options for the 4 template options.
+        let default_standard_options = Self::get_table_options_with_inheritance(
+            &database_config.standard,
+            DatabaseTableOptions::standard(),
+        );
+        let default_optimized_for_blobs_options = Self::get_table_options_with_inheritance(
+            &database_config.optimized_for_blobs,
+            DatabaseTableOptions::optimized_for_blobs_template(),
+        );
+        let default_metadata_options = Self::get_table_options_with_inheritance(
+            &database_config.metadata_template,
+            DatabaseTableOptions::metadata_template(),
+        );
+        let default_blob_info_options = Self::get_table_options_with_inheritance(
+            &database_config.blob_info_template,
+            DatabaseTableOptions::blob_info_template(),
+        );
+
+        Self {
+            database_config,
+            default_standard_options,
+            default_optimized_for_blobs_options,
+            default_metadata_options,
+            default_blob_info_options,
+        }
+    }
+
+    /// Returns the global database options for creating a RocksDB instance.
+    pub(crate) fn global_db_options(&self) -> GlobalDatabaseOptions {
+        self.database_config.global.clone()
+    }
+
+    /// Helper to get a non-optional DatabaseTableOptions field with inheritance from a static
+    /// default.
+    fn get_table_options_with_inheritance(
+        db_config_option: &DatabaseTableOptions,
+        default_option: DatabaseTableOptions,
+    ) -> DatabaseTableOptions {
+        db_config_option.clone().inherit_from(default_option)
+    }
+
+    /// Helper to get an optional DatabaseTableOptions field with inheritance from a default.
+    fn get_optional_table_options_with_inheritance(
+        db_config_option: &Option<DatabaseTableOptions>,
+        default_option: DatabaseTableOptions,
+    ) -> DatabaseTableOptions {
+        db_config_option
+            .clone()
+            .map(|options| options.inherit_from(default_option.clone()))
+            .unwrap_or(default_option)
+    }
+
+    /// Helper to get an optional DatabaseTableOptions field with inheritance from the default
+    /// `standard` options.
+    fn get_optional_table_options_with_inheritance_from_standard(
+        &self,
+        db_config_option: &Option<DatabaseTableOptions>,
+    ) -> DatabaseTableOptions {
+        Self::get_optional_table_options_with_inheritance(
+            db_config_option,
+            self.default_standard_options.clone(),
+        )
+    }
+
+    /// Returns the default standard database option. Can be used as the default option for all
+    /// low footprint, low traffic column families.
+    pub(crate) fn standard(&self) -> DatabaseTableOptions {
+        self.default_standard_options.clone()
+    }
+
+    /// Returns the metadata database option inherited from the default
+    /// DatabaseTableOptions::metadata().
+    pub(crate) fn metadata(&self) -> DatabaseTableOptions {
+        Self::get_optional_table_options_with_inheritance(
+            &self.database_config.metadata,
+            self.default_metadata_options.clone(),
+        )
+    }
+
+    /// Returns the blob info database option inherited from the default
+    /// DatabaseTableOptions::blob_info().
+    pub(crate) fn blob_info(&self) -> DatabaseTableOptions {
+        Self::get_optional_table_options_with_inheritance(
+            &self.database_config.blob_info,
+            self.default_blob_info_options.clone(),
+        )
+    }
+
+    /// Returns the per object blob info database option inherited from the default
+    /// DatabaseTableOptions::blob_info().
+    pub(crate) fn per_object_blob_info(&self) -> DatabaseTableOptions {
+        Self::get_optional_table_options_with_inheritance(
+            &self.database_config.per_object_blob_info,
+            self.default_blob_info_options.clone(),
+        )
+    }
+
+    /// Returns the shard database option inherited from Self::optimized_for_blobs().
+    pub(crate) fn shard(&self) -> DatabaseTableOptions {
+        Self::get_optional_table_options_with_inheritance(
+            &self.database_config.shard,
+            self.default_optimized_for_blobs_options.clone(),
+        )
+    }
+
+    /// Returns the node status database option inherited from Self::standard().
+    pub(crate) fn node_status(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.node_status,
+        )
+    }
+
+    /// Returns the event cursor database option inherited from Self::standard().
+    pub(crate) fn event_cursor(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.event_cursor,
+        )
+    }
+
+    /// Returns the shard status database option inherited from Self::standard().
+    pub(crate) fn shard_status(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.shard_status,
+        )
+    }
+
+    /// Returns the shard sync progress database option inherited from Self::standard().
+    pub(crate) fn shard_sync_progress(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.shard_sync_progress,
+        )
+    }
+
+    /// Returns the pending recover slivers database option inherited from Self::standard().
+    pub(crate) fn pending_recover_slivers(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.pending_recover_slivers,
+        )
+    }
+
+    /// Returns the event blob writer certified database option inherited from Self::standard().
+    pub fn certified(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.certified,
+        )
+    }
+
+    /// Returns the event blob writer pending database option inherited from Self::standard().
+    pub fn pending(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.pending,
+        )
+    }
+
+    /// Returns the event blob writer attested database option inherited from Self::standard().
+    pub fn attested(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.attested,
+        )
+    }
+
+    /// Returns the event blob writer failed to attest database option inherited from
+    /// Self::standard().
+    pub fn failed_to_attest(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.failed_to_attest,
+        )
+    }
+
+    /// Returns the checkpoint store database option inherited from Self::standard().
+    pub(crate) fn checkpoint_store(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.checkpoint_store,
+        )
+    }
+
+    /// Returns the walrus package store database option inherited from Self::standard().
+    pub(crate) fn walrus_package_store(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.walrus_package_store,
+        )
+    }
+
+    /// Returns the committee store database option inherited from Self::standard().
+    pub(crate) fn committee_store(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.committee_store,
+        )
+    }
+
+    /// Returns the event store database option inherited from Self::standard().
+    pub(crate) fn event_store(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.event_store,
+        )
+    }
+
+    /// Returns the init state store database option inherited from Self::standard().
+    pub(crate) fn init_state(&self) -> DatabaseTableOptions {
+        self.get_optional_table_options_with_inheritance_from_standard(
+            &self.database_config.init_state,
+        )
+    }
+}
+
+impl Default for DatabaseTableOptionsFactory {
+    fn default() -> Self {
+        Self::new(DatabaseConfig::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
@@ -555,7 +682,7 @@ mod tests {
     #[test]
     fn test_optimized_for_blobs_database_config() -> TestResult {
         let yaml = indoc! {"
-            default:
+            standard:
                 blob_compression_type: none
                 enable_blob_garbage_collection: false
             optimized_for_blobs:
@@ -567,13 +694,14 @@ mod tests {
         "};
 
         let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(config.clone());
 
-        let shard_options = config.shard();
+        let shard_options = db_table_options_factory.shard();
         assert_eq!(
             shard_options,
             DatabaseTableOptions {
                 blob_garbage_collection_force_threshold: Some(0.5),
-                ..config.optimized_for_blobs.clone()
+                ..db_table_options_factory.default_optimized_for_blobs_options
             }
         );
 
@@ -599,14 +727,142 @@ mod tests {
         "};
 
         let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(config);
 
-        let blob_info_options = config.blob_info();
+        let blob_info_options = db_table_options_factory.blob_info();
         assert_eq!(
             blob_info_options,
             DatabaseTableOptions {
                 block_cache_size: Some(1000000000),
                 ..DatabaseTableOptions::standard()
             }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_database_config_inheritance() -> TestResult {
+        // Test 1: Default configuration (no overrides)
+        let default_config = DatabaseConfig::default();
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(default_config);
+
+        // Verify static method inheritance still works
+        assert_eq!(
+            db_table_options_factory.default_standard_options,
+            DatabaseTableOptions::standard()
+        );
+        assert_eq!(
+            db_table_options_factory.default_optimized_for_blobs_options,
+            DatabaseTableOptions::optimized_for_blobs_template()
+        );
+        assert_eq!(
+            db_table_options_factory.default_metadata_options,
+            DatabaseTableOptions::metadata_template()
+        );
+
+        // Verify optional fields with static defaults
+        assert_eq!(
+            db_table_options_factory.blob_info(),
+            DatabaseTableOptions::blob_info_template()
+        );
+        assert_eq!(
+            db_table_options_factory.per_object_blob_info(),
+            DatabaseTableOptions::blob_info_template()
+        );
+
+        // Verify optional fields with instance defaults (inherit from standard)
+        assert_eq!(
+            db_table_options_factory.node_status(),
+            db_table_options_factory.default_standard_options
+        );
+        assert_eq!(
+            db_table_options_factory.event_cursor(),
+            db_table_options_factory.default_standard_options
+        );
+        assert_eq!(
+            db_table_options_factory.certified(),
+            db_table_options_factory.default_standard_options
+        );
+
+        // Verify shard inherits from optimized_for_blobs
+        assert_eq!(
+            db_table_options_factory.shard(),
+            db_table_options_factory.default_optimized_for_blobs_options
+        );
+
+        // Test 2: Partial configuration from YAML
+        let yaml = indoc! {"
+            standard:
+                write_buffer_size: 128000000
+                block_cache_size: 500000000
+            optimized_for_blobs:
+                enable_blob_files: false
+                write_buffer_size: 512000000
+            metadata_template:
+                write_buffer_size: 256000000
+            node_status:
+                block_cache_size: 100000000
+            shard:
+                blob_file_size: 2000000000
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        let db_table_options_factory = DatabaseTableOptionsFactory::new(config);
+
+        // Test standard field inheritance (partial config should inherit from
+        // DatabaseTableOptions::standard())
+        let standard = db_table_options_factory.default_standard_options.clone();
+        assert_eq!(standard.write_buffer_size, Some(128000000)); // overridden
+        assert_eq!(standard.block_cache_size, Some(500000000)); // overridden
+        // inherited from DatabaseTableOptions::standard()
+        assert_eq!(standard.target_file_size_base, Some(64 << 20));
+
+        // Test optimized_for_blobs field inheritance
+        let optimized = db_table_options_factory
+            .default_optimized_for_blobs_options
+            .clone();
+        assert_eq!(optimized.enable_blob_files, Some(false)); // overridden
+        assert_eq!(optimized.write_buffer_size, Some(512000000)); // overridden
+        // inherited from DatabaseTableOptions::optimized_for_blobs()
+        assert_eq!(optimized.min_blob_size, Some(1 << 20));
+        assert_eq!(optimized.blob_compression_type, Some("zstd".to_string())); // inherited
+
+        // Test metadata field inheritance (should inherit from DatabaseTableOptions::metadata())
+        let metadata = db_table_options_factory.default_metadata_options.clone();
+        assert_eq!(metadata.write_buffer_size, Some(256000000)); // overridden
+        // inherited from DatabaseTableOptions::metadata()
+        assert_eq!(metadata.hard_pending_compaction_bytes_limit, Some(0));
+
+        // Test optional field inheritance from instance default (node_status inherits from
+        // standard)
+        let node_status = db_table_options_factory.node_status();
+        assert_eq!(node_status.block_cache_size, Some(100000000)); // overridden
+        // inherited from config.standard()
+        assert_eq!(node_status.write_buffer_size, Some(128000000));
+        assert_eq!(node_status.target_file_size_base, Some(64 << 20)); // inherited through standard
+
+        // Test optional field inheritance from instance default (shard inherits from
+        // optimized_for_blobs)
+        let shard = db_table_options_factory.shard();
+        assert_eq!(shard.blob_file_size, Some(2000000000)); // overridden
+        // inherited from config.optimized_for_blobs()
+        assert_eq!(shard.enable_blob_files, Some(false));
+        // inherited from config.optimized_for_blobs()
+        assert_eq!(shard.write_buffer_size, Some(512000000));
+
+        // Test fields with no config should use their respective defaults
+        assert_eq!(
+            db_table_options_factory.event_cursor(),
+            db_table_options_factory.default_standard_options.clone()
+        );
+        assert_eq!(
+            db_table_options_factory.certified(),
+            db_table_options_factory.default_standard_options.clone()
+        );
+        assert_eq!(
+            db_table_options_factory.blob_info(),
+            DatabaseTableOptions::blob_info_template()
         );
 
         Ok(())
