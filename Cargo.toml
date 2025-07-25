@@ -90,6 +90,7 @@ proc-macro2 = "1.0.95"
 prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
+rand_distr = "0.4"
 rayon = "1.10.0"
 rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
@@ -150,6 +151,7 @@ walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-storage-node-client = { path = "crates/walrus-storage-node-client" }
+walrus-stress = { path = "crates/walrus-stress" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-utils = { path = "crates/walrus-utils" }
