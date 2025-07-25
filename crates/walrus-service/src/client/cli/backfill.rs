@@ -1,37 +1,28 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! The idea here is to have a two-stage pipeline. The upstream task's job is to pull blobs from an
-//! archive, write them to a local folder, then emit the name of the blob to stdout.
-//! The downstream task's job is to read the blob names from stdin, read the blobs from the local
-//! folder, and then send them to the appropriate nodes for backfilling.
+//! Functionality for pulling blobs from an archive, encoding them, and backfilling them to nodes
+//! that are missing slivers.
 //!
-//! We also provide for a mechanism to retain state about which blobs have
-//! been downloaded so far (the `pulled_state` file), so that if the process is interrupted, it can
-//! be continued with similar input.
+//! The backfill is implemented as a 2-stage pipeline. The upstream task's job is to pull blobs from
+//! an archive, and write them to a local folder. The downstream task's job is to list the blob
+//! names from the folder, read the blobs, and then send them to the appropriate nodes for
+//! backfilling; finally, it deletes the uploaded files. No retries are implemented for failures, as
+//! this procedure is intended to be a help to the node recovery process.
 //!
-//! The upstream task can be run like this:
-//! ```
-//! # First fetch all the blob IDs from the archive. Note that this can take 25 minutes and results
-//! in an 869MB file with 12248420 lines.
+//! The upstream pull task uses the number of files in the local folder as a backpressure signal:
+//! If the number of files exceeds a certain threshold, it will wait for a while before pulling more
+//! blobs. This is to avoid filling up the disk space excessively, and to allow the downstream task
+//! to catch up with processing the files. In general, the downstream task is much slower -- because
+//! of encoding and sliver transmission -- than the upstream task.
 //!
-//! gcloud storage ls gs://walrus-backup-mainnet >all-blobs.txt
+//! We also provide for a mechanism to retain state about which blobs have been downloaded so far
+//! (the `pulled_state` file), so that if the process is interrupted, it can be continued with
+//! similar input.
 //!
-//! grep -E '^0' all-blobs.txt \
-//!   | walrus pull-archive-blobs \
-//!       --pulled-state downloaded-blobs.txt \
-//!       --gcs-bucket walrus-backup-mainnet \
-//!       --backfill-dir ./backfill \
-//!   | walrus blob-backfill --backfill-dir ./blob ...
-//! ```
-//!
-//! Note that with this relatively simple file-based approach, we can do a one-time pull of all
-//! of the blob IDs from the known archive (`all-blobs.txt`), then partition the problem
-//! across worker machines as needed.
-//!
-//! The thing to stress here is that for a multi-day backfill, it's super helpful to know how to
-//! stop and restart without losing all prior progress.
-//!
+//! Note that with this relatively simple file-based approach, we can do a one-time pull of all of
+//! the blob IDs from the known archive (`all-blobs.txt`), then partition the problem across worker
+//! machines as needed.
 
 use std::{
     collections::HashSet,
