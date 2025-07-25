@@ -42,3 +42,8 @@ refresh_config:
   min_auto_refresh_interval_secs: 5
   epoch_change_distance_threshold_secs: 300
   refresher_channel_size: 100
+quilt_client_config:
+  max_retrieve_slivers_attempts: 2
+  timeout_duration:
+    secs: 10
+    nanos: 0

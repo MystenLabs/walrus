@@ -43,7 +43,6 @@ use walrus_sdk::{
         NodeCommunicationFactory,
         StoreArgs,
         quilt_client::{
-            QuiltClientConfig,
             assign_identifiers_with_paths,
             generate_identifier_from_path,
             read_blobs_from_paths,
@@ -582,7 +581,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
+        let quilt_read_client = read_client.quilt_client();
 
         let mut retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
@@ -628,7 +627,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
+        let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
         quilt_metadata.print_output(self.json)?;
@@ -826,7 +825,7 @@ impl ClientCommandRunner {
         }
 
         let start_timer = std::time::Instant::now();
-        let quilt_write_client = client.quilt_client(QuiltClientConfig::default());
+        let quilt_write_client = client.quilt_client();
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
@@ -924,7 +923,7 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
-        let quilt_client = client.quilt_client(QuiltClientConfig::default());
+        let quilt_client = client.quilt_client();
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
             .await?;

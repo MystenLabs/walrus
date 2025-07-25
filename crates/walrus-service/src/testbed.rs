@@ -525,6 +525,7 @@ pub async fn create_client_config(
             ..Default::default()
         },
         refresh_config: Default::default(),
+        quilt_client_config: Default::default(),
     };
 
     Ok(client_config)
