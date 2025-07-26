@@ -340,10 +340,12 @@ pub struct DatabaseConfig {
     pub(super) standard: DatabaseTableOptions,
     /// Database table options applied to sliver and metadata tables.
     pub(super) optimized_for_blobs: DatabaseTableOptions,
-    /// Node status database options.
-    pub(super) node_status: Option<DatabaseTableOptions>,
+    /// Default database table options used by blob info tables.
+    pub(super) blob_info_template: DatabaseTableOptions,
     /// Metadata database options.
     pub(super) metadata: DatabaseTableOptions,
+    /// Node status database options.
+    pub(super) node_status: Option<DatabaseTableOptions>,
     /// Blob info database options.
     pub(super) blob_info: Option<DatabaseTableOptions>,
     /// Per object blob info database options.
@@ -384,136 +386,165 @@ impl DatabaseConfig {
         self.global.clone()
     }
 
+    fn standard(&self) -> DatabaseTableOptions {
+        self.standard
+            .clone()
+            .inherit_from(DatabaseTableOptions::standard())
+    }
+
+    fn optimized_for_blobs(&self) -> DatabaseTableOptions {
+        self.optimized_for_blobs
+            .clone()
+            .inherit_from(DatabaseTableOptions::optimized_for_blobs())
+    }
+
+    fn blob_info_template(&self) -> DatabaseTableOptions {
+        self.blob_info_template
+            .clone()
+            .inherit_from(DatabaseTableOptions::blob_info())
+    }
+
     /// Returns the node status database option.
     pub fn node_status(&self) -> DatabaseTableOptions {
         self.node_status
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the metadata database option.
     pub fn metadata(&self) -> DatabaseTableOptions {
-        self.metadata.clone()
+        self.metadata
+            .clone()
+            .inherit_from(DatabaseTableOptions::metadata())
     }
 
     /// Returns the blob info database option.
     pub fn blob_info(&self) -> DatabaseTableOptions {
         self.blob_info
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.blob_info_template()))
+            .unwrap_or_else(|| self.blob_info_template())
     }
 
     /// Returns the per object blob info database option.
     pub fn per_object_blob_info(&self) -> DatabaseTableOptions {
         self.per_object_blob_info
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.blob_info_template()))
+            .unwrap_or_else(|| self.blob_info_template())
     }
 
     /// Returns the event cursor database option.
     pub fn event_cursor(&self) -> DatabaseTableOptions {
         self.event_cursor
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the shard database option.
     pub fn shard(&self) -> DatabaseTableOptions {
         self.shard
             .clone()
-            .map(|options| options.inherit_from(self.optimized_for_blobs.clone()))
-            .unwrap_or_else(|| self.optimized_for_blobs.clone())
+            .map(|options| options.inherit_from(self.optimized_for_blobs()))
+            .unwrap_or_else(|| self.optimized_for_blobs())
     }
 
     /// Returns the shard status database option.
     pub fn shard_status(&self) -> DatabaseTableOptions {
         self.shard_status
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the shard sync progress database option.
     pub fn shard_sync_progress(&self) -> DatabaseTableOptions {
         self.shard_sync_progress
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the pending recover slivers database option.
     pub fn pending_recover_slivers(&self) -> DatabaseTableOptions {
         self.pending_recover_slivers
             .clone()
-            .map(|options| options.inherit_from(self.standard.clone()))
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the event blob writer certified database option.
     pub fn certified(&self) -> DatabaseTableOptions {
         self.certified
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the event blob writer pending database option.
     pub fn pending(&self) -> DatabaseTableOptions {
         self.pending
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the event blob writer attested database option.
     pub fn attested(&self) -> DatabaseTableOptions {
         self.attested
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the event blob writer failed to attest database option.
     pub fn failed_to_attest(&self) -> DatabaseTableOptions {
         self.failed_to_attest
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the checkpoint store database option.
     pub fn checkpoint_store(&self) -> DatabaseTableOptions {
         self.checkpoint_store
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the walrus package store database option.
     pub fn walrus_package_store(&self) -> DatabaseTableOptions {
         self.walrus_package_store
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the committee store database option.
     pub fn committee_store(&self) -> DatabaseTableOptions {
         self.committee_store
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the event store database option.
     pub fn event_store(&self) -> DatabaseTableOptions {
         self.event_store
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 
     /// Returns the init state store database option.
     pub fn init_state(&self) -> DatabaseTableOptions {
         self.init_state
             .clone()
-            .unwrap_or_else(|| self.standard.clone())
+            .map(|options| options.inherit_from(self.standard()))
+            .unwrap_or_else(|| self.standard())
     }
 }
 
@@ -523,10 +554,11 @@ impl Default for DatabaseConfig {
             global: GlobalDatabaseOptions::default(),
             standard: DatabaseTableOptions::standard(),
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
-            node_status: None,
+            blob_info_template: DatabaseTableOptions::blob_info(),
             metadata: DatabaseTableOptions::metadata(),
-            blob_info: Some(DatabaseTableOptions::blob_info()),
-            per_object_blob_info: Some(DatabaseTableOptions::blob_info()),
+            node_status: None,
+            blob_info: None,
+            per_object_blob_info: None,
             event_cursor: None,
             shard: None,
             shard_status: None,
@@ -573,18 +605,18 @@ mod tests {
             shard_options,
             DatabaseTableOptions {
                 blob_garbage_collection_force_threshold: Some(0.5),
-                ..config.optimized_for_blobs.clone()
+                ..config.optimized_for_blobs()
             }
         );
 
-        let optimized_for_blobs_options = config.optimized_for_blobs;
+        let optimized_for_blobs_options = config.optimized_for_blobs();
         assert_eq!(
             optimized_for_blobs_options,
             DatabaseTableOptions {
                 enable_blob_files: Some(true),
                 min_blob_size: Some(0),
                 blob_file_size: Some(1000),
-                ..Default::default()
+                ..DatabaseTableOptions::optimized_for_blobs()
             }
         );
 
@@ -605,7 +637,7 @@ mod tests {
             blob_info_options,
             DatabaseTableOptions {
                 block_cache_size: Some(1000000000),
-                ..DatabaseTableOptions::standard()
+                ..DatabaseTableOptions::blob_info()
             }
         );
 
