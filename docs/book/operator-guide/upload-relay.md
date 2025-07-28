@@ -110,7 +110,7 @@ These additional parameters have to be specified in the URL’s query string:
   the blob is to be stored as a permanent one, this parameter should not be specified. Example:
   `deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60`
 - **encoding_type** (optional): The encoding type to be used for the blob. The default value, and at
-  the moment the only value, is `RS2` .
+  the moment the only value, is `RS2`.
 
 ## Receiving the certificate
 
