@@ -59,6 +59,8 @@
               window.addEventListener("load", initAskCookbook);
             }
           </script>
+        
+          <meta name="algolia-site-verification" content="BCA21DA2879818D2">
 
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -278,8 +280,10 @@ important to ensure only authorized parties may access it, or other measures to 
 especially in a future Mainnet deployment.</p>
 </div>
 </div>
-<p>By default, PUT requests are limited to 10 MiB; you can increase this limit through the
-<code>--max-body-size</code> option.</p>
+<p>By default, <a href="../usage/web-api.html#store">store blob</a> requests are limited to 10 MiB; you can
+increase this limit through the <code>--max-body-size</code> option.
+<a href="../usage/web-api.html#storing-quilts">Store quilt</a> requests are limited to 100 MiB by default, and
+can be increased using the <code>--max-quilt-body-size</code> option.</p>
 <h3 id="daemon-metrics"><a class="header" href="#daemon-metrics">Daemon metrics</a></h3>
 <p>Services by default export a metrics end-point accessible via <code>curl http://127.0.0.1:27182/metrics</code>.
 It can be changed using the <code>--metrics-address &lt;METRICS_ADDRESS&gt;</code> CLI option.</p>

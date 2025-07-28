@@ -60,6 +60,8 @@
               window.addEventListener("load", initAskCookbook);
             }
           </script>
+        
+          <meta name="algolia-site-verification" content="BCA21DA2879818D2">
 
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1091,18 +1093,6 @@ default_context: mainnet
 </div>
 </div>
 <!-- markdownlint-enable code-fence-style -->
-<div id="admonition-walrus-testnet-redeployment" class="admonition admonish-warning" role="note" aria-labelledby="admonition-walrus-testnet-redeployment-title">
-<div class="admonition-title">
-<div id="admonition-walrus-testnet-redeployment-title">
-<p>Walrus Testnet redeployment</p>
-</div>
-<a class="admonition-anchor-link" href="usage/setup.html#admonition-walrus-testnet-redeployment"></a>
-</div>
-<div>
-<p>The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the <em>new</em> Testnet v3, which will be operational after 2025-04-03T15:00:00Z.</p>
-</div>
-</div>
 <h3 id="config-custom-path"><a class="header" href="#config-custom-path">Custom path (optional)</a></h3>
 <p>By default, the Walrus client will look for the <code>client_config.yaml</code> (or <code>client_config.yml</code>)
 configuration file in the current directory, <code>$XDG_CONFIG_HOME/walrus/</code>, <code>~/.config/walrus/</code>, or
@@ -1216,18 +1206,6 @@ GitHub</a>.</p>
 and Testnet configuration. If you want <em>only</em> the Mainnet configuration, you can download the
 <a href="usage/../setup/client_config_mainnet.yaml">Mainnet-only configuration file</a>.</p>
 <h2 id="testnet-configuration"><a class="header" href="#testnet-configuration">Testnet configuration</a></h2>
-<div id="admonition-walrus-testnet-redeployment" class="admonition admonish-warning" role="note" aria-labelledby="admonition-walrus-testnet-redeployment-title">
-<div class="admonition-title">
-<div id="admonition-walrus-testnet-redeployment-title">
-<p>Walrus Testnet redeployment</p>
-</div>
-<a class="admonition-anchor-link" href="usage/networks.html#admonition-walrus-testnet-redeployment"></a>
-</div>
-<div>
-<p>The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the <em>new</em> Testnet v3, which will be operational after 2025-04-03T15:00:00Z.</p>
-</div>
-</div>
 <div id="admonition-disclaimer-about-the-walrus-testnet" class="admonition admonish-danger" role="note" aria-labelledby="admonition-disclaimer-about-the-walrus-testnet-title">
 <div class="admonition-title">
 <div id="admonition-disclaimer-about-the-walrus-testnet-title">
@@ -2686,12 +2664,24 @@ directly derived from its contents, unlike a regular Walrus blob_id, deletion, e
 and share operations are not allowed on individual blobs in the quilt, only the quilt
 can be the target.</p>
 <h3 id="lower-cost"><a class="header" href="#lower-cost">Lower cost</a></h3>
-<p>This is the most clear and significant use case. <em>quilt</em> is especially advantageous for
+<p>This is the most clear and significant use case. <em>Quilt</em> is especially advantageous for
 managing large volumes of small blobs, as long as they can be grouped together by the
-user. By consolidating multiple small blobs into a single quilt, storage costs can be
-reduced dramatically—up to 50 times for files around 100KB—making it an efficient
-solution for cost-sensitive applications.</p>
-<p>The following table demonstrates shows the potential cost savings in WAL when storing 600 small
+user. The cost savings come from two sources:</p>
+<ul>
+<li>
+<p><strong>Walrus storage and write fees</strong>: By consolidating multiple small blobs into a single
+quilt, storage costs can be reduced dramatically—more than 400x for files around 10KB—making
+it an efficient solution for cost-sensitive applications.</p>
+</li>
+<li>
+<p><strong>Sui computation and object storage fees</strong>: Storing many blobs as a single quilt
+significantly reduces Sui gas costs. In our test runs with 600 files stored in a quilt,
+we observed <strong>238x</strong> savings in Sui fees compared to storing them as individual blobs.
+Notably, Sui cost savings only depend on the number of files per quilt rather than the
+individual file sizes.</p>
+</li>
+</ul>
+<p>The following table demonstrates the potential cost savings in WAL when storing 600 small
 blobs for 1 epoch as a quilt compared to storing them as separate blobs.</p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: right">Blob size</th><th style="text-align: right">Regular blob storage cost</th><th style="text-align: right">Quilt storage cost</th><th style="text-align: right">Cost saving factor</th></tr></thead><tbody>
 <tr><td style="text-align: right">10KB</td><td style="text-align: right">2.088 WAL</td><td style="text-align: right">0.005 WAL</td><td style="text-align: right">409x</td></tr>
@@ -2703,16 +2693,11 @@ blobs for 1 epoch as a quilt compared to storing them as separate blobs.</p>
 </tbody></table>
 </div>
 <blockquote>
-<p><strong>Note:</strong> The costs shown in this table are for illustrative purposes only. Actual
-costs may vary due to changes in smart contract parameters, network conditions, and
-other factors.</p>
+<p><strong>Note:</strong> The costs shown in this table are for illustrative purposes only and were obtained
+from test runs on Walrus Testnet. Actual costs may vary due to changes in smart contract
+parameters, networks, and other factors. The comparison is between storing 600 files as a single
+quilt versus storing them as individual blobs in batches of 25.</p>
 </blockquote>
-<p>The table only shows the Walrus storage cost. Similar savings are possible for Sui gas fees. Storing
-600 blobs as a quilt results in gas fees of 0.00725 SUI compared to 1.725 SUI when storing them as
-standard blobs (with <code>walrus store</code> command, with 25 blobs per command to reduce Sui computation
-costs), which is a savings factor of <strong>238x</strong>. These values are not affected by the blob size.
-Overall, quilt provides significant cost savings for small blobs, with the greatest benefits for
-blobs under 100KB where both SUI and WAL costs can be reduced by over <strong>100x</strong>.</p>
 <h3 id="organizing-collections"><a class="header" href="#organizing-collections">Organizing collections</a></h3>
 <p><em>Quilt</em> provides a straightforward way to organize and manage collections of small blobs
 within a single unit. This can simplify data handling and improve operational efficiency
@@ -2784,8 +2769,10 @@ important to ensure only authorized parties may access it, or other measures to 
 especially in a future Mainnet deployment.</p>
 </div>
 </div>
-<p>By default, PUT requests are limited to 10 MiB; you can increase this limit through the
-<code>--max-body-size</code> option.</p>
+<p>By default, <a href="operator-guide/../usage/web-api.html#store">store blob</a> requests are limited to 10 MiB; you can
+increase this limit through the <code>--max-body-size</code> option.
+<a href="operator-guide/../usage/web-api.html#storing-quilts">Store quilt</a> requests are limited to 100 MiB by default, and
+can be increased using the <code>--max-quilt-body-size</code> option.</p>
 <h3 id="daemon-metrics"><a class="header" href="#daemon-metrics">Daemon metrics</a></h3>
 <p>Services by default export a metrics end-point accessible via <code>curl http://127.0.0.1:27182/metrics</code>.
 It can be changed using the <code>--metrics-address &lt;METRICS_ADDRESS&gt;</code> CLI option.</p>
@@ -3269,7 +3256,7 @@ stored is deletable, then the client must specify the object ID (as a Hex string
 the blob is to be stored as a permanent one, this parameter should not be specified. Example:
 <code>deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60</code></li>
 <li><strong>encoding_type</strong> (optional): The encoding type to be used for the blob. The default value, and at
-the moment the only value, is <code>RS2</code> .</li>
+the moment the only value, is <code>RS2</code>.</li>
 </ul>
 <h2 id="receiving-the-certificate"><a class="header" href="#receiving-the-certificate">Receiving the certificate</a></h2>
 <p>Once the relay is done storing the blob, it will collect the confirmation certificate from the
@@ -3647,23 +3634,31 @@ and looks like this:</p>
     # portal: wal.app
     package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
     staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
-    # general:
-    #   rpc_url: https://fullnode.testnet.sui.io:443
-    #   wallet: /path/to/.sui/sui_config/client.yaml
-    #   walrus_binary: /path/to/walrus
-    #   walrus_config: /path/to/testnet/client_config.yaml
-    #   gas_budget: 500000000
+    general:
+       wallet_env: testnet
+       walrus_context: testnet # Assumes a Walrus CLI setup with a multi-config containing the "testnet" context.
+       walrus_package: 0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66
+       # wallet_address: 0x1234...
+       # rpc_url: https://fullnode.testnet.sui.io:443
+       # wallet: /path/to/.sui/sui_config/client.yaml
+       # walrus_binary: /path/to/walrus
+       # walrus_config: /path/to/testnet/client_config.yaml
+       # gas_budget: 500000000
   mainnet:
     # module: site
     # portal: wal.app
     package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
     staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-    # general:
-    #   rpc_url: https://fullnode.mainnet.sui.io:443
-    #   wallet: /path/to/.sui/sui_config/client.yaml
-    #   walrus_binary: /path/to/walrus
-    #   walrus_config: /path/to/mainnet/client_config.yaml
-    #   gas_budget: 500000000
+    general:
+       wallet_env: mainnet
+       walrus_context: mainnet # Assumes a Walrus CLI setup with a multi-config containing the "mainnet" context.
+       walrus_package: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
+       # wallet_address: 0x1234...
+       # rpc_url: https://fullnode.mainnet.sui.io:443
+       # wallet: /path/to/.sui/sui_config/client.yaml
+       # walrus_binary: /path/to/walrus
+       # walrus_config: /path/to/mainnet/client_config.yaml
+       # gas_budget: 500000000
 
 default_context: mainnet
 </code></pre>
