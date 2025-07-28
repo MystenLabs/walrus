@@ -19,12 +19,12 @@ web-based `store` operations.
 
 At a high level, a client stores a blob using an upload relay as follows:
 
-- First, the client locally encodes the blob and registers it on Sui;
-- then, the client sends the blob to the upload relay via an HTTP POST request to the blob-relay
+1. First, the client locally encodes the blob and registers it on Sui;
+1. then, the client sends the blob to the upload relay via an HTTP POST request to the blob-relay
   endpoint (`/v1/blob-upload-relay`);
-- the upload relay then encodes the blob, sends the slivers to the storage nodes, collects a storage
+1. the upload relay then encodes the blob, sends the slivers to the storage nodes, collects a storage
   confirmation certificate, and sends it back to the client;
-- finally, the client uses the confirmation certificate to certify the blob on Sui.
+1. finally, the client uses the confirmation certificate to certify the blob on Sui.
 
 Therefore, the upload relay *does not* perform any on-chain operation, and only helps clients
 distribute the slivers of their blobs to storage nodes.
@@ -68,9 +68,9 @@ This step is only necessary if the relay requires a tip.
 
 To pay the tip, the client proceeds as follows:
 
-- it computes the `blob_digest = SHA256(blob)`
-- it generates a random `nonce`, and hashes it `nonce_digest = SHA256(nonce)`
-- it computes the `unencoded_length = blob.len()`
+1. it computes the `blob_digest = SHA256(blob)`
+1. it generates a random `nonce`, and hashes it `nonce_digest = SHA256(nonce)`
+1. it computes the `unencoded_length = blob.len()`
 
 Then, it creates a PTB, where the first input (`input 0`) is the `bcs` encoded representation of
 `blob_digest || nonce_digest || unencoded_length`. This will later be used by the relay to
