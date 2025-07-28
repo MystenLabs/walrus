@@ -13,6 +13,14 @@ themselves can run on internet-facing hosts to facilitate storing blob slivers o
 nodes on behalf of the end-users, thus mitigating browser resource consumption and enabling
 web-based `store` operations.
 
+```admonish tip title="Public upload relays"
+Mysten Labs runs two publicly-available upload relays, one for `testnet` and one for `mainnet`.
+You can find them at the following addresses:
+
+- `testnet`: `https://upload-relay.testnet.walrus.space`
+- `mainnet`: `https://upload-relay.mainnet.walrus.space`
+```
+
 ## Design
 
 ### Outline
@@ -33,7 +41,7 @@ This flow between clients and the upload relay is already implemented in the Wal
 and TS SDK, and therefore developers do not need to implement it themselves. For completeness, in
 the following we discuss how the service is implemented, paid for, and used by clients.
 
-### Upload relay Operation
+### Upload relay operation
 
 The upload relay can be operated in two ways:
 
@@ -62,7 +70,7 @@ The configuration above specifies that every store operation requires a tip of `
 value), paid to the set address (`0x1234..`). Note that this configuration is provided even for free
 upload relays (returning `"no_tip"`).
 
-### Paying the Tip
+### Paying the tip
 
 This step is only necessary if the relay requires a tip.
 
@@ -86,7 +94,7 @@ Once the transaction is executed, the client keeps the transaction ID `tx_id` , 
 Note: the relay will enforce a freshness check on the transaction that paid the tip (currently 1h by
 default, but each relay can independently configure this).
 
-### Sending Data to the upload relay
+### Sending data to the upload relay
 
 See the full OpenAPI spec for the upload relay for the full details
 ([yaml](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.yaml),
@@ -123,7 +131,7 @@ chain.
 
 ## Installation
 
-### Download the Binary
+### Download the binary
 
 If you'd like to download a pre-built binary in order manually run `walrus-upload-relay`, you'll
 need to download it from [the releases page](https://github.com/MystenLabs/walrus/releases). Note
@@ -139,7 +147,7 @@ The docker image for `walrus-upload-relay` is available on Docker Hub as
 docker run -it --rm mysten/walrus-upload-relay --help
 ```
 
-### Build from Source
+### Build from source
 
 Of course, if you'd like to build from sources, that is always an option, as well. The sources for
 the `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLabs/walrus) in the

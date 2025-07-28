@@ -145,6 +145,10 @@ We have a [separate page](../dev-guide/costs.md) with some considerations regard
 
 ### Using a Walrus upload relay
 
+```admonish note title="Minimum CLI version"
+The Walrus upload relay functionality in the client CLI is available since version X.XX.
+```
+
 A Walrus upload relay is a third party service that can help clients with limited bandwidth and
 networking capabilities (a browser, for example) in storing blobs on Walrus.
 
