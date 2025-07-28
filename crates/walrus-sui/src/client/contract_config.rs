@@ -23,6 +23,9 @@ pub struct ContractConfig {
     /// Object ID of the credits object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credits_object: Option<ObjectID>,
+    /// Object ID of the walrus subsidies object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walrus_subsidies_object: Option<ObjectID>,
 }
 
 impl ContractConfig {
@@ -33,6 +36,7 @@ impl ContractConfig {
             staking_object,
             credits_object: None,
             subsidies_object: None,
+            walrus_subsidies_object: None,
         }
     }
 }

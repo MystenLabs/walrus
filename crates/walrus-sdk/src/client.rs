@@ -24,9 +24,9 @@ use futures::{
     future::{Either, select},
 };
 use indicatif::{HumanDuration, MultiProgress};
-use metrics::ClientMetrics;
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
+pub use store_args::StoreArgs;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
@@ -34,7 +34,6 @@ use walrus_core::{
     BlobId,
     EncodingType,
     Epoch,
-    EpochCount,
     ShardIndex,
     Sliver,
     SliverIndex,
@@ -54,11 +53,9 @@ use walrus_core::{
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
-        BlobPersistence,
         CertifyAndExtendBlobParams,
         CertifyAndExtendBlobResult,
         ExpirySelectionPolicy,
-        PostStoreAction,
         ReadClient,
         SuiContractClient,
     },
@@ -78,7 +75,6 @@ use crate::{
     client::quilt_client::{QuiltClient, QuiltClientConfig},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_optimizations::StoreOptimizations,
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
@@ -93,6 +89,8 @@ pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+pub mod store_args;
+pub mod upload_relay_client;
 
 /// The delay between retries when retrieving slivers.
 #[allow(unused)]
@@ -781,35 +779,20 @@ impl Client<SuiContractClient> {
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    #[allow(clippy::too_many_arguments)]
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        metrics: Option<&Arc<ClientMetrics>>,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let start = Instant::now();
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
-        if let Some(metrics) = metrics {
-            metrics.observe_encoding_latency(start.elapsed());
-        }
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let mut results = self
             .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(
-                    encoded_blobs.clone(),
-                    epochs_ahead,
-                    store_optimizations,
-                    persistence,
-                    post_store,
-                    metrics,
-                )
+                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
             })
             .await?;
 
@@ -831,11 +814,7 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
         // Not using Path as identifier because it's not unique.
         let blobs = blobs_with_paths
@@ -845,18 +824,11 @@ impl Client<SuiContractClient> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(
-                    encoded_blobs.clone(),
-                    epochs_ahead,
-                    store_optimizations,
-                    persistence,
-                    post_store,
-                    None,
-                )
+                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
             })
             .await?;
 
@@ -889,26 +861,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs(
         &self,
         blobs: &[&[u8]],
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut results = self
-            .reserve_and_store_encoded_blobs(
-                encoded_blobs,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-                None,
-            )
+            .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
             .await?;
 
         debug_assert_eq!(results.len(), blobs.len());
@@ -1064,11 +1025,7 @@ impl Client<SuiContractClient> {
     async fn reserve_and_store_encoded_blobs<'a, T: Debug + Clone + Send + Sync + 'a>(
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
-        metrics: Option<&Arc<ClientMetrics>>,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         tracing::info!("storing {} sliver pairs with metadata", encoded_blobs.len());
         let status_start_timer = Instant::now();
@@ -1092,9 +1049,7 @@ impl Client<SuiContractClient> {
             "retrieved {} blob statuses",
             num_encoded_blobs_with_status
         );
-        if let Some(metrics) = metrics {
-            metrics.observe_checking_blob_status(status_timer_duration);
-        }
+        store_args.maybe_observe_checking_blob_status(status_timer_duration);
 
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
@@ -1103,9 +1058,9 @@ impl Client<SuiContractClient> {
             .await
             .register_walrus_store_blobs(
                 encoded_blobs_with_status,
-                epochs_ahead,
-                persistence,
-                store_optimizations,
+                store_args.epochs_ahead,
+                store_args.persistence,
+                store_args.store_optimizations,
             )
             .await?;
 
@@ -1127,9 +1082,7 @@ impl Client<SuiContractClient> {
             (num_registered_blobs = {num_registered_blobs}, num_encoded_blobs = \
             {num_encoded_blobs})"
         );
-        if let Some(metrics) = metrics {
-            metrics.observe_store_operation(store_op_duration);
-        }
+        store_args.maybe_observe_store_operation(store_op_duration);
 
         let mut final_result: Vec<WalrusStoreBlob<'_, T>> = Vec::with_capacity(num_encoded_blobs);
         let mut to_be_certified: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
@@ -1170,7 +1123,9 @@ impl Client<SuiContractClient> {
         // changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
-            .await_while_checking_notification(self.get_all_blob_certificates(to_be_certified))
+            .await_while_checking_notification(
+                self.get_all_blob_certificates(to_be_certified, store_args),
+            )
             .await?;
         debug_assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
         let get_certificates_duration = get_certificates_timer.elapsed();
@@ -1179,9 +1134,7 @@ impl Client<SuiContractClient> {
             "fetched certificates for {} blobs",
             blobs_with_certificates.len()
         );
-        if let Some(metrics) = metrics {
-            metrics.observe_get_certificates(get_certificates_duration);
-        }
+        store_args.maybe_observe_get_certificates(get_certificates_duration);
 
         // Move completed blobs to final_result and keep only non-completed ones
         let (completed_blobs, to_be_certified): (Vec<_>, Vec<_>) = blobs_with_certificates
@@ -1203,7 +1156,7 @@ impl Client<SuiContractClient> {
         let sui_cert_timer = Instant::now();
         let cert_and_extend_results = self
             .sui_client
-            .certify_and_extend_blobs(&cert_and_extend_params, post_store)
+            .certify_and_extend_blobs(&cert_and_extend_params, store_args.post_store)
             .await
             .map_err(|error| {
                 tracing::warn!(
@@ -1218,9 +1171,7 @@ impl Client<SuiContractClient> {
             "certified {} blobs on Sui",
             cert_and_extend_params.len()
         );
-        if let Some(metrics) = metrics {
-            metrics.observe_upload_certificate(sui_cert_timer_duration);
-        }
+        store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
 
         // Build map from BlobId to CertifyAndExtendBlobResult
         let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
@@ -1304,6 +1255,7 @@ impl Client<SuiContractClient> {
     async fn get_all_blob_certificates<'a, T: Debug + Clone + Send + Sync>(
         &'a self,
         blobs_to_be_certified: Vec<WalrusStoreBlob<'a, T>>,
+        store_args: &StoreArgs,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
         if blobs_to_be_certified.is_empty() {
             return Ok(vec![]);
@@ -1323,24 +1275,14 @@ impl Client<SuiContractClient> {
                             "Expected a WalrusStoreBlob::RegisterNew, got {registered_blob:?}"
                         )));
                     };
-                    let (Some(pairs), Some(metadata), Some(blob_status)) = (
-                        registered_blob.get_sliver_pairs(),
-                        registered_blob.get_metadata(),
-                        registered_blob.get_status(),
-                    ) else {
-                        return Err(ClientError::store_blob_internal(format!(
-                            "Missing sliver pairs, metadata, or status for blob: \
-                            {registered_blob:?}"
-                        )));
-                    };
+
                     let certificate_result = self
                         .get_blob_certificate(
                             &blob,
                             &operation,
-                            pairs.as_slice(),
-                            metadata,
-                            blob_status,
+                            &registered_blob,
                             multi_pb_arc.as_ref(),
+                            store_args,
                         )
                         .await;
                     registered_blob.with_get_certificate_result(certificate_result)
@@ -1362,16 +1304,26 @@ impl Client<SuiContractClient> {
         Ok(blobs)
     }
 
-    async fn get_blob_certificate(
+    async fn get_blob_certificate<T: Debug + Clone + Send + Sync>(
         &self,
         blob_object: &Blob,
         resource_operation: &RegisterBlobOp,
-        pairs: &[SliverPair],
-        metadata: &VerifiedBlobMetadataWithId,
-        blob_status: &BlobStatus,
+        registered_blob: &WalrusStoreBlob<'_, T>,
         multi_pb: &MultiProgress,
+        store_args: &StoreArgs,
     ) -> ClientResult<ConfirmationCertificate> {
         let committees = self.get_committees().await?;
+
+        let (Some(pairs), Some(metadata), Some(blob_status)) = (
+            registered_blob.get_sliver_pairs(),
+            registered_blob.get_metadata(),
+            registered_blob.get_status(),
+        ) else {
+            return Err(ClientError::store_blob_internal(format!(
+                "Missing sliver pairs, metadata, or status for blob: \
+                            {registered_blob:?}"
+            )));
+        };
 
         match blob_status.initial_certified_epoch() {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
@@ -1397,16 +1349,32 @@ impl Client<SuiContractClient> {
                     );
                     tokio::time::sleep(self.config.communication_config.registration_delay).await;
                 }
+
                 let certify_start_timer = Instant::now();
-                let result = self
-                    .send_blob_data_and_get_certificate(
-                        metadata,
-                        pairs,
-                        &blob_object.blob_persistence_type(),
-                        Some(multi_pb),
-                    )
-                    .await?;
+                let result: Result<_, ClientError> =
+                    if let Some(upload_relay_client) = store_args.upload_relay_client_ref() {
+                        let blob = registered_blob.get_blob();
+                        upload_relay_client
+                            .send_blob_data_and_get_certificate_with_relay(
+                                &self.sui_client,
+                                blob,
+                                blob_object.blob_id,
+                                store_args.encoding_type,
+                                blob_object.blob_persistence_type(),
+                            )
+                            .await
+                            .map_err(|error| ClientErrorKind::UploadRelayError(error).into())
+                    } else {
+                        self.send_blob_data_and_get_certificate(
+                            metadata,
+                            pairs,
+                            &blob_object.blob_persistence_type(),
+                            Some(multi_pb),
+                        )
+                        .await
+                    };
                 let duration = certify_start_timer.elapsed();
+
                 let blob_size = blob_object.size;
                 tracing::info!(
                     blob_id = %metadata.blob_id(),
@@ -1414,7 +1382,7 @@ impl Client<SuiContractClient> {
                     blob_size,
                     "finished sending blob data and collecting certificate"
                 );
-                Ok(result)
+                result
             }
         }
     }

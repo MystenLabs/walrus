@@ -6,11 +6,18 @@
 
 //! Utility functions for tests.
 
-use alloc::{vec, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::num::NonZeroU16;
+use std::collections::{HashMap, HashSet};
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::{
     BlobId,
@@ -25,7 +32,9 @@ use crate::{
         EncodingConfigTrait as _,
         PrimaryRecoverySymbol,
         PrimarySliver,
+        QuiltError,
         SecondarySliver,
+        quilt_encoding::QuiltStoreBlob,
     },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
@@ -37,6 +46,132 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
 };
+
+/// A struct containing the test data for Quilt.
+#[derive(Debug, Clone)]
+pub struct QuiltTestData<'a> {
+    /// A map of QuiltStoreBlobs, keyed by their identifiers.
+    pub quilt_store_blobs: Vec<QuiltStoreBlob<'a>>,
+    /// A map of blob identifiers, keyed by tag keys and then tag values.
+    pub blob_identifiers_by_tag: HashMap<String, HashMap<String, HashSet<String>>>,
+}
+
+impl<'a> QuiltTestData<'a> {
+    /// Generates a new QuiltTestData with new owned random data.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_blobs` - The number of blobs to be used to construct a quilt.
+    /// * `min_blob_size` - The minimum size of each blob.
+    /// * `max_blob_size` - The maximum size of each blob.
+    /// * `max_value_length` - The maximum length of each tag and identifier value.
+    /// * `max_num_tags` - The maximum number of tags per blob.
+    pub fn new_owned(
+        num_blobs: usize,
+        min_blob_size: usize,
+        max_blob_size: usize,
+        max_value_length: usize,
+        max_num_tags: usize,
+    ) -> Result<QuiltTestData<'static>, QuiltError> {
+        let blob_data =
+            walrus_test_utils::generate_random_data(num_blobs, min_blob_size, max_blob_size);
+
+        let cow_data: Vec<Cow<'static, [u8]>> = blob_data.into_iter().map(Cow::Owned).collect();
+
+        let quilt_store_blobs_vec =
+            Self::generate_random_quilt_store_blobs(cow_data, max_value_length, max_num_tags)?;
+
+        QuiltTestData::from_quilt_store_blobs(quilt_store_blobs_vec)
+    }
+
+    /// Returns the quilt store blobs and clears the internal vector.
+    pub fn take_blobs(&mut self) -> Vec<QuiltStoreBlob<'a>> {
+        core::mem::take(&mut self.quilt_store_blobs)
+    }
+
+    fn from_quilt_store_blobs(
+        quilt_store_blobs: Vec<QuiltStoreBlob<'a>>,
+    ) -> Result<Self, QuiltError> {
+        let mut blob_identifiers_by_tag: HashMap<String, HashMap<String, HashSet<String>>> =
+            HashMap::new();
+
+        for blob in &quilt_store_blobs {
+            for (key, value) in blob.tags() {
+                blob_identifiers_by_tag
+                    .entry(key.clone())
+                    .or_default()
+                    .entry(value.clone())
+                    .or_default()
+                    .insert(blob.identifier().to_string());
+            }
+        }
+
+        Ok(Self {
+            quilt_store_blobs,
+            blob_identifiers_by_tag,
+        })
+    }
+
+    /// Generates random QuiltStoreBlobs from the input raw blobs.
+    ///
+    /// A random unique identifier is generated for each blob.
+    /// Random numbers of random tags are generated for each blob.
+    fn generate_random_quilt_store_blobs<'b>(
+        blob_data: Vec<Cow<'b, [u8]>>,
+        max_value_length: usize,
+        max_num_tags: usize,
+    ) -> Result<Vec<QuiltStoreBlob<'b>>, QuiltError> {
+        tracing::debug!("generating random quilt store blobs...");
+        let mut rng = rand::thread_rng();
+        let num_tags = if rng.gen_bool(0.3) {
+            0
+        } else {
+            rng.gen_range(1..=max_num_tags)
+        };
+
+        let mut res = Vec::with_capacity(blob_data.len());
+        let mut identifiers = HashSet::with_capacity(blob_data.len());
+        while identifiers.len() < blob_data.len() {
+            let identifier_length = rng.gen_range(1..=max_value_length);
+            let random_data = walrus_test_utils::random_data_from_rng(identifier_length, &mut rng);
+            let encoded = hex::encode(random_data);
+            identifiers.insert(encoded);
+        }
+
+        let raw_tag_values = walrus_test_utils::generate_random_data(num_tags, 1, max_value_length);
+        let raw_tag_keys = walrus_test_utils::generate_random_data(num_tags, 1, max_value_length);
+        let tag_values = raw_tag_values.iter().map(hex::encode).collect::<Vec<_>>();
+        let tag_keys = raw_tag_keys.iter().map(hex::encode).collect::<Vec<_>>();
+
+        for (data, identifier) in blob_data.into_iter().zip(identifiers.iter()) {
+            let mut tags = BTreeMap::new();
+            let num_keys_for_blob = rng.gen_range(0..=num_tags);
+
+            if num_keys_for_blob > 0 {
+                let selected_keys: Vec<_> = tag_keys
+                    .as_slice()
+                    .choose_multiple(&mut rng, num_keys_for_blob)
+                    .collect();
+
+                for key in selected_keys {
+                    let value = tag_values.choose(&mut rng).expect("Should choose a value");
+                    tags.insert(key.clone(), value.clone());
+                }
+            }
+
+            let mut blob = match data {
+                Cow::Borrowed(b) => QuiltStoreBlob::new(b, identifier)?,
+                Cow::Owned(v) => QuiltStoreBlob::new_owned(v, identifier)?,
+            };
+            if !tags.is_empty() {
+                blob = blob.with_tags(tags);
+            }
+            res.push(blob);
+        }
+
+        Ok(res)
+    }
+}
 
 /// Returns a deterministic fixed protocol key pair for testing.
 ///

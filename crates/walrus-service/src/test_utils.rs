@@ -22,7 +22,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{StreamExt, future, stream::FuturesUnordered};
 use itertools::izip;
 use sui_macros::nondeterministic;
@@ -76,7 +76,9 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::WithTempDir;
-use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
+#[cfg(msim)]
+use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::metrics::Registry;
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
@@ -104,6 +106,7 @@ use crate::{
         config::{
             self,
             BlobEventProcessorConfig,
+            BlobRecoveryConfig,
             ConfigSynchronizerConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
@@ -116,13 +119,6 @@ use crate::{
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
     },
 };
-
-/// Default buyer subsidy rate (5%)
-const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
-/// Default system subsidy rate (6%)
-const DEFAULT_SYSTEM_SUBSIDY_RATE: u16 = 600;
-/// Default initial subsidy funds amount
-pub const DEFAULT_SUBSIDY_FUNDS: u64 = 1_000_000;
 
 /// A system event manager that provides events from a stream. It does not support dropping events.
 #[derive(Debug)]
@@ -958,6 +954,7 @@ impl StorageNodeHandleBuilder {
             } else {
                 Default::default()
             },
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1138,6 +1135,7 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1567,6 +1565,10 @@ impl SystemContractService for StubContractService {
         anyhow::bail!("stub service cannot initiate epoch change")
     }
 
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot initiate subsidy distribution")
+    }
+
     async fn certify_event_blob(
         &self,
         _blob_metadata: BlobObjectMetadata,
@@ -1594,6 +1596,14 @@ impl SystemContractService for StubContractService {
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         Ok(None)
+    }
+
+    fn is_subsidies_object_configured(&self) -> bool {
+        false
+    }
+
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
+        Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
 }
 
@@ -1692,7 +1702,7 @@ pub struct TestCluster<T: StorageNodeHandleTrait = StorageNodeHandle> {
     /// A handle to the stub lookup service, is used.
     pub lookup_service_handle: Option<StubLookupServiceHandle>,
     /// The number of shards in the system.
-    pub n_shards: usize,
+    pub n_shards: std::num::NonZero<u16>,
 }
 
 impl<T: StorageNodeHandleTrait> TestCluster<T> {
@@ -1703,8 +1713,7 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
 
     /// Returns an encoding config valid for use with the storage nodes.
     pub fn encoding_config(&self) -> EncodingConfig {
-        let n_shards: u16 = self.n_shards.try_into().expect("valid number of shards");
-        EncodingConfig::new(NonZeroU16::new(n_shards).expect("more than 1 shard"))
+        EncodingConfig::new(self.n_shards)
     }
 
     /// Stops the storage node with index `idx` by cancelling its task.
@@ -1762,6 +1771,7 @@ pub struct TestClusterBuilder {
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<EpochCount>,
+    n_shards: u16,
 }
 
 impl TestClusterBuilder {
@@ -1801,8 +1811,8 @@ impl TestClusterBuilder {
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
     /// assigned to each storage.
     ///
-    /// Resets any prior calls to [`Self::with_test_configs`],
-    /// [`Self::with_system_event_providers`], and [`Self::with_committee_services`].
+    /// Resets any prior calls to [`Self::with_system_event_providers`], and
+    /// [`Self::with_committee_services`].
     pub fn with_shard_assignment<S, I>(mut self, assignment: &[S]) -> Self
     where
         S: Borrow<[I]>,
@@ -1816,21 +1826,21 @@ impl TestClusterBuilder {
         self.storage_capabilities = configs.iter().map(|_| None).collect();
         self.node_wallet_dirs = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
+
+        self.n_shards = assignment
+            .iter()
+            .map(|shards| shards.borrow().len())
+            .sum::<usize>()
+            .try_into()
+            .expect("invalid number of shards");
         self
     }
 
-    /// Sets the configurations for each storage node based on `configs`.
-    ///
-    /// Resets any prior calls to [`Self::with_shard_assignment`],
-    /// [`Self::with_system_event_providers`], [`Self::with_committee_services`],
-    /// and [`Self::with_system_contract_services`].
-    pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
-        self.event_providers = configs.iter().map(|_| None).collect();
-        self.committee_services = configs.iter().map(|_| None).collect();
-        self.contract_services = configs.iter().map(|_| None).collect();
-        self.storage_capabilities = configs.iter().map(|_| None).collect();
-        self.node_wallet_dirs = configs.iter().map(|_| None).collect();
-        self.storage_node_configs = configs;
+    /// For e2e integration tests where shard assignment is controlled by the contract, we just
+    /// need to create StorageNodeTestConfig for each node with empty shard assignment.
+    pub fn with_empty_shard_assignment(mut self, n_nodes: usize, n_shards: u16) -> Self {
+        self = self.with_shard_assignment(&vec![vec![]; n_nodes]);
+        self.n_shards = n_shards;
         self
     }
 
@@ -1975,12 +1985,6 @@ impl TestClusterBuilder {
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
 
-        let n_shards = self
-            .storage_node_configs
-            .iter()
-            .map(|config| config.shards.len())
-            .sum::<usize>();
-
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
         let mut node_futures = vec![];
@@ -2120,7 +2124,7 @@ impl TestClusterBuilder {
         Ok(TestCluster {
             nodes,
             lookup_service_handle: lookup_service_and_handle.map(|(_, handle)| handle),
-            n_shards,
+            n_shards: NonZeroU16::new(self.n_shards).expect("invalid number of shards"),
         })
     }
 }
@@ -2218,6 +2222,13 @@ impl Default for TestClusterBuilder {
             ShardIndex::range(6..9).collect(),
             ShardIndex::range(9..13).collect(),
         ];
+        let n_shards = shard_assignment
+            .iter()
+            .map(|shards| shards.len())
+            .sum::<usize>()
+            .try_into()
+            .expect("valid number of shards");
+
         Self {
             shard_sync_config: None,
             event_providers: shard_assignment.iter().map(|_| None).collect(),
@@ -2240,6 +2251,7 @@ impl Default for TestClusterBuilder {
             node_recovery_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
+            n_shards,
         }
     }
 }
@@ -2291,6 +2303,10 @@ where
         self.as_ref().inner.initiate_epoch_change().await
     }
 
+    async fn process_subsidies(&self) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.process_subsidies().await
+    }
+
     async fn certify_event_blob(
         &self,
         blob_metadata: BlobObjectMetadata,
@@ -2329,6 +2345,14 @@ where
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.as_ref().inner.last_certified_event_blob().await
+    }
+
+    fn is_subsidies_object_configured(&self) -> bool {
+        self.as_ref().inner.is_subsidies_object_configured()
+    }
+
+    async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
+        self.as_ref().inner.last_walrus_subsidies_call().await
     }
 }
 
@@ -2492,17 +2516,16 @@ pub mod test_cluster {
             };
 
             // Get a wallet on the global sui test cluster
-            let mut admin_wallet =
+            let admin_wallet =
                 test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
             let test_nodes_config = self.test_nodes_config.unwrap_or_default();
 
             // Specify an empty assignment to ensure that storage nodes are not created with invalid
             // shard assignments.
-            let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
-                .expect("sum of non-zero weights is not zero");
+            let n_shards = test_nodes_config.node_weights.iter().sum();
             let cluster_builder = TestCluster::<T>::builder()
-                .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
+                .with_empty_shard_assignment(test_nodes_config.node_weights.len(), n_shards);
 
             // Get the default committee from the test cluster builder
             let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
@@ -2517,19 +2540,25 @@ pub mod test_cluster {
                 })
                 .unzip();
 
-            let system_ctx = create_and_init_system_for_test(
-                &mut admin_wallet.inner,
-                n_shards,
-                Duration::from_secs(0),
-                self.epoch_duration
-                    .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
-                self.max_epochs_ahead,
-                self.with_credits,
-                self.deploy_directory,
-                self.contract_directory,
-            )
-            .await
-            .context("failed to create and init system for test")?;
+            let context_and_client = admin_wallet
+                .and_then_async(async |wallet| {
+                    create_and_init_system_for_test(
+                        wallet,
+                        NonZeroU16::new(n_shards).expect("invalid number of shards"),
+                        Duration::from_secs(0),
+                        self.epoch_duration
+                            .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
+                        self.max_epochs_ahead,
+                        self.with_credits,
+                        self.deploy_directory,
+                        self.contract_directory,
+                    )
+                    .await
+                    .context("failed to create and init system for test")
+                })
+                .await?;
+            let system_ctx = context_and_client.inner.0.clone();
+            let admin_contract_client = context_and_client.map(|(_, client)| client);
 
             let n_nodes = members.len();
             let mut contract_clients = Vec::with_capacity(n_nodes);
@@ -2565,39 +2594,6 @@ pub mod test_cluster {
             let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
             let contract_config = system_ctx.contract_config();
-
-            let admin_contract_client = admin_wallet
-                .and_then_async(async |wallet| {
-                    let rpc_urls = &[wallet.get_rpc_url()?];
-
-                    SuiContractClient::new(
-                        wallet,
-                        rpc_urls,
-                        &contract_config,
-                        ExponentialBackoffConfig::default(),
-                        None,
-                    )
-                    .await
-                })
-                .await?;
-
-            if let Some(pkg_id) = system_ctx.credits_pkg_id {
-                let (credits_object_id, _) = admin_contract_client
-                    .as_ref()
-                    .create_and_fund_credits(
-                        pkg_id,
-                        DEFAULT_BUYER_SUBSIDY_RATE,
-                        DEFAULT_SYSTEM_SUBSIDY_RATE,
-                        DEFAULT_SUBSIDY_FUNDS,
-                    )
-                    .await?;
-
-                admin_contract_client
-                    .inner
-                    .read_client()
-                    .set_credits_object(credits_object_id)
-                    .await?;
-            }
 
             let amounts_to_stake = test_nodes_config
                 .node_weights
@@ -2888,7 +2884,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
-            blob_recovery: Default::default(),
+            blob_recovery: BlobRecoveryConfig::default_for_test(),
             tls: Default::default(),
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: config::ShardSyncConfig {

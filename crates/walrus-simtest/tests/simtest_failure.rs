@@ -32,7 +32,7 @@ mod tests {
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
-    use walrus_sui::client::ReadClient;
+    use walrus_sui::client::{ReadClient, rpc_client};
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
 
@@ -825,9 +825,10 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.
-        let rpc_client =
-            sui_rpc_api::Client::new(sui_cluster.lock().await.additional_rpc_urls()[0].clone())
-                .expect("Failed to create RPC client");
+        let rpc_client = rpc_client::create_sui_rpc_client(
+            &sui_cluster.lock().await.additional_rpc_urls()[0].clone(),
+        )
+        .expect("Failed to create RPC client");
         let latest_sui_checkpoint = rpc_client
             .get_latest_checkpoint()
             .await

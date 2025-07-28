@@ -5,6 +5,7 @@
 
 use std::{fmt::Display, num::NonZeroU16};
 
+use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
 use serde::{
     Deserialize,
@@ -949,6 +950,86 @@ impl AssociatedContractStruct for Credits {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::credits::Subsidies;
 }
 
+/// Sui type for a `WalrusSubsidies` object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalrusSubsidies {
+    /// The object ID of the object
+    pub id: ObjectID,
+    /// The version of the object
+    pub version: u64,
+    /// The package ID of the contract
+    pub package_id: ObjectID,
+    /// The inner state of the object
+    pub(crate) inner: Option<WalrusSubsidiesInner>,
+}
+
+#[cfg(feature = "test-utils")]
+impl WalrusSubsidies {
+    /// Returns the subsidy pool funds for the WalrusSubsidies object if it was requested with
+    /// the inner object.
+    pub fn subsidy_pool_funds(&self) -> Option<u64> {
+        self.inner.as_ref().map(|inner| inner.subsidy_pool)
+    }
+}
+
+/// Sui type for outer system object. Used for deserialization.
+#[derive(Debug, Deserialize)]
+pub(crate) struct WalrusSubsidiesForDeserialization {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+    pub(crate) package_id: ObjectID,
+}
+
+impl AssociatedContractStruct for WalrusSubsidiesForDeserialization {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::WalrusSubsidies;
+}
+
+/// A pair mapping an epoch to a balance. Used for deserialization of the WalrusSubsidiesInner.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct EpochBalance {
+    epoch: Epoch,
+    balance: u64,
+}
+
+/// A ring buffer holding the epoch balances for a continuous range of epochs.
+/// Used for deserialization of the WalrusSubsidiesInner.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct EpochBalanceRingBuffer {
+    current_index: u32,
+    ring_buffer: Vec<EpochBalance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(crate) struct WalrusSubsidiesInner {
+    /// The subsidy rate applied to the price paid to the system and added to the per-epoch rewards
+    /// pool of the system. Subsidy rates are expressed in basis points (1/100 of a percent). A
+    /// subsidy rate of 100 basis points means a 1% subsidy.
+    pub system_subsidy_rate: u32,
+    /// The balance of funds available in the subsidy pool.
+    pub subsidy_pool: u64,
+    // TODO(WAL-788): Use a specific type to represent different denominations.
+    /// The base subsidy (in FROST) paid directly per storage node per epoch.
+    pub base_subsidy: u64,
+    /// The additional subsidy (in FROST) paid to each storage node directly per shard.
+    pub subsidy_per_shard: u64,
+    /// The last epoch for which the usage-independent subsidies were paid.
+    pub latest_epoch: u32,
+    /// Ring buffer to track how much of the per-epoch balance of the walrus system object has
+    /// already had subsidies added.
+    pub already_subsidized_balances: EpochBalanceRingBuffer,
+    /// Timestamp of the last time the subsidies were processed. Enables storage nodes to
+    /// easily check if subsidies were processed recently.
+    #[serde(deserialize_with = "chrono::serde::ts_milliseconds::deserialize")]
+    pub last_subsidized: DateTime<Utc>,
+    /// Reserved for future use and migrations.
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    pub extra_fields: ObjectID,
+}
+
+impl AssociatedContractStruct for WalrusSubsidiesInner {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::WalrusSubsidiesInnerV1;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 /// Sui type for a dynamic field.
 pub struct SuiDynamicField<N, V> {
@@ -992,4 +1073,15 @@ pub(crate) struct Key {
 
 impl AssociatedContractStruct for Key {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::extended_field::Key;
+}
+
+/// Sui type for the key of the dynamic field of the WalrusSubsidiesInner object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct SubsidiesInnerKey {
+    /// To match empty struct in Move.
+    pub dummy_field: bool,
+}
+
+impl AssociatedContractStruct for SubsidiesInnerKey {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::SubsidiesInnerKey;
 }

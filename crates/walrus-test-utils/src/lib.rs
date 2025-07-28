@@ -6,7 +6,7 @@
 use std::{fs, future::Future, path::Path};
 
 use anyhow::ensure;
-use rand::{Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
+use rand::{self, Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use tempfile::TempDir;
 
 /// A result type useful in tests, that wraps any error implementation.
@@ -368,8 +368,7 @@ pub fn generate_random_data(
     min_blob_size: usize,
     max_blob_size: usize,
 ) -> Vec<Vec<u8>> {
-    // Create a deterministic RNG with a fixed seed for reproducibility.
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = rand::thread_rng();
 
     // Generate random blobs with sizes in the specified range.
     (0..num_blobs)

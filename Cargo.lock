@@ -198,7 +198,7 @@ dependencies = [
  "rand 0.8.5",
  "rcgen",
  "ring",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-webpki 0.103.4",
  "serde",
  "serde_json",
@@ -745,9 +745,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.5.8"
+version = "1.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f6c68419d8ba16d9a7463671593c54f81ba58cab466e9b759418da606dcc2e2"
+checksum = "b2090e664216c78e766b6bac10fe74d2f451c02441d43484cd76ac9a295075f7"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -933,13 +933,14 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http-client"
-version = "1.0.1"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8aff1159006441d02e57204bf57a1b890ba68bedb6904ffd2873c1c4c11c546b"
+checksum = "f108f1ca850f3feef3009bdcc977be201bca9a91058864d9de0684e64514bee0"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
+ "h2 0.3.26",
  "h2 0.4.7",
  "http 0.2.12",
  "http-body 0.4.6",
@@ -981,9 +982,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.8.3"
+version = "1.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14302f06d1d5b7d333fd819943075b13d27c7700b414f574c3c35859bfb55d5e"
+checksum = "c3aaec682eb189e43c8a19c3dab2fe54590ad5f2cc2d26ab27608a20f2acf81c"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.62.1",
@@ -1005,9 +1006,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.8.1"
+version = "1.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd8531b6d8882fd8f48f82a9754e682e29dd44cff27154af51fa3eb730f59efb"
+checksum = "937a49ecf061895fca4a6dd8e864208ed9be7546c0527d04bc07d502ec5fba1c"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
@@ -1226,7 +1227,7 @@ dependencies = [
  "hyper 1.6.0",
  "hyper-util",
  "pin-project-lite",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "tokio",
@@ -1249,7 +1250,7 @@ dependencies = [
  "hyper 1.6.0",
  "hyper-util",
  "pin-project-lite",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "tokio",
@@ -1900,7 +1901,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checkpoint-downloader"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1918,7 +1919,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
- "typed-store 1.29.0",
+ "typed-store 1.30.0",
  "walrus-sui",
  "walrus-utils",
 ]
@@ -2186,7 +2187,7 @@ dependencies = [
  "prost 0.13.5",
  "quinn-proto",
  "rand 0.8.5",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "serde",
  "shared-crypto",
  "strum_macros 0.27.1",
@@ -2286,9 +2287,9 @@ checksum = "3618cccc083bb987a415d85c02ca6c9994ea5b44731ec28b9ecf09658655fba9"
 
 [[package]]
 name = "const-str"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "041fbfcf8e7054df725fb9985297e92422cdc80fcf313665f5ca3d761bb63f4c"
+checksum = "451d0640545a0553814b4c646eb549343561618838e9b42495f466131fe3ad49"
 
 [[package]]
 name = "constant_time_eq"
@@ -4369,7 +4370,7 @@ dependencies = [
  "hyper 1.6.0",
  "hyper-util",
  "log",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "rustls-pki-types",
  "tokio",
@@ -4896,7 +4897,7 @@ dependencies = [
  "http 1.3.1",
  "jsonrpsee-core",
  "pin-project",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-pki-types",
  "rustls-platform-verifier",
  "soketto",
@@ -4948,7 +4949,7 @@ dependencies = [
  "hyper-util",
  "jsonrpsee-core",
  "jsonrpsee-types",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-platform-verifier",
  "serde",
  "serde_json",
@@ -6456,7 +6457,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "rand 0.8.5",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "serde",
  "snap",
  "sui-http",
@@ -7826,7 +7827,7 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash 2.1.0",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "socket2 0.5.8",
  "thiserror 2.0.12",
  "tokio",
@@ -7844,7 +7845,7 @@ dependencies = [
  "rand 0.8.5",
  "ring",
  "rustc-hash 2.1.0",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.12",
@@ -8241,7 +8242,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "quinn",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "rustls-pemfile 2.2.0",
  "rustls-pki-types",
@@ -8476,9 +8477,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.29"
+version = "0.23.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2491382039b29b9b11ff08b76ff6c97cf287671dbb74f0be44bda389fffe9bd1"
+checksum = "069a8df149a16b1a12dcc31497c3396a173844be3cac4bd40c9e7671fef96671"
 dependencies = [
  "log",
  "once_cell",
@@ -8552,7 +8553,7 @@ dependencies = [
  "jni",
  "log",
  "once_cell",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "rustls-platform-verifier-android",
  "rustls-webpki 0.103.4",
@@ -8952,9 +8953,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.140"
+version = "1.0.141"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
+checksum = "30b9eff21ebe718216c6ec64e1d9ac57087aad11efc64e32002bce4a0d4c03d3"
 dependencies = [
  "indexmap 2.10.0",
  "itoa",
@@ -11078,7 +11079,7 @@ dependencies = [
  "pkcs8 0.10.2",
  "rcgen",
  "reqwest",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-webpki 0.103.4",
  "tokio",
  "tokio-rustls 0.26.1",
@@ -11772,7 +11773,7 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f6d0975eaace0cf0fcadee4e4aaa5da15b5c079146f2cffb67c113be122bf37"
 dependencies = [
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "tokio",
 ]
 
@@ -12342,7 +12343,7 @@ dependencies = [
 
 [[package]]
 name = "typed-store"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "async-trait",
  "bcs",
@@ -12741,7 +12742,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -12766,7 +12767,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -12797,7 +12798,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -12827,7 +12828,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "darling 0.21.0",
  "proc-macro2",
@@ -12838,7 +12839,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
@@ -12846,7 +12847,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "clap",
- "const-str 0.6.3",
+ "const-str 0.6.4",
  "fastcrypto",
  "futures",
  "hyper 1.6.0",
@@ -12876,9 +12877,10 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bimap",
  "chrono",
  "enum_dispatch",
@@ -12896,7 +12898,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "reqwest",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "serde",
  "serde_with",
@@ -12908,6 +12910,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
+ "url",
  "utoipa",
  "walrus-core",
  "walrus-storage-node-client",
@@ -12918,7 +12921,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12974,7 +12977,7 @@ dependencies = [
  "reqwest",
  "ring",
  "rocksdb",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "scoped-futures",
  "serde",
@@ -13006,7 +13009,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "twox-hash 2.1.1",
- "typed-store 1.29.0",
+ "typed-store 1.30.0",
  "utoipa",
  "utoipa-redoc",
  "uuid",
@@ -13022,7 +13025,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -13037,9 +13040,10 @@ dependencies = [
  "sui-rpc-api",
  "sui-simulator",
  "sui-types",
+ "tempfile",
  "tokio",
  "tracing",
- "typed-store 1.29.0",
+ "typed-store 1.30.0",
  "walrus-core",
  "walrus-proc-macros",
  "walrus-sdk",
@@ -13051,7 +13055,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-storage-node-client"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "axum 0.8.1",
  "axum-server 0.7.2",
@@ -13068,7 +13072,7 @@ dependencies = [
  "rand 0.8.5",
  "rcgen",
  "reqwest",
- "rustls 0.23.29",
+ "rustls 0.23.30",
  "rustls-native-certs 0.8.1",
  "serde",
  "serde_json",
@@ -13089,7 +13093,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -13114,7 +13118,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -13159,6 +13163,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "urlencoding",
  "utoipa",
  "walkdir",
  "walrus-core",
@@ -13168,7 +13173,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "rand 0.8.5",
@@ -13178,7 +13183,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-upload-relay"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "axum 0.8.1",
@@ -13215,11 +13220,11 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.29.0"
+version = "1.30.0"
 dependencies = [
  "anyhow",
  "bytes",
- "const-str 0.6.3",
+ "const-str 0.6.4",
  "git-version",
  "home",
  "http-body 1.0.1",

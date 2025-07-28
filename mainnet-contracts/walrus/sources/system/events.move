@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Module to emit events. Used to allow filtering all events in the
-/// rust client (as work-around for the lack of composable event filters).
+/// Rust client (as work-around for the lack of composable event filters).
 module walrus::events;
 
 use sui::event;
@@ -120,6 +120,13 @@ public struct ContractUpgradeQuorumReached has copy, drop {
     package_digest: vector<u8>,
 }
 
+/// Signals that the protocol version has been updated.
+public struct ProtocolVersionUpdated has copy, drop {
+    epoch: u32,
+    start_epoch: u32,
+    protocol_version: u64,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -189,6 +196,10 @@ public(package) fun emit_shard_recovery_start(epoch: u32, shards: vector<u16>) {
 
 public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: u64) {
     event::emit(ContractUpgraded { epoch, package_id, version })
+}
+
+public(package) fun emit_protocol_version(epoch: u32, start_epoch: u32, protocol_version: u64) {
+    event::emit(ProtocolVersionUpdated { epoch, start_epoch, protocol_version })
 }
 
 public(package) fun emit_register_deny_list_update(
