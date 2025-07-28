@@ -35,11 +35,11 @@ checkpoint_config:
   db_checkpoint_dir: /opt/walrus/checkpoints  # Backup storage directory
   max_db_checkpoints: 2                       # Retention policy (number of backups)
   db_checkpoint_interval:                     # Backup frequency
-    secs: 14400                              # 4-hour interval (in seconds)
+    secs: 14400                               # 4-hour interval (in seconds)
     nanos: 0
-  sync: true                                 # Force filesystem synchronization
+  sync: true                                  # Force filesystem synchronization
   max_background_operations: 1                # Concurrent operation limit
-  periodic_db_checkpoints: true              # Enable automated backups
+  periodic_db_checkpoints: true               # Enable automated backups
 ```
 
 ```admonish warning
