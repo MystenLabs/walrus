@@ -339,7 +339,7 @@ impl NodeWriteCommunication<'_> {
         self.to_node_result_with_n_shards(result)
     }
 
-    /// Stores metadata and sliver pairs on a node, but does _not_ requests a storage confirmation.
+    /// Stores metadata and sliver pairs on a node, but does _not_ request a storage confirmation.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn store_metadata_and_pairs_without_confirmation(
         &self,
