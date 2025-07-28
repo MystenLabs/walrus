@@ -241,23 +241,39 @@ all slivers to all shards.</p>
 themselves can run on internet-facing hosts to facilitate storing blob slivers onto the storage
 nodes on behalf of the end-users, thus mitigating browser resource consumption and enabling
 web-based <code>store</code> operations.</p>
+<div id="admonition-public-upload-relays" class="admonition admonish-tip" role="note" aria-labelledby="admonition-public-upload-relays-title">
+<div class="admonition-title">
+<div id="admonition-public-upload-relays-title">
+<p>Public upload relays</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-public-upload-relays"></a>
+</div>
+<div>
+<p>Mysten Labs runs two publicly-available upload relays, one for <code>testnet</code> and one for <code>mainnet</code>.
+You can find them at the following addresses:</p>
+<ul>
+<li><code>testnet</code>: <code>https://upload-relay.testnet.walrus.space</code></li>
+<li><code>mainnet</code>: <code>https://upload-relay.mainnet.walrus.space</code></li>
+</ul>
+</div>
+</div>
 <h2 id="design"><a class="header" href="#design">Design</a></h2>
 <h3 id="outline"><a class="header" href="#outline">Outline</a></h3>
 <p>At a high level, a client stores a blob using an upload relay as follows:</p>
-<ul>
+<ol>
 <li>First, the client locally encodes the blob and registers it on Sui;</li>
 <li>then, the client sends the blob to the upload relay via an HTTP POST request to the blob-relay
 endpoint (<code>/v1/blob-upload-relay</code>);</li>
 <li>the upload relay then encodes the blob, sends the slivers to the storage nodes, collects a storage
 confirmation certificate, and sends it back to the client;</li>
 <li>finally, the client uses the confirmation certificate to certify the blob on Sui.</li>
-</ul>
+</ol>
 <p>Therefore, the upload relay <em>does not</em> perform any on-chain operation, and only helps clients
 distribute the slivers of their blobs to storage nodes.</p>
 <p>This flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK,
 and TS SDK, and therefore developers do not need to implement it themselves. For completeness, in
 the following we discuss how the service is implemented, paid for, and used by clients.</p>
-<h3 id="upload-relay-operation"><a class="header" href="#upload-relay-operation">Upload relay Operation</a></h3>
+<h3 id="upload-relay-operation"><a class="header" href="#upload-relay-operation">Upload relay operation</a></h3>
 <p>The upload relay can be operated in two ways:</p>
 <ul>
 <li><strong>Free service</strong>: It accepts simple HTTP POST requests with blobs from clients, and relays them to
@@ -281,14 +297,14 @@ configuration. For example:</p>
 <p>The configuration above specifies that every store operation requires a tip of <code>105 MIST</code> (arbitrary
 value), paid to the set address (<code>0x1234..</code>). Note that this configuration is provided even for free
 upload relays (returning <code>"no_tip"</code>).</p>
-<h3 id="paying-the-tip"><a class="header" href="#paying-the-tip">Paying the Tip</a></h3>
+<h3 id="paying-the-tip"><a class="header" href="#paying-the-tip">Paying the tip</a></h3>
 <p>This step is only necessary if the relay requires a tip.</p>
 <p>To pay the tip, the client proceeds as follows:</p>
-<ul>
+<ol>
 <li>it computes the <code>blob_digest = SHA256(blob)</code></li>
 <li>it generates a random <code>nonce</code>, and hashes it <code>nonce_digest = SHA256(nonce)</code></li>
 <li>it computes the <code>unencoded_length = blob.len()</code></li>
-</ul>
+</ol>
 <p>Then, it creates a PTB, where the first input (<code>input 0</code>) is the <code>bcs</code> encoded representation of
 <code>blob_digest || nonce_digest || unencoded_length</code>. This will later be used by the relay to
 authenticate the sender of the store request. In the same PTB, the client transfers the appropriate
@@ -300,7 +316,7 @@ operations together.</p>
 <code>blob_id</code>, which are required for the next phase.</p>
 <p>Note: the relay will enforce a freshness check on the transaction that paid the tip (currently 1h by
 default, but each relay can independently configure this).</p>
-<h3 id="sending-data-to-the-upload-relay"><a class="header" href="#sending-data-to-the-upload-relay">Sending Data to the upload relay</a></h3>
+<h3 id="sending-data-to-the-upload-relay"><a class="header" href="#sending-data-to-the-upload-relay">Sending data to the upload relay</a></h3>
 <p>See the full OpenAPI spec for the upload relay for the full details
 (<a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.yaml">yaml</a>,
 <a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html">html</a>)</p>
@@ -330,7 +346,7 @@ storage nodes.</p>
 the <code>confirmation_certificate</code>. The client can then use this certificate to certify the blob on
 chain.</p>
 <h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
-<h3 id="download-the-binary"><a class="header" href="#download-the-binary">Download the Binary</a></h3>
+<h3 id="download-the-binary"><a class="header" href="#download-the-binary">Download the binary</a></h3>
 <p>If you'd like to download a pre-built binary in order manually run <code>walrus-upload-relay</code>, you'll
 need to download it from <a href="https://github.com/MystenLabs/walrus/releases">the releases page</a>. Note
 that <code>walrus-upload-relay</code> does not daemonize itself, and requires some supervisor process to ensure
@@ -340,7 +356,7 @@ boot at startup, to restart in the event of failures, etc.</p>
 <code>mysten/walrus-upload-relay</code>.</p>
 <pre><code class="language-sh">docker run -it --rm mysten/walrus-upload-relay --help
 </code></pre>
-<h3 id="build-from-source"><a class="header" href="#build-from-source">Build from Source</a></h3>
+<h3 id="build-from-source"><a class="header" href="#build-from-source">Build from source</a></h3>
 <p>Of course, if you'd like to build from sources, that is always an option, as well. The sources for
 the <code>walrus-upload-relay</code> are available on <a href="https://github.com/MystenLabs/walrus">GitHub</a> in the
 <code>crates/walrus-upload-relay</code> subdirectory. Running the following from the root of the Walrus repo
@@ -372,8 +388,17 @@ expose from your host.)</li>
     --relay-config /opt/walrus/walrus_upload_relay_config.yaml
 </code></pre>
 <h3 id="relay-specific-configuration"><a class="header" href="#relay-specific-configuration">Relay-specific configuration</a></h3>
-<p>An example <code>walrus-upload-relay</code> configuration file can be found
-<a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml">in the codebase</a>.</p>
+<p>Here is an example of the <code>walrus-upload-relay</code> configuration file:</p>
+<pre><code class="language-yaml">tip_config: !send_tip
+  address: 0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a
+  kind: !const 42
+tx_freshness_threshold:
+  secs: 36000
+  nanos: 0
+tx_max_future_threshold:
+  secs: 30
+  nanos: 0
+</code></pre>
 <p>Currently, the options are the following:</p>
 <ul>
 <li><code>tip_config</code>: The configuration for the tip to be paid. It can be <code>!no_tip</code>, for the free service,
