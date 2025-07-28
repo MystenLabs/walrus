@@ -222,7 +222,7 @@ where
                 sliver_indices,
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
+                self.config.timeout,
             )
             .await;
 
@@ -328,20 +328,23 @@ where
 }
 
 /// Configuration for the QuiltClient.
+#[serde_with::serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuiltClientConfig {
     /// The maximum number of attempts to retrieve slivers.
     pub max_retrieve_slivers_attempts: usize,
     /// The timeout duration for retrieving slivers.
-    pub timeout_duration: Duration,
+    #[serde_as(as = "serde_with::DurationSeconds")]
+    #[serde(rename = "timeout_secs")]
+    pub timeout: Duration,
 }
 
 impl QuiltClientConfig {
     /// Creates a new QuiltClientConfig.
-    pub fn new(max_retrieve_slivers_attempts: usize, timeout_duration: Duration) -> Self {
+    pub fn new(max_retrieve_slivers_attempts: usize, timeout: Duration) -> Self {
         Self {
             max_retrieve_slivers_attempts,
-            timeout_duration,
+            timeout,
         }
     }
 }
@@ -350,7 +353,7 @@ impl Default for QuiltClientConfig {
     fn default() -> Self {
         Self {
             max_retrieve_slivers_attempts: 2,
-            timeout_duration: Duration::from_secs(10),
+            timeout: Duration::from_secs(10),
         }
     }
 }
@@ -438,7 +441,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 &[SliverIndex::new(0)],
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
+                self.config.timeout,
             )
             .await?;
 
@@ -481,7 +484,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             &indices,
                             certified_epoch,
                             self.config.max_retrieve_slivers_attempts,
-                            self.config.timeout_duration,
+                            self.config.timeout,
                         )
                         .await?,
                 );

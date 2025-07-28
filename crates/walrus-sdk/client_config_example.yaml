@@ -44,6 +44,4 @@ refresh_config:
   refresher_channel_size: 100
 quilt_client_config:
   max_retrieve_slivers_attempts: 2
-  timeout_duration:
-    secs: 10
-    nanos: 0
+  timeout_secs: 10
