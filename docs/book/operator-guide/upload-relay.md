@@ -187,8 +187,11 @@ docker run \
 
 ### Relay-specific configuration
 
-An example `walrus-upload-relay` configuration file can be found
-[in the codebase](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml).
+Here is an example of the `walrus-upload-relay` configuration file:
+
+```yaml
+{{ #include ../setup/walrus_upload_relay_config_example.yaml }}
+```
 
 Currently, the options are the following:
 
