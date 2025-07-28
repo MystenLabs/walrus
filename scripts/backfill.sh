@@ -17,6 +17,20 @@ walrus_bin="$root_dir"/bin/walrus
 node_ids="0xCHANGE_NODE_ID"
 gcs_bucket=add-gcs-bucket  # E.g., walrus-backup-mainnet
 
+# Validate that the node_ids variable has been updated from its placeholder value.
+if [ "$node_ids" = "0xCHANGE_NODE_ID" ]; then
+  echo "Error: The node_ids variable is still set to the placeholder value '0xCHANGE_NODE_ID'."
+  echo "Please replace it with the actual node IDs before running the script."
+  exit 1
+fi
+
+# Validate that the GCS bucket name has been set
+if [ "$gcs_bucket" = "add-gcs-bucket" ]; then
+  echo "Error: The GCS bucket name must be set before running the script."
+  echo "Please replace the placeholder value 'add-gcs-bucket' with the actual bucket name."
+  exit 1
+fi
+
 run_pull_with_prefix() {
   prefix="$1"
   dir="$root_dir"/"$prefix"
