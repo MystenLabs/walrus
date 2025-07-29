@@ -40,6 +40,7 @@
     - [The authenticated publisher](./operator-guide/auth-publisher.md)
   - [Operating a storage node](./operator-guide/storage-node.md)
     - [Commission and governance](./operator-guide/commission-governance.md)
+    - [Backup and restore](./operator-guide/backup-restore-guide.md)
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
