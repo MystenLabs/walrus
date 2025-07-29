@@ -21,7 +21,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use serde_with::{DurationSeconds, serde_as};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::digests::TransactionDigest;
 use tokio::time::Instant;
@@ -45,6 +45,7 @@ use walrus_sdk::{
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
     },
     upload_relay::{
+        API_DOCS,
         BLOB_UPLOAD_RELAY_ROUTE,
         ResponseType,
         TIP_CONFIG_ROUTE,
@@ -60,7 +61,7 @@ use crate::{
     utils::check_tx_auth_package,
 };
 
-const API_DOCS: &str = "/v1/api";
+/// The default address for the Walrus Upload Relay server.
 pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 /// The configuration for the Walrus Upload Relay.
@@ -70,12 +71,18 @@ pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 pub(crate) struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
     tip_config: TipConfig,
-    /// The maximum time gap between the time the tip transaction is executed (i.e., the tip is
-    /// paid), and the request to store is made to the Walrus upload relay.
+    /// The transaction freshness threshold.
+    ///
+    /// The maximum time gap (in seconds) between the time the tip transaction is executed (i.e.,
+    /// the tip is paid), and the request to store is made to the Walrus upload relay.
+    #[serde(rename = "tx_freshness_threshold_secs")]
+    #[serde_as(as = "DurationSeconds")]
     tx_freshness_threshold: Duration,
-    /// The maximum amount of time in the future we can tolerate a transaction timestamp to be.
+    /// The maximum time in the future (in seconds) a transaction timestamp can be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
+    #[serde(rename = "tx_max_future_threshold_secs")]
+    #[serde_as(as = "DurationSeconds")]
     tx_max_future_threshold: Duration,
 }
 

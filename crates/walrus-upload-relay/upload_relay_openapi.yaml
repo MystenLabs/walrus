@@ -164,29 +164,37 @@ components:
             description: A constant tip.
             minimum: 0
       - type: object
-        description: A tip that linearly depends on the encoded size of the blob.
+        description: |-
+          A tip that linearly depends on the encoded size of the blob.
+
+          If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
+          `base + encoded_size * encoded_size_mul_per_kib`.
         required:
         - linear
         properties:
           linear:
             type: object
-            description: A tip that linearly depends on the encoded size of the blob.
+            description: |-
+              A tip that linearly depends on the encoded size of the blob.
+
+              If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
+              `base + encoded_size * encoded_size_mul_per_kib`.
             required:
             - base
-            - encoded_size_mul_per_kb
+            - encoded_size_mul_per_kib
             properties:
               base:
                 type: integer
                 format: int64
                 description: The base tip amount to be charged for each upload.
                 minimum: 0
-              encoded_size_mul_per_kb:
+              encoded_size_mul_per_kib:
                 type: integer
                 format: int64
                 description: |-
                   The amount of tip charged per kilobyte of the encoded blob size. Note that this adds to
                   the base tip, so the total tip for a blob is:
-                  `base + encoded_size_mul_per_kb * ⌊encoded_size_in_bytes / 1024⌋`.
+                  `base + encoded_size_mul_per_kib * ⌊encoded_size_in_bytes / 1024⌋`.
                 minimum: 0
       description: The kinds of tip that the proxy can choose to configure.
       examples:
@@ -195,7 +203,7 @@ components:
       - linear:
           base:
             $serde_json::private::Number: '101'
-          encoded_size_mul_per_kb:
+          encoded_size_mul_per_kib:
             $serde_json::private::Number: '42'
     TransactionDigest:
       type: string
