@@ -12,7 +12,6 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
-use serde::Serialize;
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
@@ -1572,18 +1571,13 @@ impl WalrusPtbBuilder {
         Ok((self.pt_builder.finish(), sui_cost))
     }
 
-    /// Adds a pure input to the PTB, returning the created argument.
-    pub fn add_pure_input<T: Serialize>(&mut self, pure: T) -> SuiClientResult<Argument> {
-        Ok(self.pt_builder.pure(pure)?)
-    }
-
     /// Transfers all remaining outputs and returns the [`TransactionData`] containing
     /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
     pub async fn build_transaction_data(
         self,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<TransactionData> {
-        self.build_transaction_data_with_min_gas_balance(gas_budget, 0)
+        self.transfer_outputs_and_build_transaction_data(gas_budget, 0)
             .await
     }
 
@@ -1591,7 +1585,7 @@ impl WalrusPtbBuilder {
     /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
     /// The used gas coins will cover a balance of at least `minimum_gas_coin_balance`. This
     /// is useful, e.g.,  to make sure that all gas coins get merged.
-    pub(crate) async fn build_transaction_data_with_min_gas_balance(
+    pub(crate) async fn transfer_outputs_and_build_transaction_data(
         mut self,
         gas_budget: Option<u64>,
         minimum_gas_coin_balance: u64,
@@ -1603,30 +1597,16 @@ impl WalrusPtbBuilder {
         // TODO(WAL-512): cache this to avoid RPC roundtrip.
         let gas_price = self.read_client.get_reference_gas_price().await?;
 
-        // Estimate the gas budget unless explicitly set.
-        let gas_budget = if let Some(budget) = gas_budget {
-            budget
-        } else {
-            let tx_kind =
-                TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
-            self.read_client
-                .sui_client()
-                .estimate_gas_budget(self.sender_address, tx_kind, gas_price)
-                .await?
-        };
-
-        let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + self.tx_sui_cost);
-
-        // Construct the transaction with gas coins that meet the minimum balance requirement
-        Ok(TransactionData::new_programmable(
-            self.sender_address,
-            self.read_client
-                .get_compatible_gas_coins(self.sender_address, minimum_gas_coin_balance)
-                .await?,
+        build_transaction_data_with_min_gas_balance(
             programmable_transaction,
-            gas_budget,
             gas_price,
-        ))
+            self.read_client.as_ref(),
+            self.sender_address,
+            gas_budget,
+            minimum_gas_coin_balance,
+            self.tx_sui_cost,
+        )
+        .await
     }
 
     /// Given the node ID, checks if the sender is authorized to perform the operation (either as
@@ -1801,4 +1781,43 @@ impl WalrusPtbBuilder {
             }
         }
     }
+}
+
+// Returns the [`TransactionData`] containing the unsigned transaction.
+///
+/// If no `gas_budget` is provided, the budget will be estimated. The used gas coins will cover a
+/// balance of at least `minimum_gas_coin_balance`. This is useful, e.g.,  to make sure that all gas
+/// coins get merged.
+pub async fn build_transaction_data_with_min_gas_balance(
+    programmable_transaction: ProgrammableTransaction,
+    gas_price: u64,
+    read_client: &SuiReadClient,
+    sender_address: SuiAddress,
+    gas_budget: Option<u64>,
+    minimum_gas_coin_balance: u64,
+    tx_sui_cost: u64,
+) -> SuiClientResult<TransactionData> {
+    // Estimate the gas budget unless explicitly set.
+    let gas_budget = if let Some(budget) = gas_budget {
+        budget
+    } else {
+        let tx_kind = TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
+        read_client
+            .sui_client()
+            .estimate_gas_budget(sender_address, tx_kind, gas_price)
+            .await?
+    };
+
+    let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
+
+    // Construct the transaction with gas coins that meet the minimum balance requirement
+    Ok(TransactionData::new_programmable(
+        sender_address,
+        read_client
+            .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
+            .await?,
+        programmable_transaction,
+        gas_budget,
+        gas_price,
+    ))
 }

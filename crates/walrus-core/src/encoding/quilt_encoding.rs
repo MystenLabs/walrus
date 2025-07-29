@@ -543,6 +543,11 @@ impl<'a> QuiltStoreBlob<'a> {
         })
     }
 
+    /// Returns the unencoded length of the blob.
+    pub fn unencoded_length(&self) -> u64 {
+        self.blob.len().try_into().expect("32 or 64-bit arch")
+    }
+
     /// Creates a new `QuiltStoreBlob` from an owned blob and an identifier.
     pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Result<Self, QuiltError> {
         let identifier = identifier.into();
