@@ -69,7 +69,7 @@ checkpoint_config:
   periodic_db_checkpoints: true
 ```
 
-## Manual Backup Creation
+## Manual backup creation
 
 Create on-demand backups using the `local-admin` command:
 
@@ -90,7 +90,7 @@ sudo -u walrus walrus-node local-admin \
   --path /opt/walrus/checkpoints
 ```
 
-**Sample Output:**
+**Sample output:**
 
 ``` console
 Backups:
