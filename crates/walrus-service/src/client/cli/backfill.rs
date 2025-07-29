@@ -24,6 +24,13 @@
 //! the blob IDs from the known archive (`all-blobs.txt`), then partition the problem across worker
 //! machines as needed.
 
+// Implementation note: the `pushed_state` and `pulled_state` files may become a bottleneck in the
+// operation of the backfill if they become too large.
+//
+// In that case, we may want to implement state-keeping using a watermark instead of a full file. If
+// the input blobs are sorted by blob ID, then we can keep track of the last blob ID that was
+// processed, and resume from that point on the next run.
+
 use std::{
     collections::HashSet,
     fs::File,
@@ -73,6 +80,15 @@ fn get_blob_ids_from_file(filename: &PathBuf) -> HashSet<BlobId> {
     }
 }
 
+/// Pulls the blobs archived in a GCS bucket, and writes them to the specified backfill directory.
+///
+/// This function reads blob IDs from stdin, which should be in the format of a single `BlobId` per
+/// line. It pulls the blobs from the GCS bucket specified by `gcs_bucket`, and writes them to the
+/// `backfill_dir` directory. It also maintains a state file at `pulled_state`, which tracks the
+/// blobs that have already been pulled to avoid duplicates.
+///
+/// The function applies backpressure if the number of files in the `backfill_dir` exceeds
+/// `MAX_IN_FLIGHT_BACKFILLS`. It waits for `BACKPRESSURE_WAIT_TIME` before checking again.
 pub(crate) async fn pull_archive_blobs(
     gcs_bucket: String,
     prefix: Option<String>,
@@ -207,8 +223,6 @@ async fn pull_archive_blob(
     // Check if the blob has already been pulled.
     if pulled_blobs.contains(&blob_id) {
         tracing::info!(?blob_id, "Blob already exists, skipping download");
-        // Emit the blob ID to stdout for further downstream processing.
-        println!("{blob_id}");
         return Ok(());
     }
 
@@ -222,10 +236,7 @@ async fn pull_archive_blob(
             file.write_all(&bytes)?;
             drop(file);
 
-            // Emit the blob ID to stdout for further downstream processing.
-            println!("{blob_id}");
             pulled_blobs.insert(blob_id);
-
             tracing::info!(?blob_id, ?blob_filename, "Blob pulled successfully");
         }
         Err(e) => {
@@ -256,6 +267,13 @@ async fn get_backfill_client(config: ClientConfig) -> Result<Client<SuiReadClien
     Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
+/// Runs the blob backfill process.
+///
+/// This function initializes the backfill process by creating the backfill directory. Then, it
+/// continuously reads the files in the backfill directory, processes them, and backfills the blobs
+/// to the specified nodes.
+///
+/// It also reads the pushed state file to avoid pushing the same blobs again.
 pub(crate) async fn run_blob_backfill(
     backfill_dir: PathBuf,
     node_ids: Vec<ObjectID>,
@@ -390,7 +408,15 @@ async fn process_file_and_backfill(
             );
         }
     }
-    // Remove the blob file after processing, even if the backfill fails.
+
+    // Remove the blob file after processing, even if the backfill fails. Since the backpressure
+    // signal is based on the number of files in the directory, we need to ensure that -- even if
+    // the backfill fails -- we do not keep the file around indefinitely. Otherwise, the directory
+    // could fill up with files that are never processed, and stall the backfill process.
+    //
+    // Note that transient failures would be fine, as the process would read the files in the
+    // directory again later, and try again. However, if the files cannot be backfilled at all for
+    // permanent reasons, we do not want to keep them around indefinitely.
     let _ = std::fs::remove_file(blob_filename);
 }
 
