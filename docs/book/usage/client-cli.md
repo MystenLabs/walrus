@@ -146,7 +146,7 @@ We have a [separate page](../dev-guide/costs.md) with some considerations regard
 ### Using a Walrus upload relay
 
 ```admonish note title="Minimum CLI version"
-The Walrus upload relay functionality in the client CLI is available since version X.XX.
+The Walrus upload relay functionality is only available in the Walrus CLI version *v1.29* or higher.
 ```
 
 A Walrus upload relay is a third party service that can help clients with limited bandwidth and
