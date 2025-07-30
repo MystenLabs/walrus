@@ -7,9 +7,8 @@ on:
         description: "select transaction type to create"
         type: choice
         options:
-          - upgrade-subsidies
           - upgrade-walrus-subsidies
-          - transfer-subsidies-funds
+          - set-walrus-subsidy-rates
       rpc:
         description: "RPC url"
         required: true
@@ -22,6 +21,18 @@ on:
       commit:
         description: "commit hash of the walrus repo to create the transaction"
         required: true
+        type: string
+      base_subsidy_frost:
+        description: "base subsidy in FROST (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+      per_shard_subsidy_frost:
+        description: "per shard subsidy in FROST (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+      subsidy_rate_basis_points:
+        description: "subsidy rate in basis points (only for set-walrus-subsidy-rates)"
+        required: false
         type: string
 
 jobs:
@@ -55,7 +66,13 @@ jobs:
       - name: Create unsigned transaction for multisig
         run: |
           mkdir -p artifacts
-          ./scripts/create_multisig_tx.sh -t '${{ inputs.transaction_type }}' -g '${{ inputs.gas_object_id }}' >artifacts/tx-data.txt
+          ./scripts/create_multisig_tx.sh \
+            -t '${{ inputs.transaction_type }}' \
+            -g '${{ inputs.gas_object_id }}' \
+            -b '${{ inputs.base_subsidy_frost }}' \
+            -s '${{ inputs.per_shard_subsidy_frost }}' \
+            -r '${{ inputs.subsidy_rate_basis_points }}' \
+            >artifacts/tx-data.txt
 
       - name: Show Transaction Data (To sign)
         run: |
