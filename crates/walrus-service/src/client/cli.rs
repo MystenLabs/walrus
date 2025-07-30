@@ -23,8 +23,10 @@ use walrus_sdk::{
 use walrus_sui::wallet::Wallet;
 
 mod args;
+mod backfill;
 mod cli_output;
 mod runner;
+
 pub use args::{
     AggregatorArgs,
     App,

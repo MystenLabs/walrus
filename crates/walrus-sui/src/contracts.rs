@@ -429,6 +429,19 @@ pub mod credits {
     contract_ident!(fn subsidies::register_blob);
 }
 
+/// Module for tags corresponding to the Move module `walrus_subsidies`.
+pub mod walrus_subsidies {
+    use super::*;
+
+    contract_ident!(struct walrus_subsidies::WalrusSubsidies);
+    contract_ident!(struct walrus_subsidies::WalrusSubsidiesInnerV1);
+    contract_ident!(struct walrus_subsidies::SubsidiesInnerKey);
+    contract_ident!(struct walrus_subsidies::AdminCap);
+    contract_ident!(fn walrus_subsidies::new);
+    contract_ident!(fn walrus_subsidies::add_coin);
+    contract_ident!(fn walrus_subsidies::process_subsidies);
+}
+
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.
 pub mod dynamic_field {
     use super::*;

@@ -38,6 +38,7 @@ backup = [
 ]
 client = [
   "dep:colored",
+  "dep:object_store",
   "dep:prettytable",
 ]
 default = ["client", "deploy", "node"]
@@ -173,6 +174,7 @@ x509-cert = { workspace = true, optional = true }
 hex.workspace = true
 http-body-util.workspace = true
 mockall.workspace = true
+rcgen = { workspace = true, features = ["pem"] }
 ring = "0.17.14"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }

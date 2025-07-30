@@ -95,26 +95,36 @@ Storing one or multiple blobs on Walrus can be achieved through the following co
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-A mandatory CLI argument must be set to specify the end epoch for the blob.
-The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
-corresponding to two years. In addition to a positive integer,
-you can also use `--epochs max` to store the blob for the maximum number of epochs.
+A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
+ways for this:
 
-Moreover, the end epoch for the stored blob can be provided through other options. The
-`--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
-(e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-the blob expires after that date if possible. Finally, the `--end-epoch <END_EPOCH>` option takes
-a specific end epoch for the blob.
+1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for.
+   There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
+   to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
+   for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
+   specified number of epochs.
+1. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
+   (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+   the blob expires after that date if possible.
+1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
+
+```admonish warning title="End epoch"
+A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` will
+become unavailable at the beginning of epoch `314`. One consequence of this is that when storing a
+blob with `--epochs 1` immediately before an epoch change, it will expire and become unavailable
+almost immediately. Note that blobs can be [extended](#extending-the-lifetime-of-a-blob) only if
+they have not expired.
+```
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
 in the current directory.
 
-By default, the command will store the blob as a *permanent* blob. See the [section on deletable
-blobs](#reclaiming-space-via-deletable-blobs) for more details on deletable blobs. Also, by default
-an owned `Blob` object is created. It is possible to wrap this into a shared object, which can be
-funded and extended by anyone, see the [shared blobs section](#shared-blobs).
+By default, the command will store the blob as a *permanent* blob, although this is going to change
+in the near future. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs) for more
+details on deletable blobs. Also, by default an owned `Blob` object is created. It is possible to
+wrap this into a shared object, which can be funded and extended by anyone, see the [shared blobs
+section](#shared-blobs).
 
 When storing a blob, the client performs a number of automatic optimizations, including the
 following:
@@ -131,6 +141,33 @@ following:
 
 ```admonish tip title="Costs"
 We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
+```
+
+### Using a Walrus upload relay
+
+```admonish note title="Minimum CLI version"
+The Walrus upload relay functionality is only available in the Walrus CLI version *v1.29* or higher.
+```
+
+A Walrus upload relay is a third party service that can help clients with limited bandwidth and
+networking capabilities (a browser, for example) in storing blobs on Walrus.
+
+The asset management on chain (buying storage, registering and certifying blobs) still happens on
+the client; the upload relay just takes the unencoded blob, encodes it, and sends the slivers to the
+storage nodes, finally returning the certificate. See in-depth details in the [Walrus upload relay
+section](../operator-guide/upload-relay.md) of these docs.
+
+When storing blobs with the `walrus store` command (and also when [storing
+quilts](#storing-blobs-as-a-quilt)) you can use the `--upload-relay` flag with a URL to specify an
+upload relay server be used by the CLI.
+
+```admonish tip title="Tipping"
+The upload relay is a third party service that may require a fee, or "tip". This tip may be a
+constant SUI amount per blob stored, or dependent on the size of the blob being stored. The Walrus CLI will show you
+how much tip the upload relay requires, and will ask for confirmation before continuing.
+
+The technical details on how the tip is computed and paid are
+[here](../operator-guide/upload-relay.md).
 ```
 
 ## Querying blob status
@@ -168,13 +205,13 @@ Recall that when you stored your blob, it was necessary to specify its [end epoc
 By specifying the end epoch you ensured that the blob would be available via `walrus read` (or other
 SDK access to Walrus) until that end epoch is reached.
 
-Walrus blob lifetimes can be extended using the `walrus extend --blob-obj-id <blob object id> ...`
-command. Both regular single-address owned blobs and [shared blobs](#shared-blobs) may be extended.
-Shared blobs may be extended by anyone, but owned blobs may only be extended by their owner. When
-extending a shared blob, you will need to supply the `--shared` flag to inform the command that the
-blob is shared.
+Walrus blob lifetimes can be extended *as long as the blobs are not expired* using the
+`walrus extend --blob-obj-id <blob object id> ...` command. Both regular single-address owned blobs
+and [shared blobs](#shared-blobs) may be extended. Shared blobs may be extended by anyone, but owned
+blobs may only be extended by their owner. When extending a shared blob, you will need to supply the
+`--shared` flag to inform the command that the blob is shared.
 
-Note that the blob's *object ID* will be needed in order to extend it. The blob ID is not needed.
+Note that the blob's *object ID* will be needed in order to extend it, the blob ID is not needed.
 See `walrus extend --help` for more information on blob extension.
 
 ## Reclaiming space via deletable blobs

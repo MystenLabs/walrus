@@ -1366,7 +1366,11 @@ impl StorageNodeRuntime {
                     "unable to notify that the node has exited, but shutdown is not in progress?"
                 )
             }
-            if let Err(ref error) = result {
+            if let Err(ref error) = result
+                && error.downcast_ref::<SyncNodeConfigError>().is_none()
+            {
+                // Only log an error if it is not due to to the config sync (as those are handled
+                // separately).
                 tracing::error!(?error, "storage node exited with an error");
             }
 

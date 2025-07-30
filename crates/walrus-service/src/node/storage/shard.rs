@@ -1091,14 +1091,14 @@ impl ShardStorage {
             self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
             // Wait for some futures to complete if we reach the concurrent blob recovery limit
-            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
-                if let Some(Err(error)) = futures.next().await {
-                    tracing::error!(
-                        ?error,
-                        "error recovering missing blob sliver. \
+            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery
+                && let Some(Err(error)) = futures.next().await
+            {
+                tracing::error!(
+                    ?error,
+                    "error recovering missing blob sliver. \
                         blob is not removed from pending_recover_slivers"
-                    );
-                }
+                );
             }
         }
 

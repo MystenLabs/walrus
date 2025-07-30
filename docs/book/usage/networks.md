@@ -46,11 +46,6 @@ and Testnet configuration. If you want *only* the Mainnet configuration, you can
 
 ## Testnet configuration
 
-```admonish warning title="Walrus Testnet redeployment"
-The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
-```
-
 ```admonish danger title="Disclaimer about the Walrus Testnet"
 All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
 value. The state of the store **can and will be wiped** at any point and possibly with no warning.

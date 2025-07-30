@@ -11,24 +11,23 @@ use std::{
     time::Duration,
 };
 
+use serde::{Deserialize, Serialize};
 use walrus_core::{
     BlobId,
     EncodingType,
     Epoch,
-    EpochCount,
     QuiltPatchId,
     Sliver,
     SliverIndex,
     encoding::{Primary, QuiltError, Secondary, SliverData, quilt_encoding::*},
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
+use walrus_sui::client::{ReadClient, SuiContractClient};
 use walrus_utils::read_blob_from_file;
 
 use crate::{
-    client::{Client, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
+    client::{Client, StoreArgs, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
     error::{ClientError, ClientErrorKind, ClientResult},
-    store_optimizations::StoreOptimizations,
 };
 
 /// Generate identifier from path.
@@ -223,7 +222,7 @@ where
                 sliver_indices,
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
+                self.config.timeout,
             )
             .await;
 
@@ -329,20 +328,23 @@ where
 }
 
 /// Configuration for the QuiltClient.
-#[derive(Debug, Clone)]
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuiltClientConfig {
     /// The maximum number of attempts to retrieve slivers.
     pub max_retrieve_slivers_attempts: usize,
     /// The timeout duration for retrieving slivers.
-    pub timeout_duration: Duration,
+    #[serde_as(as = "serde_with::DurationSeconds")]
+    #[serde(rename = "timeout_secs")]
+    pub timeout: Duration,
 }
 
 impl QuiltClientConfig {
     /// Creates a new QuiltClientConfig.
-    pub fn new(max_retrieve_slivers_attempts: usize, timeout_duration: Duration) -> Self {
+    pub fn new(max_retrieve_slivers_attempts: usize, timeout: Duration) -> Self {
         Self {
             max_retrieve_slivers_attempts,
-            timeout_duration,
+            timeout,
         }
     }
 }
@@ -351,7 +353,7 @@ impl Default for QuiltClientConfig {
     fn default() -> Self {
         Self {
             max_retrieve_slivers_attempts: 2,
-            timeout_duration: Duration::from_secs(10),
+            timeout: Duration::from_secs(10),
         }
     }
 }
@@ -367,6 +369,12 @@ impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient.
     pub fn new(client: &'a Client<T>, config: QuiltClientConfig) -> Self {
         Self { client, config }
+    }
+
+    /// Update quilt client config.
+    pub fn with_config(mut self, config: QuiltClientConfig) -> Self {
+        self.config = config;
+        self
     }
 }
 
@@ -433,7 +441,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                 &[SliverIndex::new(0)],
                 certified_epoch,
                 self.config.max_retrieve_slivers_attempts,
-                self.config.timeout_duration,
+                self.config.timeout,
             )
             .await?;
 
@@ -476,7 +484,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                             &indices,
                             certified_epoch,
                             self.config.max_retrieve_slivers_attempts,
-                            self.config.timeout_duration,
+                            self.config.timeout,
                         )
                         .await?,
                 );
@@ -737,24 +745,13 @@ impl QuiltClient<'_, SuiContractClient> {
     pub async fn reserve_and_store_quilt_from_paths<V: QuiltVersion, P: AsRef<Path>>(
         &self,
         paths: &[P],
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
+        store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
         let quilt = self
-            .construct_quilt_from_paths::<V, P>(paths, encoding_type)
+            .construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)
             .await?;
         let result = self
-            .reserve_and_store_quilt::<V>(
-                &quilt,
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-            )
+            .reserve_and_store_quilt::<V>(&quilt, store_args)
             .await?;
 
         Ok(result)
@@ -765,23 +762,11 @@ impl QuiltClient<'_, SuiContractClient> {
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
         quilt: &V::Quilt,
-        encoding_type: EncodingType,
-        epochs_ahead: EpochCount,
-        store_optimizations: StoreOptimizations,
-        persistence: BlobPersistence,
-        post_store: PostStoreAction,
+        store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(
-                &[quilt.data()],
-                encoding_type,
-                epochs_ahead,
-                store_optimizations,
-                persistence,
-                post_store,
-                None,
-            )
+            .reserve_and_store_blobs_retry_committees(&[quilt.data()], store_args)
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();

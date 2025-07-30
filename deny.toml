@@ -66,9 +66,7 @@ ignore = true
 multiple-versions = "deny"
 skip = [
   { name = "aws-smithy-http" }, # AWS crates are not fully in sync.
-  { name = "funty", version = "1.1.0" }, # Sui depends on both 1.1.0 and 2.0.0.
   { name = "itertools", version = "<=12.1" },
-  { name = "radium", version = "0.6.2" }, # Sui depends on both 0.6.2 and 0.7.0.
   { name = "synstructure", version = "0.12.6" },
 ]
 skip-tree = [
@@ -77,7 +75,8 @@ skip-tree = [
   { name = "fastcrypto", depth = 4 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
-  # several crates depend on an older version of windows-sys
+  # several crates depend on an older version of windows and windows-sys
+  { name = "windows", depth = 3, version = "0.58" },
   { name = "windows-sys", depth = 3, version = "0.48" },
 ]
 deny = [
@@ -100,8 +99,6 @@ unknown-git = "deny"
 allow-git = [
   "https://github.com/asonnino/prometheus-parser",
   "https://github.com/bmwill/axum-server",
-  "https://github.com/bmwill/tonic-rustls",
-  "https://github.com/hyperium/tonic",
   "https://github.com/mystenmark/async-task",
   "https://github.com/zhiburt/tabled",
 ]

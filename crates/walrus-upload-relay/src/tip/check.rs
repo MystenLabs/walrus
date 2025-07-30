@@ -15,9 +15,9 @@ use std::{
 use sui_sdk::{SUI_COIN_TYPE, rpc_types::SuiTransactionBlockResponse};
 use sui_types::TypeTag;
 use tracing::Level;
-use walrus_sdk::core::EncodingType;
+use walrus_sdk::{core::EncodingType, upload_relay::tip_config::TipConfig};
 
-use crate::tip::{config::TipConfig, error::TipError};
+use crate::tip::error::TipError;
 
 /// Checks the freshness of the transaction.
 ///
@@ -56,11 +56,11 @@ pub(crate) fn check_tx_freshness(
         }
     };
 
-    if let Some(diff) = cur_timestamp.checked_sub(tx_timestamp) {
-        if diff > freshness_threshold {
-            tracing::debug!(?diff, "the transaction is too old");
-            return Err(TipError::TxTooOld);
-        }
+    if let Some(diff) = cur_timestamp.checked_sub(tx_timestamp)
+        && diff > freshness_threshold
+    {
+        tracing::debug!(?diff, "the transaction is too old");
+        return Err(TipError::TxTooOld);
     }
 
     Ok(())

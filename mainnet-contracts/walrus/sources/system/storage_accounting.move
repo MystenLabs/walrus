@@ -21,23 +21,13 @@ public struct FutureAccounting has store {
     rewards_to_distribute: Balance<WAL>,
 }
 
-/// Constructor for FutureAccounting
+/// Constructor for FutureAccounting.
 public(package) fun new_future_accounting(
     epoch: u32,
     used_capacity: u64,
     rewards_to_distribute: Balance<WAL>,
 ): FutureAccounting {
     FutureAccounting { epoch, used_capacity, rewards_to_distribute }
-}
-
-/// Accessor for epoch, read-only
-public(package) fun epoch(accounting: &FutureAccounting): u32 {
-    *&accounting.epoch
-}
-
-/// Accessor for used_capacity, read-only.
-public(package) fun used_capacity(accounting: &FutureAccounting): u64 {
-    accounting.used_capacity
 }
 
 /// Increase `used_capacity` by `amount`.
@@ -73,7 +63,7 @@ public struct FutureAccountingRingBuffer has store {
     ring_buffer: vector<FutureAccounting>,
 }
 
-/// Constructor for FutureAccountingRingBuffer
+/// Constructor for FutureAccountingRingBuffer.
 public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
     let ring_buffer = vector::tabulate!(
         length as u64,
@@ -87,19 +77,8 @@ public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
     FutureAccountingRingBuffer { current_index: 0, length, ring_buffer }
 }
 
-#[test_only]
-public(package) fun ring_lookup(
-    self: &FutureAccountingRingBuffer,
-    epochs_in_future: u32,
-): &FutureAccounting {
-    // Check for out-of-bounds access.
-    assert!(epochs_in_future < self.length, ETooFarInFuture);
-
-    let actual_index = (epochs_in_future + self.current_index) % self.length;
-    &self.ring_buffer[actual_index as u64]
-}
-
 /// Lookup an entry a number of epochs in the future.
+#[syntax(index)]
 public(package) fun ring_lookup_mut(
     self: &mut FutureAccountingRingBuffer,
     epochs_in_future: u32,
@@ -132,9 +111,46 @@ public(package) fun ring_pop_expand(self: &mut FutureAccountingRingBuffer): Futu
     accounting
 }
 
-// === Accessors ===
+// === Accessors for FutureAccountingRingBuffer ===
 
 /// The maximum number of epochs for which we can use `self`.
-public(package) fun max_epochs_ahead(self: &FutureAccountingRingBuffer): u32 {
+public fun max_epochs_ahead(self: &FutureAccountingRingBuffer): u32 {
     self.length
+}
+
+#[syntax(index)]
+/// Read-only lookup for an element in the `FutureAccountingRingBuffer`
+public fun ring_lookup(
+    self: &FutureAccountingRingBuffer,
+    epochs_in_future: u32,
+): &FutureAccounting {
+    // Check for out-of-bounds access.
+    assert!(epochs_in_future < self.length, ETooFarInFuture);
+
+    let actual_index = (epochs_in_future + self.current_index) % self.length;
+    &self.ring_buffer[actual_index as u64]
+}
+
+// === Accessors for FutureAccounting ===
+
+/// Accessor for epoch, read-only.
+public fun epoch(accounting: &FutureAccounting): u32 {
+    *&accounting.epoch
+}
+
+/// Accessor for used_capacity, read-only.
+public fun used_capacity(accounting: &FutureAccounting): u64 {
+    accounting.used_capacity
+}
+
+/// Accessor for rewards, read-only.
+public fun rewards(accounting: &FutureAccounting): u64 {
+    accounting.rewards_to_distribute.value()
+}
+
+// === Test-only ===
+
+#[test_only]
+public fun per_epoch_rewards(self: &FutureAccountingRingBuffer): vector<u64> {
+    vector::tabulate!(self.length as u64, |i| self.ring_buffer[i].rewards())
 }

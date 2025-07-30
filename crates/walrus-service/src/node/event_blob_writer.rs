@@ -33,6 +33,7 @@ use walrus_core::{
     ensure,
     metadata::VerifiedBlobMetadataWithId,
 };
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
     client::SuiClientError,
     types::{
@@ -1321,6 +1322,22 @@ impl EventBlobWriter {
             tracing::debug!("attestations are paused, skipping blob: {}", blob_id);
             return Ok(());
         }
+
+        let active_committees: ActiveCommittees = self.node.committee_service.active_committees();
+
+        // Nodes which are not in the latest committee should not try and attest the blob.
+        // They should just add the blob to the attested list and move on.
+        if !active_committees
+            .current_committee()
+            .contains(self.node.public_key())
+        {
+            tracing::debug!(
+                "node is not in the latest committee, skipping blob attestation: {}",
+                blob_id
+            );
+            return Ok(());
+        }
+
         tracing::info!(
             blob_id = %blob_id,
             epoch = self.current_epoch,
@@ -1821,7 +1838,7 @@ mod tests {
             DatabaseConfig,
             event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
         },
-        test_utils::StorageNodeHandle,
+        test_utils::{StorageNodeHandle, StubContractService},
     };
 
     #[tokio::test]
@@ -1831,7 +1848,8 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.keep();
         let registry = Registry::default();
-        let node = create_test_node().await?;
+        let stub_contract_service = std::sync::Arc::new(StubContractService::default());
+        let node = create_test_node_with_contract_service(stub_contract_service).await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             &DatabaseConfig::default(),
@@ -1883,7 +1901,8 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
 
         let dir: PathBuf = tempfile::tempdir()?.keep();
-        let node = create_test_node().await?;
+        let stub_contract_service = std::sync::Arc::new(StubContractService::default());
+        let node = create_test_node_with_contract_service(stub_contract_service).await?;
         let registry = Registry::default();
 
         let blob_writer_factory = EventBlobWriterFactory::new(
@@ -1968,7 +1987,8 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
 
         let dir: PathBuf = tempfile::tempdir()?.keep();
-        let node = create_test_node().await?;
+        let stub_contract_service = std::sync::Arc::new(StubContractService::default());
+        let node = create_test_node_with_contract_service(stub_contract_service.clone()).await?;
         let registry = Registry::default();
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
@@ -1991,6 +2011,16 @@ mod tests {
             .get(&())?
             .expect("attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
+
+        // Assert that one event is in the channel
+        assert!(
+            stub_contract_service
+                .certify_event_blob_rx
+                .lock()
+                .unwrap()
+                .try_recv()
+                .is_ok()
+        );
 
         let pending_blobs = blob_writer
             .pending
@@ -2018,11 +2048,86 @@ mod tests {
         Ok(())
     }
 
-    async fn create_test_node() -> Result<StorageNodeHandle> {
+    #[tokio::test]
+    async fn test_attestation_is_skipped_when_node_is_not_in_committee() -> Result<()> {
+        const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
+
+        let dir: PathBuf = tempfile::tempdir()?.keep();
+        let registry = Registry::default();
+
+        // Create a keypair for a node that is NOT part of the default committee
+        // created by StorageNodeHandle.
+        let outside_committee_keypair = walrus_core::keys::ProtocolKeyPair::generate();
+
+        let stub_contract_service = std::sync::Arc::new(StubContractService::default());
+        // Create a test node with the keypair that is not in the committee.
+        let node = new_with_keypair_and_contract_service(
+            dir.as_path().to_path_buf(),
+            outside_committee_keypair,
+            stub_contract_service.clone(),
+        )
+        .await?;
+
+        let blob_writer_factory = EventBlobWriterFactory::new(
+            &dir,
+            &DatabaseConfig::default(),
+            node.storage_node.inner().clone(),
+            &registry,
+            Some(10),
+            None,
+            None,
+        )
+        .await?;
+        let mut blob_writer = blob_writer_factory.create().await?;
+        let num_checkpoints: u64 = u64::from(blob_writer.num_checkpoints_per_blob());
+
+        generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
+            .await?;
+
+        // The blob should now be in the attested state.
+        assert_eq!(blob_writer.attested.safe_iter()?.count(), 1);
+        assert!(blob_writer.pending.is_empty());
+
+        // Crucially, the contract service should NOT have been called to certify the blob.
+        // We check this by seeing if anything was sent on the mock channel.
+        // Check that no event blob certification was attempted
+        assert!(
+            stub_contract_service
+                .certify_event_blob_rx
+                .lock()
+                .unwrap()
+                .try_recv()
+                .is_err()
+        );
+
+        Ok(())
+    }
+
+    async fn create_test_node_with_contract_service(
+        stub_contract_service: std::sync::Arc<StubContractService>,
+    ) -> Result<StorageNodeHandle> {
         StorageNodeHandle::builder()
             .with_system_event_provider(vec![])
             .with_shard_assignment(&[ShardIndex(0)])
             .with_node_started(true)
+            .with_system_contract_service(stub_contract_service)
+            .build()
+            .await
+    }
+
+    /// Creates a new storage node handle with the given keypair and contract service.
+    async fn new_with_keypair_and_contract_service(
+        _storage_dir: PathBuf,
+        keypair: walrus_core::keys::ProtocolKeyPair,
+        stub_contract_service: std::sync::Arc<StubContractService>,
+    ) -> anyhow::Result<StorageNodeHandle> {
+        let test_config =
+            crate::test_utils::StorageNodeTestConfig::new_with_keypair(vec![], false, keypair);
+
+        StorageNodeHandle::builder()
+            .with_storage(crate::test_utils::empty_storage_with_shards(&[]).await)
+            .with_test_config(test_config)
+            .with_system_contract_service(stub_contract_service)
             .build()
             .await
     }

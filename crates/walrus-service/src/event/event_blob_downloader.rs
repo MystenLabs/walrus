@@ -10,8 +10,7 @@ use std::{
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch};
-use walrus_sdk::{client::Client as WalrusClient, error::ClientErrorKind};
-use walrus_storage_node_client::api::BlobStatus;
+use walrus_sdk::{client::Client as WalrusClient, error::ClientResult};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::move_structs::EventBlob,
@@ -19,6 +18,9 @@ use walrus_sui::{
 
 use super::event_processor::metrics::EventCatchupManagerMetrics;
 use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
+
+const READING_FIRST_EVENT_BLOB_TIMEOUT: Duration = Duration::from_secs(30);
+const READING_FIRST_EVENT_BLOB_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A struct that contains the metadata of an event blob.
 #[derive(Debug, Clone)]
@@ -131,7 +133,7 @@ impl EventBlobDownloader {
         );
 
         // Track if we are reading the first certified event blob. First event blob has special
-        // handling in `read_event_blob_status()`. See the comment there for more details.
+        // handling in `read_event_blob()`. See the comment there for more details.
         let mut reading_first_event_blob = true;
 
         loop {
@@ -140,33 +142,30 @@ impl EventBlobDownloader {
                 break;
             }
 
-            // Timer for waiting for the first certified event blob to be certified.
-            let start_time = Instant::now();
-            let blob_status = self
-                .read_event_blob_status(event_blob_id, reading_first_event_blob, start_time)
-                .await?;
-
-            if blob_status == BlobStatus::Nonexistent {
-                anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
-                tracing::info!(
-                    "stopping downloading event blobs with expired blob {}",
-                    event_blob_id
-                );
-                break;
-            }
-
             let blob_path = path.join(event_blob_id.to_string());
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
             } else {
-                let start_time = Instant::now();
-                self.read_event_blob(
-                    event_blob_id,
-                    blob_status,
-                    reading_first_event_blob,
-                    start_time,
-                )
-                .await?
+                let result = self
+                    .read_event_blob(event_blob_id, reading_first_event_blob)
+                    .await;
+
+                match result {
+                    Ok(blob) => (blob, "network"),
+                    Err(err) if err.is_blob_not_available_to_read_error() => {
+                        anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
+                        tracing::info!(
+                            "stopping downloading event blobs with expired blob {}",
+                            event_blob_id
+                        );
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::error!(blob_id = %event_blob_id, "error reading event \
+                        blob: {:?}", err);
+                        return Err(err.into());
+                    }
+                }
             };
 
             reading_first_event_blob = false;
@@ -209,10 +208,10 @@ impl EventBlobDownloader {
                 event_blob.store_as_file(&blob_path)?;
             }
 
-            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process {
-                if event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process {
-                    break;
-                }
+            if let Some(starting_checkpoint_to_process) = starting_checkpoint_to_process
+                && event_blob.start_checkpoint_sequence_number() <= starting_checkpoint_to_process
+            {
+                break;
             }
 
             event_blob_id = event_blob.prev_blob_id();
@@ -221,81 +220,31 @@ impl EventBlobDownloader {
         Ok(blobs)
     }
 
-    /// Reads the status of an event blob.
-    ///
-    /// When reading the first certified event blob, it may be the case that the event blob is
-    /// just certified, and the storage nodes may not know it yet. Therefore, upon encountering
-    /// a nonexistent blob, we will retry and wait for the blob to be certified.
-    /// For all the earlier blobs, they must have been seen by the storage nodes, since
-    /// otherwise, no new certified event blobs would be created.
-    async fn read_event_blob_status(
-        &self,
-        event_blob_id: BlobId,
-        reading_first_event_blob: bool,
-        start_time: Instant,
-    ) -> Result<BlobStatus> {
-        let blob_status = loop {
-            let blob_status = match self
-                .walrus_client
-                .get_blob_status_with_retries(&event_blob_id, &self.sui_read_client)
-                .await
-            {
-                Ok(blob_status) => blob_status,
-                Err(err) if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) => {
-                    BlobStatus::Nonexistent
-                }
-                Err(err) => return Err(err.into()),
-            };
-
-            if blob_status == BlobStatus::Nonexistent && reading_first_event_blob {
-                tracing::debug!(
-                    "reading first certified event blob {} encountered a nonexistent \
-                blob, waiting for it to be certified",
-                    event_blob_id
-                );
-
-                if start_time.elapsed() > Duration::from_secs(30) {
-                    tracing::warn!(
-                        "waiting for first certified event blob to be certified timed out"
-                    );
-                    break blob_status;
-                }
-                // Short sleep since we expect storage nodes to keep up with Sui events in most
-                // of the time.
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-
-            break blob_status;
-        };
-        Ok(blob_status)
-    }
-
     /// Reads an event blob.
     ///
     /// When reading the first certified event blob, it may be the case that the event blob is
     /// just certified, and the storage nodes may not know it yet. Therefore, upon encountering
     /// a nonexistent blob, we will retry reading the blob.
+    ///
+    /// If the blob is not the first certified event blob, we will return any error encountered.
+    /// Non-first and non-expired event blobs are not expected to be missing. If the blob is
+    /// missing, it indicates blob expired.
     async fn read_event_blob(
         &self,
         event_blob_id: BlobId,
-        blob_status: BlobStatus,
         reading_first_event_blob: bool,
-        start_time: Instant,
-    ) -> Result<(Vec<u8>, &'static str)> {
-        let (blob, blob_source) = loop {
+    ) -> ClientResult<Vec<u8>> {
+        // Timer for waiting for the first certified event blob to be certified.
+        let start_time = Instant::now();
+        let blob = loop {
             match self
                 .walrus_client
-                .read_blob_with_status::<walrus_core::encoding::Primary>(
-                    &event_blob_id,
-                    blob_status,
-                )
+                .read_blob::<walrus_core::encoding::Primary>(&event_blob_id)
                 .await
             {
-                Ok(blob) => break (blob, "network"),
+                Ok(blob) => break blob,
                 Err(err)
-                    if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist)
-                        && reading_first_event_blob =>
+                    if err.is_blob_not_available_to_read_error() && reading_first_event_blob =>
                 {
                     tracing::info!(
                         blob_id = %event_blob_id,
@@ -304,15 +253,15 @@ impl EventBlobDownloader {
                         err
                     );
 
-                    if start_time.elapsed() > Duration::from_secs(30) {
+                    if start_time.elapsed() > READING_FIRST_EVENT_BLOB_TIMEOUT {
                         tracing::warn!(
                             blob_id = %event_blob_id,
                             "waiting for first certified event blob to be certified timed out"
                         );
-                        return Err(err.into());
+                        return Err(err);
                     }
 
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::time::sleep(READING_FIRST_EVENT_BLOB_RETRY_INTERVAL).await;
                     continue;
                 }
                 Err(err) => {
@@ -322,10 +271,11 @@ impl EventBlobDownloader {
                         "reading event blob encountered error: {:?}",
                         err,
                     );
-                    return Err(err.into());
+                    return Err(err);
                 }
             }
         };
-        Ok((blob, blob_source))
+
+        Ok(blob)
     }
 }

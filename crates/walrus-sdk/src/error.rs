@@ -7,6 +7,8 @@ use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, enco
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
+use crate::client::upload_relay_client::UploadRelayClientError;
+
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
 #[derive(Debug, thiserror::Error)]
@@ -104,6 +106,24 @@ impl ClientError {
                 | ClientErrorKind::NotEnoughSlivers
                 // The client was notified that the committee has changed.
                 | ClientErrorKind::CommitteeChangeNotified
+        )
+    }
+
+    /// Returns `true` if the error indicates that a blob is not available to read.
+    ///
+    /// Reading a blob that is being uploaded or being expired can result in different errors,
+    /// depending on the state of the blob.
+    pub fn is_blob_not_available_to_read_error(&self) -> bool {
+        matches!(
+            self.kind.as_ref(),
+            // Blob does not exist in the system.
+            ClientErrorKind::BlobIdDoesNotExist
+                // Blob may be exist, but we do not have enough slivers to reconstruct it.
+                | ClientErrorKind::NotEnoughSlivers
+                // Blob may be exist, but no metadata is uploaded yet
+                | ClientErrorKind::NoMetadataReceived
+                // Blob does not have a valid status in all storage nodes.
+                | ClientErrorKind::NoValidStatusReceived
         )
     }
 }
@@ -221,4 +241,7 @@ pub enum ClientErrorKind {
     /// An error when storing/retrieving a quilt.
     #[error("quilt error: {0}")]
     QuiltError(#[from] QuiltError),
+    /// An error occurred while uploading a blob to the upload relay.
+    #[error("upload relay error: {0}")]
+    UploadRelayError(#[from] UploadRelayClientError),
 }

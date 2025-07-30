@@ -34,6 +34,7 @@ use walrus::{
 const MIN_STAKE: u64 = 0;
 
 // TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
+//
 /// Temporary upper limit for the number of storage nodes.
 const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 111;
 
@@ -702,6 +703,17 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
+/// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+public(package) fun add_commission_to_pools(
+    self: &mut StakingInnerV1,
+    node_ids: vector<ID>,
+    commissions: vector<Balance<WAL>>,
+) {
+    node_ids.zip_do!(commissions, |node_id, commission| {
+        self.pools[node_id].add_commission(commission)
+    });
+}
+
 // === Accessors ===
 
 /// Returns the metadata of the node with the given `ID`.
@@ -836,6 +848,11 @@ public(package) fun borrow(self: &StakingInnerV1, node_id: ID): &StakingPool {
 /// Get mutable reference to the pool with the given `ID`.
 public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut StakingPool {
     &mut self.pools[node_id]
+}
+
+#[test_only]
+public(package) fun pool_commission(self: &StakingInnerV1, node_id: ID): u64 {
+    self.pools[node_id].commission_amount()
 }
 
 #[test_only]
