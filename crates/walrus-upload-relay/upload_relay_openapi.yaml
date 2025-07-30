@@ -186,7 +186,7 @@ components:
                 description: |-
                   The amount of tip charged per kilobyte of the encoded blob size. Note that this adds to
                   the base tip, so the total tip for a blob is:
-                  `base + encoded_size_mul_per_kb * ⌊encoded_size_in_bytes / 1024⌋`.
+                  `base + encoded_size_mul_per_kib * ⌊encoded_size_in_bytes / 1024⌋`.
                 minimum: 0
       description: The kinds of tip that the proxy can choose to configure.
       examples:

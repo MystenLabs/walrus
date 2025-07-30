@@ -43,7 +43,6 @@ use walrus_sdk::{
         NodeCommunicationFactory,
         StoreArgs,
         quilt_client::{
-            QuiltClientConfig,
             assign_identifiers_with_paths,
             generate_identifier_from_path,
             read_blobs_from_paths,
@@ -69,27 +68,30 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::wallet::Wallet;
+use walrus_sui::{client::rpc_client, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
-use super::args::{
-    AggregatorArgs,
-    BlobIdentifiers,
-    BlobIdentity,
-    BurnSelection,
-    CliCommands,
-    DaemonArgs,
-    DaemonCommands,
-    EpochArg,
-    FileOrBlobId,
-    HealthSortBy,
-    InfoCommands,
-    NodeAdminCommands,
-    NodeSelection,
-    PublisherArgs,
-    RpcArg,
-    SortBy,
-    UserConfirmation,
+use super::{
+    args::{
+        AggregatorArgs,
+        BlobIdentifiers,
+        BlobIdentity,
+        BurnSelection,
+        CliCommands,
+        DaemonArgs,
+        DaemonCommands,
+        EpochArg,
+        FileOrBlobId,
+        HealthSortBy,
+        InfoCommands,
+        NodeAdminCommands,
+        NodeSelection,
+        PublisherArgs,
+        RpcArg,
+        SortBy,
+        UserConfirmation,
+    },
+    backfill::{pull_archive_blobs, run_blob_backfill},
 };
 use crate::{
     client::{
@@ -232,7 +234,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
-                    common_options.yes.into(),
+                    common_options.skip_tip_confirmation.into(),
                 )
                 .await
             }
@@ -258,7 +260,7 @@ impl ClientCommandRunner {
                     PostStoreAction::from_share(common_options.share),
                     common_options.encoding_type,
                     common_options.upload_relay,
-                    common_options.yes.into(),
+                    common_options.skip_tip_confirmation.into(),
                 )
                 .await
             }
@@ -485,6 +487,21 @@ impl ClientCommandRunner {
             }
 
             CliCommands::NodeAdmin { command } => self.run_admin_command(command).await,
+            CliCommands::PullArchiveBlobs {
+                gcs_bucket,
+                prefix,
+                backfill_dir,
+                pulled_state,
+            } => pull_archive_blobs(gcs_bucket, prefix, backfill_dir, pulled_state).await,
+            CliCommands::BlobBackfill {
+                backfill_dir,
+                node_ids,
+                pushed_state,
+            } => {
+                let result = run_blob_backfill(backfill_dir, node_ids, pushed_state).await;
+                tracing::info!("blob backfill exited with: {:?}", result);
+                result
+            }
         }
     }
 
@@ -582,7 +599,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
+        let quilt_read_client = read_client.quilt_client();
 
         let mut retrieved_blobs = match selector {
             QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
@@ -628,7 +645,7 @@ impl ClientCommandRunner {
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
         let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
 
-        let quilt_read_client = read_client.quilt_client(QuiltClientConfig::default());
+        let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
 
         quilt_metadata.print_output(self.json)?;
@@ -826,7 +843,7 @@ impl ClientCommandRunner {
         }
 
         let start_timer = std::time::Instant::now();
-        let quilt_write_client = client.quilt_client(QuiltClientConfig::default());
+        let quilt_write_client = client.quilt_client();
         let quilt = quilt_write_client
             .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
             .await?;
@@ -924,7 +941,7 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         tracing::info!("performing dry-run for quilt from {} blobs", blobs.len());
 
-        let quilt_client = client.quilt_client(QuiltClientConfig::default());
+        let quilt_client = client.quilt_client();
         let quilt = quilt_client
             .construct_quilt::<QuiltVersionV1>(blobs, encoding_type)
             .await?;
@@ -1724,7 +1741,7 @@ async fn get_latest_checkpoint_sequence_number(
     };
 
     // Now url is a String, not an Option<String>
-    let rpc_client_result = sui_rpc_api::Client::new(url);
+    let rpc_client_result = rpc_client::create_sui_rpc_client(&url);
     if let Ok(rpc_client) = rpc_client_result {
         match rpc_client.get_latest_checkpoint().await {
             Ok(checkpoint) => Some(checkpoint.sequence_number),

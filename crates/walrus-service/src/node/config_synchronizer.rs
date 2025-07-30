@@ -1,15 +1,19 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use sha2::{Digest, Sha256};
 use sui_types::base_types::ObjectID;
 use tokio::fs;
 use tracing;
 use walrus_utils::load_from_yaml;
+use x509_cert::certificate::Certificate;
 
 use super::{
     SyncNodeConfigError,
@@ -17,6 +21,16 @@ use super::{
     config::{StorageNodeConfig, TlsConfig},
     contract_service::SystemContractService,
 };
+
+/// A warning is logged when the TLS certificate expires in less than this duration.
+const CERT_EXPIRATION_WARNING_THRESHOLD: Duration = Duration::from_secs(60 * 60 * 24 * 14);
+
+/// The node is rebooted when the TLS certificate expires in less than this multiple of the check
+/// interval.
+///
+/// Setting this to a value above 1 guarantees that the node will be restarted before the
+/// certificate expires.
+const CERT_EXPIRATION_REBOOT_CHECK_INTERVAL_MULTIPLIER: u32 = 3;
 
 /// Trait for loading config from some source.
 #[async_trait]
@@ -75,14 +89,119 @@ impl ConfigSynchronizer {
         }
     }
 
-    /// Runs the config synchronization loop
-    /// Errors are ignored except for NodeNeedsReboot and RotationRequired
+    #[allow(clippy::result_large_err)]
+    fn check_tls_cert(
+        &self,
+        loaded_cert: &Option<Certificate>,
+        cert_on_disk: &Option<Certificate>,
+    ) -> Result<(), SyncNodeConfigError> {
+        match (&loaded_cert, &cert_on_disk) {
+            (Some(loaded_cert), Some(cert_on_disk)) => {
+                tracing::debug!(
+                    ?loaded_cert,
+                    ?cert_on_disk,
+                    "checking TLS certificate replacement"
+                );
+
+                let loaded_cert_expiration = UNIX_EPOCH
+                    + loaded_cert
+                        .tbs_certificate
+                        .validity
+                        .not_after
+                        .to_unix_duration();
+                let cert_on_disk_expiration = UNIX_EPOCH
+                    + cert_on_disk
+                        .tbs_certificate
+                        .validity
+                        .not_after
+                        .to_unix_duration();
+                let now = SystemTime::now();
+
+                // Check time until expiration of the new certificate.
+                match cert_on_disk_expiration.duration_since(now) {
+                    Ok(duration) if duration < CERT_EXPIRATION_WARNING_THRESHOLD => {
+                        tracing::warn!(
+                            time_until_expiration = %humantime::format_duration(duration),
+                            "the TLS certificate will expire soon, please renew it"
+                        );
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            expiration_time = %humantime::format_rfc3339(cert_on_disk_expiration),
+                            "the TLS certificate is expired, please renew it"
+                        );
+                        // There is no point in restarting the node if also the new certificate is
+                        // expired.
+                        return Ok(());
+                    }
+                    Ok(_) => {}
+                }
+
+                let expiration_restart_threshold =
+                    CERT_EXPIRATION_REBOOT_CHECK_INTERVAL_MULTIPLIER * self.check_interval;
+                if loaded_cert_expiration
+                    .duration_since(now)
+                    .unwrap_or_default()
+                    < expiration_restart_threshold
+                    // Only restart the node if the new certificate is valid for a longer period.
+                    && loaded_cert_expiration < cert_on_disk_expiration
+                {
+                    tracing::info!(
+                        old_expiration_time = %humantime::format_rfc3339(loaded_cert_expiration),
+                        new_expiration_time = %humantime::format_rfc3339(cert_on_disk_expiration),
+                        expiration_restart_threshold = %humantime::format_duration(
+                            expiration_restart_threshold
+                        ),
+                        "the currently loaded TLS certificate is expiring, restarting the node \
+                        with the new certificate"
+                    );
+                    return Err(SyncNodeConfigError::NodeNeedsReboot);
+                }
+
+                // Check if the subject or extensions have changed.
+                if loaded_cert.tbs_certificate.subject != cert_on_disk.tbs_certificate.subject
+                    || loaded_cert.tbs_certificate.extensions
+                        != cert_on_disk.tbs_certificate.extensions
+                {
+                    tracing::info!(
+                        old_subject = %loaded_cert.tbs_certificate.subject,
+                        new_subject = %cert_on_disk.tbs_certificate.subject,
+                        "TLS certificate subject or extensions have changed, reboot required"
+                    );
+                    return Err(SyncNodeConfigError::NodeNeedsReboot);
+                }
+
+                if loaded_cert != cert_on_disk {
+                    tracing::debug!(
+                        "TLS certificate has been updated, but old certificate is still valid; \
+                        skipping restart"
+                    );
+                }
+            }
+            (None, Some(_)) => {
+                tracing::info!("TLS certificate has been added, reboot required");
+                return Err(SyncNodeConfigError::NodeNeedsReboot);
+            }
+            (Some(_), None) => {
+                tracing::info!("TLS certificate has been removed, reboot required");
+                return Err(SyncNodeConfigError::NodeNeedsReboot);
+            }
+            (None, None) => {}
+        }
+
+        Ok(())
+    }
+
+    /// Runs the config synchronization loop.
+    ///
+    /// Errors are ignored except for [SyncNodeConfigError::NodeNeedsReboot] and
+    /// [SyncNodeConfigError::ProtocolKeyPairRotationRequired].
     pub async fn run(&self) -> Result<(), SyncNodeConfigError> {
-        // Initialize TLS certificate hash.
-        let mut cert_hash = None;
+        // Initialize TLS certificate.
+        let mut cert = None;
         if let Some(config_loader) = &self.config_loader {
             let config = config_loader.load_storage_node_config().await?;
-            cert_hash = self.load_tls_cert_hash(&config.tls).await?;
+            cert = self.load_tls_cert(&config.tls).await?;
         }
 
         loop {
@@ -115,15 +234,7 @@ impl ConfigSynchronizer {
                 tracing::warn!(%error, "failed to sync node params");
             }
 
-            let new_cert_hash = self.load_tls_cert_hash(&config.tls).await?;
-            if cert_hash != new_cert_hash {
-                tracing::info!(
-                    old_hash = ?cert_hash,
-                    new_hash = ?new_cert_hash,
-                    "TLS certificate has changed, node needs reboot"
-                );
-                return Err(SyncNodeConfigError::NodeNeedsReboot);
-            }
+            self.check_tls_cert(&cert, &self.load_tls_cert(&config.tls).await?)?;
         }
     }
 
@@ -139,12 +250,12 @@ impl ConfigSynchronizer {
         }
     }
 
-    /// Loads and hashes the TLS certificate.
+    /// Loads and parses the TLS certificate.
     ///
-    /// Returns Ok(None) if TLS is disabled or certificate path is not configured.
-    /// Returns Ok(Some(hash)) if certificate is successfully loaded and hashed.
-    /// Returns Err for actual errors like file not found or relative paths.
-    async fn load_tls_cert_hash(&self, tls_config: &TlsConfig) -> anyhow::Result<Option<Vec<u8>>> {
+    /// Returns `Ok(None)` if TLS is disabled or no certificate path is configured.
+    /// Returns `Ok(Some(_))` if the certificate is loaded and parsed successfully.
+    /// Returns `Err` for actual errors like file not found or relative paths.
+    async fn load_tls_cert(&self, tls_config: &TlsConfig) -> anyhow::Result<Option<Certificate>> {
         // Skip if TLS is disabled or not configured.
         if tls_config.disable_tls {
             return Ok(None);
@@ -165,16 +276,17 @@ impl ConfigSynchronizer {
 
         // Read the certificate file.
         let cert_data = fs::read(&cert_path).await.context(format!(
-            "failed to read certificate file at {}",
+            "failed to read certificate file at '{}'",
             cert_path.display()
         ))?;
 
-        // Calculate hash.
-        let mut hasher = Sha256::new();
-        hasher.update(&cert_data);
-        let current_hash = hasher.finalize().to_vec();
+        // Parse the certificate.
+        let cert = Certificate::load_pem_chain(&cert_data)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("there must be at least one certificate present"))?;
 
-        Ok(Some(current_hash))
+        Ok(Some(cert))
     }
 }
 
@@ -190,13 +302,20 @@ impl std::fmt::Debug for ConfigSynchronizer {
 mod tests {
     use std::io::Write;
 
+    use rcgen::CertificateParams;
     use serde_yaml;
     use tempfile::TempDir;
     use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
     use walrus_sui::types::{NetworkAddress, move_structs::VotingParams};
+    use walrus_test_utils::async_param_test;
 
     use super::*;
-    use crate::node::config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet};
+    use crate::node::{
+        committee::MockCommitteeService,
+        config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
+        contract_service::MockSystemContractService,
+        server,
+    };
 
     #[tokio::test]
     async fn test_load_config_and_generate_update_params() -> anyhow::Result<()> {
@@ -276,21 +395,62 @@ mod tests {
         Ok(())
     }
 
-    fn create_network_key_file(path: &std::path::Path) -> anyhow::Result<()> {
+    fn create_network_key_file(path: &std::path::Path) -> anyhow::Result<NetworkKeyPair> {
         let mut file = std::fs::File::create(path)?;
         let network_key = NetworkKeyPair::generate();
         file.write_all(network_key.to_base64().as_bytes())?;
-        Ok(())
+        Ok(network_key)
     }
 
-    #[tokio::test]
-    async fn test_tls_cert_hash_detection() -> anyhow::Result<()> {
-        use std::{sync::Arc, time::Duration};
-
-        use crate::node::{
-            committee::MockCommitteeService,
-            contract_service::MockSystemContractService,
-        };
+    async_param_test! {
+        test_tls_cert_detection -> anyhow::Result<()>: [
+            same_subject_sufficient_validity_1: (
+                Duration::from_secs(4),
+                Duration::from_secs(4),
+                "original-name",
+                false
+            ),
+            same_subject_sufficient_validity_2: (
+                Duration::from_secs(5),
+                Duration::from_secs(6),
+                "original-name",
+                false
+            ),
+            different_subject_sufficient_validity: (
+                Duration::from_secs(4),
+                Duration::from_secs(4),
+                "other-name",
+                true
+            ),
+            same_subject_insufficient_validity_1: (
+                Duration::from_secs(1),
+                Duration::from_secs(4),
+                "original-name",
+                true
+            ),
+            same_subject_insufficient_validity_2: (
+                Duration::from_secs(2),
+                Duration::from_secs(1),
+                "original-name",
+                false
+            ),
+            already_expired: (
+                Duration::from_secs(0),
+                Duration::from_secs(0),
+                "original-name",
+                false
+            ),
+        ]
+    }
+    async fn test_tls_cert_detection(
+        old_validity_duration: Duration,
+        new_validity_duration: Duration,
+        new_cert_subject: &str,
+        expect_restart: bool,
+    ) -> anyhow::Result<()> {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
 
         // Set up test environment with temporary directory and certificate.
         let temp_dir = TempDir::new()?;
@@ -299,25 +459,23 @@ mod tests {
         let network_key_path = temp_dir.path().join("network_key.key");
         let config_path = temp_dir.path().join("config.yaml");
 
-        // Create initial certificate with sample content.
-        let initial_cert_content = b"-----BEGIN CERTIFICATE-----\n\
-            MIIDazCCAlOgAwIBAgIUJlq+zz4hBJ3ovpEeGFPUc4UdTw8wDQYJKoZIhvcNAQEL\n\
-            -----END CERTIFICATE-----\n";
-        std::fs::write(&cert_path, initial_cert_content)?;
-
         // Create key files for test configuration.
         create_protocol_key_file(&key_path)?;
-        create_network_key_file(&network_key_path)?;
+        let network_key_pair = create_network_key_file(&network_key_path)?;
+        let network_key_pair_pkcs8 = server::to_pkcs8_key_pair(&network_key_pair);
+
+        // Create initial certificate with sample content.
+        let now = SystemTime::now();
+        let mut initial_cert_params = CertificateParams::new(vec!["original-name".to_string()])?;
+        initial_cert_params.not_after = (now + old_validity_duration).into();
+        let initial_cert = initial_cert_params.self_signed(&network_key_pair_pkcs8)?;
+        std::fs::write(&cert_path, initial_cert.pem())?;
 
         // Create storage node config with TLS enabled.
         let config = StorageNodeConfig {
             protocol_key_pair: PathOrInPlace::from_path(key_path),
-            next_protocol_key_pair: None,
-            name: "test-node".to_string(),
             storage_path: temp_dir.path().to_path_buf(),
             network_key_pair: PathOrInPlace::from_path(network_key_path),
-            public_host: "localhost".to_string(),
-            public_port: 9185,
             tls: TlsConfig {
                 disable_tls: false,
                 certificate_path: Some(cert_path.clone()),
@@ -335,42 +493,40 @@ mod tests {
         let synchronizer = ConfigSynchronizer::new(
             Arc::new(MockSystemContractService::new()),
             Arc::new(MockCommitteeService::new()),
-            Duration::from_millis(100),
+            Duration::from_secs(1),
             ObjectID::random(),
             Some(config_loader.clone()),
         );
 
-        // Get initial certificate hash.
+        // Get initial certificate.
         let loaded_config = config_loader.load_storage_node_config().await?;
-        let cert_hash = synchronizer.load_tls_cert_hash(&loaded_config.tls).await?;
-        assert!(cert_hash.is_some(), "cert_hash should be initialized");
-        let original_hash = cert_hash.unwrap();
+        let original_cert = synchronizer.load_tls_cert(&loaded_config.tls).await?;
+        assert!(original_cert.is_some(), "certificate should be initialized");
 
-        // Verify hash remains the same when certificate is unchanged.
-        let loaded_config = config_loader.load_storage_node_config().await?;
-        let result = synchronizer.load_tls_cert_hash(&loaded_config.tls).await?;
-        assert!(result.is_some(), "cert_hash should be updated");
-        assert_eq!(
-            result.unwrap(),
-            original_hash,
-            "cert_hash should not change on error"
+        // Replace certificate with new one.
+        let mut new_cert_params = CertificateParams::new(vec![new_cert_subject.to_string()])?;
+        new_cert_params.not_after = (now + new_validity_duration).into();
+        let new_cert = new_cert_params.self_signed(&network_key_pair_pkcs8)?;
+        std::fs::write(&cert_path, new_cert.pem())?;
+
+        // Check if certificate is detected as expired.
+        let new_cert = synchronizer.load_tls_cert(&loaded_config.tls).await?;
+        assert!(new_cert.is_some(), "certificate should be loaded");
+        assert!(
+            new_cert != original_cert,
+            "new certificate should be different"
         );
+        let check_result = synchronizer.check_tls_cert(&original_cert, &new_cert);
+        println!("check_result: {check_result:?}");
 
-        // Modify the certificate file with different content.
-        let modified_cert_content = b"-----BEGIN CERTIFICATE-----\n\
-            DIFFERENTCERTIFICATECONTENTHERE1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ\n\
-            -----END CERTIFICATE-----\n";
-        std::fs::write(&cert_path, modified_cert_content)?;
-
-        // Verify hash is different after certificate change.
-        let loaded_config = config_loader.load_storage_node_config().await?;
-        let result = synchronizer.load_tls_cert_hash(&loaded_config.tls).await?;
-        assert!(result.is_some(), "cert_hash should be updated");
-        assert_ne!(
-            result.unwrap(),
-            original_hash,
-            "cert_hash should be updated"
-        );
+        if expect_restart {
+            assert!(
+                matches!(check_result, Err(SyncNodeConfigError::NodeNeedsReboot)),
+                "expected node to restart"
+            );
+        } else {
+            assert!(matches!(check_result, Ok(())), "expected no restart");
+        }
 
         Ok(())
     }

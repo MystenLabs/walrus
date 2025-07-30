@@ -83,7 +83,7 @@ public fun update_deny_list_message(
     sequence_number: u64,
 ): vector<u8> {
     let certified_message = vector[
-        bcs::to_bytes(&3u8), // intent type for deny list update
+        bcs::to_bytes(&4u8), // intent type for deny list update
         bcs::to_bytes(&0u8), // intent version
         bcs::to_bytes(&3u8), // app ID
         bcs::to_bytes(&epoch), // epoch
@@ -92,6 +92,25 @@ public fun update_deny_list_message(
         bcs::to_bytes(&sequence_number), // sequence number
         bcs::to_bytes(&size), // deny list size
         bcs::to_bytes(&root), // deny list root
+    ];
+
+    certified_message.flatten()
+}
+
+public fun protocol_version_updated_message(
+    _self: &TestStorageNode,
+    epoch: u32,
+    start_epoch: u32,
+    protocol_version: u64,
+): vector<u8> {
+    let certified_message = vector[
+        bcs::to_bytes(&6u8), // intent type for protocol version update
+        bcs::to_bytes(&0u8), // intent version
+        bcs::to_bytes(&3u8), // app ID
+        bcs::to_bytes(&epoch), // epoch
+        // protocol version update message
+        bcs::to_bytes(&start_epoch), // node ID
+        bcs::to_bytes(&protocol_version), // protocol version
     ];
 
     certified_message.flatten()

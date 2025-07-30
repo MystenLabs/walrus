@@ -24,7 +24,6 @@ use rand::{Rng, random, seq::SliceRandom, thread_rng};
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
-use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
     BlobId,
@@ -83,7 +82,6 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
-        UpgradeType,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     config::WalletConfig,
@@ -974,7 +972,9 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .collect::<Vec<_>>();
 
     // Store the quilt.
-    let quilt_client = client.quilt_client(QuiltClientConfig::new(6, Duration::from_secs(60)));
+    let quilt_client = client
+        .quilt_client()
+        .with_config(QuiltClientConfig::new(6, Duration::from_secs(60)));
     let quilt = quilt_client
         .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, encoding_type)
         .await?;
@@ -1248,8 +1248,10 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     // Use basic_store_and_read with our pre_read_hook.
     basic_store_and_read(&client, 4, 314, None, || Ok(())).await?;
 
-    // Wait for the cluster to reach the next epoch.
-    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+    // Wait for the cluster to reach two epochs ahead of the current epoch. This is to ensure that
+    // the subsidies are processed at least once between checking the initial and final funds, since
+    // there is a full epoch between the two checks.
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 2).await;
 
     let final_subsidies_funds = client
         .as_ref()

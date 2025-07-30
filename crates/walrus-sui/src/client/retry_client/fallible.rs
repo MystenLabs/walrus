@@ -16,6 +16,8 @@ use atomic_time::AtomicInstant;
 use sui_rpc_api::Client as RpcClient;
 use tokio::sync::RwLock;
 
+use crate::client::rpc_client;
+
 /// A wrapper around a `RpcClient` that recreates the client if it has failed too many times.
 /// This is useful for clients that sometimes get stuck and never recover.
 pub struct FallibleRpcClient {
@@ -37,7 +39,7 @@ impl FallibleRpcClient {
 
     /// Creates a new `FallibleRpcClient`.
     pub fn new(rpc_url: String) -> anyhow::Result<Self> {
-        let client = Arc::new(RpcClient::new(rpc_url.clone())?);
+        let client = rpc_client::create_sui_rpc_client(&rpc_url)?;
         Ok(Self {
             rpc_url,
             client: Arc::new(RwLock::new(client)),
@@ -85,7 +87,10 @@ impl FallibleRpcClient {
                 tracing::info!("rpc client is stuck in a failed state, recreating client");
                 drop(client);
                 let mut client = self.client.write().await;
-                *client = Arc::new(RpcClient::new(self.rpc_url.clone())?);
+                *client = rpc_client::create_sui_rpc_client(&self.rpc_url).map_err(|e| {
+                    tracing::error!(error = ?e, "failed to recreate rpc client");
+                    tonic::Status::internal(e.to_string())
+                })?;
             }
             return result;
         };

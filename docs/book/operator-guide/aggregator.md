@@ -54,8 +54,10 @@ important to ensure only authorized parties may access it, or other measures to 
 especially in a future Mainnet deployment.
 ```
 
-By default, PUT requests are limited to 10 MiB; you can increase this limit through the
-`--max-body-size` option.
+By default, [store blob](../usage/web-api.md#store) requests are limited to 10 MiB; you can
+increase this limit through the `--max-body-size` option.
+[Store quilt](../usage/web-api.md#storing-quilts) requests are limited to 100 MiB by default, and
+can be increased using the `--max-quilt-body-size` option.
 
 ### Daemon metrics
 

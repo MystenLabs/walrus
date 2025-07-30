@@ -9,19 +9,49 @@
 ///  - Add funds to the shared subsidy pool.
 ///  - Set subsidy rates for buyers and storage nodes.
 ///  - Apply subsidies when reserving storage or extending blob lifetimes.
+#[deprecated(note = b"This module is superseded by the walrus_subsidies module")]
 module subsidies::subsidies;
 
-use sui::{balance::{Self, Balance}, coin::Coin};
+use std::type_name;
+use sui::{balance::{Self, Balance}, coin::Coin, hex};
 use wal::wal::WAL;
 use walrus::{blob::Blob, storage_resource::Storage, system::System};
 
-/// Tracks the current version of the module.
-const VERSION: u64 = 2;
+// === Constants ===
 
 /// Subsidy rate is in basis points (1/100 of a percent).
 const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 
+/// The compatible version of the walrus contract.
+const COMPATIBLE_WALRUS_VERSION: u64 = 2;
+
+// === Versioning ===
+
+// Whenever the package is upgraded, we create a new type here that will have the ID of the new
+// package in its type name. We can then use this to migrate the object to the new package ID
+// without requiring the AdminCap.
+
+/// The current version of this contract.
+const VERSION: u64 = 3;
+
+/// Helper struct to get the package ID for the version 3 of this contract.
+public struct V3()
+
+/// Returns the package ID for the current version of this contract.
+/// Needs to be updated whenever the package is upgraded.
+fun package_id_for_current_version(): ID {
+    package_id_for_type<V3>()
+}
+
+/// Returns the package ID for the given type.
+fun package_id_for_type<T>(): ID {
+    let address_str = type_name::get<T>().get_address().to_lowercase();
+    let address_bytes = hex::decode(address_str.into_bytes());
+    object::id_from_bytes(address_bytes)
+}
+
 // === Errors ===
+
 /// The provided subsidy rate is invalid.
 const EInvalidSubsidyRate: u64 = 0;
 /// The admin cap is not authorized for the `Subsidies` object.
@@ -122,6 +152,15 @@ public fun set_buyer_subsidy_rate(self: &mut Subsidies, cap: &AdminCap, new_rate
     check_admin(self, cap);
     assert!(new_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
     self.buyer_subsidy_rate = new_rate;
+}
+
+/// Allows the admin to withdraw all funds from the subsidy pool.
+///
+/// This is used to migrate funds from the `Subsidies` object to the `WalrusSubsidies` object in a
+/// PTB.
+public fun withdraw_balance(self: &mut Subsidies, cap: &AdminCap): Balance<WAL> {
+    check_admin(self, cap);
+    self.subsidy_pool.withdraw_all()
 }
 
 /// Set the subsidy rate for storage nodes, in basis points.
@@ -309,11 +348,14 @@ public fun register_blob(
     blob
 }
 
-entry fun migrate(subsidies: &mut Subsidies, admin_cap: &AdminCap, package_id: ID) {
-    check_admin(subsidies, admin_cap);
+/// Migrates the subsidies object to the new version and sets the subsidy rates to 0.
+entry fun migrate(subsidies: &mut Subsidies, system: &System) {
     check_version_upgrade(subsidies);
+    assert!(system.version() == COMPATIBLE_WALRUS_VERSION, EWrongVersion);
     subsidies.version = VERSION;
-    subsidies.package_id = package_id;
+    subsidies.package_id = package_id_for_current_version();
+    subsidies.buyer_subsidy_rate = 0;
+    subsidies.system_subsidy_rate = 0;
 }
 
 // === Accessors ===

@@ -497,7 +497,7 @@ fn create_self_signed_certificate(
     }
 }
 
-fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
+pub(crate) fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
     let secret_key: SecretKey = Secp256r1PrivateKey::from_bytes(keypair.as_ref().as_bytes())
         .expect("encode-decode of private key must not fail")
         .privkey

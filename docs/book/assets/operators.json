@@ -1,6 +1,10 @@
 {
   "mainnet": {
     "aggregators": {
+      "https://aggregator.walrus-mainnet.h2o-nodes.com": {
+        "operator": "H2O Nodes",
+        "cache": true
+      },
       "https://agg.walrus.eosusa.io": {
         "operator": "EOSUSA-STOR01",
         "cache": false
@@ -238,6 +242,10 @@
   },
   "testnet": {
     "aggregators": {
+      "https://aggregator.walrus-testnet.h2o-nodes.com": {
+        "operator": "H2O Nodes",
+        "cache": true
+      },
       "https://agg.test.walrus.eosusa.io": {
         "operator": "EOSUSA",
         "cache": false
@@ -475,6 +483,9 @@
       }
     },
     "publishers": {
+      "https://publisher.walrus-testnet.h2o-nodes.com": {
+        "operator": "H2O Nodes"
+      },
       "https://publisher.testnet.walrus.atalma.io": {
         "operator": "atalma.io"
       },

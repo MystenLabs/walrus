@@ -85,7 +85,11 @@ pub async fn compile_package(
     chain_id: Option<String>,
 ) -> Result<(CompiledPackage, MoveBuildConfig)> {
     tokio::task::spawn_blocking(|| {
-        compile_package_inner_blocking(package_path, build_config, chain_id)
+        sui_macros::nondeterministic!(compile_package_inner_blocking(
+            package_path,
+            build_config,
+            chain_id
+        ))
     })
     .await?
 }

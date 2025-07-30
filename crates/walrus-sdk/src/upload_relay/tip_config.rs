@@ -19,19 +19,22 @@ use crate::{
 #[serde(rename_all = "snake_case")]
 #[schema(examples(
         json!(TipKind::Const(31415)),
-        json!(TipKind::Linear{base: 101, encoded_size_mul_per_kb: 42})
+        json!(TipKind::Linear{base: 101, encoded_size_mul_per_kib: 42})
 ))]
 pub enum TipKind {
     /// A constant tip.
     Const(u64),
     /// A tip that linearly depends on the encoded size of the blob.
+    ///
+    /// If `encoded_size` is the size of the encoded data in KiB (rounded up), then the final tip is
+    /// `base + encoded_size * encoded_size_mul_per_kib`.
     Linear {
         /// The base tip amount to be charged for each upload.
         base: u64,
         /// The amount of tip charged per kilobyte of the encoded blob size. Note that this adds to
         /// the base tip, so the total tip for a blob is:
-        /// `base + encoded_size_mul_per_kb * ⌊encoded_size_in_bytes / 1024⌋`.
-        encoded_size_mul_per_kb: u64,
+        /// `base + encoded_size_mul_per_kib * ⌊encoded_size_in_bytes / 1024⌋`.
+        encoded_size_mul_per_kib: u64,
     },
 }
 
@@ -49,11 +52,11 @@ impl TipKind {
             TipKind::Const(constant) => *constant,
             TipKind::Linear {
                 base,
-                encoded_size_mul_per_kb,
+                encoded_size_mul_per_kib,
             } => {
                 base + encoded_blob_length_for_n_shards(n_shards, unencoded_length, encoding_type)?
-                    / 1024
-                    * encoded_size_mul_per_kb
+                    .div_ceil(1024)
+                    * encoded_size_mul_per_kib
             }
         })
     }

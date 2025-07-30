@@ -598,6 +598,42 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: NodeAdminCommands,
     },
+    /// Pull all blobs (filtered by optional prefix specifier) from Google Cloud Storage down into
+    /// the specified backfill_dir.
+    PullArchiveBlobs {
+        /// The Google Cloud Storage bucket to pull from.
+        #[arg(long)]
+        gcs_bucket: String,
+        /// Optional object name prefix filter.
+        #[arg(long)]
+        prefix: Option<String>,
+        /// The directory to pull into.
+        #[arg(long)]
+        backfill_dir: String,
+        /// Durable list of objects already pulled.
+        ///
+        /// This is loaded at script initialization and used to avoid pulling redundant objects.
+        /// Note that looking in the backfill_dir is not a complete solution because the disk space
+        /// needs to be reclaimed after the archival blobs have been pushed up to the network. So,
+        /// this `pulled_state` file is ensuring we don't have to start from the beginning in the
+        /// event that we need to stop and restart the backfill.
+        #[arg(long)]
+        pulled_state: PathBuf,
+    },
+    /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
+    BlobBackfill {
+        /// The subdirectory when blob-backfill can find blobs.
+        ///
+        /// Blobs in this directory must be named with their blob id. Any files that exist in this
+        /// directory that do not have a conforming blob id name will be skipped.
+        #[arg(long)]
+        backfill_dir: PathBuf,
+        /// The file where successfully pushed blob IDs will be stored.
+        #[arg(long)]
+        pushed_state: PathBuf,
+        /// The nodes to backfill with slivers and blob metadata.
+        node_ids: Vec<ObjectID>,
+    },
 }
 
 /// Subcommands for the `info` command.
@@ -1050,13 +1086,13 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub upload_relay: Option<Url>,
-    /// Whether to ask for user confirmations.
+    /// Skip the tip confirmation prompt when using the upload relay.
     ///
-    /// If yes is specified, the client will not ask for confirmations and proceed with the
-    /// operation.
+    /// If specified, the client will not ask for a tip confirmation and proceed with the upload
+    /// relay store operation.
     #[arg(long)]
     #[serde(default)]
-    pub yes: bool,
+    pub skip_tip_confirmation: bool,
 }
 
 #[serde_as]
@@ -1764,7 +1800,7 @@ mod tests {
                 share: false,
                 encoding_type: Default::default(),
                 upload_relay: None,
-                yes: false,
+                skip_tip_confirmation: false,
             },
         })
     }

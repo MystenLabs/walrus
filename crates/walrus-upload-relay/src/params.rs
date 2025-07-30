@@ -48,15 +48,15 @@ pub(crate) struct Params {
     /// The blob ID of the blob to be sent to the storage nodes.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
-    /// The Base58 transaction ID of the transaction that sends the tip to the proxy.
+    /// The Base58 transaction ID of the transaction that sends the tip to the upload relay.
     ///
-    /// This field is _required_ in the case where the proxy requires a tip.
+    /// This field is _required_ in the case where the upload relay requires a tip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[param(value_type = Option<TransactionDigestSchema>)]
     pub tx_id: Option<TransactionDigest>,
     /// The nonce, the preimage of the hash added to the transaction inputs.
     ///
-    /// This field is _required_ in the case where the proxy requires a tip.
+    /// This field is _required_ in the case where the upload relay requires a tip.
     #[serde(
         default,
         with = "b64_option_digest",
