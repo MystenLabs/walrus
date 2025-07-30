@@ -8,7 +8,8 @@ on:
         type: choice
         options:
           - upgrade-subsidies
-          - migrate-subsidies
+          - upgrade-walrus-subsidies
+          - transfer-subsidies-funds
       rpc:
         description: "RPC url"
         required: true
