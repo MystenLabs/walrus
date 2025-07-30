@@ -11,7 +11,6 @@ use std::{
     time::Instant,
 };
 
-use futures::FutureExt as _;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
@@ -55,7 +54,6 @@ use self::{
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
-use crate::utils;
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
@@ -509,9 +507,7 @@ impl Storage {
         self.blob_info
             .set_metadata_stored(&mut batch, blob_id, true)?;
 
-        let response = tokio::task::spawn_blocking(move || batch.write())
-            .map(utils::unwrap_or_resume_unwind)
-            .await;
+        let response = batch.write_smart().await;
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());

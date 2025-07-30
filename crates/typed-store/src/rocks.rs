@@ -72,6 +72,9 @@ const DEFAULT_DB_WAL_SIZE: usize = 1024;
 
 const ENV_VAR_DB_PARALLELISM: &str = "DB_PARALLELISM";
 
+// Threshold for determining when to use async operations (1MB)
+const ASYNC_THRESHOLD_BYTES: usize = 1024 * 1024;
+
 // TODO: remove this after Rust rocksdb has the TOTAL_BLOB_FILES_SIZE property built-in.
 const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
     unsafe { CStr::from_bytes_with_nul_unchecked("rocksdb.total-blob-file-size\0".as_bytes()) };
@@ -1078,6 +1081,104 @@ impl<K, V> DBMap<K, V> {
 
         readopts
     }
+
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    fn insert_raw(&self, key_buf: &[u8], value_buf: &[u8]) -> Result<(), TypedStoreError> {
+        let timer = self
+            .db_metrics
+            .op_metrics
+            .rocksdb_put_latency_seconds
+            .with_label_values(&[&self.cf])
+            .start_timer();
+        let perf_ctx = if self.write_sample_interval.sample() {
+            Some(RocksDBPerfContext)
+        } else {
+            None
+        };
+        self.db_metrics
+            .op_metrics
+            .rocksdb_put_bytes
+            .with_label_values(&[&self.cf])
+            .observe((key_buf.len() + value_buf.len()) as f64);
+        if perf_ctx.is_some() {
+            self.db_metrics
+                .write_perf_ctx_metrics
+                .report_metrics(&self.cf);
+        }
+        self.rocksdb
+            .put_cf(&self.cf()?, key_buf, value_buf, &self.opts.writeopts())
+            .map_err(typed_store_err_from_rocks_err)?;
+        let elapsed = timer.stop_and_record();
+        if elapsed > 1.0 {
+            tracing::warn!(?elapsed, cf = ?self.cf, "very slow insert");
+            self.db_metrics
+                .op_metrics
+                .rocksdb_very_slow_puts_count
+                .with_label_values(&[&self.cf])
+                .inc();
+            self.db_metrics
+                .op_metrics
+                .rocksdb_very_slow_puts_duration_ms
+                .with_label_values(&[&self.cf])
+                .inc_by((elapsed * 1000.0) as u64);
+        }
+
+        Ok(())
+    }
+}
+
+/// Async extensions for DBMap
+impl<K, V> DBMap<K, V>
+where
+    K: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    V: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+{
+    /// Offloads serialization to a blocking thread.
+    pub async fn insert_async(&self, key: &K, value: &V) -> Result<(), TypedStoreError> {
+        let key_buf = be_fix_int_ser(key)?;
+        let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
+        self.insert_raw_async(key_buf, value_buf).await
+    }
+
+    /// Unconditionally offloads both serialization and the database write to a blocking thread.
+    pub async fn insert_raw_async(
+        &self,
+        key_buf: Vec<u8>,
+        value_buf: Vec<u8>,
+    ) -> Result<(), TypedStoreError> {
+        let self_clone = self.clone();
+        tokio::task::spawn_blocking(move || self_clone.insert_raw(&key_buf, &value_buf)).await??;
+        Ok(())
+    }
+
+    /// Smart insert that automatically chooses sync or async based on value size
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    pub async fn insert_smart(&self, key: &K, value: &V) -> Result<(), TypedStoreError> {
+        let key_buf = be_fix_int_ser(key)?;
+        let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
+
+        if (key_buf.len() + value_buf.len()) > ASYNC_THRESHOLD_BYTES {
+            tracing::debug!(
+                value_size = value_buf.len(),
+                threshold = ASYNC_THRESHOLD_BYTES,
+                "Using async insert for large value"
+            );
+            self.insert_raw_async(key_buf, value_buf).await
+        } else {
+            self.insert_raw(&key_buf, &value_buf)
+        }
+    }
+
+    /// Unconditionally offloads both serialization and the database write to a blocking thread.
+    pub async fn insert_full_async(&self, key: K, value: V) -> Result<(), TypedStoreError> {
+        let self_clone = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let key_buf = be_fix_int_ser(&key)?;
+            let value_buf = bcs::to_bytes(&value).map_err(typed_store_err_from_bcs_err)?;
+            self_clone.insert_raw(&key_buf, &value_buf)
+        })
+        .await?
+    }
 }
 
 /// Provides a mutable struct to form a collection of database write operations, and execute them.
@@ -1322,6 +1423,35 @@ impl DBBatch {
     }
 }
 
+/// Async extensions for DBBatch
+impl DBBatch {
+    /// Async version of write that uses spawn_blocking for large batches
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    async fn write_async(self) -> Result<(), TypedStoreError> {
+        tokio::task::spawn_blocking(move || self.write()).await??;
+        Ok(())
+    }
+
+    /// Smart write that automatically chooses sync or async based on batch size
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    pub async fn write_smart(self) -> Result<(), TypedStoreError> {
+        let batch_size = self.batch.size_in_bytes();
+
+        if batch_size > ASYNC_THRESHOLD_BYTES {
+            // Use async for large batches
+            tracing::debug!(
+                batch_size = batch_size,
+                threshold = ASYNC_THRESHOLD_BYTES,
+                "Using async write for large batch"
+            );
+            self.write_async().await
+        } else {
+            // Use sync for small batches
+            self.write()
+        }
+    }
+}
+
 /// The raw iterator for the rocksdb
 pub type RocksDBRawIter<'a> =
     rocksdb::DBRawIteratorWithThreadMode<'a, DBWithThreadMode<MultiThreaded>>;
@@ -1400,48 +1530,9 @@ where
 
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn insert(&self, key: &K, value: &V) -> Result<(), TypedStoreError> {
-        let timer = self
-            .db_metrics
-            .op_metrics
-            .rocksdb_put_latency_seconds
-            .with_label_values(&[&self.cf])
-            .start_timer();
-        let perf_ctx = if self.write_sample_interval.sample() {
-            Some(RocksDBPerfContext)
-        } else {
-            None
-        };
         let key_buf = be_fix_int_ser(key)?;
         let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
-        self.db_metrics
-            .op_metrics
-            .rocksdb_put_bytes
-            .with_label_values(&[&self.cf])
-            .observe((key_buf.len() + value_buf.len()) as f64);
-        if perf_ctx.is_some() {
-            self.db_metrics
-                .write_perf_ctx_metrics
-                .report_metrics(&self.cf);
-        }
-        self.rocksdb
-            .put_cf(&self.cf()?, &key_buf, &value_buf, &self.opts.writeopts())
-            .map_err(typed_store_err_from_rocks_err)?;
-
-        let elapsed = timer.stop_and_record();
-        if elapsed > 1.0 {
-            tracing::warn!(?elapsed, cf = ?self.cf, "very slow insert");
-            self.db_metrics
-                .op_metrics
-                .rocksdb_very_slow_puts_count
-                .with_label_values(&[&self.cf])
-                .inc();
-            self.db_metrics
-                .op_metrics
-                .rocksdb_very_slow_puts_duration_ms
-                .with_label_values(&[&self.cf])
-                .inc_by((elapsed * 1000.0) as u64);
-        }
-
+        self.insert_raw(&key_buf, &value_buf)?;
         Ok(())
     }
 

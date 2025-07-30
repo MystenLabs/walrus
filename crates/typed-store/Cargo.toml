@@ -27,6 +27,7 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 tracing.workspace = true
 
 [dev-dependencies]
+criterion = { version = "0.5.1", features = ["async_tokio"] }
 once_cell.workspace = true
 rand.workspace = true
 rstest.workspace = true
@@ -38,3 +39,7 @@ sui-simulator.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "write_contention_bench"
+harness = false
