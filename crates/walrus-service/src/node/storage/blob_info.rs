@@ -1311,14 +1311,8 @@ impl Mergeable for BlobInfoV1 {
                 epoch,
                 event: status_event,
             }),
-            BlobInfoMergeOperand::MarkMetadataStored(_) => Some(
-                ValidBlobInfoV1 {
-                    is_metadata_stored: true,
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            BlobInfoMergeOperand::ChangeStatus { .. } => {
+            BlobInfoMergeOperand::ChangeStatus { .. }
+            | BlobInfoMergeOperand::MarkMetadataStored(_) => {
                 tracing::error!(
                     ?operand,
                     "encountered an unexpected update for an untracked blob ID"
@@ -1695,6 +1689,8 @@ mod tests {
 
     param_test! {
         test_merge_new_expected_failure_cases: [
+            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
+            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
             certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify,false, 42, 314, event_id_for_testing()
             )),
@@ -1736,8 +1732,6 @@ mod tests {
                 epoch: 0,
                 status_event: event_id_for_testing()
             }),
-            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
-            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
         ]
     }
     fn test_merge_new_expected_success_cases_invariants(operand: BlobInfoMergeOperand) {

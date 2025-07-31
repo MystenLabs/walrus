@@ -198,10 +198,7 @@ impl BackgroundEventProcessor {
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
-        self.node
-            .storage
-            .delete_blob_data(&event.blob_id, false)
-            .await?;
+        self.node.storage.delete_blob_data(&event.blob_id).await?;
 
         event_handle.mark_as_complete();
         Ok(())
