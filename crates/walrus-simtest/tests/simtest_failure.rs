@@ -85,7 +85,7 @@ mod tests {
                 false,
                 false,
                 &mut blobs_written,
-                0,
+                None,
                 None,
             )
             .await
@@ -108,7 +108,7 @@ mod tests {
                     false,
                     false,
                     &mut blobs_written,
-                    0,
+                    None,
                     None,
                 )
                 .await
@@ -239,7 +239,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -401,7 +401,7 @@ mod tests {
 
         // Use a higher write retry limit given that the epoch duration is short.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), true, 5, None);
+            simtest_utils::start_background_workload(client_arc.clone(), true, Some(5), None);
 
         let next_fail_triggered = Arc::new(Mutex::new(Instant::now()));
         let next_fail_triggered_clone = next_fail_triggered.clone();
@@ -625,7 +625,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node is lagging behind.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -821,7 +821,7 @@ mod tests {
 
         // Wait for the cluster to process some events.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Get the latest checkpoint from Sui.

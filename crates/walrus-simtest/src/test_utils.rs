@@ -104,9 +104,12 @@ pub mod simtest_utils {
         write_only: bool,
         deletable: bool,
         blobs_written: &mut HashSet<ObjectID>,
-        max_retry_count: usize,
+        max_retry_count: Option<usize>,
         epochs_max: Option<EpochCount>,
     ) -> anyhow::Result<()> {
+        const DEFAULT_MAX_RETRY_COUNT: usize = 2;
+        let max_retry_count = max_retry_count.unwrap_or(DEFAULT_MAX_RETRY_COUNT);
+
         // Get a random epoch length for the blob to be stored.
         let epoch_ahead = rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(5));
 
@@ -275,7 +278,7 @@ pub mod simtest_utils {
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
         write_only: bool,
-        max_retry_count: usize,
+        max_retry_count: Option<usize>,
         epochs_max: Option<EpochCount>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {

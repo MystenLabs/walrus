@@ -1,6 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(deprecated_usage)]
 #[test_only]
 module subsidies::subsidies_tests;
 

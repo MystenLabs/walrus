@@ -178,8 +178,7 @@ fixes. Follow the instructions in the `README.md` file to build and use Walrus f
 
 The Walrus client needs to know about the Sui objects that store the Walrus system and staking
 information, see the [developer guide](../dev-guide/sui-struct.md#system-and-staking-information).
-These need to be configured in a file `~/.config/walrus/client_config.yaml`. Additionally, a
-`subsidies` object can be specified, which will subsidize storage bought with the client.
+These need to be configured in a file `~/.config/walrus/client_config.yaml`.
 
 You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
 CLI configuration refers to the standard location for Sui configuration
@@ -190,13 +189,15 @@ CLI configuration refers to the standard location for Sui configuration
 ```
 
 <!-- markdownlint-disable code-fence-style -->
-~~~admonish tip
+
+````admonish tip
 The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
 
 ```sh
 curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
-~~~
+````
+
 <!-- markdownlint-enable code-fence-style -->
 
 ### Custom path (optional) {#config-custom-path}
@@ -215,11 +216,6 @@ The configuration file currently supports the following parameters for each of t
 # deployment but then do not change over time.
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working

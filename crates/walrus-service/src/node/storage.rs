@@ -149,6 +149,14 @@ impl NodeStatus {
             NodeStatus::RecoveryCatchUp | NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
         )
     }
+
+    /// Returns `true` if the node is catching up with incomplete history.
+    pub fn is_catching_up_with_incomplete_history(&self) -> bool {
+        matches!(
+            self,
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
+        )
+    }
 }
 
 impl Display for NodeStatus {
@@ -633,10 +641,12 @@ impl Storage {
     }
 
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
+    ///
+    /// This *does not* update the blob-info table in any way.
     #[tracing::instrument(skip_all)]
     pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id, true)?;
+        self.delete_metadata(&mut batch, blob_id, false)?;
         self.delete_slivers(&mut batch, blob_id).await?;
         batch.write()?;
         Ok(())

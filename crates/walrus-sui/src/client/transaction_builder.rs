@@ -1695,12 +1695,9 @@ impl WalrusPtbBuilder {
                     .get_credits_object(credits_object_id)
                     .await?
                     .buyer_subsidy_rate;
-                // TODO: (WAL-905) Hack until new subsidy is integrated with system contract
-                if u64::from(buyer_subsidy_rate) == TEN_THOUSAND_BASIS_POINTS {
-                    0
-                } else {
-                    full_price
-                }
+                let subsidy =
+                    full_price * u64::from(buyer_subsidy_rate) / TEN_THOUSAND_BASIS_POINTS;
+                full_price - subsidy
             }
             Some(_) => full_price,
             None => full_price,

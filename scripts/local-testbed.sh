@@ -178,8 +178,7 @@ if ! $use_existing_config; then
     --write-price 1 \
     --epoch-duration "$epoch_duration" \
     --contract-dir "$contract_dir" \
-    --with-wal-exchange \
-    --with-subsidies
+    --with-wal-exchange
 
   # Generate configs
   generate_dry_run_args=( --working-dir "$working_dir" )

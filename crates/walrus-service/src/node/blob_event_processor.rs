@@ -48,10 +48,10 @@ impl BackgroundEventProcessor {
             )
             .dec();
 
-            if let Err(e) = self.process_event(event_handle, blob_event).await {
+            if let Err(error) = self.process_event(event_handle, blob_event).await {
                 // TODO(WAL-874): to keep the same behavior as before BackgroundEventProcessor, we
                 // should propagate the error to the node and exit the process if necessary.
-                tracing::error!("error processing blob event: {}", e);
+                tracing::error!(?error, "error processing blob event");
             }
         }
     }
@@ -159,13 +159,24 @@ impl BackgroundEventProcessor {
             // subsequent certify or delete events may update the `blob_info`; so we cannot remove
             // it even if it is no longer valid in the *current* epoch
             if !blob_info.is_registered(event.epoch) {
-                tracing::debug!("deleting data for deleted blob");
+                tracing::debug!(walrus.blob_id = %blob_id, "deleting data for deleted blob");
                 // TODO (WAL-201): Actually delete blob data.
             }
+        } else if self
+            .node
+            .storage
+            .node_status()?
+            .is_catching_up_with_incomplete_history()
+        {
+            tracing::debug!(
+                walrus.blob_id = %blob_id,
+                "handling a `BlobDeleted` event for an untracked blob while catching up with \
+                incomplete history; not deleting blob data"
+            );
         } else {
             tracing::warn!(
                 walrus.blob_id = %blob_id,
-                "handling `BlobDeleted` event for an untracked blob"
+                "handling a `BlobDeleted` event for an untracked blob"
             );
         }
 
