@@ -38,6 +38,7 @@ pub(crate) enum WalrusClientOp {
         object_id: ObjectID,
         store_epoch_ahead: EpochCount,
     },
+    None,
 }
 
 pub(crate) struct ClientOpGenerator {
@@ -119,23 +120,29 @@ impl ClientOpGenerator {
     }
 
     fn generate_delete_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
-        let blob_id = blob_pool
-            .select_random_deletable_blob_id(rng)
-            .expect("deletable blob must exist");
-        WalrusClientOp::Delete { blob_id }
+        let blob_id = blob_pool.select_random_deletable_blob_id(rng);
+        if let Some(blob_id) = blob_id {
+            WalrusClientOp::Delete { blob_id }
+        } else {
+            tracing::info!("no deletable blob found, generating none op");
+            WalrusClientOp::None
+        }
     }
 
     fn generate_extend_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
-        let blob_id = blob_pool
-            .select_random_blob_id(rng)
-            .expect("blob must exist");
-        let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
-        WalrusClientOp::Extend {
-            blob_id,
-            object_id: blob_pool
-                .get_blob_object_id(blob_id)
-                .expect("blob should exist in the blob pool"),
-            store_epoch_ahead,
+        let blob_id = blob_pool.select_random_blob_id(rng);
+        if let Some(blob_id) = blob_id {
+            let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
+            WalrusClientOp::Extend {
+                blob_id,
+                object_id: blob_pool
+                    .get_blob_object_id(blob_id)
+                    .expect("blob should exist in the blob pool"),
+                store_epoch_ahead,
+            }
+        } else {
+            tracing::info!("no blob found, generating none op");
+            WalrusClientOp::None
         }
     }
 }
@@ -237,6 +244,9 @@ mod tests {
                 }
                 WalrusClientOp::Extend { .. } => {
                     // This is fine - extend operations are still allowed when pool is full
+                }
+                WalrusClientOp::None => {
+                    // This is fine - none operations are still allowed when pool is full
                 }
             }
         }

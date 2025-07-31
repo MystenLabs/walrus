@@ -208,6 +208,9 @@ impl SingleClientWorkload {
                 self.metrics.observe_latency("extend_blob", now.elapsed());
                 blob_pool.update_blob_pool(*blob_id, Some(*object_id), client_op.clone());
             }
+            WalrusClientOp::None => {
+                tracing::info!("none op received, skipping");
+            }
         }
         Ok(())
     }

@@ -90,6 +90,9 @@ impl BlobPool {
             } => {
                 // Do nothing.
             }
+            WalrusClientOp::None => {
+                // Do nothing.
+            }
         }
     }
 
