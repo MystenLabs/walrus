@@ -56,6 +56,8 @@ pub struct SingleClientWorkload {
     target_requests_per_minute: u64,
     /// Whether to check the read result matches the record of writes.
     check_read_result: bool,
+    /// The maximum number of blobs to keep in the blob pool.
+    max_blobs_in_pool: usize,
     /// The size distribution of uploaded blobs.
     size_distribution_config: SizeDistributionConfig,
     /// The store length distribution of store and extend operations.
@@ -68,10 +70,12 @@ pub struct SingleClientWorkload {
 
 impl SingleClientWorkload {
     /// Creates a new single client workload.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         client: Client<SuiContractClient>,
         target_requests_per_minute: u64,
         check_read_result: bool,
+        max_blobs_in_pool: usize,
         size_distribution_config: SizeDistributionConfig,
         store_length_distribution_config: StoreLengthDistributionConfig,
         request_type_distribution: RequestTypeDistributionConfig,
@@ -81,6 +85,7 @@ impl SingleClientWorkload {
             client,
             target_requests_per_minute,
             check_read_result,
+            max_blobs_in_pool,
             size_distribution_config,
             store_length_distribution_config,
             request_type_distribution,
@@ -93,7 +98,7 @@ impl SingleClientWorkload {
         let mut rng = rand::rngs::StdRng::from_entropy();
 
         // Use a blob pool to manage existing blobs.
-        let mut blob_pool = BlobPool::new(self.check_read_result);
+        let mut blob_pool = BlobPool::new(self.check_read_result, self.max_blobs_in_pool);
         let client_op_generator = ClientOpGenerator::new(
             self.request_type_distribution.clone(),
             self.size_distribution_config.clone(),
@@ -158,6 +163,7 @@ impl SingleClientWorkload {
                     *store_epoch_ahead,
                     StoreOptimizations::none(),
                     BlobPersistence::from_deletable_and_permanent(*deletable, !deletable)?,
+                    // TODO(WAL-954): test more PostStoreAction.
                     PostStoreAction::Keep,
                 );
                 store_args = store_args.with_metrics(self.metrics.clone());

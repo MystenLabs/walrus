@@ -29,13 +29,15 @@ pub(crate) struct BlobPool {
     // permanent), we may want to keep the object id in the map as well.
     blobs: HashMap<BlobId, BlobDataAndInfo>,
     store_blob_data: bool,
+    max_blobs_in_pool: usize,
 }
 
 impl BlobPool {
-    pub fn new(store_blob_data: bool) -> Self {
+    pub fn new(store_blob_data: bool, max_blobs_in_pool: usize) -> Self {
         Self {
             blobs: HashMap::new(),
             store_blob_data,
+            max_blobs_in_pool,
         }
     }
 
@@ -158,6 +160,11 @@ impl BlobPool {
     pub fn is_empty(&self) -> bool {
         self.blobs.is_empty()
     }
+
+    /// Returns true if the blob pool is full.
+    pub fn is_full(&self) -> bool {
+        self.blobs.len() >= self.max_blobs_in_pool
+    }
 }
 
 #[cfg(test)]
@@ -182,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_write_operation() {
-        let mut pool = BlobPool::new(true);
+        let mut pool = BlobPool::new(true, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
@@ -208,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_delete_operation() {
-        let mut pool = BlobPool::new(false);
+        let mut pool = BlobPool::new(false, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -231,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_extend_operation() {
-        let mut pool = BlobPool::new(false);
+        let mut pool = BlobPool::new(false, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -257,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_update_blob_pool_read_operation() {
-        let mut pool = BlobPool::new(false);
+        let mut pool = BlobPool::new(false, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -283,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_assert_blob_data_success() {
-        let mut pool = BlobPool::new(true);
+        let mut pool = BlobPool::new(true, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
@@ -302,7 +309,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_assert_blob_data_failure() {
-        let mut pool = BlobPool::new(true);
+        let mut pool = BlobPool::new(true, 1000);
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
@@ -319,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_expire_blobs_in_new_epoch() {
-        let mut pool = BlobPool::new(false);
+        let mut pool = BlobPool::new(false, 1000);
 
         // Add blobs with different expiration epochs
         let blob_id1 = BlobId([1; 32]);
@@ -361,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_multiple_blobs_with_mixed_deletable_flags() {
-        let mut pool = BlobPool::new(false);
+        let mut pool = BlobPool::new(false, 1000);
         let mut rng = thread_rng();
 
         // Add deletable blob

@@ -346,6 +346,10 @@ async fn run_single_client_workload(
 ) -> anyhow::Result<()> {
     tracing::info!("starting the single client stress runner, args: {:?}", args);
 
+    if args.max_blobs_in_pool == 0 {
+        anyhow::bail!("max_blobs_in_pool must be greater than 0");
+    }
+
     let data_size_config = args.workload_config.get_size_config();
     let store_length_config = args.workload_config.get_store_length_config();
     let request_type_distribution = args.request_type_distribution.to_config();
@@ -369,6 +373,7 @@ async fn run_single_client_workload(
         client,
         args.target_requests_per_minute,
         args.check_read_result,
+        args.max_blobs_in_pool,
         data_size_config,
         store_length_config,
         request_type_distribution,

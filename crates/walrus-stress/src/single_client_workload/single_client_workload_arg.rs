@@ -21,6 +21,10 @@ pub struct SingleClientWorkloadArgs {
     /// Check read result
     #[arg(long, default_value_t = true)]
     pub check_read_result: bool,
+    /// The maximum number of blobs to keep in the blob pool. The limit needs to be set in a way
+    /// that the pool will hold blob data in memory.
+    #[arg(long, default_value_t = 10000)]
+    pub max_blobs_in_pool: usize,
     /// Define the distribution of request types: read, write, delete, extend
     #[command(flatten)]
     pub request_type_distribution: RequestTypeDistributionArgs,
@@ -68,7 +72,7 @@ impl RequestTypeDistributionArgs {
 /// Arguments for the workload configuration.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum WorkloadConfig {
-    /// Configure workload with uniform size distribution
+    /// Configure workload with uniform size distribution.
     UniformSize {
         /// Minimum size in bytes (log2)
         #[arg(long, default_value_t = 1024)]
@@ -80,7 +84,8 @@ pub enum WorkloadConfig {
         #[command(subcommand)]
         store_length_distribution: RequestStoreLengthDistributionArgs,
     },
-    /// Configure workload with Poisson size distribution
+    /// Configure workload with Poisson size distribution.
+    ///
     PoissonSize {
         /// Lambda parameter for Poisson distribution
         #[arg(long, default_value_t = 100.0)]
@@ -95,7 +100,7 @@ pub enum WorkloadConfig {
 }
 
 impl WorkloadConfig {
-    /// Get the size distribution configuration
+    /// Get the size distribution configuration.
     pub fn get_size_config(&self) -> SizeDistributionConfig {
         match self {
             WorkloadConfig::UniformSize {

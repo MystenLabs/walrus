@@ -1155,6 +1155,7 @@ mod tests {
                 client.inner,
                 60,
                 true,
+                1000,
                 SizeDistributionConfig::Poisson {
                     lambda: 10.0,
                     size_multiplier: 1024,
