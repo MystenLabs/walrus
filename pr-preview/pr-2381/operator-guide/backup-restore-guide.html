@@ -235,6 +235,19 @@
 <p>Walrus storage nodes provide backup and restore functionality for the primary database containing
 blob data. This guide covers configuration requirements, operational procedures, and best practices
 for both automated and manual backup processes, as well as restore operations.</p>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info"></a>
+</div>
+<div>
+<p>The current backup implementation creates full copies of the database files. This means backups
+require substantial disk space (approximately the same size as your active database). A
+checkpoint-based solution is planned for a future release.</p>
+</div>
+</div>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <ul>
 <li>Storage node must be running with appropriate permissions to create backups</li>
@@ -270,8 +283,14 @@ this functionality:</p>
 <a class="admonition-anchor-link" href="#admonition-warning"></a>
 </div>
 <div>
-<p>All administrative operations must be executed under the <code>walrus</code> user context to ensure proper
-permissions and security.</p>
+<p>The storage node creates the socket with permissions <code>srw------- 1 walrus walrus</code>, ensuring
+that only the <code>walrus</code> user can send operations to it. This is critical for security, as
+operations sent to this socket are executed directly on the running storage node.</p>
+<p>Currently supported operations include:</p>
+<ul>
+<li><strong>local-admin checkpoint</strong></li>
+<li><strong>local-admin log-level</strong></li>
+</ul>
 </div>
 </div>
 <h2 id="automated-periodic-backups"><a class="header" href="#automated-periodic-backups">Automated periodic backups</a></h2>
@@ -311,6 +330,21 @@ following configs to your node configuration:</p>
 </div>
 <h2 id="manual-backup-creation"><a class="header" href="#manual-backup-creation">Manual backup creation</a></h2>
 <p>Create on-demand backups using the <code>local-admin</code> command:</p>
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
+<div class="admonition-title">
+<div id="admonition-info-1-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info-1"></a>
+</div>
+<div>
+<p>The following commands assume <code>walrus-node</code> is in your system's PATH. If it's not, replace
+<code>walrus-node</code> with the full path to the binary, for example:</p>
+<ul>
+<li><code>/opt/walrus/bin/walrus-node</code></li>
+</ul>
+</div>
+</div>
 <pre><code class="language-bash"># Basic backup command
 sudo -u walrus walrus-node local-admin \
   --socket-path /opt/walrus/admin.socket \
@@ -401,6 +435,17 @@ sudo -u walrus rm -rf /opt/walrus/db/*
 <div>
 <p>The restore process can take significant time depending on database size. Run the restore command
 in a persistent session using <code>tmux</code> or <code>screen</code> to prevent interruption if your connection drops.</p>
+</div>
+</div>
+<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div class="admonition-title">
+<div id="admonition-note-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-note"></a>
+</div>
+<div>
+<p>As mentioned earlier, if <code>walrus-node</code> is not in your PATH, use the full path to the binary.</p>
 </div>
 </div>
 <pre><code class="language-bash"># Restore from specific checkpoint

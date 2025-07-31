@@ -1039,8 +1039,7 @@ fixes. Follow the instructions in the <code>README.md</code> file to build and u
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
 <p>The Walrus client needs to know about the Sui objects that store the Walrus system and staking
 information, see the <a href="usage/../dev-guide/sui-struct.html#system-and-staking-information">developer guide</a>.
-These need to be configured in a file <code>~/.config/walrus/client_config.yaml</code>. Additionally, a
-<code>subsidies</code> object can be specified, which will subsidize storage bought with the client.</p>
+These need to be configured in a file <code>~/.config/walrus/client_config.yaml</code>.</p>
 <p>You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
 CLI configuration refers to the standard location for Sui configuration
 (<code>"~/.sui/sui_config/client.yaml"</code>).</p>
@@ -1048,7 +1047,6 @@ CLI configuration refers to the standard location for Sui configuration
   mainnet:
     system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
     staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
       # Optional path to the wallet config file.
@@ -1104,11 +1102,6 @@ you need to use the <code>--config</code> option when running the <code>walrus</
 # deployment but then do not change over time.
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
@@ -1191,7 +1184,6 @@ and can be viewed with various tools like the <a href="https://walruscan.com/">W
 <p>The client parameters for the Walrus Mainnet are:</p>
 <pre><code class="language-yaml">system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 rpc_urls:
   - https://fullnode.mainnet.sui.io:443
 </code></pre>
@@ -1199,7 +1191,6 @@ rpc_urls:
 <ul>
 <li>WAL package: <code>0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59</code></li>
 <li>Walrus package: <code>0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77</code></li>
-<li>Subsidies package: <code>0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc</code></li>
 </ul>
 <p>As these are inferred automatically from the object IDs above, there is no need to manually input
 them into the Walrus client configuration file. The latest published package IDs can also be found
@@ -2415,9 +2406,9 @@ Sui transactions, and Sui objects on chain:</p>
 <p><strong>Storage resources.</strong> A storage resource is needed to store a blob, with an appropriate capacity
 and epoch duration.
 Storage resources can be acquired from the Walrus system contract while there is free space
-available on the system against some WAL. Other options are also available, such as buying
-them from the subsidy contract, having it transferred, or splitting a larger resource bought
-occasionally into smaller ones (see discussion below).</p>
+available on the system against some WAL. Other options are also available, such as receiving it
+from other parties, or splitting a larger resource bought occasionally into smaller ones (see
+discussion below).</p>
 </li>
 <li>
 <p><strong>Upload costs.</strong> Upon blob registration, some WAL is charged to cover the costs of data upload.
@@ -2482,24 +2473,19 @@ system contract and also cost of uploads.</p>
 </li>
 <li>
 <p>The <code>walrus store --dry-run ...</code> command outputs the encoded size that is used in calculations
-of WAL costs. The <code>--dry-run</code> parameter ensures no transactions are submitted on chain. Note
-that currently, the estimated WAL cost <strong>does not take subsidies into account</strong> and as such is
-an overestimate while subsidies are available.</p>
+of WAL costs. The <code>--dry-run</code> parameter ensures no transactions are submitted on chain.</p>
 </li>
 </ul>
 <h2 id="managing-and-minimizing-costs"><a class="header" href="#managing-and-minimizing-costs">Managing and minimizing costs</a></h2>
 <p>There are multiple ways of acquiring storage resources, which impact their costs.</p>
 <p>The primary means is by sending some WAL to the Walrus system contract to "buy" a storage resource
-for some size in bytes and a defined lifetime in epochs. Currently, the Walrus Foundation also
-operates a subsidy contract that allows acquiring storage resources at a lower WAL cost as compared
-with the System contract. The Walrus CLI and the publisher use the subsidy contract by default to
-lower costs if a subsidy object is included in the configuration file.</p>
+for some size in bytes and a defined lifetime in epochs.</p>
 <p>Furthermore, before acquiring a storage resource, the CLI client will use any user-owned storage
 resource of an appropriate length (in epochs and size in bytes). However, the current implementation
 does not make any attempts yet to properly split or merge storage resources.</p>
 <!-- TODO(WAL-363): Update this as soon as better storage management is implemented. -->
 <p>There are a few ways to minimize costs associated with the need for storage resources. First,
-acquiring resources from either the system or subsidy contract involves at least one Sui
+acquiring resources from the system contract involves at least one Sui
 transaction interacting with a relatively complex shared object Sui smart contract. Therefore,
 acquiring larger storage resources at once both in length and size minimizes the SUI gas costs.
 Storage resources can then be split and merged to store smaller blobs or blobs for shorter time
@@ -3047,7 +3033,7 @@ let jwt = encode(&amp;Header::default(), &amp;claim, &amp;encode_key).expect("a 
 <p>This section contains information about operating a storage node. Currently, this guide contains
 information about</p>
 <ul>
-<li><a href="operator-guide/commission-governance.html">storage node commissions and governance</a>.</li>
+<li><a href="operator-guide/commission-governance.html">storage node commissions and governance</a> and</li>
 <li><a href="operator-guide/backup-restore-guide.html">storage node backup and restore</a>.</li>
 </ul>
 <p>In the future, it will be expanded with additional information about running a node.</p>
@@ -3191,6 +3177,19 @@ The upgrade and migration can both be performed using the <code>walrus-deploy</c
 <p>Walrus storage nodes provide backup and restore functionality for the primary database containing
 blob data. This guide covers configuration requirements, operational procedures, and best practices
 for both automated and manual backup processes, as well as restore operations.</p>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="operator-guide/backup-restore-guide.html#admonition-info"></a>
+</div>
+<div>
+<p>The current backup implementation creates full copies of the database files. This means backups
+require substantial disk space (approximately the same size as your active database). A
+checkpoint-based solution is planned for a future release.</p>
+</div>
+</div>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <ul>
 <li>Storage node must be running with appropriate permissions to create backups</li>
@@ -3226,8 +3225,14 @@ this functionality:</p>
 <a class="admonition-anchor-link" href="operator-guide/backup-restore-guide.html#admonition-warning"></a>
 </div>
 <div>
-<p>All administrative operations must be executed under the <code>walrus</code> user context to ensure proper
-permissions and security.</p>
+<p>The storage node creates the socket with permissions <code>srw------- 1 walrus walrus</code>, ensuring
+that only the <code>walrus</code> user can send operations to it. This is critical for security, as
+operations sent to this socket are executed directly on the running storage node.</p>
+<p>Currently supported operations include:</p>
+<ul>
+<li><strong>local-admin checkpoint</strong></li>
+<li><strong>local-admin log-level</strong></li>
+</ul>
 </div>
 </div>
 <h2 id="automated-periodic-backups"><a class="header" href="#automated-periodic-backups">Automated periodic backups</a></h2>
@@ -3267,6 +3272,21 @@ following configs to your node configuration:</p>
 </div>
 <h2 id="manual-backup-creation"><a class="header" href="#manual-backup-creation">Manual backup creation</a></h2>
 <p>Create on-demand backups using the <code>local-admin</code> command:</p>
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
+<div class="admonition-title">
+<div id="admonition-info-1-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="operator-guide/backup-restore-guide.html#admonition-info-1"></a>
+</div>
+<div>
+<p>The following commands assume <code>walrus-node</code> is in your system's PATH. If it's not, replace
+<code>walrus-node</code> with the full path to the binary, for example:</p>
+<ul>
+<li><code>/opt/walrus/bin/walrus-node</code></li>
+</ul>
+</div>
+</div>
 <pre><code class="language-bash"># Basic backup command
 sudo -u walrus walrus-node local-admin \
   --socket-path /opt/walrus/admin.socket \
@@ -3357,6 +3377,17 @@ sudo -u walrus rm -rf /opt/walrus/db/*
 <div>
 <p>The restore process can take significant time depending on database size. Run the restore command
 in a persistent session using <code>tmux</code> or <code>screen</code> to prevent interruption if your connection drops.</p>
+</div>
+</div>
+<div id="admonition-note" class="admonition admonish-note" role="note" aria-labelledby="admonition-note-title">
+<div class="admonition-title">
+<div id="admonition-note-title">
+<p>Note</p>
+</div>
+<a class="admonition-anchor-link" href="operator-guide/backup-restore-guide.html#admonition-note"></a>
+</div>
+<div>
+<p>As mentioned earlier, if <code>walrus-node</code> is not in your PATH, use the full path to the binary.</p>
 </div>
 </div>
 <pre><code class="language-bash"># Restore from specific checkpoint
