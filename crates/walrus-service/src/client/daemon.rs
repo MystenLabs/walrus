@@ -57,7 +57,6 @@ use walrus_sdk::{
     client::{
         Client,
         StoreArgs,
-        quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{ClientError, ClientResult},

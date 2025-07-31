@@ -24,7 +24,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use serde_with::{DurationSeconds, serde_as};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::digests::TransactionDigest;
 use tokio::{sync::Notify, task::JoinHandle, time::Instant};
@@ -73,14 +73,14 @@ pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 #[serde(rename_all = "snake_case")]
 pub struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
-    tip_config: TipConfig,
+    pub tip_config: TipConfig,
     /// The transaction freshness threshold.
     ///
     /// The maximum time gap (in seconds) between the time the tip transaction is executed (i.e.,
     /// the tip is paid), and the request to store is made to the Walrus upload relay.
     #[serde(rename = "tx_freshness_threshold_secs")]
     #[serde_as(as = "DurationSeconds")]
-    tx_freshness_threshold: Duration,
+    pub tx_freshness_threshold: Duration,
     /// The maximum time in the future (in seconds) a transaction timestamp can be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
@@ -98,38 +98,6 @@ pub struct PaidTipParams {
     /// The nonce used to generate the hash.
     pub nonce: [u8; NONCE_LEN],
     /// The encoding type of the blob.
-    pub encoding_type: Option<EncodingType>,
-}
-
-impl TryFrom<&Params> for PaidTipParams {
-    type Error = WalrusUploadRelayError;
-
-    fn try_from(value: &Params) -> Result<Self, Self::Error> {
-        // Checks that the `Params` contain the `tx_id` and the `nonce`, and returns an instance of
-        // `PaidParams`.
-        let Params {
-            tx_id,
-            nonce,
-            encoding_type,
-            ..
-        } = value;
-
-        Ok(PaidTipParams {
-            tx_id: tx_id.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
-            nonce: nonce.ok_or(WalrusUploadRelayError::MissingTxIdOrNonce)?,
-            encoding_type: *encoding_type,
-        })
-    }
-}
-
-/// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
-///
-/// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
-/// `deletable_blob_object` are not necessary.
-#[derive(Debug, Clone)]
-pub(crate) struct PaidTipParams {
-    pub tx_id: TransactionDigest,
-    pub nonce: [u8; NONCE_LEN],
     pub encoding_type: Option<EncodingType>,
 }
 
