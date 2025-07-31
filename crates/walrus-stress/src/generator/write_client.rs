@@ -33,6 +33,7 @@ use walrus_sui::{
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     test_utils::temp_dir_wallet,
+    types::move_structs::BlobWithAttribute,
     utils::SuiNetwork,
     wallet::Wallet,
 };
@@ -222,10 +223,14 @@ impl WriteClient {
             )
             .await?;
 
+        let blob_with_attr = BlobWithAttribute {
+            blob: blob_sui_object,
+            attribute: None,
+        };
         self.client
             .as_ref()
             .sui_client()
-            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
+            .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Burn)
             .await?;
 
         Ok(blob_id)

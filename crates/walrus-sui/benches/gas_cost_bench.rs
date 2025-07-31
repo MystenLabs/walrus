@@ -33,6 +33,7 @@ use walrus_sui::{
         SuiContractClient,
     },
     test_utils::system_setup::initialize_contract_and_wallet_for_testing,
+    types::move_structs::BlobWithAttribute,
 };
 
 const MEGA_SUI: u64 = 1_000_000_000_000_000; // 1M Sui
@@ -206,12 +207,24 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
                 test_node_keys.blob_certificate_for_signers(&signers, blob_metadata.blob_id, 1)?;
             let blob_objs_with_certs: Vec<_> = blob_objs
                 .iter()
-                .map(|blob| (blob, certificate.clone()))
-                .collect();
+                .map(|blob| {
+                    let blob_with_attr = BlobWithAttribute {
+                        blob: blob.clone(),
+                        attribute: None,
+                    };
+                    (blob_with_attr, certificate.clone())
+                })
+                .collect::<Vec<_>>();
 
             walrus_client
                 .as_ref()
-                .certify_blobs(&blob_objs_with_certs, PostStoreAction::Keep)
+                .certify_blobs(
+                    &blob_objs_with_certs
+                        .iter()
+                        .map(|(b, c)| (b, c.clone()))
+                        .collect::<Vec<_>>(),
+                    PostStoreAction::Keep,
+                )
                 .await?;
             if args.with_certify {
                 write_data_entry(

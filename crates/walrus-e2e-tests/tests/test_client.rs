@@ -86,7 +86,7 @@ use walrus_sui::{
         BlobEvent,
         ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, Credits, SharedBlob},
+        move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
@@ -343,10 +343,14 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
+    let blob_with_attr = BlobWithAttribute {
+        blob: blob_sui_object,
+        attribute: None,
+    };
     client
         .as_mut()
         .sui_client()
-        .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Keep)
+        .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Wait to receive an inconsistent blob event.

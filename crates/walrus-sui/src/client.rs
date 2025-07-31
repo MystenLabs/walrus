@@ -636,7 +636,7 @@ impl SuiContractClient {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         self.retry_on_wrong_version(|| async {
@@ -1754,17 +1754,26 @@ impl SuiContractClientInner {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &mut self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let mut pt_builder = self.transaction_builder()?;
-        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob_with_attr, certificate)) in blobs_with_certificates.iter().enumerate() {
+            let blob = &blob_with_attr.blob;
             tracing::debug!(
                 blob_id = %blob.blob_id,
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
+
+            // Add attributes if provided
+            if let Some(ref attribute) = blob_with_attr.attribute {
+                pt_builder
+                    .add_blob_attribute(blob.id.into(), attribute.clone())
+                    .await?;
+            }
+
             Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
@@ -1787,7 +1796,7 @@ impl SuiContractClientInner {
             &res,
             blobs_with_certificates
                 .iter()
-                .map(|(blob, _)| blob.blob_id)
+                .map(|(blob_with_attr, _)| blob_with_attr.blob.blob_id)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )

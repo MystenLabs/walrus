@@ -35,7 +35,13 @@ use walrus_sui::{
         new_contract_client_on_sui_test_cluster,
         system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
-    types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
+    types::{
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
+        NodeRegistrationParams,
+        move_structs::BlobWithAttribute,
+    },
     utils,
 };
 use walrus_test_utils::{WithTempDir, async_param_test};
@@ -202,9 +208,13 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let certificate = test_node_keys.blob_certificate_for_signers(&[0], blob_id, 1)?;
 
+    let blob_with_attr = BlobWithAttribute {
+        blob: blob_obj,
+        attribute: None,
+    };
     walrus_client
         .as_ref()
-        .certify_blobs(&[(&blob_obj, certificate)], PostStoreAction::Keep)
+        .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Make sure that we got the expected event
@@ -267,11 +277,15 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     };
     assert_eq!(blob_registered.blob_id, blob_id);
 
+    let blob_with_attr = BlobWithAttribute {
+        blob: blob_obj,
+        attribute: None,
+    };
     walrus_client
         .as_ref()
         .certify_blobs(
             &[(
-                &blob_obj,
+                &blob_with_attr,
                 test_node_keys.blob_certificate_for_signers(&[0], blob_id, 1)?,
             )],
             PostStoreAction::Keep,
