@@ -6,6 +6,12 @@ Walrus storage nodes provide backup and restore functionality for the primary da
 blob data. This guide covers configuration requirements, operational procedures, and best practices
 for both automated and manual backup processes, as well as restore operations.
 
+```admonish info
+The current backup implementation creates full copies of the database files. This means backups
+require substantial disk space (approximately the same size as your active database). A
+checkpoint-based solution is planned for a future release.
+```
+
 ## Prerequisites
 
 - Storage node must be running with appropriate permissions to create backups
@@ -37,8 +43,13 @@ this functionality:
    ```
 
 ```admonish warning
-All administrative operations must be executed under the `walrus` user context to ensure proper
-permissions and security.
+The storage node creates the socket with permissions `srw------- 1 walrus walrus`, ensuring
+that only the `walrus` user can send operations to it. This is critical for security, as
+operations sent to this socket are executed directly on the running storage node.
+
+Currently supported operations include:
+- **local-admin checkpoint**
+- **local-admin log-level**
 ```
 
 ## Automated periodic backups
@@ -76,6 +87,12 @@ To disable automated backups, set `periodic_db_checkpoints: false` in your confi
 ## Manual backup creation
 
 Create on-demand backups using the `local-admin` command:
+
+```admonish info
+The following commands assume `walrus-node` is in your system's PATH. If it's not, replace
+`walrus-node` with the full path to the binary, for example:
+- `/opt/walrus/bin/walrus-node`
+```
 
 ```bash
 # Basic backup command
@@ -157,6 +174,10 @@ Follow these steps to restore from a backup:
    ```admonish warning
    The restore process can take significant time depending on database size. Run the restore command
    in a persistent session using `tmux` or `screen` to prevent interruption if your connection drops.
+   ```
+
+   ```admonish note
+   As mentioned earlier, if `walrus-node` is not in your PATH, use the full path to the binary.
    ```
 
    ```bash

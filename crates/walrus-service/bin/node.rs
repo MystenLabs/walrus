@@ -221,6 +221,7 @@ struct AdminCommandResponse {
 #[command(rename_all = "kebab-case")]
 enum CheckpointCommands {
     /// Create a new checkpoint.
+    // TODO(WAL-953): Add a flag to make this non-blocking.
     Create {
         /// The path where the checkpoint will be created. If not specified, the checkpoint will be
         /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
