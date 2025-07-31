@@ -98,7 +98,7 @@ mod tests {
             false,
             false,
             &mut blobs_written,
-            0,
+            None,
             None,
         )
         .await
@@ -160,7 +160,7 @@ mod tests {
 
         let client_arc = Arc::new(client);
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), true, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), true, None, None);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -288,7 +288,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(90)).await;
@@ -488,7 +488,7 @@ mod tests {
         let workload_handle = simtest_utils::start_background_workload(
             client_arc.clone(),
             false,
-            0,
+            None,
             Some(MAX_EPOCHS_AHEAD),
         );
 
@@ -658,7 +658,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -745,7 +745,7 @@ mod tests {
             .unwrap();
 
         let workload_handle =
-            simtest_utils::start_background_workload(Arc::new(client), true, 0, None);
+            simtest_utils::start_background_workload(Arc::new(client), true, None, None);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(120)).await;
@@ -821,7 +821,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle =
-            simtest_utils::start_background_workload(client_arc.clone(), false, 0, None);
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
 
         // Run the workload to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
