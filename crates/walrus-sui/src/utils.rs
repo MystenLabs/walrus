@@ -17,7 +17,7 @@ use move_core_types::language_storage::StructTag as MoveStructTag;
 use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
-use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
+use sui_keys::keystore::{AccountKeystore as _, FileBasedKeystore, Keystore};
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
@@ -323,7 +323,7 @@ pub fn create_wallet(
 
     let mut keystore = FileBasedKeystore::new(&keystore_path)?;
     let (new_address, _phrase, _scheme) =
-        keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
+        keystore.generate(SignatureScheme::ED25519, None, None, None)?;
 
     let keystore = Keystore::from(keystore);
 
