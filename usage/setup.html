@@ -393,8 +393,7 @@ fixes. Follow the instructions in the <code>README.md</code> file to build and u
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
 <p>The Walrus client needs to know about the Sui objects that store the Walrus system and staking
 information, see the <a href="../dev-guide/sui-struct.html#system-and-staking-information">developer guide</a>.
-These need to be configured in a file <code>~/.config/walrus/client_config.yaml</code>. Additionally, a
-<code>subsidies</code> object can be specified, which will subsidize storage bought with the client.</p>
+These need to be configured in a file <code>~/.config/walrus/client_config.yaml</code>.</p>
 <p>You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
 CLI configuration refers to the standard location for Sui configuration
 (<code>"~/.sui/sui_config/client.yaml"</code>).</p>
@@ -402,7 +401,6 @@ CLI configuration refers to the standard location for Sui configuration
   mainnet:
     system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
     staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
     exchange_objects: []
     wallet_config:
       # Optional path to the wallet config file.
@@ -458,11 +456,6 @@ you need to use the <code>--config</code> option when running the <code>walrus</
 # deployment but then do not change over time.
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
