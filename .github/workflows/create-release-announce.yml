@@ -14,16 +14,12 @@ on:
         description: Network to generate release for
         required: true
         type: choice
-        default: devnet
+        default: devnet 
         options:
           - devnet
           - testnet
           - mainnet
-      announce:
-        description: Announce the release?
-        type: boolean
-        default: false
-        required: true
+
 env:
   RELEASE_NOTES_FILE: "./release_notes.txt"
 
@@ -148,17 +144,3 @@ jobs:
           draft: false
           prerelease: ${{ env.PRE_RELEASE }}
 
-  announce-release:
-    name: Announce Release in Discord
-    if: ${{ inputs.announce == true && inputs.network != 'devnet' }}
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch Release Announce in MystenLabs/sui-operations
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
-        with:
-          repository: MystenLabs/sui-operations
-          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
-          event-type: walrus-release-announce
-          client-payload: >
-            {"walrus_commit": "${{ inputs.walrus_commit }}", "environment": "${{ inputs.network }}"}
