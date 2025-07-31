@@ -925,13 +925,13 @@ mod tests {
     #[walrus_simtest]
     async fn test_quorum_contract_upgrade() -> anyhow::Result<()> {
         let deploy_dir = tempfile::TempDir::new().unwrap();
-        let epoch_duration_secs = Duration::from_secs(20);
+        let epoch_duration = Duration::from_secs(30);
         let (_sui_cluster_handle, mut walrus_cluster, client, system_ctx) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_deploy_directory(deploy_dir.path().to_path_buf())
                 .with_delegate_governance_to_admin_wallet()
                 .with_contract_directory(testnet_contract_dir().unwrap())
-                .with_epoch_duration(epoch_duration_secs)
+                .with_epoch_duration(epoch_duration)
                 .with_num_checkpoints_per_blob(20)
                 .build_generic::<SimStorageNodeHandle>()
                 .await?;
@@ -1028,7 +1028,7 @@ mod tests {
         simtest_utils::wait_for_nodes_to_reach_epoch(
             &walrus_cluster.nodes[..4],
             target_epoch,
-            2 * epoch_duration_secs,
+            2 * epoch_duration,
         )
         .await;
 
