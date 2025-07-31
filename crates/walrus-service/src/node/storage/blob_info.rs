@@ -815,7 +815,9 @@ impl ValidBlobInfoV1 {
             && self
                 .latest_seen_deletable_certified_epoch
                 .is_some_and(|l| l > current_epoch);
-        exists_certified_permanent_blob || maybe_exists_certified_deletable_blob
+        self.initial_certified_epoch
+            .is_some_and(|epoch| epoch <= current_epoch)
+            && (exists_certified_permanent_blob || maybe_exists_certified_deletable_blob)
     }
 
     #[tracing::instrument]
@@ -1532,7 +1534,10 @@ mod per_object_blob_info {
 
     impl CertifiedBlobInfoApi for PerObjectBlobInfoV1 {
         fn is_certified(&self, current_epoch: Epoch) -> bool {
-            self.is_registered(current_epoch) && self.certified_epoch.is_some()
+            self.is_registered(current_epoch)
+                && self
+                    .certified_epoch
+                    .is_some_and(|epoch| epoch <= current_epoch)
         }
 
         fn initial_certified_epoch(&self) -> Option<Epoch> {
