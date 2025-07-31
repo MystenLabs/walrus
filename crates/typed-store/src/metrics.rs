@@ -372,6 +372,22 @@ pub struct OperationMetrics {
     pub rocksdb_very_slow_puts_count: IntCounterVec,
     /// Total duration of puts that took more than 1 second
     pub rocksdb_very_slow_puts_duration_ms: IntCounterVec,
+    /// Bloom filter ticker counters
+    /// Note: These are only available upon turning on statistics in the rocksdb options
+    /// using `opt.enable_statistics();` and with lowest setting
+    /// `opt.set_statistics_level(StatsLevel::ExceptHistogramOrTimers);`
+    /// Number of times bloom filter has avoided file reads (negatives)
+    pub rocksdb_bloom_filter_useful_total: IntGaugeVec,
+    /// Number of times bloom FullFilter has not avoided the reads
+    pub rocksdb_bloom_filter_full_positive_total: IntGaugeVec,
+    /// Number of times bloom FullFilter has not avoided the reads and data actually exist
+    pub rocksdb_bloom_filter_full_true_positive_total: IntGaugeVec,
+    /// Number of times prefix filter was queried
+    pub rocksdb_bloom_filter_prefix_checked_total: IntGaugeVec,
+    /// Number of times prefix filter returned false so prevented accessing data+index blocks
+    pub rocksdb_bloom_filter_prefix_useful_total: IntGaugeVec,
+    /// Number of times prefix filter found a key matching the point query
+    pub rocksdb_bloom_filter_prefix_true_positive_total: IntGaugeVec,
 }
 
 impl OperationMetrics {
@@ -523,6 +539,48 @@ impl OperationMetrics {
                 "rocksdb_very_slow_puts_duration",
                 "Total duration of puts that took more than 1 second",
                 &["cf_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_useful_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_useful_total",
+                "Number of times bloom filter has avoided file reads (negatives)",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_full_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_full_positive_total",
+                "Number of times bloom FullFilter has not avoided the reads",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_full_true_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_full_true_positive_total",
+                "Number of times bloom FullFilter hasn't avoided reads and data actually exist",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_checked_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_checked_total",
+                "Number of times prefix filter was queried",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_useful_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_useful_total",
+                "Number of times prefix filter returned false to prevent data+index block",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_true_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_true_positive_total",
+                "Number of times prefix filter found a key matching the point query",
+                &["db_name"],
                 registry,
             )
             .unwrap(),

@@ -39,8 +39,8 @@ use rocksdb::{
     WriteBatch,
     WriteOptions,
     checkpoint::Checkpoint,
-    properties,
-    properties::num_files_at_level,
+    properties::{self, num_files_at_level},
+    statistics::Ticker,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tap::TapFallible;
@@ -79,7 +79,6 @@ const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
 /// The rocksdb database
 pub struct RocksDB {
     /// The underlying rocksdb database
@@ -88,6 +87,14 @@ pub struct RocksDB {
     pub metric_conf: MetricConf,
     /// The path of the database
     pub db_path: PathBuf,
+    /// The database options
+    pub db_options: rocksdb::Options,
+}
+
+impl fmt::Debug for RocksDB {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RocksDB {{ db_path: {:?} }}", self.db_path)
+    }
 }
 
 impl Drop for RocksDB {
@@ -102,12 +109,14 @@ impl RocksDB {
         underlying: rocksdb::DBWithThreadMode<MultiThreaded>,
         metric_conf: MetricConf,
         db_path: PathBuf,
+        db_options: rocksdb::Options,
     ) -> Self {
         DBMetrics::get().increment_num_active_dbs(&metric_conf.db_name);
         Self {
             underlying,
             metric_conf,
             db_path,
+            db_options,
         }
     }
 }
@@ -891,6 +900,60 @@ impl<K, V> DBMap<K, V> {
             .set(
                 Self::get_int_property(rocksdb, &cf, properties::BASE_LEVEL)
                     .unwrap_or(METRICS_ERROR),
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_useful_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterUseful) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_full_positive_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterFullPositive) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_full_true_positive_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterFullTruePositive) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_prefix_checked_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterPrefixChecked) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_prefix_useful_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterPrefixUseful) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_bloom_filter_prefix_true_positive_total
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::BloomFilterPrefixTruePositive) as i64,
             );
     }
 
@@ -1860,6 +1923,7 @@ pub fn open_cf_opts<P: AsRef<Path>>(
             rocksdb,
             metric_conf,
             PathBuf::from(path),
+            options,
         )))
     })
 }
