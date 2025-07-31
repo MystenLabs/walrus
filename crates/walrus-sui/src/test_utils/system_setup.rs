@@ -126,7 +126,6 @@ impl SystemContext {
             system_object: self.system_object,
             staking_object: self.staking_object,
             credits_object: self.credits_object,
-            subsidies_object: None,
             walrus_subsidies_object: self.walrus_subsidies_object,
         }
     }

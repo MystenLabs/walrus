@@ -16,9 +16,9 @@ Sui transactions, and Sui objects on chain:
 - **Storage resources.** A storage resource is needed to store a blob, with an appropriate capacity
   and epoch duration.
   Storage resources can be acquired from the Walrus system contract while there is free space
-  available on the system against some WAL. Other options are also available, such as buying
-  them from the subsidy contract, having it transferred, or splitting a larger resource bought
-  occasionally into smaller ones (see discussion below).
+  available on the system against some WAL. Other options are also available, such as receiving it
+  from other parties, or splitting a larger resource bought occasionally into smaller ones (see
+  discussion below).
 
 - **Upload costs.** Upon blob registration, some WAL is charged to cover the costs of data upload.
   This ensures that deleting blobs and reusing the same storage resource for storing a new blob is
@@ -81,27 +81,23 @@ transactions:
   system contract and also cost of uploads.
 
 - The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations
-  of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain. Note
-  that currently, the estimated WAL cost **does not take subsidies into account** and as such is
-  an overestimate while subsidies are available.
+  of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain.
 
 ## Managing and minimizing costs
 
 There are multiple ways of acquiring storage resources, which impact their costs.
 
 The primary means is by sending some WAL to the Walrus system contract to "buy" a storage resource
-for some size in bytes and a defined lifetime in epochs. Currently, the Walrus Foundation also
-operates a subsidy contract that allows acquiring storage resources at a lower WAL cost as compared
-with the System contract. The Walrus CLI and the publisher use the subsidy contract by default to
-lower costs if a subsidy object is included in the configuration file.
+for some size in bytes and a defined lifetime in epochs.
 
 Furthermore, before acquiring a storage resource, the CLI client will use any user-owned storage
 resource of an appropriate length (in epochs and size in bytes). However, the current implementation
 does not make any attempts yet to properly split or merge storage resources.
+
 <!-- TODO(WAL-363): Update this as soon as better storage management is implemented. -->
 
 There are a few ways to minimize costs associated with the need for storage resources. First,
-acquiring resources from either the system or subsidy contract involves at least one Sui
+acquiring resources from the system contract involves at least one Sui
 transaction interacting with a relatively complex shared object Sui smart contract. Therefore,
 acquiring larger storage resources at once both in length and size minimizes the SUI gas costs.
 Storage resources can then be split and merged to store smaller blobs or blobs for shorter time

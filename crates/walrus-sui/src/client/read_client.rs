@@ -332,10 +332,7 @@ impl SuiReadClient {
             walrus_subsidies: Arc::new(RwLock::new(None)),
             wal_type,
         };
-        if let Some(credits_object_id) = contract_config
-            .credits_object
-            .or(contract_config.subsidies_object)
-        {
+        if let Some(credits_object_id) = contract_config.credits_object {
             client.set_credits_object(credits_object_id).await?;
         }
         if let Some(walrus_subsidies_object_id) = contract_config.walrus_subsidies_object {
@@ -522,7 +519,6 @@ impl SuiReadClient {
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
-            subsidies_object: None,
             walrus_subsidies_object: self
                 .walrus_subsidies
                 .read()

@@ -13,13 +13,6 @@ pub struct ContractConfig {
     pub system_object: ObjectID,
     /// Object ID of the Walrus staking object.
     pub staking_object: ObjectID,
-    /// Object ID of the subsidies object.
-    // TODO(WAL-908): Remove once the subsidies are no longer used client-side.
-    // Kept for backwards compatibility until then.
-    // For credits, the `credits_object` field should be used from the start.
-    // TODO(WAL-908): Update configs in `../../../../setup`
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subsidies_object: Option<ObjectID>,
     /// Object ID of the credits object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credits_object: Option<ObjectID>,
@@ -35,7 +28,6 @@ impl ContractConfig {
             system_object,
             staking_object,
             credits_object: None,
-            subsidies_object: None,
             walrus_subsidies_object: None,
         }
     }

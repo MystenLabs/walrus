@@ -1509,9 +1509,8 @@ impl SuiContractClientInner {
                 Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
                     SystemError::EWrongVersion(_),
                 ))) => {
-                    // TODO(WAL-908): Change warning to credits.
                     tracing::warn!(
-                        "Walrus package version mismatch in subsidies call,
+                        "Walrus package version mismatch in credits call,
                             falling back to direct contract call"
                     );
                 }
@@ -1659,9 +1658,8 @@ impl SuiContractClientInner {
                 Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
                     SystemError::EWrongVersion(_),
                 ))) => {
-                    // TODO(WAL-908): Change warning to credits.
                     tracing::warn!(
-                        "Walrus package version mismatch in subsidies call, \
+                        "Walrus package version mismatch in credits call, \
                             falling back to direct contract call"
                     );
                 }
@@ -2566,9 +2564,8 @@ impl SuiContractClientInner {
                 Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
                     SystemError::EWrongVersion(_),
                 ))) => {
-                    // TODO(WAL-908): Change warning to credits.
                     tracing::warn!(
-                        "Walrus package version mismatch in subsidies
+                        "Walrus package version mismatch in credits call, \
                         call, falling back to direct contract call"
                     );
                 }
@@ -2674,9 +2671,8 @@ impl SuiContractClientInner {
                     MoveExecutionError::Staking(StakingError::EWrongVersion(_))
                     | MoveExecutionError::System(SystemError::EWrongVersion(_)),
                 )) => {
-                    // TODO(WAL-908): Change warning to credits.
                     tracing::warn!(
-                        "Walrus package version mismatch in subsidies call, \
+                        "Walrus package version mismatch in credits call, \
                             falling back to direct contract call"
                     );
                 }
