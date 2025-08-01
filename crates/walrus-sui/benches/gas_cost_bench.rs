@@ -242,6 +242,7 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
                     .iter()
                     .map(|blob| CertifyAndExtendBlobParams {
                         blob,
+                        attribute: None,
                         certificate: None,
                         epochs_extended,
                     })

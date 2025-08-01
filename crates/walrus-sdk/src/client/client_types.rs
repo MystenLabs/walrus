@@ -18,7 +18,10 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult};
+use walrus_sui::{
+    client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
+    types::move_structs::BlobAttribute,
+};
 
 use super::{
     ClientError,
@@ -190,7 +193,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
         blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}")))
+            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}"), None))
             .collect()
     }
 
@@ -200,7 +203,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Creates a new unencoded blob.
-    pub fn new_unencoded(blob: &'a [u8], identifier: T) -> Self {
+    pub fn new_unencoded(blob: &'a [u8], identifier: T, attribute: Option<BlobAttribute>) -> Self {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
             "store_blob_tracing",
@@ -212,6 +215,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             blob,
             identifier,
             span,
+            attribute,
         })
     }
 
@@ -278,6 +282,8 @@ pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
     pub identifier: T,
     /// The span for this blob's lifecycle.
     pub span: Span,
+    /// The attribute of the blob.
+    pub attribute: Option<BlobAttribute>,
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
@@ -455,6 +461,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for UnencodedBlob<'_, T> {
         f.debug_struct("UnencodedBlob")
             .field("identifier", &self.identifier)
             .field("blob_len", &self.blob.len())
+            .field("attribute", &self.attribute)
             .finish()
     }
 }
@@ -997,6 +1004,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         {
             Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: self.input_blob.attribute.as_ref(),
                 certificate: None,
                 epochs_extended: Some(*epochs_extended),
             })
@@ -1258,6 +1266,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 epochs_extended, ..
             } => Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: None,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: Some(*epochs_extended),
             }),
@@ -1265,6 +1274,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
             | RegisterBlobOp::ReuseStorage { .. }
             | RegisterBlobOp::ReuseRegistration { .. } => Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: None,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: None,
             }),
@@ -1751,7 +1761,7 @@ mod tests {
 
         // Wrap it in the WalrusStoreBlob enum
         let walrus_blob: WalrusStoreBlob<String> =
-            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone());
+            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone(), None);
 
         // Import the trait directly to bring the methods into scope
         use super::WalrusStoreBlobApi;

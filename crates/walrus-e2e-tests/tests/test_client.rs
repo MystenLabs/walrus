@@ -731,7 +731,7 @@ async fn test_store_with_existing_storage_resource(
     let unencoded_blobs = blob_data
         .iter()
         .enumerate()
-        .map(|(i, data)| WalrusStoreBlob::new_unencoded(data, format!("test-{i:02}")))
+        .map(|(i, data)| WalrusStoreBlob::new_unencoded(data, format!("test-{i:02}"), None))
         .collect();
     let encoding_type = DEFAULT_ENCODING;
     let encoded_blobs = client

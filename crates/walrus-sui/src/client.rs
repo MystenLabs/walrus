@@ -239,6 +239,8 @@ impl SuiClientError {
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
+    /// The attribute of the blob.
+    pub attribute: Option<&'a BlobAttribute>,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
@@ -2702,9 +2704,16 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let mut pt_builder = self.transaction_builder()?;
         for blob_params in blobs_with_certificates {
+            let blob = blob_params.blob;
+
             if let Some(certificate) = blob_params.certificate.as_ref() {
+                pt_builder.certify_blob(blob.id.into(), certificate).await?;
+            }
+
+            // Add attributes if provided
+            if let Some(attribute) = blob_params.attribute {
                 pt_builder
-                    .certify_blob(blob_params.blob.id.into(), certificate)
+                    .add_blob_attribute(blob.id.into(), attribute.clone())
                     .await?;
             }
 
@@ -2713,28 +2722,20 @@ impl SuiContractClientInner {
                 if with_credits {
                     pt_builder
                         .extend_blob_with_credits(
-                            blob_params.blob.id.into(),
+                            blob.id.into(),
                             epochs_extended,
-                            blob_params.blob.storage.storage_size,
+                            blob.storage.storage_size,
                         )
                         .await?;
                 } else {
                     pt_builder
-                        .extend_blob(
-                            blob_params.blob.id.into(),
-                            epochs_extended,
-                            blob_params.blob.storage.storage_size,
-                        )
+                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
                         .await?;
                 }
             }
 
-            SuiContractClientInner::apply_post_store_action(
-                &mut pt_builder,
-                blob_params.blob.id,
-                post_store,
-            )
-            .await?;
+            SuiContractClientInner::apply_post_store_action(&mut pt_builder, blob.id, post_store)
+                .await?;
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
