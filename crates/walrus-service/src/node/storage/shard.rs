@@ -43,7 +43,7 @@ use walrus_core::{
 use walrus_utils::metrics::Registry;
 
 use super::{
-    DatabaseConfig,
+    DatabaseTableOptionsFactory,
     blob_info::{BlobInfo, BlobInfoIterator},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
@@ -305,7 +305,7 @@ impl ShardStorage {
     pub(crate) fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,
-        db_config: &DatabaseConfig,
+        db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         registry: &Registry,
     ) -> Result<Self, TypedStoreError> {
@@ -323,7 +323,7 @@ impl ShardStorage {
         let response = Self::create_or_reopen_inner(
             id,
             database,
-            db_config,
+            db_table_opts_factory,
             initial_shard_status,
             metrics.clone(),
         );
@@ -339,7 +339,7 @@ impl ShardStorage {
     fn create_or_reopen_inner(
         id: ShardIndex,
         database: &Arc<RocksDB>,
-        db_config: &DatabaseConfig,
+        db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         metrics: ShardMetrics,
     ) -> Result<Self, TypedStoreError> {
@@ -348,10 +348,7 @@ impl ShardStorage {
 
         // Initialize the shard status column family.
         let status_cf: DBMap<(), ShardStatus> = reopen_cf!(
-            (
-                &cf_names.shard_status,
-                shard_status_column_family_options(db_config),
-            ),
+            (&cf_names.shard_status, db_table_opts_factory.shard_status(),),
             database,
             rw_options
         );
@@ -368,7 +365,7 @@ impl ShardStorage {
         let shard_sync_progress = reopen_cf!(
             (
                 &cf_names.shard_sync_progress,
-                shard_sync_progress_column_family_options(db_config),
+                db_table_opts_factory.shard_sync_progress(),
             ),
             database,
             rw_options
@@ -376,7 +373,7 @@ impl ShardStorage {
         let pending_recover_slivers = reopen_cf!(
             (
                 &cf_names.pending_recover_slivers,
-                pending_recover_slivers_column_family_options(db_config),
+                db_table_opts_factory.pending_recover_slivers(),
             ),
             database,
             rw_options
@@ -385,18 +382,12 @@ impl ShardStorage {
         // Make sure that sliver column families are created last. They are used to identify
         // whether the shard storage is initialized in `existing_cf_shards_ids`.
         let primary_slivers = reopen_cf!(
-            (
-                &cf_names.primary_slivers,
-                primary_slivers_column_family_options(db_config)
-            ),
+            (&cf_names.primary_slivers, db_table_opts_factory.shard(),),
             database,
             rw_options
         );
         let secondary_slivers = reopen_cf!(
-            (
-                &cf_names.secondary_slivers,
-                secondary_slivers_column_family_options(db_config)
-            ),
+            (&cf_names.secondary_slivers, db_table_opts_factory.shard(),),
             database,
             rw_options
         );
@@ -1529,36 +1520,6 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
         };
         Some((ShardIndex(id), sliver_type))
     })
-}
-
-/// Returns the name and options for the column families for a shard's primary
-/// sliver with the specified index.
-pub fn primary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's secondary
-/// sliver with the specified index.
-pub fn secondary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's operating status
-/// with the specified index.
-pub fn shard_status_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard_status().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's sync progress
-/// with the specified index.
-pub fn shard_sync_progress_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard_sync_progress().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's pending recover slivers
-/// with the specified index.
-pub fn pending_recover_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.pending_recover_slivers().to_options()
 }
 
 #[cfg(msim)]
