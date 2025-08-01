@@ -243,7 +243,7 @@ pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
     /// The attribute of the blob.
-    pub attribute: Option<&'a BlobAttribute>,
+    pub attribute: &'a BlobAttribute,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
@@ -2726,11 +2726,9 @@ impl SuiContractClientInner {
             }
 
             // Add attributes if provided.
-            if let Some(attribute) = blob_params.attribute {
-                pt_builder
-                    .insert_or_update_blob_attribute_pairs(blob.id.into(), attribute)
-                    .await?;
-            }
+            pt_builder
+                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
                 // TODO(WAL-835): buy single storage resource to extend multiple blobs

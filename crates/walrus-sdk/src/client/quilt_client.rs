@@ -19,10 +19,21 @@ use walrus_core::{
     QuiltPatchId,
     Sliver,
     SliverIndex,
-    encoding::{Primary, QuiltError, Secondary, SliverData, quilt_encoding::*},
+    encoding::{
+        BLOB_TYPE_ATTRIBUTE_KEY,
+        Primary,
+        QUILT_TYPE_VALUE,
+        QuiltError,
+        Secondary,
+        SliverData,
+        quilt_encoding::*,
+    },
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::client::{ReadClient, SuiContractClient};
+use walrus_sui::{
+    client::{ReadClient, SuiContractClient},
+    types::move_structs::BlobAttribute,
+};
 use walrus_utils::read_blob_from_file;
 
 use crate::{
@@ -764,9 +775,13 @@ impl QuiltClient<'_, SuiContractClient> {
         quilt: &V::Quilt,
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
+        let attributes = vec![BlobAttribute::from([(
+            BLOB_TYPE_ATTRIBUTE_KEY,
+            QUILT_TYPE_VALUE,
+        )])];
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &[], store_args)
+            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, store_args)
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();
