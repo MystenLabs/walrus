@@ -60,6 +60,49 @@ else
   )
 fi
 
+# Patch all Sui dependencies to use sui 1.53.1 with simulated execution latency turned off.
+# TODO(WAL-961): remove once Sui dependency is moved forward from testnet-v1.53.1.
+cargo_patch_args+=(
+  --config 'patch."https://github.com/MystenLabs/sui".move-core-types.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".move-core-types.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".move-package.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".move-package.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".mysten-metrics.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".mysten-metrics.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-config.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-config.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-json-rpc-api.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-json-rpc-api.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-json-rpc-types.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-json-rpc-types.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-keys.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-keys.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-macros.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-macros.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-move-build.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-move-build.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-package-management.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-package-management.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-package-resolver.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-package-resolver.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-protocol-config.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-protocol-config.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-rpc-api.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-rpc-api.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-sdk.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-sdk.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-simulator.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-simulator.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-storage.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-storage.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-types.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".sui-types.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".telemetry-subscribers.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".telemetry-subscribers.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+  --config 'patch."https://github.com/MystenLabs/sui".test-cluster.git = "https://github.com/halfprice/sui"'
+  --config 'patch."https://github.com/MystenLabs/sui".test-cluster.rev = "655131bd6c1c8da8247cd440bbc74892e38e2ef1"'
+)
+
 # Mock out the blst crate to massively speed up the simulation.
 # You should not assume that test runs will be repeatable with and without blst mocking,
 # as blst samples from the PRNG when not mocked.
