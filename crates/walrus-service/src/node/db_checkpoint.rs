@@ -16,6 +16,7 @@ use rocksdb::{
 
 /// A wrapper for BackupEngineInfo that provides human-readable display formatting.
 pub struct DisplayableDbCheckpointInfo {
+    /// The RocksDB backup engine info.
     pub inner: BackupEngineInfo,
 }
 

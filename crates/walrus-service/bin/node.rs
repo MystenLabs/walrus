@@ -174,6 +174,9 @@ enum Commands {
     /// Restore the database from a checkpoint.
     Restore(RestoreArgs),
 
+    /// List available database checkpoints without connecting to a running node.
+    ListDbCheckpoint(ListDbCheckpointArgs),
+
     /// Local admin commands for managing a running node.
     LocalAdmin {
         /// Admin subcommand to execute.
@@ -486,6 +489,12 @@ struct RestoreArgs {
     checkpoint_id: Option<u32>,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct ListDbCheckpointArgs {
+    /// The path to the checkpoint directory.
+    path: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -563,6 +572,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
 
         Commands::Restore(restore_args) => commands::restore(restore_args)?,
+
+        Commands::ListDbCheckpoint(args) => commands::list_db_checkpoints(args)?,
 
         Commands::LocalAdmin {
             command,
@@ -1126,6 +1137,54 @@ mod commands {
             "Restored from {target_checkpoint} successfully. The node must be restarted for \
             changes to take effect."
         );
+
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(crate) async fn list_db_checkpoints(
+        ListDbCheckpointArgs { path }: ListDbCheckpointArgs,
+    ) -> anyhow::Result<()> {
+        use rocksdb::{
+            Env,
+            backup::{BackupEngine, BackupEngineOptions},
+        };
+        use walrus_service::DisplayableDbCheckpointInfo;
+
+        // Ensure the directory exists
+        if !path.exists() {
+            return Err(anyhow::anyhow!(
+                "Checkpoint directory does not exist: {}",
+                path.display()
+            ));
+        }
+
+        // Create BackupEngine directly
+        let env = Env::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create RocksDB environment: {}", e))?;
+        let backup_opts = BackupEngineOptions::new(&path)
+            .map_err(|e| anyhow::anyhow!("Failed to create backup options: {}", e))?;
+        let engine = BackupEngine::open(&backup_opts, &env)
+            .map_err(|e| anyhow::anyhow!("Failed to open backup engine: {}", e))?;
+
+        let backup_info = engine.get_backup_info();
+
+        if backup_info.is_empty() {
+            println!("No checkpoints found in {}", path.display());
+        } else {
+            let checkpoints: Vec<DisplayableDbCheckpointInfo> =
+                backup_info.into_iter().map(|info| info.into()).collect();
+
+            println!(
+                "Available checkpoints in {}:\n{}",
+                path.display(),
+                checkpoints
+                    .iter()
+                    .map(|b| format!("  {b}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
 
         Ok(())
     }
