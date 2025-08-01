@@ -20,7 +20,7 @@ This means:
 The action (`MystenLabs/walrus-sites/.github/actions/deploy`) requires these inputs:
 
 - **`SUI_ADDRESS`**: Your Sui address (GitHub variable)
-- **`SUI_KEYSTORE`**: Your private key in base64 format (GitHub secret)  
+- **`SUI_KEYSTORE`**: Your private key in base64 format (GitHub secret)
 - **`DIST`**: Path to your **built** site directory
 
 Optional inputs include:
