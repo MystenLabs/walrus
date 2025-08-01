@@ -189,11 +189,14 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
     pub fn default_unencoded_blobs_from_slice(
         blobs: &'a [&[u8]],
+        attributes: &[Option<BlobAttribute>],
     ) -> Vec<WalrusStoreBlob<'a, String>> {
         blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}"), None))
+            .map(|(i, blob)| {
+                WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}"), attributes[i].clone())
+            })
             .collect()
     }
 

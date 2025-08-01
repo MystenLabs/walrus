@@ -1688,7 +1688,7 @@ async fn test_post_store_action(
         .with_post_store(post_store);
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
+        .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
         .await?;
 
     let owned_blobs = client

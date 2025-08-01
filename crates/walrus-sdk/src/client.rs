@@ -59,7 +59,12 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
+    types::{
+        Blob,
+        BlobEvent,
+        StakedWal,
+        move_structs::{BlobAttribute, BlobWithAttribute},
+    },
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
@@ -854,10 +859,11 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
+        attributes: &[Option<BlobAttribute>],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
         let start = Instant::now();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
@@ -894,7 +900,7 @@ impl Client<SuiContractClient> {
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
@@ -936,7 +942,7 @@ impl Client<SuiContractClient> {
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
@@ -952,51 +958,6 @@ impl Client<SuiContractClient> {
             .into_iter()
             .filter_map(|blob| blob.get_result())
             .collect())
-    }
-
-    /// Encodes multiple blobs into sliver pairs and metadata.
-    ///
-    /// Returns a list of sliver pairs and metadata for each blob.
-    ///
-    /// Failed blobs are filtered out.
-    pub fn encode_blobs_to_pairs_and_metadata(
-        &self,
-        blobs: &[&[u8]],
-        encoding_type: EncodingType,
-    ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
-
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
-
-        debug_assert_eq!(
-            encoded_blobs.len(),
-            blobs.len(),
-            "the number of encoded blobs and the number of blobs must be the same"
-        );
-
-        // Failed blobs are filtered out.
-        let result = encoded_blobs
-            .into_iter()
-            .filter_map(|encoded_blob| {
-                if encoded_blob.is_failed() {
-                    None
-                } else {
-                    Some((
-                        encoded_blob
-                            .get_sliver_pairs()
-                            .expect("sliver pairs are present on an encoded blob")
-                            .clone(),
-                        encoded_blob
-                            .get_metadata()
-                            .expect("metadata is present on an encoded blob")
-                            .clone(),
-                    ))
-                }
-            })
-            .collect();
-
-        Ok(result)
     }
 
     /// Encodes multiple blobs.

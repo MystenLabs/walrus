@@ -184,6 +184,9 @@ pub enum SuiClientError {
     /// The attribute already exists on the blob.
     #[error("the attribute already exists on the blob")]
     AttributeAlreadyExists,
+    /// The attribute is reserved for system use.
+    #[error("the attribute {0} is reserved for system use")]
+    AttributeReserved(String),
     /// The amount of stake is below the threshold for staking.
     #[error(
         "the stake amount {0} FROST is below the minimum threshold of {MIN_STAKING_THRESHOLD} \
@@ -1455,6 +1458,18 @@ impl SuiContractClientInner {
         I: IntoIterator<Item = (T, T)>,
         T: Into<String>,
     {
+        let pairs: Vec<(String, String)> = pairs
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+
+        if let Some((key, _)) = pairs
+            .iter()
+            .find(|(k, _)| BlobAttribute::is_reserved_key(k))
+        {
+            return Err(SuiClientError::AttributeReserved(key.clone()));
+        }
+
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
             .insert_or_update_blob_attribute_pairs(blob_obj_id.into(), pairs)
@@ -2710,10 +2725,10 @@ impl SuiContractClientInner {
                 pt_builder.certify_blob(blob.id.into(), certificate).await?;
             }
 
-            // Add attributes if provided
+            // Add attributes if provided.
             if let Some(attribute) = blob_params.attribute {
                 pt_builder
-                    .add_blob_attribute(blob.id.into(), attribute.clone())
+                    .insert_or_update_blob_attribute_pairs(blob.id.into(), attribute)
                     .await?;
             }
 

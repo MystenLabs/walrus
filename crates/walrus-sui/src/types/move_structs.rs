@@ -3,7 +3,7 @@
 
 //! Walrus move type bindings. Replicates the move types in Rust.
 
-use std::{fmt::Display, num::NonZeroU16};
+use std::{collections::HashSet, fmt::Display, num::NonZeroU16};
 
 use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
@@ -148,6 +148,36 @@ where
 }
 
 impl BlobAttribute {
+    /// Static set of reserved attribute keys that should not be used by users.
+    /// These keys are reserved for system use and Walrus-specific functionality.
+    /// Note: This only blocks user from using the reserved keys from an official Walrus client.
+    pub const RESERVED_KEYS: &'static [&'static str] = &["_walrusBlobType"];
+
+    /// Checks if a key is reserved and should not be used by regular users.
+    ///
+    /// # Arguments
+    /// * `key` - The key to check
+    ///
+    /// # Returns
+    /// * `true` if the key is reserved, `false` otherwise
+    ///
+    /// # Examples
+    /// ```
+    /// use walrus_sui::types::move_structs::BlobAttribute;
+    ///
+    /// assert!(BlobAttribute::is_reserved_key("_walrusBlobType"));
+    /// assert!(!BlobAttribute::is_reserved_key("user_key"));
+    /// ```
+    pub fn is_reserved_key(key: &str) -> bool {
+        Self::RESERVED_KEYS.contains(&key)
+    }
+
+    /// Returns a HashSet of all reserved keys for efficient lookup.
+    /// This is useful when you need to check multiple keys or perform set operations.
+    pub fn reserved_keys_set() -> HashSet<&'static str> {
+        Self::RESERVED_KEYS.iter().copied().collect()
+    }
+
     /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
