@@ -8,7 +8,7 @@ license.workspace = true
 
 [[bin]]
 name = "walrus-upload-relay"
-path = "src/main.rs"
+path = "bin/upload_relay.rs"
 
 
 [dependencies]
@@ -43,6 +43,9 @@ utoipa.workspace = true
 utoipa-redoc.workspace = true
 walrus-sdk.workspace = true
 walrus-test-utils.workspace = true
+
+[features]
+default = []
 
 [lints]
 workspace = true
