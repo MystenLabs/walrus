@@ -13,6 +13,12 @@ use crate::{
     encoding::{EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, utils},
 };
 
+/// The key of blob attribute, used to identify the type of the blob.
+pub const BLOB_TYPE_ATTRIBUTE_KEY: &str = "_walrusBlobType";
+
+/// The type attribute value for quilt blobs.
+pub const QUILT_TYPE_VALUE: &str = "quilt";
+
 /// Trait implemented for all basic (1D) decoders.
 pub trait Decoder {
     /// The type of the associated encoding configuration.

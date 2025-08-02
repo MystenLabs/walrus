@@ -128,7 +128,7 @@ pub mod simtest_utils {
                 )?);
             let result = client
                 .as_ref()
-                .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &store_args)
+                .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
                 .await;
             if let Ok(result) = result {
                 break result;

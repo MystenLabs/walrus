@@ -239,6 +239,8 @@ impl SuiClientError {
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
+    /// The attribute of the blob.
+    pub attribute: &'a BlobAttribute,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
@@ -636,7 +638,7 @@ impl SuiContractClient {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         self.retry_on_wrong_version(|| async {
@@ -1754,17 +1756,26 @@ impl SuiContractClientInner {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &mut self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let mut pt_builder = self.transaction_builder()?;
-        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob_with_attr, certificate)) in blobs_with_certificates.iter().enumerate() {
+            let blob = &blob_with_attr.blob;
             tracing::debug!(
                 blob_id = %blob.blob_id,
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
+
+            // Add attributes if provided
+            if let Some(ref attribute) = blob_with_attr.attribute {
+                pt_builder
+                    .add_blob_attribute(blob.id.into(), attribute.clone())
+                    .await?;
+            }
+
             Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
@@ -1787,7 +1798,7 @@ impl SuiContractClientInner {
             &res,
             blobs_with_certificates
                 .iter()
-                .map(|(blob, _)| blob.blob_id)
+                .map(|(blob_with_attr, _)| blob_with_attr.blob.blob_id)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
@@ -2693,39 +2704,36 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let mut pt_builder = self.transaction_builder()?;
         for blob_params in blobs_with_certificates {
+            let blob = blob_params.blob;
+
             if let Some(certificate) = blob_params.certificate.as_ref() {
-                pt_builder
-                    .certify_blob(blob_params.blob.id.into(), certificate)
-                    .await?;
+                pt_builder.certify_blob(blob.id.into(), certificate).await?;
             }
+
+            // Add attributes if provided.
+            pt_builder
+                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
                 // TODO(WAL-835): buy single storage resource to extend multiple blobs
                 if with_credits {
                     pt_builder
                         .extend_blob_with_credits(
-                            blob_params.blob.id.into(),
+                            blob.id.into(),
                             epochs_extended,
-                            blob_params.blob.storage.storage_size,
+                            blob.storage.storage_size,
                         )
                         .await?;
                 } else {
                     pt_builder
-                        .extend_blob(
-                            blob_params.blob.id.into(),
-                            epochs_extended,
-                            blob_params.blob.storage.storage_size,
-                        )
+                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
                         .await?;
                 }
             }
 
-            SuiContractClientInner::apply_post_store_action(
-                &mut pt_builder,
-                blob_params.blob.id,
-                post_store,
-            )
-            .await?;
+            SuiContractClientInner::apply_post_store_action(&mut pt_builder, blob.id, post_store)
+                .await?;
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
