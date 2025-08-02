@@ -844,3 +844,140 @@ async fn test_iterator_seek() {
     iter.seek_to_last();
     assert_eq!(iter.key().unwrap(), Some(789));
 }
+
+#[tokio::test]
+async fn test_dbmap_ticker_statistics() {
+    use rocksdb::statistics::Ticker;
+
+    // Create a temporary directory for the test
+    let path = temp_dir();
+
+    // Create database options with statistics enabled
+    let mut db_options = default_db_options().options;
+    db_options.enable_statistics();
+    db_options.set_statistics_level(rocksdb::statistics::StatsLevel::All);
+
+    // Create metric configuration
+    let metric_conf = MetricConf::new("test_db");
+
+    // Open the database with multiple column families
+    let rocks = open_cf_opts(
+        &path,
+        Some(db_options),
+        metric_conf,
+        &[
+            ("cf1", default_db_options().options),
+            ("cf2", default_db_options().options),
+        ],
+    )
+    .expect("Failed to open database");
+
+    // Create DBMaps for different column families
+    let db_cf1: DBMap<i32, String> =
+        DBMap::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+            .expect("Failed to open cf1");
+
+    let db_cf2: DBMap<i32, String> =
+        DBMap::reopen(&rocks, Some("cf2"), &ReadWriteOptions::default(), false)
+            .expect("Failed to open cf2");
+
+    // Get initial ticker counts
+    let initial_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
+    let initial_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
+    let initial_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
+    let initial_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+
+    // Perform operations on first column family
+    db_cf1
+        .insert(&1, &"value1".to_string())
+        .expect("Failed to insert");
+    db_cf1
+        .insert(&2, &"value2".to_string())
+        .expect("Failed to insert");
+    db_cf1
+        .insert(&3, &"value3".to_string())
+        .expect("Failed to insert");
+
+    // Perform operations on second column family
+    db_cf2
+        .insert(&10, &"value10".to_string())
+        .expect("Failed to insert");
+    db_cf2
+        .insert(&20, &"value20".to_string())
+        .expect("Failed to insert");
+
+    // Flush both column families to ensure data is written
+    db_cf1.flush().expect("Failed to flush cf1");
+    db_cf2.flush().expect("Failed to flush cf2");
+
+    // Read some data to generate read statistics
+    let _val1 = db_cf1.get(&1).expect("Failed to get from cf1");
+    let _val2 = db_cf1.get(&2).expect("Failed to get from cf1");
+    let _val10 = db_cf2.get(&10).expect("Failed to get from cf2");
+
+    // Get ticker counts after operations
+    let final_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
+    let final_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
+    let final_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
+    let final_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+
+    // Verify that ticker values have increased
+    assert!(
+        final_bytes_written > initial_bytes_written,
+        "BytesWritten should have increased: {initial_bytes_written} -> {final_bytes_written}"
+    );
+
+    assert!(
+        final_keys_written > initial_keys_written,
+        "NumberKeysWritten should have increased: {initial_keys_written} -> {final_keys_written}"
+    );
+
+    assert!(
+        final_bytes_read > initial_bytes_read,
+        "BytesRead should have increased: {initial_bytes_read} -> {final_bytes_read}"
+    );
+
+    assert!(
+        final_keys_read > initial_keys_read,
+        "NumberKeysRead should have increased: {initial_keys_read} -> {final_keys_read}"
+    );
+
+    // Verify that we wrote the expected number of keys
+    assert_eq!(
+        final_keys_written - initial_keys_written,
+        5,
+        "Should have written exactly 5 keys"
+    );
+
+    // Verify that we read the expected number of keys
+    assert_eq!(
+        final_keys_read - initial_keys_read,
+        3,
+        "Should have read exactly 3 keys"
+    );
+
+    // Test histogram data as well
+    let histogram_data = rocks
+        .db_options
+        .get_histogram_data(rocksdb::statistics::Histogram::DbWrite);
+    assert!(
+        histogram_data.count() > 0,
+        "Write histogram should have data"
+    );
+    assert!(
+        histogram_data.max().is_normal(),
+        "Write histogram max should be a normal number"
+    );
+
+    let read_histogram_data = rocks
+        .db_options
+        .get_histogram_data(rocksdb::statistics::Histogram::DbGet);
+    assert!(
+        read_histogram_data.count() > 0,
+        "Read histogram should have data"
+    );
+    assert!(
+        read_histogram_data.max().is_normal(),
+        "Read histogram max should be a normal number"
+    );
+}
