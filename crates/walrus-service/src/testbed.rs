@@ -570,7 +570,6 @@ pub async fn create_storage_node_configs(
     faucet_cooldown: Option<Duration>,
     rpc_fallback_config: Option<RpcFallbackConfig>,
     admin_contract_client: &mut SuiContractClient,
-    use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
     sui_amount: u64,
     sui_client_request_timeout: Option<Duration>,
@@ -582,7 +581,6 @@ pub async fn create_storage_node_configs(
         ?set_config_dir,
         ?set_db_path,
         ?faucet_cooldown,
-        use_legacy_event_provider,
         disable_event_blob_writer,
         "starting to create storage-node configs"
     );
@@ -725,7 +723,6 @@ pub async fn create_storage_node_configs(
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_processor_config: Default::default(),
-            use_legacy_event_provider,
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
             voting_params: VotingParams {

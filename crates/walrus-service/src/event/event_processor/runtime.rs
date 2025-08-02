@@ -20,10 +20,7 @@ use crate::{
         config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
         processor::EventProcessor,
     },
-    node::{
-        DatabaseConfig,
-        system_events::{EventManager, SuiSystemEventProvider},
-    },
+    node::{DatabaseConfig, system_events::EventManager},
 };
 
 /// Event processor runtime.
@@ -75,7 +72,6 @@ impl EventProcessorRuntime {
     pub fn start(
         sui_config: SuiReaderConfig,
         event_processor_config: EventProcessorConfig,
-        use_legacy_event_provider: bool,
         db_path: &Path,
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
@@ -89,37 +85,27 @@ impl EventProcessorRuntime {
             .context("event manager runtime creation failed")?;
         let _guard = runtime.enter();
 
-        let (event_manager, event_processor_handle): (Box<dyn EventManager>, _) =
-            if use_legacy_event_provider {
-                let read_client = runtime.block_on(async { sui_config.new_read_client().await })?;
-                (
-                    Box::new(SuiSystemEventProvider::new(
-                        read_client,
-                        sui_config.event_polling_interval,
-                    )),
-                    tokio::spawn(async { std::future::pending().await }),
+        let (event_manager, event_processor_handle): (Box<dyn EventManager>, _) = {
+            let event_processor = runtime.block_on(async {
+                Self::build_event_processor(
+                    &sui_config,
+                    &event_processor_config,
+                    db_path,
+                    metrics_registry,
+                    db_config,
                 )
-            } else {
-                let event_processor = runtime.block_on(async {
-                    Self::build_event_processor(
-                        &sui_config,
-                        &event_processor_config,
-                        db_path,
-                        metrics_registry,
-                        db_config,
-                    )
-                    .await
-                })?;
-                let cloned_event_processor = event_processor.clone();
-                let event_processor_handle = tokio::spawn(async move {
-                    let result = cloned_event_processor.start(cancel_token).await;
-                    if let Err(ref error) = result {
-                        tracing::error!(?error, "event manager exited with an error");
-                    }
-                    result
-                });
-                (Box::new(event_processor), event_processor_handle)
-            };
+                .await
+            })?;
+            let cloned_event_processor = event_processor.clone();
+            let event_processor_handle = tokio::spawn(async move {
+                let result = cloned_event_processor.start(cancel_token).await;
+                if let Err(ref error) = result {
+                    tracing::error!(?error, "event manager exited with an error");
+                }
+                result
+            });
+            (Box::new(event_processor), event_processor_handle)
+        };
 
         Ok((
             event_manager,
