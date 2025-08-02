@@ -12812,6 +12812,7 @@ version = "1.31.0"
 dependencies = [
  "anyhow",
  "futures",
+ "hex",
  "indicatif",
  "prometheus",
  "rand 0.8.5",

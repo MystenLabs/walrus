@@ -33,8 +33,10 @@ use walrus_core::{
     ShardIndex,
     SliverPairIndex,
     encoding::{
+        BLOB_TYPE_ATTRIBUTE_KEY,
         EncodingConfigTrait as _,
         Primary,
+        QUILT_TYPE_VALUE,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     merkle::Node,
@@ -970,6 +972,15 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         _ => panic!("Expected NewlyCreated, got {blob_store_result:?}"),
     };
 
+    let attribute = client.get_blob_by_object_id(&blob_object.id).await?;
+    assert_eq!(
+        attribute.attribute,
+        Some(BlobAttribute::from([(
+            BLOB_TYPE_ATTRIBUTE_KEY,
+            QUILT_TYPE_VALUE,
+        )]))
+    );
+
     // Read the blobs in the quilt.
     let id_blob_map = quilt_store_blobs
         .iter()
@@ -1741,6 +1752,60 @@ async fn test_post_store_action(
             }
         }
     }
+    Ok(())
+}
+
+/// Tests storing a blob with random attributes using.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_blob_with_random_attributes() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (_sui_cluster_handle, _cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let num_attributes = thread_rng().gen_range(0..=10);
+    let mut attribute = BlobAttribute::default();
+    for i in 0..num_attributes {
+        let key = format!("test_key_{i}");
+        let value = hex::encode(walrus_test_utils::random_data(64));
+        attribute.insert(key, value);
+    }
+
+    let blob_data = walrus_test_utils::random_data(1024);
+    let blobs = vec![blob_data.as_slice()];
+    let attributes = vec![attribute.clone()];
+
+    // Store the blob with attributes.
+    let store_args = StoreArgs::default_with_epochs(2).no_store_optimizations();
+    let results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(&blobs, &attributes, &store_args)
+        .await?;
+
+    assert_eq!(results.len(), 1);
+    let store_result = &results[0];
+
+    let blob_object = match store_result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object,
+        _ => panic!("Expected newly created blob"),
+    };
+
+    // Verify the blob was stored with attributes.
+    let blob_with_attribute = client
+        .as_ref()
+        .get_blob_by_object_id(&blob_object.id)
+        .await?;
+
+    // Check that the attributes were stored correctly.
+    assert!(blob_with_attribute.attribute.is_some());
+    let stored_attribute = blob_with_attribute.attribute.unwrap();
+    assert_eq!(stored_attribute, attribute);
+
+    tracing::info!(
+        "Successfully stored blob with {} random attributes",
+        num_attributes
+    );
+
     Ok(())
 }
 
