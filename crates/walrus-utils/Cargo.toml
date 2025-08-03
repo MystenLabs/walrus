@@ -35,7 +35,7 @@ tap = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }
-tokio-metrics = { version = "0.4.2", optional = true, default-features = false }
+tokio-metrics = { version = "0.4.3", optional = true, default-features = false }
 tokio-util = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
