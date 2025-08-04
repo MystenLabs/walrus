@@ -220,6 +220,7 @@ struct AdminCommandResponse {
 /// Commands for checkpoint management.
 ///
 /// Note the checkpoint command works only on the Walrus main DB.
+#[allow(deprecated)]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[command(rename_all = "kebab-case")]
 enum CheckpointCommands {
@@ -234,15 +235,6 @@ enum CheckpointCommands {
         /// The delay before creating the checkpoint.
         #[arg(long)]
         delay_secs: Option<u64>,
-    },
-
-    /// List existing checkpoints.
-    List {
-        /// The path to the checkpoint directory. If not provided, the directory configured in
-        /// [`StorageNodeConfig::checkpoint_config`] will be used. If none of these are provided an
-        /// error will be returned.
-        #[arg(long)]
-        path: Option<PathBuf>,
     },
 
     /// Cancel an ongoing checkpoint creation.
@@ -1597,26 +1589,6 @@ async fn handle_checkpoint_command(
                 Err(e) => AdminCommandResponse {
                     success: false,
                     message: format!("Failed to create checkpoint: {e:?}"),
-                },
-            }
-        }
-        CheckpointCommands::List { path } => {
-            let result = manager.list_db_checkpoints(path.as_deref());
-            match result {
-                Ok(db_checkpoints) => AdminCommandResponse {
-                    success: true,
-                    message: format!(
-                        "Backups:\n{}",
-                        db_checkpoints
-                            .iter()
-                            .map(|b| format!("  {b}"))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    ),
-                },
-                Err(e) => AdminCommandResponse {
-                    success: false,
-                    message: format!("Failed to list db checkpoints: {e}"),
                 },
             }
         }
