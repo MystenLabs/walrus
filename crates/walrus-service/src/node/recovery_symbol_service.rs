@@ -17,9 +17,16 @@ use walrus_core::{
     Sliver,
     SliverId,
     SliverPairIndex,
-    SliverType,
     by_axis::{self, ByAxis},
-    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, RecoverySymbolError, Secondary},
+    encoding::{
+        DecodingSymbol,
+        EncodingConfig,
+        EncodingConfigTrait,
+        GeneralRecoverySymbol,
+        Primary,
+        RecoverySymbolError,
+        Secondary,
+    },
     merkle::MerkleTree,
 };
 use walrus_utils::metrics::Registry;
@@ -113,6 +120,106 @@ impl RecoverySymbolService {
         }
     }
 
+    fn proof_from_cache_or_build<F>(
+        &self,
+        cache_key: CacheKey,
+        target_index: usize,
+        miss_total: &IntCounter,
+        build_tree: F,
+    ) -> Result<walrus_core::merkle::MerkleProof<Blake2b256>, RecoverySymbolError>
+    where
+        F: FnOnce() -> Result<Arc<MerkleTree<Blake2b256>>, RecoverySymbolError>,
+    {
+        if let Some(tree) = self.cache.get(&cache_key) {
+            return Ok(tree
+                .get_proof(target_index)
+                .expect("bound already checked above"));
+        }
+
+        let tree = self
+            .cache
+            .try_get_with::<_, RecoverySymbolError>(cache_key.clone(), || {
+                miss_total.inc();
+                build_tree()
+            })
+            .map_err(Arc::unwrap_or_clone)?;
+
+        Ok(tree
+            .get_proof(target_index)
+            .expect("bound already checked above"))
+    }
+
+    fn handle_request_for_source_symbol<SourceAxis: walrus_core::encoding::EncodingAxis>(
+        &self,
+        sliver: walrus_core::encoding::SliverData<SourceAxis>,
+        config: &walrus_core::encoding::EncodingConfigEnum,
+        cache_key: CacheKey,
+        target_sliver_index: walrus_core::SliverIndex,
+        miss_total: &IntCounter,
+    ) -> Result<GeneralRecoverySymbol, RecoverySymbolError>
+    where
+        walrus_core::encoding::DecodingSymbol<
+            <SourceAxis as walrus_core::encoding::EncodingAxis>::OrthogonalAxis,
+        >: Into<walrus_core::encoding::EitherDecodingSymbol>,
+    {
+        let symbol_bytes = sliver.symbols[target_sliver_index.as_usize()].to_vec();
+        let sliver_index = sliver.index;
+        let decoding_symbol =
+            DecodingSymbol::<SourceAxis::OrthogonalAxis>::new(sliver_index.get(), symbol_bytes);
+
+        let proof = self.proof_from_cache_or_build(
+            cache_key,
+            target_sliver_index.as_usize(),
+            miss_total,
+            move || {
+                let recovery_symbols = sliver.recovery_symbols(config)?;
+                let tree = MerkleTree::<Blake2b256>::build(recovery_symbols.to_symbols());
+                Ok(Arc::new(tree))
+            },
+        )?;
+
+        Ok(GeneralRecoverySymbol::from_recovery_symbol(
+            decoding_symbol.with_proof(proof),
+            target_sliver_index,
+        ))
+    }
+
+    fn handle_request_for_recovery_symbol<SourceAxis: walrus_core::encoding::EncodingAxis>(
+        &self,
+        sliver: walrus_core::encoding::SliverData<SourceAxis>,
+        config: &walrus_core::encoding::EncodingConfigEnum,
+        cache_key: CacheKey,
+        target_sliver_index: walrus_core::SliverIndex,
+        miss_total: &IntCounter,
+    ) -> Result<GeneralRecoverySymbol, RecoverySymbolError>
+    where
+        walrus_core::encoding::DecodingSymbol<SourceAxis::OrthogonalAxis>:
+            Into<walrus_core::encoding::EitherDecodingSymbol>,
+    {
+        let recovery_symbols = sliver.recovery_symbols(config)?;
+        let decoding_symbol = recovery_symbols
+            .decoding_symbol_at::<SourceAxis::OrthogonalAxis>(
+                target_sliver_index.as_usize(),
+                sliver.index.into(),
+            )
+            .expect("we have exactly `n_shards` symbols and the bound was checked");
+
+        let proof = self.proof_from_cache_or_build(
+            cache_key,
+            target_sliver_index.as_usize(),
+            miss_total,
+            move || {
+                let tree = MerkleTree::<Blake2b256>::build(recovery_symbols.to_symbols());
+                Ok(Arc::new(tree))
+            },
+        )?;
+
+        Ok(GeneralRecoverySymbol::from_recovery_symbol(
+            decoding_symbol.with_proof(proof),
+            target_sliver_index,
+        ))
+    }
+
     fn handle_request_and_cache(
         &mut self,
         req: RecoverySymbolRequest,
@@ -120,45 +227,76 @@ impl RecoverySymbolService {
         let n_shards = self.encoding_config.n_shards();
         let config = self.encoding_config.get_for_type(req.encoding_type);
 
-        let decoding_symbol = by_axis::map!(req.source_sliver.as_ref(), |s| s
-            .decoding_symbol_for_sliver(req.target_pair_index, &config))
-        .transpose()?;
-
-        let target_sliver_index = match req.source_sliver.r#type() {
-            SliverType::Primary => req.target_pair_index.to_sliver_index::<Secondary>(n_shards),
-            SliverType::Secondary => req.target_pair_index.to_sliver_index::<Primary>(n_shards),
-        };
-
         let cache_key = CacheKey {
             blob_id: req.blob_id,
             source_id: by_axis::map!(req.source_sliver.as_ref(), |s| s.index),
         };
 
         self.metrics.requests_total.inc();
-
         let miss_total = self.metrics.cache_miss_total.clone();
-        let encoding_config = self.encoding_config.clone();
-        let merkle_tree = self
-            .cache
-            .try_get_with::<_, RecoverySymbolError>(cache_key, move || {
-                miss_total.inc();
-                merkle_tree_for_request(req, encoding_config)
-            })
-            .map_err(Arc::unwrap_or_clone)?;
 
-        let proof = merkle_tree
-            .get_proof(target_sliver_index.as_usize())
-            .expect("index is valid as it was valid to get the decoding symbol");
+        let recovery_symbol = match req.source_sliver {
+            ByAxis::Primary(sliver) => {
+                let target_sliver_index =
+                    req.target_pair_index.to_sliver_index::<Secondary>(n_shards);
 
-        let recovery_symbol = match decoding_symbol {
-            ByAxis::Primary(symbol) => ByAxis::Primary(symbol.with_proof(proof)),
-            ByAxis::Secondary(symbol) => ByAxis::Secondary(symbol.with_proof(proof)),
+                let is_source_target =
+                    Self::is_source_target_for_axis::<Secondary>(&config, target_sliver_index);
+
+                if is_source_target {
+                    self.handle_request_for_source_symbol::<Primary>(
+                        sliver,
+                        &config,
+                        cache_key.clone(),
+                        target_sliver_index,
+                        &miss_total,
+                    )?
+                } else {
+                    self.handle_request_for_recovery_symbol::<Primary>(
+                        sliver,
+                        &config,
+                        cache_key,
+                        target_sliver_index,
+                        &miss_total,
+                    )?
+                }
+            }
+            ByAxis::Secondary(sliver) => {
+                let target_sliver_index =
+                    req.target_pair_index.to_sliver_index::<Primary>(n_shards);
+
+                let is_source_target =
+                    Self::is_source_target_for_axis::<Primary>(&config, target_sliver_index);
+
+                if is_source_target {
+                    self.handle_request_for_source_symbol::<Secondary>(
+                        sliver,
+                        &config,
+                        cache_key.clone(),
+                        target_sliver_index,
+                        &miss_total,
+                    )?
+                } else {
+                    self.handle_request_for_recovery_symbol::<Secondary>(
+                        sliver,
+                        &config,
+                        cache_key,
+                        target_sliver_index,
+                        &miss_total,
+                    )?
+                }
+            }
         };
-        let recovery_symbol = by_axis::flat_map!(recovery_symbol, |symbol| {
-            GeneralRecoverySymbol::from_recovery_symbol(symbol, target_sliver_index)
-        });
 
         Ok(recovery_symbol)
+    }
+
+    #[inline]
+    fn is_source_target_for_axis<T: walrus_core::encoding::EncodingAxis>(
+        config: &walrus_core::encoding::EncodingConfigEnum,
+        target_sliver_index: walrus_core::SliverIndex,
+    ) -> bool {
+        target_sliver_index.get() < config.n_source_symbols::<T>().get()
     }
 }
 
@@ -190,20 +328,6 @@ impl Service<RecoverySymbolRequest> for RecoverySymbolService {
         }
         .boxed()
     }
-}
-
-fn merkle_tree_for_request(
-    req: RecoverySymbolRequest,
-    encoding_config: Arc<EncodingConfig>,
-) -> Result<Arc<MerkleTree<Blake2b256>>, RecoverySymbolError> {
-    let encoding_config = encoding_config.get_for_type(req.encoding_type);
-
-    let symbols = by_axis::flat_map!(req.source_sliver.as_ref(), |x| x
-        .recovery_symbols(&encoding_config))?;
-
-    Ok(Arc::new(MerkleTree::<Blake2b256>::build(
-        symbols.to_symbols(),
-    )))
 }
 
 #[cfg(test)]
