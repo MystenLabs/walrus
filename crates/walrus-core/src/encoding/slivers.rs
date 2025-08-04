@@ -217,6 +217,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. Returns a
     /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
+    ///
     pub fn decoding_symbol_for_sliver(
         &self,
         target_pair_index: SliverPairIndex,
@@ -224,15 +225,27 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoverySymbolError> {
         Self::check_index(target_pair_index.into(), config.n_shards())?;
 
-        // TODO(jsmith): Avoid expanding all the symbols to get a single symbol (WAL-611).
-        let recovery_symbols = self.recovery_symbols(config)?;
         let target_sliver_index =
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
-
-        Ok(recovery_symbols
-            .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
-            .expect("we have exactly `n_shards` symbols and the bound was checked"))
+        let is_source_target = usize::from(target_sliver_index.get()) < self.symbols.len();
+        if is_source_target {
+            let symbol_bytes = self.symbols[target_sliver_index.as_usize()].to_vec();
+            let sliver_index = self.index;
+            Ok(DecodingSymbol::<T::OrthogonalAxis>::new(
+                sliver_index.get(),
+                symbol_bytes,
+            ))
+        } else {
+            // TODO(jsmith): Avoid expanding all the symbols to get a single symbol (WAL-611).
+            let recovery_symbols = self.recovery_symbols(config)?;
+            let decoding_symbol = recovery_symbols
+                .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
+                .expect("we have exactly `n_shards` symbols and the bound was checked");
+            Ok(decoding_symbol)
+        }
     }
+
+    // Removed: decoding_symbol_for_sliver_with_recovery_symbols
 
     /// Recovers a [`SliverData`] from the provided recovery symbols.
     ///
