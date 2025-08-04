@@ -16,6 +16,15 @@ use crate::{
     traits::SeekableIterator,
 };
 
+pub struct IterContext {
+    pub _timer: Option<HistogramTimer>,
+    pub _perf_ctx: Option<RocksDBPerfContext>,
+    pub iter_bytes: Option<Histogram>,
+    pub key_bytes_scanned: Option<Histogram>,
+    pub value_bytes_scanned: Option<Histogram>,
+    pub keys_scanned: Option<Histogram>,
+}
+
 /// An iterator over all key-value pairs in a data map.
 pub struct SafeIter<'a, K, V> {
     cf_name: String,
@@ -23,12 +32,10 @@ pub struct SafeIter<'a, K, V> {
     _phantom: PhantomData<(K, V)>,
     direction: Direction,
     is_initialized: bool,
-    _timer: Option<HistogramTimer>,
-    _perf_ctx: Option<RocksDBPerfContext>,
-    bytes_scanned: Option<Histogram>,
-    keys_scanned: Option<Histogram>,
+    iter_context: IterContext,
     db_metrics: Option<Arc<DBMetrics>>,
-    bytes_scanned_counter: usize,
+    key_bytes_scanned_counter: usize,
+    value_bytes_scanned_counter: usize,
     keys_returned_counter: usize,
 }
 
@@ -42,10 +49,7 @@ impl<'a, K: DeserializeOwned, V: DeserializeOwned> SafeIter<'a, K, V> {
     pub(super) fn new(
         cf_name: String,
         db_iter: RocksDBRawIter<'a>,
-        _timer: Option<HistogramTimer>,
-        _perf_ctx: Option<RocksDBPerfContext>,
-        bytes_scanned: Option<Histogram>,
-        keys_scanned: Option<Histogram>,
+        iter_context: IterContext,
         db_metrics: Option<Arc<DBMetrics>>,
     ) -> Self {
         Self {
@@ -54,12 +58,10 @@ impl<'a, K: DeserializeOwned, V: DeserializeOwned> SafeIter<'a, K, V> {
             _phantom: PhantomData,
             direction: Direction::Forward,
             is_initialized: false,
-            _timer,
-            _perf_ctx,
-            bytes_scanned,
-            keys_scanned,
+            iter_context,
             db_metrics,
-            bytes_scanned_counter: 0,
+            key_bytes_scanned_counter: 0,
+            value_bytes_scanned_counter: 0,
             keys_returned_counter: 0,
         }
     }
@@ -88,7 +90,8 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for SafeIter<'_, K, V> {
                 .db_iter
                 .value()
                 .expect("valid iterator should be able to get value");
-            self.bytes_scanned_counter += raw_key.len() + raw_value.len();
+            self.key_bytes_scanned_counter += raw_key.len();
+            self.value_bytes_scanned_counter += raw_value.len();
             self.keys_returned_counter += 1;
             let key = config.deserialize(raw_key).ok();
             let value = bcs::from_bytes(raw_value).ok();
@@ -108,13 +111,23 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for SafeIter<'_, K, V> {
 
 impl<K, V> Drop for SafeIter<'_, K, V> {
     fn drop(&mut self) {
-        if let Some(bytes_scanned) = self.bytes_scanned.take() {
-            bytes_scanned.observe(self.bytes_scanned_counter as f64);
+        if let Some(iter_bytes) = self.iter_context.iter_bytes.take() {
+            iter_bytes.observe(
+                self.key_bytes_scanned_counter as f64 + self.value_bytes_scanned_counter as f64,
+            );
         }
-        if let Some(keys_scanned) = self.keys_scanned.take() {
+        if let Some(key_bytes_scanned) = self.iter_context.key_bytes_scanned.take() {
+            key_bytes_scanned.observe(self.key_bytes_scanned_counter as f64);
+        }
+        if let Some(value_bytes_scanned) = self.iter_context.value_bytes_scanned.take() {
+            value_bytes_scanned.observe(self.value_bytes_scanned_counter as f64);
+        }
+        if let Some(keys_scanned) = self.iter_context.keys_scanned.take() {
             keys_scanned.observe(self.keys_returned_counter as f64);
         }
-        if let Some(db_metrics) = self.db_metrics.take() {
+        if self.iter_context._perf_ctx.is_some()
+            && let Some(db_metrics) = self.db_metrics.take()
+        {
             db_metrics
                 .read_perf_ctx_metrics
                 .report_metrics(&self.cf_name);
