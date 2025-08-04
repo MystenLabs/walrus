@@ -21,17 +21,18 @@ use axum_extra::{
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
-pub use routes::PublisherQuery;
 use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    LIST_PATCHES_IN_QUILT_ENDPOINT,
     QUILT_PATCH_BY_ID_GET_ENDPOINT,
     QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
     QUILT_PUT_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
+pub use routes::{PublisherQuery, QuiltPatchItem};
 use sui_types::base_types::ObjectID;
 use tower::{
     ServiceBuilder,
@@ -125,6 +126,19 @@ pub trait WalrusReadClient {
             )))
         }
     }
+
+    /// Lists patches in a quilt.
+    fn list_patches_in_quilt(
+        &self,
+        _quilt_id: &BlobId,
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltPatchItem>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -197,6 +211,33 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
                 format!("blob with identifier '{identifier}' not found in quilt").into(),
             ))
         })
+    }
+
+    async fn list_patches_in_quilt(&self, quilt_id: &BlobId) -> ClientResult<Vec<QuiltPatchItem>> {
+        use walrus_core::{
+            encoding::quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
+            metadata::QuiltMetadata,
+        };
+
+        let metadata = self.quilt_client().get_quilt_metadata(quilt_id).await?;
+
+        let patches = match metadata {
+            QuiltMetadata::V1(metadata_v1) => metadata_v1
+                .index
+                .patches()
+                .iter()
+                .map(|patch| {
+                    let patch_id =
+                        QuiltPatchId::new(*quilt_id, patch.quilt_patch_internal_id().to_bytes());
+                    QuiltPatchItem {
+                        identifier: patch.identifier().to_string(),
+                        patch_id: patch_id.to_string(),
+                    }
+                })
+                .collect(),
+        };
+
+        Ok(patches)
     }
 }
 
@@ -350,6 +391,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
                 get(routes::get_blob_by_quilt_id_and_identifier)
                     .with_state((self.client.clone(), self.response_header_config.clone())),
+            )
+            .route(
+                LIST_PATCHES_IN_QUILT_ENDPOINT,
+                get(routes::list_patches_in_quilt),
             );
         self
     }

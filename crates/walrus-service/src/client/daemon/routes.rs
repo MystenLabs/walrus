@@ -78,6 +78,8 @@ pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{q
 /// The path to get blob from quilt by quilt ID and identifier.
 pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
+/// The path to list patches in a quilt.
+pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -663,6 +665,89 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
                 }
                 GetBlobError::Internal(error) => {
                     tracing::info!(?error, "error retrieving quilt blob by ID and identifier")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Response item for a patch in a quilt.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct QuiltPatchItem {
+    /// The identifier of the patch (e.g., filename).
+    pub identifier: String,
+    /// The QuiltPatchId for this patch, encoded as URL-safe base64.
+    pub patch_id: String,
+}
+
+/// List patches in a quilt.
+///
+/// Returns a list of identifiers and QuiltPatchIds for all patches contained in the specified
+/// quilt.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/quilts/\
+/// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU/patches"
+/// ```
+///
+/// Response:
+/// ```json
+/// [
+///   {
+///     "identifier": "walrus-38.jpeg",
+///     "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABAQANAA"
+///   },
+///   {
+///     "identifier": "walrus-39.avif",
+///     "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABDQBnAA"
+///   }
+/// ]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = LIST_PATCHES_IN_QUILT_ENDPOINT,
+    params(
+        (
+            "quilt_id" = String, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Successfully retrieved the list of patches in the quilt",
+            body = Vec<QuiltPatchItem>
+        ),
+        GetBlobError,
+    ),
+    summary = "List patches in a quilt",
+    description = "Retrieve a list of patches contained in a quilt with their identifiers and \
+                QuiltPatchIds. Each QuiltPatchId can be used with the \
+                /v1/blobs/by-quilt-patch-id endpoint to retrieve the actual blob data.",
+)]
+pub(super) async fn list_patches_in_quilt<T: WalrusReadClient>(
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(quilt_id)): Path<BlobIdString>,
+) -> Response {
+    tracing::debug!("starting to list patches in quilt: {}", quilt_id);
+
+    match client.list_patches_in_quilt(&quilt_id).await {
+        Ok(patches) => (StatusCode::OK, Json(patches)).into_response(),
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(?quilt_id, "the requested quilt ID does not exist")
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::error!(?error, "error retrieving quilt patches")
                 }
                 _ => (),
             }
