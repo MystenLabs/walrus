@@ -191,11 +191,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
         blobs: &'a [&[u8]],
         attributes: &[BlobAttribute],
     ) -> Vec<WalrusStoreBlob<'a, String>> {
+        assert!(attributes.is_empty() || attributes.len() == blobs.len());
         blobs
             .iter()
             .enumerate()
             .map(|(i, blob)| {
-                WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}"), attributes[i].clone())
+                WalrusStoreBlob::new_unencoded(
+                    blob,
+                    format!("blob_{i:06}"),
+                    attributes.get(i).cloned().unwrap_or_default(),
+                )
             })
             .collect()
     }
