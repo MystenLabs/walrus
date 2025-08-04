@@ -19,7 +19,12 @@ on:
           - testnet
           - mainnet
       announce:
-        description: Announce the release?
+        description: Whether to announce the release on Discord (not relevant for devnet)
+        type: boolean
+        default: true
+        required: true
+      check_sui_version:
+        description: Whether to check if the Sui version is the latest released version (only relevant for devnet releases)
         type: boolean
         default: true
         required: true
@@ -62,6 +67,30 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.walrus_commit }}
+
+      - name: Check if Sui version is the latest released version
+        if: ${{ inputs.check_sui_version == true && inputs.network == 'devnet' }}
+        shell: bash
+        run: |
+          latest_sui_version=$(
+            curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest \
+              | awk -F \" -v RS="," '/tag_name/ {print $(NF-1)}' \
+              | awk -F -v '{print $2}'
+          )
+          used_sui_version=$(sed -n '/^sui-types =/s/.*tag = ".*-v\([0-9.]*\).*/\1/p' Cargo.toml)
+
+          latest_sui_major_minor=$(echo $latest_sui_version | cut -d. -f1,2)
+          used_sui_major_minor=$(echo $used_sui_version | cut -d. -f1,2)
+          if [[ $used_sui_major_minor == $latest_sui_major_minor ]]; then
+            echo "The Sui version used in the Cargo.toml file ($used_sui_version) matches the \
+              latest released version ($latest_sui_version) (ignoring patch version)."
+          else
+            echo "The Sui version used in the Cargo.toml file ($used_sui_version) does not match \
+              the latest released version ($latest_sui_version)."
+            echo "Please bump the Sui version in the Cargo.toml file to the latest released version before creating a new devnet release."
+            echo "This check can be disabled, but this should only be done in exceptional cases and after checking with the Walrus core team."
+            exit 1
+          fi
 
       - name: Update ${{ inputs.network }} branch
         shell: bash
