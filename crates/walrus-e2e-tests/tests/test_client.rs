@@ -1755,11 +1755,12 @@ async fn test_post_store_action(
     Ok(())
 }
 
-/// Tests storing a blob with random attributes using.
+/// Tests storing a blob with random initial blob attributes.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_blob_with_random_attributes() -> TestResult {
     telemetry_subscribers::init_for_testing();
+
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 

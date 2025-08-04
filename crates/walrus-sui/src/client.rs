@@ -1769,7 +1769,7 @@ impl SuiContractClientInner {
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
 
-            // Add attributes if provided
+            // Add attributes if provided.
             if let Some(ref attribute) = blob_with_attr.attribute {
                 pt_builder
                     .add_blob_attribute(blob.id.into(), attribute.clone())
