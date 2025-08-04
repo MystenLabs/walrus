@@ -17,3 +17,4 @@ crates/typed-store/src/rocks/safe_iter.rs
 crates/typed-store/src/rocks/tests.rs
 crates/walrus-upload-relay/upload_relay_openapi.html
 crates/walrus-upload-relay/upload_relay_openapi.yaml
+scripts/cache-inference/eslint.config.mjs

@@ -272,6 +272,12 @@ See the following subsections for [public aggregators on Mainnet](#mainnet) and 
 [aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. We also
 provide the [operator lists in JSON format](../assets/operators.json).
 
+```admonish tip
+The operator list in JSON format includes additional info about aggregators, namely whether they are
+deployed with caching functionality and whether they are found to be functional. The list is updated
+once per week.
+```
+
 <!-- markdownlint-disable proper-names -->
 ### Mainnet
 

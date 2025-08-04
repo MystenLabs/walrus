@@ -5,6 +5,7 @@ export type Network = "mainnet" | "testnet";
 
 export type AggregatorData = {
     cache?: boolean;
+    functional?: boolean;
     operator?: string;
     [key: string]: unknown;
 }
