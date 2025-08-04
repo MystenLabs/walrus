@@ -21,7 +21,6 @@ use std::{
 };
 
 use bincode::Options;
-use prometheus::{Histogram, HistogramTimer};
 use rocksdb::{
     AsColumnFamilyRef,
     BlockBasedOptions,
@@ -55,7 +54,7 @@ use crate::{
             typed_store_err_from_bincode_err,
             typed_store_err_from_rocks_err,
         },
-        safe_iter::{SafeIter, SafeRevIter},
+        safe_iter::{IterContext, SafeIter, SafeRevIter},
     },
     traits::{Map, TableSummary},
 };
@@ -932,24 +931,22 @@ impl<K, V> DBMap<K, V> {
     }
 
     // Creates metrics and context for tracking an iterator usage and performance.
-    fn create_iter_context(
-        &self,
-    ) -> (
-        Option<HistogramTimer>,
-        Option<Histogram>,
-        Option<Histogram>,
-        Option<RocksDBPerfContext>,
-    ) {
+    fn create_iter_context(&self) -> IterContext {
         let timer = self
             .db_metrics
             .op_metrics
             .rocksdb_iter_latency_seconds
             .with_label_values(&[&self.cf])
             .start_timer();
-        let bytes_scanned = self
+        let key_bytes_scanned = self
             .db_metrics
             .op_metrics
-            .rocksdb_iter_bytes
+            .rocksdb_iter_key_bytes
+            .with_label_values(&[&self.cf]);
+        let value_bytes_scanned = self
+            .db_metrics
+            .op_metrics
+            .rocksdb_iter_value_bytes
             .with_label_values(&[&self.cf]);
         let keys_scanned = self
             .db_metrics
@@ -961,12 +958,13 @@ impl<K, V> DBMap<K, V> {
         } else {
             None
         };
-        (
-            Some(timer),
-            Some(bytes_scanned),
-            Some(keys_scanned),
-            perf_ctx,
-        )
+        IterContext {
+            _timer: Some(timer),
+            key_bytes_scanned: Some(key_bytes_scanned),
+            value_bytes_scanned: Some(value_bytes_scanned),
+            keys_scanned: Some(keys_scanned),
+            _perf_ctx: perf_ctx,
+        }
     }
 
     /// Creates a RocksDB read option with specified lower and upper bounds.
@@ -1016,14 +1014,11 @@ impl<K, V> DBMap<K, V> {
         ));
 
         let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
-        let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
+        let iter_context = self.create_iter_context();
         let iter = SafeIter::new(
             self.cf.clone(),
             db_iter,
-            _timer,
-            _perf_ctx,
-            bytes_scanned,
-            keys_scanned,
+            iter_context,
             Some(self.db_metrics.clone()),
         );
         Ok(SafeRevIter::new(iter, upper_bound_key.transpose()?))
@@ -1284,21 +1279,28 @@ impl DBBatch {
         if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
             return Err(TypedStoreError::CrossDBBatch);
         }
-        let mut total = 0usize;
+        let mut key_total = 0usize;
+        let mut value_total = 0usize;
         new_vals
             .into_iter()
             .try_for_each::<_, Result<_, TypedStoreError>>(|(k, v)| {
                 let k_buf = be_fix_int_ser(k.borrow())?;
                 let v_buf = bcs::to_bytes(v.borrow()).map_err(typed_store_err_from_bcs_err)?;
-                total += k_buf.len() + v_buf.len();
+                key_total += k_buf.len();
+                value_total += v_buf.len();
                 self.batch.put_cf(&db.cf()?, k_buf, v_buf);
                 Ok(())
             })?;
         self.db_metrics
             .op_metrics
-            .rocksdb_batch_put_bytes
+            .rocksdb_batch_put_key_bytes
             .with_label_values(&[&db.cf])
-            .observe(total as f64);
+            .observe(key_total as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_batch_put_value_bytes
+            .with_label_values(&[&db.cf])
+            .observe(value_total as f64);
         Ok(self)
     }
 
@@ -1336,18 +1338,25 @@ where
 
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
+        let start = std::time::Instant::now();
         let key_buf = be_fix_int_ser(key)?;
         // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
         // but no false negatives. We use it to short-circuit the absent case
         let readopts = self.opts.readopts();
-        Ok(self
+        let found = self
             .rocksdb
             .key_may_exist_cf(&self.cf()?, &key_buf, &readopts)
             && self
                 .rocksdb
                 .get_pinned_cf_opt(&self.cf()?, &key_buf, &readopts)
                 .map_err(typed_store_err_from_rocks_err)?
-                .is_some())
+                .is_some();
+        self.db_metrics
+            .op_metrics
+            .rocksdb_contains_key_latency_seconds
+            .with_label_values(&[&self.cf, &found.to_string()])
+            .observe(start.elapsed().as_secs_f64());
+        Ok(found)
     }
 
     #[tracing::instrument(level = "trace", skip_all, err)]
@@ -1364,12 +1373,7 @@ where
 
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn get(&self, key: &K) -> Result<Option<V>, TypedStoreError> {
-        let _timer = self
-            .db_metrics
-            .op_metrics
-            .rocksdb_get_latency_seconds
-            .with_label_values(&[&self.cf])
-            .start_timer();
+        let start = std::time::Instant::now();
         let perf_ctx = if self.get_sample_interval.sample() {
             Some(RocksDBPerfContext)
         } else {
@@ -1380,9 +1384,20 @@ where
             .rocksdb
             .get_pinned_cf_opt(&self.cf()?, &key_buf, &self.opts.readopts())
             .map_err(typed_store_err_from_rocks_err)?;
+        let found = res.is_some();
         self.db_metrics
             .op_metrics
-            .rocksdb_get_bytes
+            .rocksdb_get_latency_seconds
+            .with_label_values(&[&self.cf, &found.to_string()])
+            .observe(start.elapsed().as_secs_f64());
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_key_bytes
+            .with_label_values(&[&self.cf])
+            .observe(key_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_value_bytes
             .with_label_values(&[&self.cf])
             .observe(res.as_ref().map_or(0.0, |v| v.len() as f64));
         if perf_ctx.is_some() {
@@ -1415,9 +1430,14 @@ where
         let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
         self.db_metrics
             .op_metrics
-            .rocksdb_put_bytes
+            .rocksdb_put_key_bytes
             .with_label_values(&[&self.cf])
-            .observe((key_buf.len() + value_buf.len()) as f64);
+            .observe(key_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_put_value_bytes
+            .with_label_values(&[&self.cf])
+            .observe(value_buf.len() as f64);
         if perf_ctx.is_some() {
             self.db_metrics
                 .write_perf_ctx_metrics
@@ -1523,14 +1543,11 @@ where
         let db_iter = self
             .rocksdb
             .raw_iterator_cf(&self.cf()?, self.opts.readopts());
-        let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
+        let iter_context = self.create_iter_context();
         Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
-            _timer,
-            _perf_ctx,
-            bytes_scanned,
-            keys_scanned,
+            iter_context,
             Some(self.db_metrics.clone()),
         ))
     }
@@ -1542,14 +1559,11 @@ where
     ) -> Result<Self::SafeIterator, TypedStoreError> {
         let readopts = self.create_read_options_with_bounds(lower_bound, upper_bound);
         let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
-        let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
+        let iter_context = self.create_iter_context();
         Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
-            _timer,
-            _perf_ctx,
-            bytes_scanned,
-            keys_scanned,
+            iter_context,
             Some(self.db_metrics.clone()),
         ))
     }
@@ -1560,14 +1574,11 @@ where
     ) -> Result<Self::SafeIterator, TypedStoreError> {
         let readopts = self.create_read_options_with_range(range);
         let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
-        let (_timer, bytes_scanned, keys_scanned, _perf_ctx) = self.create_iter_context();
+        let iter_context = self.create_iter_context();
         Ok(SafeIter::new(
             self.cf.clone(),
             db_iter,
-            _timer,
-            _perf_ctx,
-            bytes_scanned,
-            keys_scanned,
+            iter_context,
             Some(self.db_metrics.clone()),
         ))
     }
