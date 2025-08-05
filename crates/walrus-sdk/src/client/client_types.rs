@@ -191,6 +191,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
         blobs: &'a [&[u8]],
         attributes: &[BlobAttribute],
     ) -> Vec<WalrusStoreBlob<'a, String>> {
+        // TODO(WAL-962): Remove this assertion once we have a better struct to represent a blob.
         assert!(attributes.is_empty() || attributes.len() == blobs.len());
         blobs
             .iter()
