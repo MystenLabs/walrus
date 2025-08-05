@@ -131,6 +131,7 @@ use crate::{
             InfoPriceOutput,
             InfoSizeOutput,
             InfoStorageOutput,
+            ListStorageOutput,
             ReadOutput,
             ReadQuiltOutput,
             ServiceHealthInfoOutput,
@@ -301,6 +302,11 @@ impl ClientCommandRunner {
             CliCommands::ConvertBlobId { blob_id_decimal } => self.convert_blob_id(blob_id_decimal),
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
+
+            CliCommands::ListStorage {
+                include_expired,
+                sort_by_size,
+            } => self.list_storage(include_expired, sort_by_size).await,
 
             CliCommands::Delete {
                 target,
@@ -1161,6 +1167,45 @@ impl ClientCommandRunner {
             )
             .await?;
         blobs.print_output(self.json)
+    }
+
+    /// Lists all the storage resources owned by the wallet.
+    pub(crate) async fn list_storage(
+        self,
+        include_expired: bool,
+        sort_by_size: bool,
+    ) -> Result<()> {
+        let config = self.config?;
+        let contract_client = config
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+
+        let staking_object = contract_client.read_client.get_staking_object().await?;
+        let current_epoch = staking_object.epoch();
+        let epoch_duration = Duration::from_millis(staking_object.epoch_duration());
+        let epoch_state = staking_object.epoch_state();
+
+        let current_epoch_start_time = match epoch_state {
+            EpochState::EpochChangeDone(epoch_start)
+            | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+            EpochState::EpochChangeSync(_) => Utc::now(),
+        };
+
+        let storage_resources = contract_client
+            .owned_storage(ExpirySelectionPolicy::from_include_expired_flag(
+                include_expired,
+            ))
+            .await?;
+
+        let output = ListStorageOutput::new_sorted(
+            storage_resources,
+            current_epoch,
+            current_epoch_start_time,
+            epoch_duration,
+            sort_by_size,
+        );
+
+        output.print_output(self.json)
     }
 
     pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {

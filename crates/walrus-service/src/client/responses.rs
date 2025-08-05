@@ -46,7 +46,7 @@ use walrus_sdk::{
             NetworkAddress,
             StakedWal,
             StorageNode,
-            move_structs::{Blob, BlobAttribute, EpochState},
+            move_structs::{Blob, BlobAttribute, EpochState, StorageResource},
         },
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
@@ -659,6 +659,55 @@ pub struct FundSharedBlobOutput {
 pub struct ExtendBlobOutput {
     /// The number of epochs extended by.
     pub epochs_extended: EpochCount,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus list-storage` command.
+pub struct ListStorageOutput {
+    /// The list of storage resources owned by the wallet.
+    pub storage_resources: Vec<StorageResource>,
+    /// The current epoch.
+    pub current_epoch: Epoch,
+    /// The start time of the current epoch.
+    pub current_epoch_start_time: DateTime<Utc>,
+    /// The duration of each epoch.
+    pub epoch_duration: Duration,
+}
+
+impl ListStorageOutput {
+    /// Creates a new [`ListStorageOutput`] object.
+    ///
+    /// Sorts the storage resources either by size or by expiry, based on the sort_by_size flag.
+    pub fn new_sorted(
+        mut storage_resources: Vec<StorageResource>,
+        current_epoch: Epoch,
+        current_epoch_start_time: DateTime<Utc>,
+        epoch_duration: Duration,
+        sort_by_size: bool,
+    ) -> Self {
+        if sort_by_size {
+            // Sort by size (descending), then by expiry epoch (descending)
+            storage_resources.sort_by(|a, b| {
+                b.storage_size
+                    .cmp(&a.storage_size)
+                    .then_with(|| b.end_epoch.cmp(&a.end_epoch))
+            });
+        } else {
+            // Sort by expiry epoch (descending), then by size (descending)
+            storage_resources.sort_by(|a, b| {
+                b.end_epoch
+                    .cmp(&a.end_epoch)
+                    .then_with(|| b.storage_size.cmp(&a.storage_size))
+            });
+        }
+        Self {
+            storage_resources,
+            current_epoch,
+            current_epoch_start_time,
+            epoch_duration,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
