@@ -45,6 +45,7 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        BuyStorageOutput,
         DeleteOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
@@ -947,6 +948,24 @@ impl CliOutput for FundSharedBlobOutput {
             "{} The blob has been funded with {}",
             success(),
             HumanReadableFrost::from(self.amount)
+        );
+    }
+}
+
+impl CliOutput for BuyStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully purchased storage: {} for {} epochs",
+            success(),
+            HumanReadableBytes(self.size_bytes),
+            self.storage_resource.end_epoch - self.storage_resource.start_epoch,
+        );
+        println!("Storage resource object ID: {}", self.storage_resource.id);
+        println!("Start epoch: {}", self.storage_resource.start_epoch);
+        println!("End epoch: {}", self.storage_resource.end_epoch);
+        println!(
+            "Storage size: {}",
+            HumanReadableBytes(self.storage_resource.storage_size)
         );
     }
 }

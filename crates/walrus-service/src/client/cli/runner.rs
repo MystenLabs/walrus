@@ -92,6 +92,7 @@ use super::{
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
+    success,
 };
 use crate::{
     client::{
@@ -110,7 +111,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            success,
             warning,
         },
         multiplexer::ClientMultiplexer,
@@ -118,6 +118,7 @@ use crate::{
             BlobIdConversionOutput,
             BlobIdOutput,
             BlobStatusOutput,
+            BuyStorageOutput,
             DeleteOutput,
             DryRunOutput,
             ExchangeOutput,
@@ -307,6 +308,8 @@ impl ClientCommandRunner {
                 include_expired,
                 sort_by_size,
             } => self.list_storage(include_expired, sort_by_size).await,
+
+            CliCommands::BuyStorage { epoch_arg, size } => self.buy_storage(epoch_arg, size).await,
 
             CliCommands::Delete {
                 target,
@@ -1204,6 +1207,31 @@ impl ClientCommandRunner {
             epoch_duration,
             sort_by_size,
         );
+
+        output.print_output(self.json)
+    }
+
+    /// Buys storage for the current wallet.
+    pub(crate) async fn buy_storage(self, epoch_arg: EpochArg, size: u64) -> Result<()> {
+        anyhow::ensure!(size > 0, "the specified size must be greater than 0");
+
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let system_object = client.sui_client().read_client.get_system_object().await?;
+        let staking_object = client.sui_client().read_client.get_staking_object().await?;
+
+        let epochs_ahead =
+            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+
+        let storage_resource = client
+            .sui_client()
+            .reserve_space(size, epochs_ahead)
+            .await?;
+
+        let output = BuyStorageOutput {
+            storage_resource: storage_resource.clone(),
+            size_bytes: size,
+            current_epoch: staking_object.epoch(),
+        };
 
         output.print_output(self.json)
     }
