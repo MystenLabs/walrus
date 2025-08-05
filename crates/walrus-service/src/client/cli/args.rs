@@ -35,7 +35,13 @@ use walrus_sui::{
 };
 use walrus_utils::read_blob_from_file;
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
+use super::{
+    BlobIdDecimal,
+    HumanReadableBytes,
+    parse_blob_id,
+    parse_human_readable_bytes,
+    parse_quilt_patch_id,
+};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -422,6 +428,17 @@ pub enum CliCommands {
         #[serde(default)]
         /// Sort by storage size in descending order (default is to sort by expiry epoch).
         sort_by_size: bool,
+    },
+    /// Buy storage for the current wallet.
+    BuyStorage {
+        /// The epoch argument to specify either the number of epochs to buy storage for,
+        /// the end epoch, or the earliest expiry time in rfc3339 format.
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
+        /// The size of storage to buy in human-readable format (e.g., "1GiB", "500MiB", "2TiB").
+        #[arg(long, value_parser = parse_human_readable_bytes)]
+        size: u64,
     },
     /// Delete a blob from Walrus.
     ///
