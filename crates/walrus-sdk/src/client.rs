@@ -960,51 +960,6 @@ impl Client<SuiContractClient> {
             .collect())
     }
 
-    /// Encodes multiple blobs into sliver pairs and metadata.
-    ///
-    /// Returns a list of sliver pairs and metadata for each blob.
-    ///
-    /// Failed blobs are filtered out.
-    pub fn encode_blobs_to_pairs_and_metadata(
-        &self,
-        blobs: &[&[u8]],
-        encoding_type: EncodingType,
-    ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
-
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
-
-        debug_assert_eq!(
-            encoded_blobs.len(),
-            blobs.len(),
-            "the number of encoded blobs and the number of blobs must be the same"
-        );
-
-        // Failed blobs are filtered out.
-        let result = encoded_blobs
-            .into_iter()
-            .filter_map(|encoded_blob| {
-                if encoded_blob.is_failed() {
-                    None
-                } else {
-                    Some((
-                        encoded_blob
-                            .get_sliver_pairs()
-                            .expect("sliver pairs are present on an encoded blob")
-                            .clone(),
-                        encoded_blob
-                            .get_metadata()
-                            .expect("metadata is present on an encoded blob")
-                            .clone(),
-                    ))
-                }
-            })
-            .collect();
-
-        Ok(result)
-    }
-
     /// Encodes multiple blobs.
     ///
     /// Returns a list of WalrusStoreBlob as the encoded result. The return list
