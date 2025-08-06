@@ -17,6 +17,7 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -83,6 +84,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+        transaction_builder::WalrusPtbBuilder,
     },
     config::WalletConfig,
     test_utils::{self, fund_addresses, wallet_for_testing},
@@ -2427,9 +2429,344 @@ async fn test_store_with_upload_relay_no_tip() {
     )
     .await
     .expect("upload relay client creation should succeed");
-    basic_store_and_read(&client, 1, 40000, Some(upload_relay_client), || Ok(()))
+    match basic_store_and_read(&client, 1, 40000, Some(upload_relay_client), || Ok(())).await {
+        Ok(_) => {}
+        Err(error) => {
+            panic!("store and read with upload relay should succeed: {error}")
+        }
+    };
+    upload_relay_handle
+        .shutdown()
         .await
-        .expect("store and read with upload relay should succeed");
+        .expect("shutdown upload relay");
+}
+
+/// Test storing a blob with the upload relay when tipping is enabled.
+///
+/// This test is similar to `test_store_with_upload_relay_no_tip` but configures
+/// the upload relay to require tips using `TipConfig::SendTip` with a linear
+/// pricing model (base + per-KiB fee).
+///
+/// Key differences from the no-tip test:
+/// 1. The upload relay is configured with `TipConfig::SendTip` instead of `TipConfig::NoTip`
+/// 2. The tip recipient is the cluster wallet's address
+/// 3. We verify that the tip was actually paid by checking balance changes
+///
+/// The test flow:
+/// 1. Set up Sui and Walrus clusters
+/// 2. Create and fund a client wallet for blob storage operations
+/// 3. Configure upload relay with tip requirements (base: 1000, per-KiB: 100)
+/// 4. Create a new Walrus client using the funded client wallet
+/// 5. Store a blob through the upload relay (which should include tip payment)
+/// 6. Verify the blob was stored and the tip was paid
+///
+/// Current status: The test compiles and runs but fails with `NoCompatiblePaymentCoin`
+/// error, indicating the client wallet doesn't have the proper gas coins for the
+/// transaction. The issue is that we're creating a new client with the client_wallet
+/// instead of using the pre-funded client from the test setup.
+///
+/// TODO: Consider whether we should:
+/// - Add a delay after funding to ensure the transaction is processed
+/// - Use a different approach to ensure the client wallet has proper gas coins
+/// - Investigate if there's a better way to create a client with a custom wallet
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_with_upload_relay_with_tip() {
+    telemetry_subscribers::init_for_testing();
+    let _ = tracing_subscriber::fmt::try_init();
+
+    // Start the Sui and Walrus clusters.
+    let (sui_cluster_handle, _cluster, cluster_client, system_context) =
+        test_cluster::E2eTestSetupBuilder::new()
+            .build()
+            .await
+            .expect("setup should succeed");
+
+    // Get the cluster wallet so we can fund the client wallet.
+    let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
+    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
+        Some(cluster_wallet_path.as_path()),
+        None,
+    )
+    .expect("loading cluster wallet should succeed");
+
+    const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
+    let exchange_object = cluster_client
+        .inner
+        .sui_client()
+        .create_and_fund_exchange(
+            system_context.wal_exchange_pkg_id.unwrap(),
+            WAL_AMOUNT_EXCHANGE,
+        )
+        .await
+        .expect("create and fund exchange should succeed");
+
+    let mut client_wallet = wallet_for_testing(&mut cluster_wallet, false)
+        .await
+        .expect("wallet creation should succeed");
+
+    let client_address = client_wallet
+        .inner
+        .active_address()
+        .expect("client wallet active address should exist");
+
+    // Fund the client wallet with enough for storage and tips
+    fund_addresses(
+        &mut cluster_wallet,
+        vec![client_address],
+        Some(10_000_000_000),
+    )
+    .await
+    .expect("funding wallet should succeed");
+
+    // Use the cluster wallet's active address as the tip recipient
+    let relay_address = cluster_wallet
+        .active_address()
+        .expect("cluster wallet active address should exist");
+
+    // Create the Walrus config for the upload relay.
+    let config_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let config_path = config_dir.path();
+
+    std::fs::create_dir_all(config_path).expect("create config dir");
+    let walrus_config = config_dir.path().join("client_config.yaml");
+    let cluster_config = cluster_client.inner.config();
+    std::fs::write(
+        &walrus_config,
+        serde_yaml::to_string(&ClientConfig {
+            wallet_config: Some(WalletConfig::from_path(cluster_wallet_path)),
+            rpc_urls: vec![
+                sui_cluster_handle
+                    .lock()
+                    .await
+                    .cluster()
+                    .rpc_url()
+                    .to_string(),
+            ],
+            ..cluster_config.clone()
+        })
+        .expect("serialize client config")
+        .as_str(),
+    )
+    .expect("write client config");
+    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
+        .parse()
+        .expect("valid server address");
+
+    let relay_config = config_dir.path().join("relay_config.yaml");
+    const TIP_BASE: u64 = 1000;
+    const TIP_MULTIPLIER: u64 = 100;
+    std::fs::write(
+        &relay_config,
+        serde_yaml::to_string(&WalrusUploadRelayConfig {
+            tip_config: TipConfig::SendTip {
+                address: relay_address,
+                kind: walrus_sdk::upload_relay::tip_config::TipKind::Linear {
+                    base: TIP_BASE,
+                    encoded_size_mul_per_kib: TIP_MULTIPLIER,
+                },
+            },
+            tx_freshness_threshold: Duration::from_secs(300),
+            tx_max_future_threshold: Duration::from_secs(10),
+        })
+        .expect("serialize relay config")
+        .as_str(),
+    )
+    .expect("write relay config");
+
+    let registry = Registry::default();
+
+    let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
+        None,
+        walrus_config,
+        server_address,
+        relay_config,
+        registry,
+    )
+    .await
+    .expect("start upload relay should succeed");
+
+    upload_relay_handle
+        .wait_for_tcp_bind()
+        .await
+        .expect("wait for TCP bind");
+
+    let n_shards = cluster_client.inner.encoding_config().n_shards();
+    let upload_relay_url = format!(
+        // REVIEW: I don't know where msim handles port remapping, but... it does.
+        "http://1.1.1.1:{server_port}",
+        server_port = server_address.port()
+    )
+    .parse()
+    .expect("valid URL");
+    let upload_relay_client = UploadRelayClient::new(
+        client_address,
+        n_shards,
+        upload_relay_url,
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("upload relay client creation should succeed");
+
+    // Create a retry client to check balances
+    let rpc_url = sui_cluster_handle
+        .lock()
+        .await
+        .cluster()
+        .rpc_url()
+        .to_string();
+    let retry_client = RetriableSuiClient::new(
+        vec![LazySuiClientBuilder::new(&rpc_url, None)],
+        ExponentialBackoffConfig::default(),
+    )
+    .await
+    .expect("create retry client");
+
+    // Get initial balance of relay wallet to verify tip payment
+    let initial_relay_balance = retry_client
+        .get_balance(relay_address, None)
+        .await
+        .expect("get balance")
+        .total_balance;
+
+    // Map the client wallet into a WithTempDir<Client<SuiContractClient>>.
+    let client_with_wallet = client_wallet
+        .map_async(async |wallet_inner| {
+            let client_config = ClientConfig {
+                wallet_config: None, // We'll pass the wallet directly
+                rpc_urls: vec![
+                    sui_cluster_handle
+                        .lock()
+                        .await
+                        .cluster()
+                        .rpc_url()
+                        .to_string(),
+                ],
+                ..cluster_config.clone()
+            };
+
+            let sui_client = client_config
+                .new_contract_client(wallet_inner, None)
+                .await
+                .expect("create sui client");
+
+            let refresh_handle = client_config
+                .refresh_config
+                .build_refresher_and_run(sui_client.read_client().clone())
+                .await
+                .expect("build refresher");
+            walrus_sdk::client::Client::new_contract_client(
+                client_config,
+                refresh_handle,
+                sui_client,
+            )
+            .await
+            .expect("create client")
+        })
+        .await;
+
+    let mut transaction = WalrusPtbBuilder::new(
+        Arc::new(cluster_client.inner.sui_client().read_client().clone()),
+        relay_address,
+    );
+    transaction
+        .exchange_sui_for_wal(exchange_object, 5_000_000_000)
+        .await
+        .expect("exchange sui for wal");
+    transaction
+        .transfer_remaining_outputs(Some(client_address))
+        .await
+        .expect("get wal transaction");
+    let transaction_data = transaction
+        .build_transaction_data(None)
+        .await
+        .expect("finish transaction");
+    let wal_coin_type = cluster_client
+        .inner
+        .sui_client()
+        .read_client()
+        .wal_coin_type()
+        .to_string();
+
+    // Get initial balance of client wallet to verify we have appropriate balance for the tip.
+    let initial_client_balance = client_with_wallet
+        .inner
+        .sui_client()
+        .sui_client()
+        .get_balance(client_address, Some(wal_coin_type.clone()))
+        .await
+        .expect("get client balance")
+        .total_balance;
+    tracing::info!("Initial client WAL balance: {initial_client_balance}");
+
+    cluster_client
+        .inner
+        .sui_client()
+        .sign_and_send_transaction(transaction_data, "exchange wal")
+        .await
+        .expect("execute transaction");
+    let new_client_balance = client_with_wallet
+        .inner
+        .sui_client()
+        .sui_client()
+        .get_balance(client_address, Some(wal_coin_type))
+        .await
+        .expect("get client balance")
+        .total_balance;
+    tracing::info!("New client WAL balance: {new_client_balance}");
+    const BLOB_SIZE: usize = 40000;
+    match basic_store_and_read(
+        &client_with_wallet,
+        1,
+        BLOB_SIZE,
+        Some(upload_relay_client),
+        || Ok(()),
+    )
+    .await
+    {
+        Ok(_) => {}
+        Err(error) => {
+            panic!("store and read with upload relay should succeed: {error}")
+        }
+    };
+
+    // Verify that the relay wallet received a tip
+    let final_relay_balance = retry_client
+        .get_balance(relay_address, None)
+        .await
+        .expect("get balance")
+        .total_balance;
+
+    tracing::info!(
+        "Relay address balance - Initial: {initial_relay_balance}, Final: {final_relay_balance}",
+    );
+
+    assert!(
+        final_relay_balance > initial_relay_balance,
+        "Relay wallet should have received a tip. Initial: {initial_relay_balance}, \
+        Final: {final_relay_balance}",
+    );
+
+    // Calculate expected tip based on the linear formula
+    // For a 40000 byte blob with the encoding parameters, we can estimate the tip
+    let blob_size_kib = (BLOB_SIZE as u64).div_ceil(1024);
+    // base + size * mul_per_kib
+    let expected_tip_lower_bound = u128::from(TIP_BASE + blob_size_kib * TIP_MULTIPLIER);
+    let actual_tip = final_relay_balance - initial_relay_balance;
+
+    tracing::info!(
+        "Tip paid: {} (expected at least: {})",
+        actual_tip,
+        expected_tip_lower_bound
+    );
+
+    assert!(
+        actual_tip >= expected_tip_lower_bound,
+        "Tip should be at least the calculated minimum. Actual: {actual_tip}, \
+        Expected minimum: {expected_tip_lower_bound}",
+    );
+
     upload_relay_handle
         .shutdown()
         .await
