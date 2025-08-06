@@ -430,6 +430,66 @@ pub fn parse_quilt_patch_id(input: &str) -> Result<QuiltPatchId, QuiltError> {
     QuiltPatchId::from_str(input).map_err(|_| QuiltError::QuiltPatchIdParseError(input.to_string()))
 }
 
+/// Parses a human-readable byte size string into a u64 number of bytes.
+///
+/// Supports formats like "1GB", "500MB", "2.5TiB", "1024", etc. Binary prefixes (KiB, MiB, GiB,
+/// TiB, PiB, EiB) and decimal prefixes (KB, MB, GB, TB, PB, EB) are supported.
+///
+/// It multiplies the number by the appropriate factor based on the unit, rounding up to the nearest
+/// whole byte.
+pub fn parse_human_readable_bytes(input: &str) -> anyhow::Result<u64> {
+    let input = input.trim();
+
+    if let Ok(bytes) = input.parse::<u64>() {
+        return Ok(bytes);
+    }
+
+    let (number_part, unit_part) = if let Some(pos) = input.find(|c: char| c.is_alphabetic()) {
+        let (num, unit) = input.split_at(pos);
+        (num.trim(), unit.trim())
+    } else {
+        anyhow::bail!(
+            "Invalid format: '{}'. Expected format like '1GB', '500MB', etc.",
+            input
+        );
+    };
+
+    let value: f64 = number_part
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid number: '{}'", number_part))?;
+
+    let multiplier = match unit_part.to_uppercase().as_str() {
+        "B" => 1,
+        "KB" | "K" => 1_000,
+        "KIB" => 1_024,
+        "MB" | "M" => 1_000_000,
+        "MIB" => 1_024_u64.pow(2),
+        "GB" | "G" => 1_000_000_000,
+        "GIB" => 1_024_u64.pow(3),
+        "TB" | "T" => 1_000_000_000_000,
+        "TIB" => 1_024_u64.pow(4),
+        _ => {
+            anyhow::bail!(
+                "Unknown unit: '{}'. Supported units: B, KB/KiB, MB/MiB, GB/GiB, TB/TiB",
+                unit_part
+            );
+        }
+    };
+
+    let bytes = (value * multiplier as f64).ceil();
+    anyhow::ensure!(
+        !bytes.is_nan() && bytes >= 0.0 && bytes <= u64::MAX as f64,
+        "Invalid value: '{}'. The total amount of bytes must be a non-negative number less than \
+        or equal to {}.",
+        value,
+        u64::MAX
+    );
+
+    // Safe cast: we've verified bytes is in range.
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(bytes as u64)
+}
+
 /// Helper struct to parse and format blob IDs as decimal numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[repr(transparent)]

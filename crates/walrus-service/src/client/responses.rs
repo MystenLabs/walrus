@@ -663,6 +663,18 @@ pub struct ExtendBlobOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// The output of the `walrus buy-storage` command.
+pub struct BuyStorageOutput {
+    /// The storage resource that was purchased.
+    pub storage_resource: StorageResource,
+    /// The size of storage purchased in bytes.
+    pub size_bytes: u64,
+    /// The current epoch when the purchase was made.
+    pub current_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// The output of the `walrus list-storage` command.
 pub struct ListStorageOutput {
     /// The list of storage resources owned by the wallet.

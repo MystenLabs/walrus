@@ -337,6 +337,26 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to `storage_resource::split_by_epoch` to the `pt_builder` and returns
+    /// the result [`Argument`].
+    ///
+    /// The call modifies the input storage resource to end at `split_epoch` and creates
+    /// a new storage resource covering the period from `split_epoch` to the original end epoch.
+    pub async fn split_storage_by_epoch(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+        split_epoch: u64,
+    ) -> SuiClientResult<Argument> {
+        let split_arguments = vec![
+            self.argument_from_arg_or_obj(storage_resource).await?,
+            self.pt_builder.pure(split_epoch)?,
+        ];
+        let result_arg =
+            self.walrus_move_call(contracts::storage_resource::split_by_epoch, split_arguments)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
     /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
     pub async fn register_blob(
         &mut self,
