@@ -166,6 +166,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .register_blobs(
             vec![(blob_metadata, storage_resource.clone())],
             BlobPersistence::Permanent,
+            None,
         )
         .await?
         .into_iter()
@@ -253,6 +254,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .register_blobs(
             vec![(blob_metadata, storage_resource)],
             BlobPersistence::Permanent,
+            None,
         )
         .await?
         .into_iter()

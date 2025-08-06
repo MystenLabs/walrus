@@ -535,13 +535,13 @@ impl<'a> ResourceManager<'a> {
         }
 
         // TODO(giac): consider splitting the storage before reusing it (WAL-208).
+        let target_epoch = epochs_ahead + self.write_committee_epoch;
         if !blob_processing_items.is_empty() {
             let all_storage_resources = self
                 .sui_client
                 .owned_storage(ExpirySelectionPolicy::Valid)
                 .await?;
 
-            let target_epoch = epochs_ahead + self.write_committee_epoch;
             let mut available_resources: Vec<_> = all_storage_resources
                 .into_iter()
                 .filter(|storage| storage.end_epoch >= target_epoch)
@@ -592,7 +592,11 @@ impl<'a> ResourceManager<'a> {
         );
         let blobs = self
             .sui_client
-            .register_blobs(reused_metadata_with_storage, persistence)
+            .register_blobs(
+                reused_metadata_with_storage,
+                persistence,
+                Some(target_epoch),
+            )
             .await?;
         results.extend(blobs.into_iter().zip(reused_encoded_lengths.iter()).map(
             |(blob, &encoded_length)| (blob, RegisterBlobOp::ReuseStorage { encoded_length }),
