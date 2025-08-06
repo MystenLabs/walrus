@@ -107,8 +107,12 @@ def git(*args):
     return subprocess.check_output(["git"] + list(args)).decode().strip()
 
 def parse_notes(pr, notes):
-    # # Find the release notes section
     result = {}
+    # verify notes param
+    if not isinstance(notes, (str, bytes)) or not notes:
+        return pr, result
+
+    # Find the release notes section
     match = RE_HEADING.search(notes)
     if not match:
         return pr, result
