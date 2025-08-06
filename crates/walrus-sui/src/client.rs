@@ -600,12 +600,13 @@ impl SuiContractClient {
         &self,
         blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
+        target_epoch: Option<Epoch>,
     ) -> SuiClientResult<Vec<Blob>> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .register_blobs(blob_metadata_and_storage.clone(), persistence)
+                .register_blobs(blob_metadata_and_storage.clone(), persistence, target_epoch)
                 .await
         })
         .await
@@ -1581,16 +1582,63 @@ impl SuiContractClientInner {
         self.sui_client().get_sui_object(storage_id[0]).await
     }
 
+    /// Checks if storage resources need to be split and performs the splitting if necessary.
+    ///
+    /// Splits first by size, if the storage size exceeds the required blob encoded size,
+    /// then by epoch, if the storage end epoch is greater than the intended store epoch.
+    ///
+    /// Returns a new StorageResource that is appropriately sized for the blob metadata.
+    async fn check_and_split_storage(
+        pt_builder: &mut WalrusPtbBuilder,
+        blob_metadata: &BlobObjectMetadata,
+        storage: StorageResource,
+        target_epoch: Option<Epoch>,
+    ) -> SuiClientResult<StorageResource> {
+        let mut current_storage = storage;
+
+        if current_storage.storage_size > blob_metadata.encoded_size {
+            tracing::debug!(
+                storage_size = current_storage.storage_size,
+                blob_size = blob_metadata.encoded_size,
+                "splitting existing storage by size",
+            );
+            let _split_arg = pt_builder
+                .split_storage_by_size(current_storage.id.into(), blob_metadata.encoded_size)
+                .await?;
+            current_storage.storage_size = blob_metadata.encoded_size;
+        }
+
+        if let Some(target_epoch) = target_epoch {
+            if current_storage.end_epoch > target_epoch {
+                tracing::debug!(
+                    storage_end_epoch = current_storage.end_epoch,
+                    target_epoch,
+                    "splitting existing storage by epoch",
+                );
+
+                let _split_arg = pt_builder
+                    .split_storage_by_epoch(current_storage.id.into(), target_epoch.into())
+                    .await?;
+                current_storage.end_epoch = target_epoch;
+            }
+        }
+
+        Ok(current_storage)
+    }
+
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
     /// and returns the created blob object.
     ///
     /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
     /// less than or equal to the size reserved in `storage`.
+    ///
+    /// Storage resources are automatically split to the correct size and epoch if needed.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn register_blobs(
         &mut self,
         blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
+        target_epoch: Option<Epoch>,
     ) -> SuiClientResult<Vec<Blob>> {
         if blob_metadata_and_storage.is_empty() {
             tracing::debug!("no blobs to register");
@@ -1604,13 +1652,22 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
+            // Check and split storage resources as needed before registering
+            let split_storage = Self::check_and_split_storage(
+                &mut pt_builder,
+                &blob_metadata,
+                storage,
+                target_epoch,
+            )
+            .await?;
+
             if with_credits {
                 pt_builder
-                    .register_blob_with_credits(storage.id.into(), blob_metadata, persistence)
+                    .register_blob_with_credits(split_storage.id.into(), blob_metadata, persistence)
                     .await?;
             } else {
                 pt_builder
-                    .register_blob(storage.id.into(), blob_metadata, persistence)
+                    .register_blob(split_storage.id.into(), blob_metadata, persistence)
                     .await?;
             };
         }
