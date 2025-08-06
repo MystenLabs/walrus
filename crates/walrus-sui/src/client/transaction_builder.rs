@@ -345,7 +345,7 @@ impl WalrusPtbBuilder {
     pub async fn split_storage_by_epoch(
         &mut self,
         storage_resource: ArgumentOrOwnedObject,
-        split_epoch: u64,
+        split_epoch: u32,
     ) -> SuiClientResult<Argument> {
         let split_arguments = vec![
             self.argument_from_arg_or_obj(storage_resource).await?,

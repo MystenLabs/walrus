@@ -417,14 +417,13 @@ async fn test_store_with_existing_blob_resource(
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
-    let encoding_type = DEFAULT_ENCODING;
     let metatdatum = blobs
         .iter()
         .map(|blob| {
             let (_, metadata) = client
                 .as_ref()
                 .encoding_config()
-                .get_for_type(encoding_type)
+                .get_for_type(DEFAULT_ENCODING)
                 .encode_with_metadata(blob)
                 .expect("blob encoding should not fail");
             let metadata = metadata.metadata().to_owned();
@@ -456,8 +455,7 @@ async fn test_store_with_existing_blob_resource(
         .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
-    let store_args =
-        StoreArgs::default_with_epochs(epochs_ahead_required).with_encoding_type(encoding_type);
+    let store_args = StoreArgs::default_with_epochs(epochs_ahead_required);
     let blob_stores = client
         .inner
         .reserve_and_store_blobs(&blobs, &store_args)
@@ -711,12 +709,11 @@ async_param_test! {
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing storage resource.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
 /// registering anew.
-/// `should_match` is a boolean that indicates if the storage object used in the final upload
-/// should be the same as the first one registered.
+/// `should_reuse` is a boolean that indicates if the storage objects should be reused.
 async fn test_store_with_existing_storage_resource(
     epochs_ahead_registered: EpochCount,
     epochs_ahead_required: EpochCount,
-    should_match: bool,
+    should_reuse: bool,
 ) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
@@ -738,19 +735,34 @@ async fn test_store_with_existing_storage_resource(
         .map(|blob| blob.encoded_size().expect("encoded size should be present"))
         .collect::<Vec<_>>();
 
+    // The encoded sizes should all be the same.
+    assert!(encoded_sizes.iter().all(|&size| size == encoded_sizes[0]));
+    let encoded_size = encoded_sizes[0];
+
     // Reserve space for the blobs. Collect all original storage resource objects ids.
+    // Each storage object has `EXTRA_BYTES_PER_STORAGE` bytes reserved, such that we can later
+    // check they were correctly split off.
+    const EXTRA_BYTES_PER_STORAGE: u64 = 2718;
     let original_storage_resources =
         futures::future::join_all(encoded_sizes.iter().map(|encoded_size| async {
-            let resource = client
+            client
                 .as_ref()
                 .sui_client()
-                .reserve_space(*encoded_size, epochs_ahead_registered)
+                .reserve_space(
+                    *encoded_size + EXTRA_BYTES_PER_STORAGE,
+                    epochs_ahead_registered,
+                )
                 .await
-                .expect("reserve space should not fail");
-            resource.id
+                .expect("reserve space should not fail")
         }))
-        .await
+        .await;
+
+    let storage_start_epoch = original_storage_resources[0].start_epoch;
+    let current_epoch = client.as_ref().sui_client().current_epoch().await?;
+
+    let original_storage_resource_ids = original_storage_resources
         .into_iter()
+        .map(|resource| resource.id)
         .collect::<HashSet<_>>();
 
     let blobs = encoded_blobs
@@ -772,8 +784,58 @@ async fn test_store_with_existing_storage_resource(
         })
         .collect::<HashSet<_>>();
 
-    // Check the object ids are the same.
-    assert!(should_match == (original_storage_resources == blob_store));
+    if should_reuse {
+        // Check the object ids are the same.
+        assert_eq!(original_storage_resource_ids, blob_store);
+
+        // The storage should have been reused.
+        // Check that the wallet contains the right number of storage objects, and with the right
+        // amount of storage left.
+        let storage_objects = client
+            .as_ref()
+            .sui_client()
+            .owned_storage(ExpirySelectionPolicy::All)
+            .await?;
+
+        if epochs_ahead_registered > epochs_ahead_required {
+            // We should have split both in length and in size.
+            assert_eq!(
+                storage_objects.len(),
+                original_storage_resource_ids.len() * 2
+            );
+        } else {
+            // We should have split only in size.
+            assert_eq!(storage_objects.len(), original_storage_resource_ids.len());
+        }
+
+        // There can be either one or two storage objects per original storage resource, depending
+        // on whether the original storage resource has been split in the number of epochs or not.
+        //
+        // In both cases, the "long-thin" piece on top, resulting from the 1st split by size,
+        // should be present.
+        //
+        //     size ^ ┌───────────────────────────┐ < encoded_size + EXTRA_BYTES_PER_STORAGE
+        //            │ 1st split by size         │ } this is exactly EXTRA_BYTES_PER_STORAGE
+        //            ┌──────────────────┌────────┐ < encoded_size
+        //            │ Used storage     │ 2nd    │
+        //            │                  │ split  │
+        //            │                  │ by ep. │
+        //            └──────────────────└────────┘
+        //      start ^         required ^    reg ^  epochs >
+        for storage_object in storage_objects {
+            assert!(
+                // The long-thin piece.
+                (storage_object.start_epoch == storage_start_epoch
+                    && storage_object.end_epoch == epochs_ahead_registered + current_epoch
+                    && storage_object.storage_size == EXTRA_BYTES_PER_STORAGE)
+                // The short-thick piece.
+                || (storage_object.start_epoch == epochs_ahead_required + current_epoch
+                    && storage_object.end_epoch == epochs_ahead_registered + current_epoch
+                    && storage_object.storage_size == encoded_size)
+            );
+        }
+    }
+
     Ok(())
 }
 

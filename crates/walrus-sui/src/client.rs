@@ -1615,7 +1615,7 @@ impl SuiContractClientInner {
                 );
 
                 let _split_arg = pt_builder
-                    .split_storage_by_epoch(current_storage.id.into(), target_epoch.into())
+                    .split_storage_by_epoch(current_storage.id.into(), target_epoch)
                     .await?;
                 current_storage.end_epoch = target_epoch;
             }
