@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.53.1
+  SUI_TAG: testnet-v1.53.2
 
 jobs:
   test-coverage:
