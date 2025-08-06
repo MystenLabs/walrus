@@ -231,7 +231,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
                         QuiltPatchId::new(*quilt_id, patch.quilt_patch_internal_id().to_bytes());
                     QuiltPatchItem {
                         identifier: patch.identifier().to_string(),
-                        patch_id: patch_id.to_string(),
+                        patch_id,
                     }
                 })
                 .collect(),

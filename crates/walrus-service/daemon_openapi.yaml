@@ -197,7 +197,7 @@ paths:
         description: The quilt ID encoded as URL-safe base64
         required: true
         schema:
-          type: string
+          $ref: '#/components/schemas/BlobId'
         example: rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU
       - name: identifier
         in: path
@@ -248,7 +248,7 @@ paths:
         description: The QuiltPatchId encoded as URL-safe base64
         required: true
         schema:
-          type: string
+          $ref: '#/components/schemas/QuiltPatchId'
         example: DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw
       responses:
         '200':
