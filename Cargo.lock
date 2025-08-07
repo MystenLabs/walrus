@@ -12845,6 +12845,7 @@ dependencies = [
  "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
+ "walrus-upload-relay",
  "walrus-utils",
 ]
 
