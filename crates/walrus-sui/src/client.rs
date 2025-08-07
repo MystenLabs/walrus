@@ -606,6 +606,38 @@ impl SuiContractClient {
         .await
     }
 
+    /// Splits a storage resource by size.
+    pub async fn split_storage_by_size(
+        &self,
+        storage_object_id: ObjectID,
+        split_size: u64,
+    ) -> SuiClientResult<Vec<StorageResource>> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .split_storage_by_size(storage_object_id, split_size)
+                .await
+        })
+        .await
+    }
+
+    /// Splits a storage resource by epoch.
+    pub async fn split_storage_by_epoch(
+        &self,
+        storage_object_id: ObjectID,
+        split_epoch: u32,
+    ) -> SuiClientResult<Vec<StorageResource>> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .split_storage_by_epoch(storage_object_id, split_epoch)
+                .await
+        })
+        .await
+    }
+
     /// Registers blobs with the specified [`BlobObjectMetadata`] and [`StorageResource`]s,
     /// and returns the created blob objects.
     pub async fn register_blobs(
@@ -1602,6 +1634,69 @@ impl SuiContractClientInner {
         self.sign_and_send_transaction(transaction, "destroy_storage")
             .await?;
         Ok(())
+    }
+
+    /// Splits a storage resource by size.
+    pub async fn split_storage_by_size(
+        &mut self,
+        storage_object_id: ObjectID,
+        split_size: u64,
+    ) -> SuiClientResult<Vec<StorageResource>> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .split_storage_by_size(storage_object_id.into(), split_size)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let response = self
+            .sign_and_send_transaction(transaction, "split_storage_by_size")
+            .await?;
+
+        self.get_storage_objects_from_response(&response, storage_object_id)
+            .await
+    }
+
+    /// Splits a storage resource by epoch.
+    pub async fn split_storage_by_epoch(
+        &mut self,
+        storage_object_id: ObjectID,
+        split_epoch: u32,
+    ) -> SuiClientResult<Vec<StorageResource>> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .split_storage_by_epoch(storage_object_id.into(), split_epoch)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let response = self
+            .sign_and_send_transaction(transaction, "split_storage_by_epoch")
+            .await?;
+
+        self.get_storage_objects_from_response(&response, storage_object_id)
+            .await
+    }
+
+    /// Helper function to get storage objects from a transaction response.
+    async fn get_storage_objects_from_response(
+        &self,
+        response: &SuiTransactionBlockResponse,
+        original_object_id: ObjectID,
+    ) -> SuiClientResult<Vec<StorageResource>> {
+        use crate::contracts;
+        let storage_type_tag = contracts::storage_resource::Storage
+            .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?;
+        let created_storage_ids = get_created_sui_object_ids_by_type(response, &storage_type_tag)?;
+
+        // Combine created objects with the original (modified) object
+        let mut all_storage_ids = created_storage_ids;
+        all_storage_ids.push(original_object_id);
+
+        // Convert object IDs to StorageResource objects
+        let mut storage_resources = Vec::new();
+        for object_id in all_storage_ids {
+            let storage_resource = self.sui_client().get_sui_object(object_id).await?;
+            storage_resources.push(storage_resource);
+        }
+
+        Ok(storage_resources)
     }
 
     /// Checks if storage resources need to be split and performs the splitting if necessary.

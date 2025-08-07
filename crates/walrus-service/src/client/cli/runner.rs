@@ -72,6 +72,7 @@ use walrus_sui::{client::rpc_client, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
+    HumanReadableBytes,
     args::{
         AggregatorArgs,
         BlobIdentifiers,
@@ -139,6 +140,7 @@ use crate::{
             ReadQuiltOutput,
             ServiceHealthInfoOutput,
             ShareBlobOutput,
+            SplitStorageOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
             WalletOutput,
@@ -315,6 +317,11 @@ impl ClientCommandRunner {
                 StorageCommands::Destroy { object_id, yes } => {
                     self.destroy_storage(object_id, yes.into()).await
                 }
+                StorageCommands::Split {
+                    object_id,
+                    size,
+                    epoch_arg,
+                } => self.split_storage(object_id, size, epoch_arg).await,
             },
 
             CliCommands::Delete {
@@ -1249,12 +1256,11 @@ impl ClientCommandRunner {
         confirmation: UserConfirmation,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        
-        // Check if confirmation is needed
+
         if confirmation.is_required() && !self.json {
             println!(
-                "You are about to destroy storage resource {}. This action cannot be undone and provides no refund.",
-                object_id
+                "You are about to destroy storage resource {object_id}. \
+                This action cannot be undone and provides no refund.",
             );
             if !ask_for_confirmation()? {
                 println!("Storage destruction cancelled.");
@@ -1262,13 +1268,65 @@ impl ClientCommandRunner {
             }
         }
 
-        // Call the destroy function on the storage object
         client.sui_client().destroy_storage(object_id).await?;
-        
-        let output = DestroyStorageOutput {
-            object_id,
+
+        let output = DestroyStorageOutput { object_id };
+
+        output.print_output(self.json)
+    }
+
+    /// Splits a storage resource by size or epoch.
+    pub(crate) async fn split_storage(
+        self,
+        object_id: ObjectID,
+        size: Option<u64>,
+        epoch_arg: Option<EpochArg>,
+    ) -> Result<()> {
+        // Validate that exactly one split type is provided.
+        let has_size = size.is_some();
+        let has_epoch = epoch_arg.is_some();
+
+        if !has_size && !has_epoch {
+            anyhow::bail!(
+                "Must specify either --size or epoch arguments \
+                (--epochs, --end-epoch, or --earliest-expiry-time)"
+            );
+        }
+
+        if has_size && has_epoch {
+            anyhow::bail!("Cannot specify both --size and epoch arguments");
+        }
+
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+
+        let (split_type, resulting_storage_objects) = if let Some(split_size) = size {
+            let objects = client
+                .sui_client()
+                .split_storage_by_size(object_id, split_size)
+                .await?;
+            (format!("size {}", HumanReadableBytes(split_size)), objects)
+        } else if let Some(epoch_arg_val) = epoch_arg {
+            let system_object = client.sui_client().read_client.get_system_object().await?;
+            let epochs_ahead =
+                get_epochs_ahead(epoch_arg_val, system_object.max_epochs_ahead(), &client).await?;
+            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let target_epoch = staking_object.epoch() + epochs_ahead;
+
+            let objects = client
+                .sui_client()
+                .split_storage_by_epoch(object_id, target_epoch)
+                .await?;
+            (format!("epoch {target_epoch}"), objects)
+        } else {
+            unreachable!("checked above that one type must be provided");
         };
-        
+
+        let output = SplitStorageOutput {
+            original_object_id: object_id,
+            resulting_storage_objects,
+            split_type,
+        };
+
         output.print_output(self.json)
     }
 

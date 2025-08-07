@@ -688,6 +688,33 @@ pub enum StorageCommands {
         #[serde(default)]
         yes: bool,
     },
+    /// Split a storage resource by size or epoch.
+    ///
+    /// This command splits a storage resource into two parts. You can specify either
+    /// a size split or an epoch split, but not both.
+    Split {
+        /// The object ID of the storage resource to split.
+        #[arg(long)]
+        object_id: ObjectID,
+        /// The size at which to split the storage resource in human-readable format
+        ///
+        ///
+        /// The original object will be reduced to this size, and a new object
+        /// will be created for the remainder (e.g., "1GiB", "500MiB", "2TiB").
+        #[arg(
+            long,
+            value_parser = parse_human_readable_bytes,
+            conflicts_with_all = ["epochs", "end_epoch", "earliest_expiry_time"]
+        )]
+        size: Option<u64>,
+        /// The epoch argument to specify the epoch at which to split the storage resource.
+        ///
+        /// You can specify either the number of epochs from now, the specific end epoch,
+        /// or the earliest expiry time in rfc3339 format.
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: Option<EpochArg>,
+    },
 }
 
 /// Subcommands for the `info` command.
@@ -1679,7 +1706,7 @@ impl EpochCountOrMax {
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-#[group(required = true, multiple = false)]
+#[group(required = false, multiple = false)]
 pub struct EpochArg {
     /// The number of epochs the blob is stored for.
     ///

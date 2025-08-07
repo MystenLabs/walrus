@@ -69,6 +69,7 @@ use crate::client::{
         ReadQuiltOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
+        SplitStorageOutput,
         StakeOutput,
         StorageNodeInfo,
         StoreQuiltDryRunOutput,
@@ -978,6 +979,28 @@ impl CliOutput for DestroyStorageOutput {
             success(),
             self.object_id
         );
+    }
+}
+
+impl CliOutput for SplitStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully split storage resource: {} by {}",
+            success(),
+            self.original_object_id,
+            self.split_type
+        );
+        println!("Resulting storage objects:");
+        for (i, storage) in self.resulting_storage_objects.iter().enumerate() {
+            println!(
+                "  {}. Object ID: {} | Size: {} | Epochs: {}-{}",
+                i + 1,
+                storage.id,
+                HumanReadableBytes(storage.storage_size),
+                storage.start_epoch,
+                storage.end_epoch
+            );
+        }
     }
 }
 

@@ -683,6 +683,18 @@ pub struct DestroyStorageOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage split` command.
+pub struct SplitStorageOutput {
+    /// The original storage resource object ID that was split.
+    pub original_object_id: ObjectID,
+    /// The list of resulting storage resource objects after splitting (should contain 2 objects).
+    pub resulting_storage_objects: Vec<StorageResource>,
+    /// Description of the split type that was performed.
+    pub split_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// The output of the `walrus storage list` command.
 pub struct ListStorageOutput {
     /// The list of storage resources owned by the wallet.
