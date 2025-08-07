@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use super::{super::SuiClientError, CheckpointRpcError, FallbackError, RetriableClientError};
 
 /// The list of HTTP status codes that are retriable.
-const RETRIABLE_RPC_ERRORS: &[&str] = &["408", "429", "500", "502", "504"];
+const RETRIABLE_RPC_ERRORS: &[&str] = &["408", "429", "500", "502", "503", "504"];
 /// The list of gRPC status codes that are retriable.
 const RETRIABLE_GRPC_ERRORS: &[tonic::Code] = &[
     tonic::Code::ResourceExhausted,
