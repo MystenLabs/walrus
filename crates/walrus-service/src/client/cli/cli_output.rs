@@ -47,6 +47,7 @@ use crate::client::{
         BlobStatusOutput,
         BuyStorageOutput,
         DeleteOutput,
+        DestroyStorageOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
         EpochTimeOrMessage,
@@ -966,6 +967,16 @@ impl CliOutput for BuyStorageOutput {
         println!(
             "Storage size: {}",
             HumanReadableBytes(self.storage_resource.storage_size)
+        );
+    }
+}
+
+impl CliOutput for DestroyStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully destroyed storage resource: {}",
+            success(),
+            self.object_id
         );
     }
 }

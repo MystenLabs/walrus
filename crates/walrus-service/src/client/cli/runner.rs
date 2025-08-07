@@ -121,6 +121,7 @@ use crate::{
             BlobStatusOutput,
             BuyStorageOutput,
             DeleteOutput,
+            DestroyStorageOutput,
             DryRunOutput,
             ExchangeOutput,
             ExtendBlobOutput,
@@ -311,6 +312,9 @@ impl ClientCommandRunner {
                     sort_by_size,
                 } => self.list_storage(include_expired, sort_by_size).await,
                 StorageCommands::Buy { epoch_arg, size } => self.buy_storage(epoch_arg, size).await,
+                StorageCommands::Destroy { object_id, yes } => {
+                    self.destroy_storage(object_id, yes.into()).await
+                }
             },
 
             CliCommands::Delete {
@@ -1235,6 +1239,36 @@ impl ClientCommandRunner {
             current_epoch: staking_object.epoch(),
         };
 
+        output.print_output(self.json)
+    }
+
+    /// Destroys a storage resource for the current wallet.
+    pub(crate) async fn destroy_storage(
+        self,
+        object_id: ObjectID,
+        confirmation: UserConfirmation,
+    ) -> Result<()> {
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        
+        // Check if confirmation is needed
+        if confirmation.is_required() && !self.json {
+            println!(
+                "You are about to destroy storage resource {}. This action cannot be undone and provides no refund.",
+                object_id
+            );
+            if !ask_for_confirmation()? {
+                println!("Storage destruction cancelled.");
+                return Ok(());
+            }
+        }
+
+        // Call the destroy function on the storage object
+        client.sui_client().destroy_storage(object_id).await?;
+        
+        let output = DestroyStorageOutput {
+            object_id,
+        };
+        
         output.print_output(self.json)
     }
 

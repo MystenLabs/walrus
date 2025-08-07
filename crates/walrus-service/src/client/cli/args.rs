@@ -675,6 +675,19 @@ pub enum StorageCommands {
         #[arg(long, value_parser = parse_human_readable_bytes)]
         size: u64,
     },
+    /// Destroy a storage resource object.
+    ///
+    /// This permanently destroys the storage resource object without any refund.
+    /// The storage space cannot be recovered after destruction.
+    Destroy {
+        /// The object ID of the storage resource to destroy.
+        #[arg(long)]
+        object_id: ObjectID,
+        /// Skip the confirmation prompt and proceed with destruction.
+        #[arg(long)]
+        #[serde(default)]
+        yes: bool,
+    },
 }
 
 /// Subcommands for the `info` command.

@@ -357,6 +357,17 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to destroy a storage resource.
+    pub async fn destroy_storage(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<()> {
+        let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+        self.walrus_move_call(contracts::storage_resource::destroy, vec![storage_arg])?;
+        self.mark_arg_as_consumed(&storage_arg);
+        Ok(())
+    }
+
     /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
     pub async fn register_blob(
         &mut self,

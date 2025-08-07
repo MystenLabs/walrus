@@ -594,6 +594,18 @@ impl SuiContractClient {
         .await
     }
 
+    /// Destroys a storage resource object.
+    pub async fn destroy_storage(&self, storage_object_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .destroy_storage(storage_object_id)
+                .await
+        })
+        .await
+    }
+
     /// Registers blobs with the specified [`BlobObjectMetadata`] and [`StorageResource`]s,
     /// and returns the created blob objects.
     pub async fn register_blobs(
@@ -1580,6 +1592,16 @@ impl SuiContractClientInner {
         );
 
         self.sui_client().get_sui_object(storage_id[0]).await
+    }
+
+    /// Destroys a storage resource object.
+    pub async fn destroy_storage(&mut self, storage_object_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.destroy_storage(storage_object_id.into()).await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "destroy_storage")
+            .await?;
+        Ok(())
     }
 
     /// Checks if storage resources need to be split and performs the splitting if necessary.

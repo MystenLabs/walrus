@@ -675,6 +675,14 @@ pub struct BuyStorageOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage destroy` command.
+pub struct DestroyStorageOutput {
+    /// The object ID of the destroyed storage resource.
+    pub object_id: ObjectID,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// The output of the `walrus storage list` command.
 pub struct ListStorageOutput {
     /// The list of storage resources owned by the wallet.
