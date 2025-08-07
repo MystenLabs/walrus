@@ -1798,9 +1798,12 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
         .await?;
 
     // Check that the attributes were stored correctly.
-    assert!(blob_with_attribute.attribute.is_some());
-    let stored_attribute = blob_with_attribute.attribute.unwrap();
-    assert_eq!(stored_attribute, attribute);
+    if num_attributes > 0 {
+        let stored_attribute = blob_with_attribute.attribute.unwrap();
+        assert_eq!(stored_attribute, attribute);
+    } else {
+        assert!(blob_with_attribute.attribute.is_none());
+    }
 
     tracing::info!(
         "Successfully stored blob with {} random attributes",
