@@ -89,6 +89,7 @@ use super::{
         PublisherArgs,
         RpcArg,
         SortBy,
+        StorageCommands,
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
@@ -304,12 +305,13 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::ListStorage {
-                include_expired,
-                sort_by_size,
-            } => self.list_storage(include_expired, sort_by_size).await,
-
-            CliCommands::BuyStorage { epoch_arg, size } => self.buy_storage(epoch_arg, size).await,
+            CliCommands::Storage { command } => match command {
+                StorageCommands::List {
+                    include_expired,
+                    sort_by_size,
+                } => self.list_storage(include_expired, sort_by_size).await,
+                StorageCommands::Buy { epoch_arg, size } => self.buy_storage(epoch_arg, size).await,
+            },
 
             CliCommands::Delete {
                 target,

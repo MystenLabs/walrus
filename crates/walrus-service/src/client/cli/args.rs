@@ -418,27 +418,11 @@ pub enum CliCommands {
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
     },
-    /// List all storage resources for the current wallet.
-    ListStorage {
-        #[arg(long)]
-        #[serde(default)]
-        /// The output list of storage resources will include expired ones.
-        include_expired: bool,
-        #[arg(long)]
-        #[serde(default)]
-        /// Sort by storage size in descending order (default is to sort by expiry epoch).
-        sort_by_size: bool,
-    },
-    /// Buy storage for the current wallet.
-    BuyStorage {
-        /// The epoch argument to specify either the number of epochs to buy storage for,
-        /// the end epoch, or the earliest expiry time in rfc3339 format.
-        #[command(flatten)]
-        #[serde(flatten)]
-        epoch_arg: EpochArg,
-        /// The size of storage to buy in human-readable format (e.g., "1GiB", "500MiB", "2TiB").
-        #[arg(long, value_parser = parse_human_readable_bytes)]
-        size: u64,
+    /// Manage storage resources for the current wallet.
+    Storage {
+        /// The specific storage command to run.
+        #[command(subcommand)]
+        command: StorageCommands,
     },
     /// Delete a blob from Walrus.
     ///
@@ -661,6 +645,35 @@ pub enum CliCommands {
         pushed_state: PathBuf,
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
+    },
+}
+
+/// Subcommands for the `storage` command.
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[command(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StorageCommands {
+    /// List all storage resources for the current wallet.
+    List {
+        #[arg(long)]
+        #[serde(default)]
+        /// The output list of storage resources will include expired ones.
+        include_expired: bool,
+        #[arg(long)]
+        #[serde(default)]
+        /// Sort by storage size in descending order (default is to sort by expiry epoch).
+        sort_by_size: bool,
+    },
+    /// Buy storage for the current wallet.
+    Buy {
+        /// The epoch argument to specify either the number of epochs to buy storage for,
+        /// the end epoch, or the earliest expiry time in rfc3339 format.
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
+        /// The size of storage to buy in human-readable format (e.g., "1GiB", "500MiB", "2TiB").
+        #[arg(long, value_parser = parse_human_readable_bytes)]
+        size: u64,
     },
 }
 

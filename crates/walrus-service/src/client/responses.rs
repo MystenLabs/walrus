@@ -663,7 +663,7 @@ pub struct ExtendBlobOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// The output of the `walrus buy-storage` command.
+/// The output of the `walrus storage buy` command.
 pub struct BuyStorageOutput {
     /// The storage resource that was purchased.
     pub storage_resource: StorageResource,
@@ -675,7 +675,7 @@ pub struct BuyStorageOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// The output of the `walrus list-storage` command.
+/// The output of the `walrus storage list` command.
 pub struct ListStorageOutput {
     /// The list of storage resources owned by the wallet.
     pub storage_resources: Vec<StorageResource>,
