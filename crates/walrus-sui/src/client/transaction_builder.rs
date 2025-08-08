@@ -364,7 +364,6 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
         self.walrus_move_call(contracts::storage_resource::destroy, vec![storage_arg])?;
-        self.mark_arg_as_consumed(&storage_arg);
         Ok(())
     }
 
@@ -382,13 +381,12 @@ impl WalrusPtbBuilder {
             contracts::storage_resource::fuse_amount,
             vec![first_arg, second_arg],
         )?;
-        self.mark_arg_as_consumed(&second_arg);
         Ok(())
     }
 
     /// Adds a call to fuse storage resources' periods.
     ///
-    /// The two storage resourcs must have the same size, and be contiguous in the epochs
+    /// The two storage resources must have the same size, and be contiguous in the epochs
     /// dimension.
     pub async fn fuse_storage_periods(
         &mut self,
@@ -401,7 +399,6 @@ impl WalrusPtbBuilder {
             contracts::storage_resource::fuse_periods,
             vec![first_arg, second_arg],
         )?;
-        self.mark_arg_as_consumed(&second_arg);
         Ok(())
     }
 

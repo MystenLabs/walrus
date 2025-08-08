@@ -462,7 +462,7 @@ enum PoolOperationWithAuthorization {
 
 /// Operation selector for fusing storage resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FuseStorageOperation {
+pub enum FuseStorageOperation {
     /// Fuse by summing amounts for identical periods.
     Amounts,
     /// Fuse by joining contiguous periods of identical size.
@@ -676,7 +676,7 @@ impl SuiContractClient {
 
     /// Fuses the storage resources' periods.
     ///
-    /// The two storage resourcs must have the same size, and be contiguous in the epochs
+    /// The two storage resources must have the same size, and be contiguous in the epochs.
     pub async fn fuse_storage_periods(
         &self,
         storage_resources: Vec<StorageResource>,
@@ -1765,7 +1765,7 @@ impl SuiContractClientInner {
 
     /// Fuses the storage resources' periods.
     ///
-    /// The two storage resourcs must have the same size, and be contiguous in the epochs
+    /// The two storage resources must have the same size, and be contiguous in the epochs.
     pub async fn fuse_storage_periods(
         &mut self,
         storage_resources: Vec<StorageResource>,

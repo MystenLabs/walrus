@@ -26,6 +26,7 @@ mod args;
 mod backfill;
 mod cli_output;
 mod runner;
+mod storage;
 
 pub use args::{
     AggregatorArgs,

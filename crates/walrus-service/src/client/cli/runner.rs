@@ -68,11 +68,10 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, types::StorageResource, wallet::Wallet};
+use walrus_sui::{client::rpc_client, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
-    HumanReadableBytes,
     args::{
         AggregatorArgs,
         BlobIdentifiers,
@@ -90,10 +89,10 @@ use super::{
         PublisherArgs,
         RpcArg,
         SortBy,
-        StorageCommands,
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
+    storage::StorageManagerCli,
     success,
 };
 use crate::{
@@ -120,14 +119,11 @@ use crate::{
             BlobIdConversionOutput,
             BlobIdOutput,
             BlobStatusOutput,
-            BuyStorageOutput,
             DeleteOutput,
-            DestroyStorageOutput,
             DryRunOutput,
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
-            FuseStorageOutput,
             GetBlobAttributeOutput,
             InfoBftOutput,
             InfoCommitteeOutput,
@@ -136,12 +132,10 @@ use crate::{
             InfoPriceOutput,
             InfoSizeOutput,
             InfoStorageOutput,
-            ListStorageOutput,
             ReadOutput,
             ReadQuiltOutput,
             ServiceHealthInfoOutput,
             ShareBlobOutput,
-            SplitStorageOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
             WalletOutput,
@@ -309,26 +303,15 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::Storage { command } => match command {
-                StorageCommands::List {
-                    include_expired,
-                    sort_by_size,
-                } => self.list_storage(include_expired, sort_by_size).await,
-                StorageCommands::Buy { epoch_arg, size } => self.buy_storage(epoch_arg, size).await,
-                StorageCommands::Destroy { object_id, yes } => {
-                    self.destroy_storage(object_id, yes.into()).await
-                }
-                StorageCommands::Split {
-                    object_id,
-                    size,
-                    epoch_arg,
-                } => self.split_storage(object_id, size, epoch_arg).await,
-                StorageCommands::Fuse {
-                    object_ids,
-                    by_size,
-                    by_epoch,
-                } => self.fuse_storage(object_ids, by_size, by_epoch).await,
-            },
+            CliCommands::Storage { command } => {
+                let storage_cli = StorageManagerCli::new(
+                    self.config?
+                        .new_contract_client(self.wallet?, self.gas_budget)
+                        .await?,
+                    self.json,
+                );
+                storage_cli.run_storage_command(command).await
+            }
 
             CliCommands::Delete {
                 target,
@@ -704,8 +687,12 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+        let epochs_ahead = get_epochs_ahead(
+            epoch_arg,
+            system_object.max_epochs_ahead(),
+            &client.sui_client(),
+        )
+        .await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -854,8 +841,12 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
-        let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
+        let epochs_ahead = get_epochs_ahead(
+            epoch_arg,
+            system_object.max_epochs_ahead(),
+            &client.sui_client(),
+        )
+        .await?;
 
         let quilt_store_blobs = Self::load_blobs_for_quilt(&paths, blobs).await?;
 
@@ -1189,213 +1180,6 @@ impl ClientCommandRunner {
             )
             .await?;
         blobs.print_output(self.json)
-    }
-
-    /// Lists all the storage resources owned by the wallet.
-    pub(crate) async fn list_storage(
-        self,
-        include_expired: bool,
-        sort_by_size: bool,
-    ) -> Result<()> {
-        let config = self.config?;
-        let contract_client = config
-            .new_contract_client(self.wallet?, self.gas_budget)
-            .await?;
-
-        let staking_object = contract_client.read_client.get_staking_object().await?;
-        let current_epoch = staking_object.epoch();
-        let epoch_duration = Duration::from_millis(staking_object.epoch_duration());
-        let epoch_state = staking_object.epoch_state();
-
-        let current_epoch_start_time = match epoch_state {
-            EpochState::EpochChangeDone(epoch_start)
-            | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
-            EpochState::EpochChangeSync(_) => Utc::now(),
-        };
-
-        let storage_resources = contract_client
-            .owned_storage(ExpirySelectionPolicy::from_include_expired_flag(
-                include_expired,
-            ))
-            .await?;
-
-        let output = ListStorageOutput::new_sorted(
-            storage_resources,
-            current_epoch,
-            current_epoch_start_time,
-            epoch_duration,
-            sort_by_size,
-        );
-
-        output.print_output(self.json)
-    }
-
-    /// Buys storage for the current wallet.
-    pub(crate) async fn buy_storage(self, epoch_arg: EpochArg, size: u64) -> Result<()> {
-        anyhow::ensure!(size > 0, "the specified size must be greater than 0");
-
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let system_object = client.sui_client().read_client.get_system_object().await?;
-        let staking_object = client.sui_client().read_client.get_staking_object().await?;
-
-        let epochs_ahead =
-            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
-
-        let storage_resource = client
-            .sui_client()
-            .reserve_space(size, epochs_ahead)
-            .await?;
-
-        let output = BuyStorageOutput {
-            storage_resource: storage_resource.clone(),
-            size_bytes: size,
-            current_epoch: staking_object.epoch(),
-        };
-
-        output.print_output(self.json)
-    }
-
-    /// Destroys a storage resource for the current wallet.
-    pub(crate) async fn destroy_storage(
-        self,
-        object_id: ObjectID,
-        confirmation: UserConfirmation,
-    ) -> Result<()> {
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-
-        if confirmation.is_required() && !self.json {
-            println!(
-                "You are about to destroy storage resource {object_id}. \
-                This action cannot be undone and provides no refund.",
-            );
-            if !ask_for_confirmation()? {
-                println!("Storage destruction cancelled.");
-                return Ok(());
-            }
-        }
-
-        client.sui_client().destroy_storage(object_id).await?;
-
-        let output = DestroyStorageOutput { object_id };
-
-        output.print_output(self.json)
-    }
-
-    /// Splits a storage resource by size or epoch.
-    pub(crate) async fn split_storage(
-        self,
-        object_id: ObjectID,
-        size: Option<u64>,
-        epoch_arg: Option<EpochArg>,
-    ) -> Result<()> {
-        // Validate that exactly one split type is provided.
-        let has_size = size.is_some();
-        let has_epoch = epoch_arg.is_some();
-
-        if !has_size && !has_epoch {
-            anyhow::bail!(
-                "Must specify either --size or epoch arguments \
-                (--epochs, --end-epoch, or --earliest-expiry-time)"
-            );
-        }
-
-        if has_size && has_epoch {
-            anyhow::bail!("Cannot specify both --size and epoch arguments");
-        }
-
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-
-        let (split_type, resulting_storage_objects) = if let Some(split_size) = size {
-            let objects = client
-                .sui_client()
-                .split_storage_by_size(object_id, split_size)
-                .await?;
-            (format!("size {}", HumanReadableBytes(split_size)), objects)
-        } else if let Some(epoch_arg_val) = epoch_arg {
-            let system_object = client.sui_client().read_client.get_system_object().await?;
-            let epochs_ahead =
-                get_epochs_ahead(epoch_arg_val, system_object.max_epochs_ahead(), &client).await?;
-            let staking_object = client.sui_client().read_client.get_staking_object().await?;
-            let target_epoch = staking_object.epoch() + epochs_ahead;
-
-            let objects = client
-                .sui_client()
-                .split_storage_by_epoch(object_id, target_epoch)
-                .await?;
-            (format!("epoch {target_epoch}"), objects)
-        } else {
-            unreachable!("checked above that one type must be provided");
-        };
-
-        let output = SplitStorageOutput {
-            original_object_id: object_id,
-            resulting_storage_objects,
-            split_type,
-        };
-
-        output.print_output(self.json)
-    }
-
-    /// Fuses multiple storage resources into a single resource.
-    pub(crate) async fn fuse_storage(
-        self,
-        object_ids: Vec<ObjectID>,
-        by_size: bool,
-        by_epoch: bool,
-    ) -> Result<()> {
-        todo!()
-    }
-
-    /// Fuses storage resources by size strategy.
-    async fn fuse_by_size(
-        client: &Client<SuiContractClient>,
-        storage_resources: Vec<StorageResource>,
-    ) -> Result<(String, StorageResource, usize)> {
-        todo!()
-    }
-
-    /// Fuses storage resources by epoch strategy.
-    async fn fuse_by_epoch(
-        client: &Client<SuiContractClient>,
-        mut storage_resources: Vec<StorageResource>,
-    ) -> Result<(String, StorageResource, usize)> {
-        // Sort by start epoch
-        storage_resources.sort_by_key(|s| s.start_epoch);
-
-        // Check that all storage resources have the same size
-        let storage_size = storage_resources[0].storage_size;
-        for storage in &storage_resources {
-            if storage.storage_size != storage_size {
-                anyhow::bail!(
-                    "All storage resources must have the same size for epoch-based fusion. \
-                     Expected size: {}, but found {}",
-                    HumanReadableBytes(storage_size),
-                    HumanReadableBytes(storage.storage_size)
-                );
-            }
-        }
-
-        // Check that epochs are contiguous
-        for i in 1..storage_resources.len() {
-            let prev = &storage_resources[i - 1];
-            let curr = &storage_resources[i];
-            if curr.start_epoch != prev.end_epoch {
-                anyhow::bail!(
-                    "Storage resources must be contiguous for epoch-based fusion. \
-                     Gap found between epochs {} and {}",
-                    prev.end_epoch,
-                    curr.start_epoch
-                );
-            }
-        }
-
-        // Fuse all storage resources by periods (they are contiguous and same size)
-        let fused_storage = client
-            .sui_client()
-            .fuse_storage_periods(storage_resources)
-            .await?;
-
-        Ok(("epoch".to_string(), fused_storage, 0))
     }
 
     pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
@@ -1867,21 +1651,37 @@ async fn delete_blob(
     result
 }
 
-async fn get_epochs_ahead(
+/// Gets the number of epochs ahead based on the provided `epoch_arg`.
+pub(crate) async fn get_epochs_ahead(
     epoch_arg: EpochArg,
     max_epochs_ahead: EpochCount,
-    client: &Client<SuiContractClient>,
+    sui_client: &SuiContractClient,
 ) -> Result<u32, anyhow::Error> {
-    let epochs_ahead = match epoch_arg {
+    let (_, epochs_ahead) =
+        get_end_epoch_and_epochs_ahead(epoch_arg, max_epochs_ahead, sui_client).await?;
+    Ok(epochs_ahead)
+}
+
+/// Gets the end epoch and the number of epochs ahead based on the provided `epoch_arg`.
+pub(crate) async fn get_end_epoch_and_epochs_ahead(
+    epoch_arg: EpochArg,
+    max_epochs_ahead: EpochCount,
+    sui_client: &SuiContractClient,
+) -> Result<(u32, u32), anyhow::Error> {
+    let current_epoch = sui_client.current_epoch().await?;
+    let (end_epoch, epochs_ahead) = match epoch_arg {
         EpochArg {
             epochs: Some(epochs),
             ..
-        } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+        } => {
+            let epochs_ahead = epochs.try_into_epoch_count(max_epochs_ahead)?;
+            (current_epoch + epochs_ahead, epochs_ahead)
+        }
         EpochArg {
             earliest_expiry_time: Some(earliest_expiry_time),
             ..
         } => {
-            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let staking_object = sui_client.read_client.get_staking_object().await?;
             let epoch_state = staking_object.epoch_state();
             let estimated_start_of_current_epoch = match epoch_state {
                 EpochState::EpochChangeDone(epoch_start)
@@ -1897,20 +1697,20 @@ async fn get_epochs_ahead(
             );
             let delta =
                 (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
-            (delta / staking_object.epoch_duration() + 1)
+            let epochs_ahead = (delta / staking_object.epoch_duration() + 1)
                 .try_into()
-                .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?
+                .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?;
+            (current_epoch + epochs_ahead, epochs_ahead)
         }
         EpochArg {
             end_epoch: Some(end_epoch),
             ..
         } => {
-            let current_epoch = client.sui_client().current_epoch().await?;
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
             );
-            end_epoch - current_epoch
+            (end_epoch, end_epoch - current_epoch)
         }
         _ => {
             anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
@@ -1926,7 +1726,7 @@ async fn get_epochs_ahead(
         epochs_ahead
     );
 
-    Ok(epochs_ahead)
+    Ok((end_epoch, epochs_ahead))
 }
 
 pub fn ask_for_confirmation() -> Result<bool> {
