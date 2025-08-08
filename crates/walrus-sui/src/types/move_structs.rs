@@ -695,66 +695,46 @@ pub struct SystemObject {
     /// The new package ID of the system object.
     pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
-    pub(crate) inner: SystemStateInnerV1Enum,
+    pub(crate) inner: SystemStateInnerV1,
 }
 
 impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => &inner.committee,
-            SystemStateInnerV1Enum::V1Testnet(inner) => &inner.committee,
-        }
-        .members
-        .len()
-        .try_into()
-        .expect("committee size always fits in a u16")
+        self.inner
+            .committee
+            .members
+            .len()
+            .try_into()
+            .expect("committee size always fits in a u16")
     }
 
     /// Returns the number of epochs ahead that can be used to extend a blob.
     pub fn max_epochs_ahead(&self) -> u32 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.future_accounting.length(),
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.future_accounting.length(),
-        }
+        self.inner.future_accounting.length()
     }
 
     /// Returns the storage price per unit size.
     pub fn storage_price_per_unit_size(&self) -> u64 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.storage_price_per_unit_size,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.storage_price_per_unit_size,
-        }
+        self.inner.storage_price_per_unit_size
     }
 
     /// Returns the write price per unit size.
     pub fn write_price_per_unit_size(&self) -> u64 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.write_price_per_unit_size,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.write_price_per_unit_size,
-        }
+        self.inner.write_price_per_unit_size
     }
 
     /// Returns the latest certified event blob.
     pub fn latest_certified_event_blob(&self) -> Option<EventBlob> {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner
-                .event_blob_certification_state
-                .latest_certified_blob
-                .clone(),
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner
-                .event_blob_certification_state
-                .latest_certified_blob
-                .clone(),
-        }
+        self.inner
+            .event_blob_certification_state
+            .latest_certified_blob
+            .clone()
     }
 
     /// Returns the future accounting ring buffer.
     pub fn future_accounting(&self) -> &FutureAccountingRingBuffer {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => &inner.future_accounting,
-            SystemStateInnerV1Enum::V1Testnet(inner) => &inner.future_accounting,
-        }
+        &self.inner.future_accounting
     }
 }
 
@@ -768,42 +748,6 @@ pub(crate) struct SystemObjectForDeserialization {
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
-pub(crate) enum SystemStateInnerV1Enum {
-    V1(SystemStateInnerV1),
-    V1Testnet(SystemStateInnerV1Testnet),
-}
-
-// TODO(WAL-867): Remove the no longer needed `SystemStateInnerV1Testnet` and all associated code.
-/// Sui type for inner system object.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub(crate) struct SystemStateInnerV1Testnet {
-    /// The current committee of the Walrus instance.
-    pub committee: BlsCommittee,
-    /// Total storage capacity of the Walrus instance.
-    pub total_capacity_size: u64,
-    /// Used storage capacity of the Walrus instance.
-    pub used_capacity_size: u64,
-    /// The price per unit of storage per epoch.
-    pub storage_price_per_unit_size: u64,
-    /// The write price per unit.
-    pub write_price_per_unit_size: u64,
-    /// The future accounting ring buffer to keep track of future rewards.
-    pub future_accounting: FutureAccountingRingBuffer,
-    /// Event blob certification state.
-    pub event_blob_certification_state: EventBlobCertificationStateTestnet,
-    /// Extended field with the size of the deny list for committee members.
-    pub deny_list_sized: ObjectID,
-}
-
-impl AssociatedContractStruct for SystemStateInnerV1Testnet {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
-}
-
-impl AssociatedContractStruct for SystemStateInnerV1 {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
 }
 
 /// Sui type for inner system object.
@@ -825,6 +769,10 @@ pub(crate) struct SystemStateInnerV1 {
     pub event_blob_certification_state: EventBlobCertificationState,
     /// Extended field with the size of the deny list for committee members.
     pub deny_list_sized: ObjectID,
+}
+
+impl AssociatedContractStruct for SystemStateInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
 }
 
 #[tracing::instrument(err, skip_all)]

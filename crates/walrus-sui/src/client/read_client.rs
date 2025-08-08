@@ -73,8 +73,6 @@ use crate::{
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
-            SystemStateInnerV1Enum,
-            SystemStateInnerV1Testnet,
             WalrusSubsidies,
             WalrusSubsidiesForDeserialization,
             WalrusSubsidiesInner,
@@ -771,27 +769,14 @@ impl SuiReadClient {
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
         }
-        let inner = if let Ok(inner) = self
+        let inner = self
             .sui_client
             .get_dynamic_field::<u64, SystemStateInnerV1>(
                 self.system_object_id,
                 TypeTag::U64,
                 version,
             )
-            .await
-        {
-            SystemStateInnerV1Enum::V1(inner)
-        } else {
-            let inner = self
-                .sui_client
-                .get_dynamic_field::<u64, SystemStateInnerV1Testnet>(
-                    self.system_object_id,
-                    TypeTag::U64,
-                    version,
-                )
-                .await?;
-            SystemStateInnerV1Enum::V1Testnet(inner)
-        };
+            .await?;
         Ok(SystemObject {
             id,
             version,
