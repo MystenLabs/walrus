@@ -68,7 +68,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, wallet::Wallet};
+use walrus_sui::{client::rpc_client, types::StorageResource, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
@@ -127,6 +127,7 @@ use crate::{
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
+            FuseStorageOutput,
             GetBlobAttributeOutput,
             InfoBftOutput,
             InfoCommitteeOutput,
@@ -322,6 +323,11 @@ impl ClientCommandRunner {
                     size,
                     epoch_arg,
                 } => self.split_storage(object_id, size, epoch_arg).await,
+                StorageCommands::Fuse {
+                    object_ids,
+                    by_size,
+                    by_epoch,
+                } => self.fuse_storage(object_ids, by_size, by_epoch).await,
             },
 
             CliCommands::Delete {
@@ -1328,6 +1334,68 @@ impl ClientCommandRunner {
         };
 
         output.print_output(self.json)
+    }
+
+    /// Fuses multiple storage resources into a single resource.
+    pub(crate) async fn fuse_storage(
+        self,
+        object_ids: Vec<ObjectID>,
+        by_size: bool,
+        by_epoch: bool,
+    ) -> Result<()> {
+        todo!()
+    }
+
+    /// Fuses storage resources by size strategy.
+    async fn fuse_by_size(
+        client: &Client<SuiContractClient>,
+        storage_resources: Vec<StorageResource>,
+    ) -> Result<(String, StorageResource, usize)> {
+        todo!()
+    }
+
+    /// Fuses storage resources by epoch strategy.
+    async fn fuse_by_epoch(
+        client: &Client<SuiContractClient>,
+        mut storage_resources: Vec<StorageResource>,
+    ) -> Result<(String, StorageResource, usize)> {
+        // Sort by start epoch
+        storage_resources.sort_by_key(|s| s.start_epoch);
+
+        // Check that all storage resources have the same size
+        let storage_size = storage_resources[0].storage_size;
+        for storage in &storage_resources {
+            if storage.storage_size != storage_size {
+                anyhow::bail!(
+                    "All storage resources must have the same size for epoch-based fusion. \
+                     Expected size: {}, but found {}",
+                    HumanReadableBytes(storage_size),
+                    HumanReadableBytes(storage.storage_size)
+                );
+            }
+        }
+
+        // Check that epochs are contiguous
+        for i in 1..storage_resources.len() {
+            let prev = &storage_resources[i - 1];
+            let curr = &storage_resources[i];
+            if curr.start_epoch != prev.end_epoch {
+                anyhow::bail!(
+                    "Storage resources must be contiguous for epoch-based fusion. \
+                     Gap found between epochs {} and {}",
+                    prev.end_epoch,
+                    curr.start_epoch
+                );
+            }
+        }
+
+        // Fuse all storage resources by periods (they are contiguous and same size)
+        let fused_storage = client
+            .sui_client()
+            .fuse_storage_periods(storage_resources)
+            .await?;
+
+        Ok(("epoch".to_string(), fused_storage, 0))
     }
 
     pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {

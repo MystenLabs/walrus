@@ -50,6 +50,7 @@ use crate::client::{
         DestroyStorageOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
+        FuseStorageOutput,
         EpochTimeOrMessage,
         ExampleBlobInfo,
         ExchangeOutput,
@@ -1001,6 +1002,35 @@ impl CliOutput for SplitStorageOutput {
                 storage.end_epoch
             );
         }
+    }
+}
+
+impl CliOutput for FuseStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully fused {} storage resources by {}",
+            success(),
+            self.original_object_ids.len(),
+            self.fuse_strategy
+        );
+        if self.extensions_performed > 0 {
+            println!(
+                "Performed {} extensions to align storage resources",
+                self.extensions_performed
+            );
+        }
+        println!("Original object IDs:");
+        for (i, object_id) in self.original_object_ids.iter().enumerate() {
+            println!("  {}. {}", i + 1, object_id);
+        }
+        println!("Fused storage object:");
+        println!(
+            "  Object ID: {} | Size: {} | Epochs: {}-{}",
+            self.fused_storage_object.id,
+            HumanReadableBytes(self.fused_storage_object.storage_size),
+            self.fused_storage_object.start_epoch,
+            self.fused_storage_object.end_epoch
+        );
     }
 }
 

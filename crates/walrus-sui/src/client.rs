@@ -460,6 +460,25 @@ enum PoolOperationWithAuthorization {
     Governance,
 }
 
+/// Operation selector for fusing storage resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FuseStorageOperation {
+    /// Fuse by summing amounts for identical periods.
+    Amounts,
+    /// Fuse by joining contiguous periods of identical size.
+    Periods,
+}
+
+impl FuseStorageOperation {
+    /// Returns the `method` used, to be logged in the metrics.
+    fn fuse_method(&self) -> &'static str {
+        match self {
+            FuseStorageOperation::Amounts => "fuse_storage_by_amount",
+            FuseStorageOperation::Periods => "fuse_storage_by_periods",
+        }
+    }
+}
+
 /// Enum to select between an emergency upgrade authorized with an EmergencyUpgradeCap
 /// or a normal quorum-based upgrade that has been voted for by a quorum of nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -633,6 +652,40 @@ impl SuiContractClient {
                 .lock()
                 .await
                 .split_storage_by_epoch(storage_object_id, split_epoch)
+                .await
+        })
+        .await
+    }
+
+    /// Fuses the storage resources' amounts.
+    ///
+    /// The two storage resources must have the same start and end epoch.
+    pub async fn fuse_storage_amounts(
+        &self,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<StorageResource> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .fuse_storage_amounts(storage_resources.clone())
+                .await
+        })
+        .await
+    }
+
+    /// Fuses the storage resources' periods.
+    ///
+    /// The two storage resourcs must have the same size, and be contiguous in the epochs
+    pub async fn fuse_storage_periods(
+        &self,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<StorageResource> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .fuse_storage_periods(storage_resources.clone())
                 .await
         })
         .await
@@ -1697,6 +1750,78 @@ impl SuiContractClientInner {
         }
 
         Ok(storage_resources)
+    }
+
+    /// Fuses the storage resources' amounts.
+    ///
+    /// The two storage resources must have the same start and end epoch.
+    pub async fn fuse_storage_amounts(
+        &mut self,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<StorageResource> {
+        self.fuse_storage(storage_resources, FuseStorageOperation::Amounts)
+            .await
+    }
+
+    /// Fuses the storage resources' periods.
+    ///
+    /// The two storage resourcs must have the same size, and be contiguous in the epochs
+    pub async fn fuse_storage_periods(
+        &mut self,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<StorageResource> {
+        self.fuse_storage(storage_resources, FuseStorageOperation::Periods)
+            .await
+    }
+
+    /// Common implementation for fusing storage resources.
+    ///
+    /// - For `FuseStorageOperation::Amounts`, fuses amounts for identical periods.
+    /// - For `FuseStorageOperation::Periods`, fuses contiguous periods with identical size.
+    async fn fuse_storage(
+        &mut self,
+        storage_resources: Vec<StorageResource>,
+        operation: FuseStorageOperation,
+    ) -> SuiClientResult<StorageResource> {
+        if storage_resources.len() < 2 {
+            return Err(SuiClientError::Internal(anyhow::anyhow!(
+                "Need at least 2 storage resources to fuse",
+            )));
+        }
+
+        let mut pt_builder = self.transaction_builder()?;
+
+        // Fuse each subsequent storage resource into the first one.
+        for i in 1..storage_resources.len() {
+            match operation {
+                FuseStorageOperation::Amounts => {
+                    pt_builder
+                        .fuse_storage_amounts(
+                            storage_resources[0].id.into(),
+                            storage_resources[i].id.into(),
+                        )
+                        .await?;
+                }
+                FuseStorageOperation::Periods => {
+                    pt_builder
+                        .fuse_storage_periods(
+                            storage_resources[0].id.into(),
+                            storage_resources[i].id.into(),
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let _response = self
+            .sign_and_send_transaction(transaction, operation.fuse_method())
+            .await?;
+
+        // The first storage resource is modified and contains the fused result.
+        self.sui_client()
+            .get_sui_object(storage_resources[0].id)
+            .await
     }
 
     /// Checks if storage resources need to be split and performs the splitting if necessary.

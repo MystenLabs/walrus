@@ -715,6 +715,25 @@ pub enum StorageCommands {
         #[serde(flatten)]
         epoch_arg: Option<EpochArg>,
     },
+    /// Fuse multiple storage resources into a single resource.
+    ///
+    /// This command merges multiple storage resources. You must specify either
+    /// --by-size or --by-epoch to determine the fusion strategy.
+    Fuse {
+        /// List of storage resource object IDs to fuse together.
+        #[arg(long, num_args = 1.., required = true)]
+        object_ids: Vec<ObjectID>,
+        /// Fuse by size: all objects must have the same start epoch.
+        /// If end epochs differ, shorter ones will be extended before merging.
+        #[arg(long, conflicts_with = "by_epoch")]
+        #[serde(default)]
+        by_size: bool,
+        /// Fuse by epoch: objects will be sorted by start epoch and must be contiguous
+        /// with the same size. If sizes differ, smaller ones will be extended.
+        #[arg(long, conflicts_with = "by_size")]
+        #[serde(default)]
+        by_epoch: bool,
+    },
 }
 
 /// Subcommands for the `info` command.

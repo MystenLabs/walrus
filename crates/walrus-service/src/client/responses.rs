@@ -695,6 +695,20 @@ pub struct SplitStorageOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// The output of the `walrus storage fuse` command.
+pub struct FuseStorageOutput {
+    /// The original storage resource object IDs that were fused.
+    pub original_object_ids: Vec<ObjectID>,
+    /// The resulting fused storage resource object.
+    pub fused_storage_object: StorageResource,
+    /// Description of the fuse strategy that was used.
+    pub fuse_strategy: String,
+    /// Number of extensions performed during the fusion process.
+    pub extensions_performed: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// The output of the `walrus storage list` command.
 pub struct ListStorageOutput {
     /// The list of storage resources owned by the wallet.
