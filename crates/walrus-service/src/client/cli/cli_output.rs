@@ -61,6 +61,7 @@ use crate::client::{
         InfoPriceOutput,
         InfoSizeOutput,
         InfoStorageOutput,
+        ListStorageOutput,
         NodeHealthOutput,
         ReadOutput,
         ReadQuiltOutput,
@@ -768,6 +769,41 @@ impl CliOutput for Vec<Blob> {
                 c->blob.deletable,
                 c->blob.storage.end_epoch,
                 blob.id,
+            ]);
+        }
+        table.printstd();
+    }
+}
+
+impl CliOutput for ListStorageOutput {
+    fn print_cli_output(&self) {
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![
+            b->"Storage Size",
+            bc->"Start Epoch",
+            bc->"End Epoch",
+            bc->"Expiry Time",
+            b->"Object ID",
+        ]);
+
+        for storage in &self.storage_resources {
+            let expiry_time = if storage.end_epoch > self.current_epoch {
+                let epochs_until_expiry = storage.end_epoch.saturating_sub(self.current_epoch);
+                let expiry_duration = self.epoch_duration * epochs_until_expiry;
+                let expiry_datetime = self.current_epoch_start_time
+                    + chrono::Duration::from_std(expiry_duration).unwrap_or_default();
+                expiry_datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+            } else {
+                "Expired".to_string()
+            };
+
+            table.add_row(row![
+                c->HumanReadableBytes(storage.storage_size),
+                c->storage.start_epoch,
+                c->storage.end_epoch,
+                c->expiry_time,
+                storage.id,
             ]);
         }
         table.printstd();

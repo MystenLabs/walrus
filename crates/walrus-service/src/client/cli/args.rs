@@ -412,6 +412,17 @@ pub enum CliCommands {
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
     },
+    /// List all storage resources for the current wallet.
+    ListStorage {
+        #[arg(long)]
+        #[serde(default)]
+        /// The output list of storage resources will include expired ones.
+        include_expired: bool,
+        #[arg(long)]
+        #[serde(default)]
+        /// Sort by storage size in descending order (default is to sort by expiry epoch).
+        sort_by_size: bool,
+    },
     /// Delete a blob from Walrus.
     ///
     /// This command is only available for blobs that are deletable.
