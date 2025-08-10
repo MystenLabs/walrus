@@ -674,6 +674,8 @@ pub struct QuiltPatchItem {
     /// The QuiltPatchId for this patch, encoded as URL-safe base64.
     #[serde_as(as = "DisplayFromStr")]
     pub patch_id: QuiltPatchId,
+    /// Tags for the patch.
+    pub tags: BTreeMap<String, String>,
 }
 
 /// List patches in a quilt.

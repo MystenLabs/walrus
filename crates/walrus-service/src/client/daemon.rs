@@ -232,6 +232,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
                     QuiltPatchItem {
                         identifier: patch.identifier().to_string(),
                         patch_id,
+                        tags: patch.tags.clone(),
                     }
                 })
                 .collect(),
