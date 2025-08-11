@@ -5,7 +5,7 @@
 
 use core::fmt;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     future::Future,
     path::PathBuf,
     str::FromStr,
