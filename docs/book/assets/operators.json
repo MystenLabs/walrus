@@ -259,7 +259,7 @@
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": false
+        "cache": true
       },
       "https://aggregator.walrus-01.tududes.com": {
         "operator": "TuDudes",
@@ -275,7 +275,7 @@
       },
       "https://aggregator.walrus.testnet.mozcomputing.dev": {
         "operator": "MozComputing",
-        "cache": true
+        "functional": false
       },
       "https://sm1-walrus-testnet-aggregator.stakesquid.com": {
         "operator": "StakeSquid",
@@ -291,7 +291,7 @@
       },
       "https://testnet-aggregator-walrus.kiliglab.io": {
         "operator": "KiligLab",
-        "cache": false
+        "cache": true
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
@@ -359,7 +359,7 @@
       },
       "https://walrus-testnet-aggregator.chainbase.online": {
         "operator": "Chainbase Staking",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.chainflow.io": {
         "operator": "Chainflow",
@@ -375,11 +375,11 @@
       },
       "https://walrus-testnet-aggregator.everstake.one": {
         "operator": "Everstake",
-        "cache": true
+        "functional": false
       },
       "https://walrus-testnet-aggregator.luckyresearch.org": {
         "operator": "LuckyResearch Labs",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.natsai.xyz": {
         "operator": "Natsai",
@@ -463,7 +463,7 @@
       },
       "https://walrus.testnet.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
-        "cache": true
+        "cache": false
       },
       "https://walrusagg.testnet.pops.one": {
         "operator": "P-OPS Team",
