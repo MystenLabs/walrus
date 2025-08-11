@@ -6,8 +6,11 @@
 use std::{
     net::SocketAddr,
     num::NonZeroU16,
-    path::{Path, PathBuf},
-    sync::Arc,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -24,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::digests::TransactionDigest;
-use tokio::time::Instant;
+use tokio::{sync::Notify, task::JoinHandle, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::{OpenApi, ToSchema};
@@ -39,7 +42,7 @@ use walrus_sdk::{
         encoding::EncodingConfigTrait as _,
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
-    core_utils::{load_from_yaml, metrics::Registry},
+    core_utils::metrics::Registry,
     sui::{
         ObjectIdSchema,
         client::{SuiClientMetricSet, retry_client::RetriableSuiClient},
@@ -61,29 +64,27 @@ use crate::{
     utils::check_tx_auth_package,
 };
 
-/// The default address for the Walrus Upload Relay server.
+/// The default socket bind address for the Walrus Upload Relay.
 pub const DEFAULT_SERVER_ADDRESS: &str = "0.0.0.0:57391";
 
 /// The configuration for the Walrus Upload Relay.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) struct WalrusUploadRelayConfig {
+pub struct WalrusUploadRelayConfig {
     /// The configuration for tipping.
-    tip_config: TipConfig,
+    pub tip_config: TipConfig,
     /// The transaction freshness threshold.
     ///
     /// The maximum time gap (in seconds) between the time the tip transaction is executed (i.e.,
     /// the tip is paid), and the request to store is made to the Walrus upload relay.
     #[serde(rename = "tx_freshness_threshold_secs")]
     #[serde_as(as = "DurationSeconds")]
-    tx_freshness_threshold: Duration,
+    pub tx_freshness_threshold: Duration,
     /// The maximum time in the future (in seconds) a transaction timestamp can be.
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
-    #[serde(rename = "tx_max_future_threshold_secs")]
-    #[serde_as(as = "DurationSeconds")]
-    tx_max_future_threshold: Duration,
+    pub tx_max_future_threshold: Duration,
 }
 
 /// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
@@ -91,9 +92,12 @@ pub(crate) struct WalrusUploadRelayConfig {
 /// Compared to `Params`, the `tx_id` and the `nonce` are not optional, and `blob_id` and
 /// `deletable_blob_object` are not necessary.
 #[derive(Debug, Clone)]
-pub(crate) struct PaidTipParams {
+pub struct PaidTipParams {
+    /// The ID of the transaction that paid the tip.
     pub tx_id: TransactionDigest,
+    /// The nonce used to generate the hash.
     pub nonce: [u8; NONCE_LEN],
+    /// The encoding type of the blob.
     pub encoding_type: Option<EncodingType>,
 }
 
@@ -266,22 +270,103 @@ impl Controller {
     }
 }
 
-/// Runs the upload relay.
-pub(crate) async fn run_upload_relay(
-    context: Option<String>,
-    walrus_config: PathBuf,
+async fn wait_for_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
+    loop {
+        if flag.load(Ordering::SeqCst) {
+            break;
+        }
+        notify.notified().await;
+    }
+}
+
+/// A handle to the upload relay, which can be used to shut it down.
+pub struct UploadRelayHandle {
+    shutdown_flag: Arc<AtomicBool>,
+    shutdown_notify: Arc<Notify>,
+    tcp_bind_flag: Arc<AtomicBool>,
+    tcp_bind_notify: Arc<Notify>,
+    join_handle: JoinHandle<Result<(), anyhow::Error>>,
+}
+
+impl std::fmt::Debug for UploadRelayHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadRelayHandle")
+            .field("shutdown_flag", &self.shutdown_flag.load(Ordering::SeqCst))
+            .finish_non_exhaustive()
+    }
+}
+
+impl UploadRelayHandle {
+    /// Creates a new `UploadRelayCancelTrigger`.
+    fn with_join_handle(
+        shutdown_flag: Arc<AtomicBool>,
+        shutdown_notify: Arc<Notify>,
+        tcp_bind_flag: Arc<AtomicBool>,
+        tcp_bind_notify: Arc<Notify>,
+        join_handle: JoinHandle<Result<(), anyhow::Error>>,
+    ) -> Self {
+        Self {
+            shutdown_flag,
+            shutdown_notify,
+            tcp_bind_flag,
+            tcp_bind_notify,
+            join_handle,
+        }
+    }
+
+    /// Allows the upload relay to run indefinitely.
+    pub async fn run_forever(self) -> ! {
+        drop(self.shutdown_notify);
+        drop(self.shutdown_flag);
+        let result = self
+            .join_handle
+            .await
+            .expect("join handle should never complete");
+        panic!("upload relay task completed unexpectedly: {result:?}")
+    }
+
+    /// Cancels the upload relay.
+    pub async fn shutdown(self) -> Result<(), anyhow::Error> {
+        assert!(!self.shutdown_flag.load(Ordering::SeqCst));
+        self.shutdown_flag.store(true, Ordering::SeqCst);
+        self.shutdown_notify.notify_waiters();
+        self.join_handle.await.expect("join handle should complete")
+    }
+
+    /// Waits for the upload relay to bind to the TCP socket.
+    pub async fn wait_for_tcp_bind(&self) -> Result<(), anyhow::Error> {
+        loop {
+            if self.tcp_bind_flag.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                anyhow::bail!("upload relay shutdown while waiting for TCP bind");
+            }
+
+            tokio::select! {
+                _ = self.tcp_bind_notify.notified() => {
+                    continue;
+                },
+                _ = self.shutdown_notify.notified() => {
+                    anyhow::bail!("upload relay shutdown while waiting for TCP bind");
+                },
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_server(
+    client: Client<SuiReadClient>,
+    relay_config: WalrusUploadRelayConfig,
+    metric_set: WalrusUploadRelayMetricSet,
     server_address: SocketAddr,
-    relay_config_path: PathBuf,
-    registry: Registry,
-) -> Result<()> {
-    let metric_set = WalrusUploadRelayMetricSet::new(&registry);
-
-    // Create a client we can use to communicate with the Sui network, which is used to
-    // coordinate the Walrus network.
-    let client = get_client(context.as_deref(), walrus_config.as_path(), &registry).await?;
-
+    shutdown_flag: Arc<AtomicBool>,
+    shutdown_notify: Arc<Notify>,
+    tcp_bind_flag: Arc<AtomicBool>,
+    tcp_bind_notify: Arc<Notify>,
+) -> Result<(), anyhow::Error> {
     let n_shards = client.get_committees().await?.n_shards();
-    let relay_config: WalrusUploadRelayConfig = load_from_yaml(relay_config_path)?;
     tracing::debug!(?relay_config, "loaded relay config");
 
     // Build our HTTP application to handle the blob fan-out operations.
@@ -302,8 +387,66 @@ pub(crate) async fn run_upload_relay(
         .layer(cors_layer());
 
     let listener = tokio::net::TcpListener::bind(&server_address).await?;
+
+    // Notify that the server has bound to the TCP socket.
+    tcp_bind_flag.store(true, Ordering::SeqCst);
+    tcp_bind_notify.notify_waiters();
+
     tracing::info!(?server_address, n_shards, "Serving Walrus Upload Relay...");
-    Ok(axum::serve(listener, app).await?)
+    Ok(axum::serve(listener, app)
+        .with_graceful_shutdown(wait_for_signal(shutdown_flag, shutdown_notify))
+        .await?)
+}
+
+/// Runs the upload relay.
+pub fn start_upload_relay(
+    client: Client<SuiReadClient>,
+    relay_config: WalrusUploadRelayConfig,
+    server_address: SocketAddr,
+    registry: Registry,
+) -> Result<UploadRelayHandle> {
+    let metric_set = WalrusUploadRelayMetricSet::new(&registry);
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let shutdown_notify = Arc::new(Notify::new());
+    let tcp_bind_flag = Arc::new(AtomicBool::new(false));
+    let tcp_bind_notify = Arc::new(Notify::new());
+
+    // Run the upload relay in a new asynchronous task.
+    let join_handle = tokio::spawn({
+        let shutdown_flag = shutdown_flag.clone();
+        let shutdown_notify = shutdown_notify.clone();
+        let tcp_bind_flag = tcp_bind_flag.clone();
+        let tcp_bind_notify = tcp_bind_notify.clone();
+
+        async move {
+            let result = run_server(
+                client,
+                relay_config,
+                metric_set,
+                server_address,
+                shutdown_flag.clone(),
+                shutdown_notify.clone(),
+                tcp_bind_flag,
+                tcp_bind_notify,
+            )
+            .await;
+
+            // Notify that the server is shutting down.
+            shutdown_flag.store(true, Ordering::SeqCst);
+            shutdown_notify.notify_waiters();
+
+            tracing::warn!(result = ?result, "upload relay server task exited");
+            result
+        }
+    });
+
+    Ok(UploadRelayHandle::with_join_handle(
+        shutdown_flag,
+        shutdown_notify,
+        tcp_bind_flag,
+        tcp_bind_notify,
+        join_handle,
+    ))
 }
 
 /// Returns a `CorsLayer` for the controller endpoints.
@@ -401,30 +544,40 @@ pub(crate) async fn blob_upload_relay_handler(
 }
 
 /// Returns a Walrus read client from the context and Walrus configuration.
-pub(crate) async fn get_client(
+pub async fn get_client(
     context: Option<&str>,
     walrus_config: &Path,
     registry: &Registry,
 ) -> Result<Client<SuiReadClient>> {
-    let config: ClientConfig =
-        walrus_sdk::config::load_configuration(Some(walrus_config), context)?;
-    tracing::debug!(?config, "loaded client config");
+    get_client_with_config(
+        walrus_sdk::config::load_configuration(Some(walrus_config), context)?,
+        registry,
+    )
+    .await
+}
+
+/// Returns a Walrus read client with the specified configuration.
+pub async fn get_client_with_config(
+    client_config: ClientConfig,
+    registry: &Registry,
+) -> Result<Client<SuiReadClient>> {
+    tracing::debug!(?client_config, "loaded client config");
 
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &config.rpc_urls,
-        config.backoff_config().clone(),
+        &client_config.rpc_urls,
+        client_config.backoff_config().clone(),
         None,
     )
     .await?
     .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 
-    let sui_read_client = config.new_read_client(retriable_sui_client).await?;
+    let sui_read_client = client_config.new_read_client(retriable_sui_client).await?;
 
-    let refresh_handle = config
+    let refresh_handle = client_config
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
+    Ok(Client::new_read_client(client_config, refresh_handle, sui_read_client).await?)
 }
 
 #[cfg(test)]

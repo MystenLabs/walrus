@@ -7,7 +7,7 @@ use walrus_sdk::sui::client::SuiClientError;
 
 /// An error that occurs while the proxy is executing or checking a transaction.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TipError {
+pub enum TipError {
     /// The received transaction response does not match what is expected.
     #[error("an unexpected transaction response was received: {0}")]
     UnexpectedResponse(&'static str),

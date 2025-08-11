@@ -154,6 +154,7 @@ walrus-storage-node-client = { path = "crates/walrus-storage-node-client" }
 walrus-stress = { path = "crates/walrus-stress" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
+walrus-upload-relay = { path = "crates/walrus-upload-relay" }
 walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
 

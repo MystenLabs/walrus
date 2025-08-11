@@ -33,6 +33,7 @@ walrus-service = { workspace = true, features = ["test-utils"] }
 walrus-storage-node-client.workspace = true
 walrus-sui.workspace = true
 walrus-test-utils.workspace = true
+walrus-upload-relay = { workspace = true }
 walrus-utils.workspace = true
 
 [lints]
