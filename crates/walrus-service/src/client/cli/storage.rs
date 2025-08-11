@@ -12,7 +12,13 @@ use chrono::Utc;
 use sui_types::base_types::ObjectID;
 use walrus_core::Epoch;
 use walrus_sui::{
-    client::{ExpirySelectionPolicy, FuseStorageOperation, SuiClientResult, SuiContractClient},
+    client::{
+        ExpirySelectionPolicy,
+        FuseStorageOperation,
+        ReadClient,
+        SuiClientResult,
+        SuiContractClient,
+    },
     types::{StorageResource, move_structs::EpochState},
 };
 
@@ -180,8 +186,10 @@ impl StorageManagerCli {
     ) -> Result<()> {
         let operation: FuseStorageOperation = which_fuse.try_into()?;
 
-        self.manager.fuse_storage(object_ids, operation, strict);
-        todo!()
+        self.manager
+            .fuse_all_storage(object_ids, operation, strict)
+            .await?;
+        Ok(())
     }
 
     /// Converts [`SplitBy`] to [`SplitCommand`], resolving epoch arguments if necessary.
@@ -264,13 +272,18 @@ impl StorageManager {
         }
     }
 
-    pub fn fuse_storage(
+    pub async fn fuse_all_storage(
         &self,
         object_ids: &[ObjectID],
         fuse_operation: FuseStorageOperation,
         strict: bool,
-    ) {
-        todo!()
+    ) -> SuiClientResult<()> {
+        self.sui_client
+            .fuse_all_storage(
+                self.sui_client.current_epoch().await?,
+                self.list_storage(false).await?,
+            )
+            .await
     }
 }
 

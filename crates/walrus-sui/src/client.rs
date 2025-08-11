@@ -5,7 +5,7 @@
 
 use core::fmt;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     future::Future,
     path::PathBuf,
     str::FromStr,
@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
+use itertools::Itertools;
 use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,7 @@ use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::Tr
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
-use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
+use transaction_builder::{ArgumentOrOwnedObject, MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
     BlobId,
     EncodingType,
@@ -686,6 +687,21 @@ impl SuiContractClient {
                 .lock()
                 .await
                 .fuse_storage_periods(storage_resources.clone())
+                .await
+        })
+        .await
+    }
+
+    pub async fn fuse_all_storage(
+        &self,
+        current_epoch: Epoch,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .fuse_all_storage(current_epoch, storage_resources.clone())
                 .await
         })
         .await
@@ -1772,6 +1788,160 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<StorageResource> {
         self.fuse_storage(storage_resources, FuseStorageOperation::Periods)
             .await
+    }
+
+    /// Fuses all the storage resources into a single one.
+    ///
+    /// It will extend and split the resources as needed, to have a final resource that covers
+    /// the "convex hull" of all the provided resources.
+    pub async fn fuse_all_storage(
+        &mut self,
+        current_epoch: Epoch,
+        storage_resources: Vec<StorageResource>,
+    ) -> SuiClientResult<()> {
+        /// A helper struct to hold temporary storage resource information.
+        #[derive(Debug, Clone)]
+        struct TmpResource {
+            interval: (Epoch, Epoch),
+            size: u64,
+            argument: ArgumentOrOwnedObject,
+        }
+
+        impl TmpResource {
+            fn from_resource(resource: &StorageResource) -> Self {
+                Self {
+                    interval: (resource.start_epoch, resource.end_epoch),
+                    size: resource.storage_size,
+                    argument: resource.id.into(),
+                }
+            }
+
+            fn split_epoch(
+                self,
+                epoch: Epoch,
+                new_piece_id: ArgumentOrOwnedObject,
+            ) -> (Self, Self) {
+                (
+                    Self {
+                        interval: (self.interval.0, epoch),
+                        size: self.size,
+                        argument: self.argument.clone(),
+                    },
+                    Self {
+                        interval: (epoch, self.interval.1),
+                        size: self.size,
+                        argument: new_piece_id,
+                    },
+                )
+            }
+
+            fn fuse_amounts(&mut self, other: Self) {
+                self.size += other.size;
+            }
+        }
+
+        // Creates a vector with all the epochs (start and end) that appear in the resources.
+        let mut epochs: Vec<Epoch> = storage_resources
+            .iter()
+            .flat_map(|res| vec![res.start_epoch, res.end_epoch])
+            .collect();
+        epochs.sort_unstable();
+        epochs.dedup();
+
+        // Split all the resources on the intervals found above, keeping track of the splits using
+        // TmpResources. A map is used to track the TmpResources by their interval.
+        let mut fused_columns: HashMap<(Epoch, Epoch), TmpResource> = HashMap::new();
+        let mut pt_builder = self.transaction_builder()?;
+
+        for resource in storage_resources {
+            let mut remaining_res = TmpResource::from_resource(&resource);
+            if resource.end_epoch <= current_epoch {
+                // Outdated resource, destroy and continue.
+                pt_builder.destroy_storage(remaining_res.argument).await?;
+                continue;
+            }
+
+            if resource.start_epoch < current_epoch {
+                // The resource starts before the current epoch: split it and destroy the old part.
+                let new_res_arg = pt_builder
+                    .split_storage_by_epoch(resource.id.into(), current_epoch)
+                    .await?;
+                pt_builder.destroy_storage(resource.id.into()).await?;
+                remaining_res.argument = new_res_arg.into();
+                remaining_res.interval.0 = current_epoch;
+            }
+
+            // Split the resource at every epoch boundary.
+            for (start, end) in epochs.iter().tuple_windows() {
+                if (*start, *end) == remaining_res.interval {
+                    // Already aligned with the interval, no need to split.
+                    if let Some(existing) = fused_columns.get_mut(&remaining_res.interval) {
+                        pt_builder
+                            .fuse_storage_amounts(
+                                existing.argument.clone(),
+                                remaining_res.argument.clone(),
+                            )
+                            .await?;
+                        existing.fuse_amounts(remaining_res);
+                    } else {
+                        fused_columns.insert(remaining_res.interval, remaining_res);
+                    }
+                    break;
+                }
+
+                if remaining_res.interval.0 < *end && remaining_res.interval.1 > *end {
+                    let split_arg = pt_builder
+                        .split_storage_by_epoch(remaining_res.argument.clone(), *end)
+                        .await?;
+                    let (left_piece, remainder) = remaining_res.split_epoch(*end, split_arg.into());
+                    remaining_res = remainder;
+
+                    if let Some(existing) = fused_columns.get_mut(&left_piece.interval) {
+                        pt_builder
+                            .fuse_storage_amounts(
+                                existing.argument.clone(),
+                                left_piece.argument.clone(),
+                            )
+                            .await?;
+                        existing.fuse_amounts(left_piece);
+                    } else {
+                        fused_columns.insert(left_piece.interval, left_piece);
+                    }
+                }
+            }
+        }
+
+        let mut fused_columns: Vec<_> = fused_columns.into_values().collect();
+        fused_columns.sort_unstable_by_key(|r| r.interval.0);
+
+        // Fuse the adjacent columns that have the same size and are contiguous in the epochs.
+        let mut idx = 0;
+        while idx < fused_columns.len() {
+            let mut current = fused_columns[idx].clone();
+            let mut next_idx = idx + 1;
+            while next_idx < fused_columns.len() {
+                let next = &fused_columns[next_idx];
+                if current.size == next.size && current.interval.1 == next.interval.0 {
+                    // Fuse the two resources.
+                    pt_builder
+                        .fuse_storage_periods(current.argument, next.argument.clone())
+                        .await?;
+                    current.interval.1 = next.interval.1; // Extend the current interval.
+                    next_idx += 1; // Skip the next resource as it is fused.
+                } else {
+                    break; // No more contiguous resources to fuse.
+                }
+            }
+            idx = next_idx; // Move to the next resource to process.
+        }
+
+        // Build the transaction and send it.
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let _response = self
+            .sign_and_send_transaction(transaction, "fuse_all_storage")
+            .await?;
+
+        Ok(())
     }
 
     /// Common implementation for fusing storage resources.
