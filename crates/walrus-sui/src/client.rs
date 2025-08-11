@@ -1652,7 +1652,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
-            // Check and split storage resources as needed before registering
+            // Check and split storage resources as needed before registering.
             let split_storage = Self::check_and_split_storage(
                 &mut pt_builder,
                 &blob_metadata,

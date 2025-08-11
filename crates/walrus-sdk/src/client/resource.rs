@@ -534,7 +534,6 @@ impl<'a> ResourceManager<'a> {
             }
         }
 
-        // TODO(giac): consider splitting the storage before reusing it (WAL-208).
         let target_epoch = epochs_ahead + self.write_committee_epoch;
         if !blob_processing_items.is_empty() {
             let all_storage_resources = self
