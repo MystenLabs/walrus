@@ -25,7 +25,6 @@ use super::{
     SliverRecoveryOrVerificationError,
     Symbols,
     errors::{SliverRecoveryError, SliverVerificationError},
-    symbols,
 };
 use crate::{
     SliverIndex,
@@ -234,13 +233,13 @@ impl<T: EncodingAxis> SliverData<T> {
             .expect("we have exactly `n_shards` symbols and the bound was checked"))
     }
 
-    /// Recovers a [`Sliver`] from the provided recovery symbols.
+    /// Recovers a [`SliverData`] from the provided recovery symbols.
     ///
-    /// Returns the recovered [`Sliver`] if decoding succeeds or `None` if decoding fails.
+    /// Returns the recovered [`SliverData`] if decoding succeeds or `None` if decoding fails.
     ///
     /// Does *not perform any checks* on the provided symbols; in particular, it does not verify any
     /// proofs.
-    fn recover_sliver_without_verification<I, U>(
+    pub fn recover_sliver_without_verification<I, U>(
         recovery_symbols: I,
         target_index: SliverIndex,
         symbol_size: NonZeroU16,
@@ -248,67 +247,40 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Option<Self>
     where
         I: IntoIterator,
-        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>>,
+        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>> + ExactSizeIterator,
         U: MerkleAuth,
     {
+        let recovery_symbols = recovery_symbols.into_iter();
+        if recovery_symbols.len() < config.n_symbols_for_recovery::<T>() {
+            // We don't even have to attempt decoding if we don't have enough recovery symbols.
+            return None;
+        }
         config
             .decode_from_decoding_symbols(
                 symbol_size,
-                recovery_symbols
-                    .into_iter()
-                    .map(RecoverySymbol::into_decoding_symbol),
+                recovery_symbols.map(RecoverySymbol::into_decoding_symbol),
             )
             .map(|data| SliverData::new(data, symbol_size, target_index))
     }
 
-    /// Recovers a [`SliverData`] from the provided recovery symbols, verifying each symbol.
-    ///
-    /// Returns the recovered [`SliverData`] if decoding succeeds or a [`SliverRecoveryError`] if
-    /// decoding fails.
-    ///
-    /// Symbols that fail verification are logged and dropped.
-    pub fn recover_sliver<I, U>(
-        recovery_symbols: I,
-        target_index: SliverIndex,
-        metadata: &BlobMetadata,
-        encoding_config: &EncodingConfig,
-    ) -> Result<Self, SliverRecoveryError>
-    where
-        I: IntoIterator,
-        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>>,
-        U: MerkleAuth,
-    {
-        let symbol_size = metadata.symbol_size(encoding_config)?;
-        Self::recover_sliver_without_verification(
-            symbols::filter_recovery_symbols_and_log_invalid(
-                recovery_symbols,
-                metadata,
-                encoding_config,
-                target_index,
-            ),
-            target_index,
-            symbol_size,
-            &encoding_config.get_for_type(metadata.encoding_type()),
-        )
-        .ok_or(SliverRecoveryError::DecodingFailure)
-    }
-
     /// Attempts to recover a sliver from the provided recovery symbols.
+    ///
+    /// The function *does not* verify the recovery symbols. It is the caller's responsibility to
+    /// ensure that the recovery symbols have been verified to be useable to recover the identified
+    /// symbol.
+    ///
+    /// It is also the caller's responsibility to ensure that the number of recovery symbols is
+    /// sufficient to recover the sliver (an error is returned if this is not the case).
     ///
     /// If recovery succeeds an the recovered sliver is verified successfully against the metadata,
     /// that sliver is returned. If the recovered sliver is inconsistent with the metadata, an
     /// [`InconsistencyProof`] is generated and returned. If recovery fails or another error occurs,
     /// a [`SliverRecoveryError`] is returned.
-    ///
-    /// If `verify_symbols` is set to true, symbols that fail verification are logged and
-    /// dropped. Otherwise, it is the caller's responsibility to ensure that the recovery symbols
-    /// have been verified to be useable to recover the identified symbol.
     pub fn recover_sliver_or_generate_inconsistency_proof<I, U>(
-        recovery_symbols: I,
+        verified_recovery_symbols: I,
         target_index: SliverIndex,
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
-        verify_symbols: bool,
     ) -> Result<SliverOrInconsistencyProof<T, U>, SliverRecoveryOrVerificationError>
     where
         I: IntoIterator,
@@ -316,30 +288,30 @@ impl<T: EncodingAxis> SliverData<T> {
         U: MerkleAuth,
     {
         let symbol_size = metadata.symbol_size(encoding_config)?;
-        let filtered_recovery_symbols: Vec<_> = if verify_symbols {
-            symbols::filter_recovery_symbols_and_log_invalid(
-                recovery_symbols,
-                metadata,
-                encoding_config,
-                target_index,
-            )
-            .collect()
-        } else {
-            recovery_symbols.into_iter().collect()
-        };
+        let config_enum = encoding_config.get_for_type(metadata.encoding_type());
+
+        // Important: For RS2 encoding, the number of recovery symbols required to reconstruct a
+        // sliver is fixed, allowing to specify an exact number of symbols for the recovery
+        // proof. This may not be the case for other future encodings, in which case this
+        // error type and the corresponding checks may have to be adjusted.
+        let n_symbols_required = config_enum.n_symbols_for_recovery::<T>();
+        let verified_recovery_symbols: Vec<_> = verified_recovery_symbols
+            .into_iter()
+            .take(n_symbols_required)
+            .collect();
 
         let sliver = Self::recover_sliver_without_verification(
-            filtered_recovery_symbols.clone(),
+            verified_recovery_symbols.clone(),
             target_index,
             symbol_size,
-            &encoding_config.get_for_type(metadata.encoding_type()),
+            &config_enum,
         )
         .ok_or(SliverRecoveryError::DecodingFailure)?;
 
         match sliver.verify(encoding_config, metadata) {
             Ok(()) => Ok(sliver.into()),
             Err(SliverVerificationError::MerkleRootMismatch) => {
-                Ok(InconsistencyProof::new(target_index, filtered_recovery_symbols).into())
+                Ok(InconsistencyProof::new(target_index, verified_recovery_symbols).into())
             }
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
@@ -649,7 +621,7 @@ mod tests {
         blob: &[u8],
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
-        let (config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
+        let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
@@ -657,37 +629,36 @@ mod tests {
             blob,
         );
         let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary).into();
+        let encoding_config_enum = encoding_config.get_for_type(metadata.encoding_type());
+        let symbol_size = metadata.symbol_size(&encoding_config)?;
 
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
             let recovery_symbols: Vec<_> = random_subset(
                 pairs.iter().map(|p| {
-                    p.recovery_symbol_pair_for_sliver(
-                        pair.index(),
-                        &config.get_for_type(metadata.encoding_type()),
-                    )
-                    .unwrap()
+                    p.recovery_symbol_pair_for_sliver(pair.index(), &encoding_config_enum)
+                        .unwrap()
                 }),
                 n_to_recover_from,
             )
             .collect();
 
             // Recover the primary sliver.
-            let recovered = SliverData::recover_sliver(
+            let recovered = SliverData::recover_sliver_without_verification(
                 recovery_symbols.iter().map(|s| s.primary.clone()),
                 pair.primary.index,
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.primary);
 
             // Recover the secondary sliver.
-            let recovered = SliverData::recover_sliver(
+            let recovered = SliverData::recover_sliver_without_verification(
                 recovery_symbols.iter().map(|s| s.secondary.clone()),
                 pair.secondary.index,
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.secondary);
@@ -728,14 +699,15 @@ mod tests {
     }
     fn test_recover_all_slivers_from_f_plus_1(encoding_type: EncodingType, f: u16, blob: &[u8]) {
         let n_shards = 3 * f + 1;
-        let (config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
+        let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
             f,
             2 * f,
             n_shards,
             encoding_type,
             blob,
         );
-        let config_enum = config.get_for_type(metadata.encoding_type());
+        let encoding_config_enum = encoding_config.get_for_type(metadata.encoding_type());
+        let symbol_size = metadata.symbol_size(&encoding_config).unwrap();
 
         // Keep only the first `to_reconstruct_from` primary slivers.
         let to_reconstruct_from = f + 1;
@@ -749,13 +721,14 @@ mod tests {
         let secondary_slivers = (0..n_shards)
             .map(|target_index| {
                 let index = SliverPairIndex(target_index);
-                SliverData::<Secondary>::recover_sliver(
-                    primary_slivers
-                        .iter()
-                        .map(|p| p.recovery_symbol_for_sliver(index, &config_enum).unwrap()),
+                SliverData::<Secondary>::recover_sliver_without_verification(
+                    primary_slivers.iter().map(|p| {
+                        p.recovery_symbol_for_sliver(index, &encoding_config_enum)
+                            .unwrap()
+                    }),
                     SliverIndex(n_shards - 1 - target_index),
-                    &metadata,
-                    &config,
+                    symbol_size,
+                    &encoding_config_enum,
                 )
                 .unwrap()
             })
@@ -764,14 +737,22 @@ mod tests {
         // Recover the missing primary slivers from 2f+1 of the reconstructed secondary slivers.
         primary_slivers.extend((to_reconstruct_from..n_shards).map(|target_index| {
             let index = SliverPairIndex(target_index);
-            SliverData::<Primary>::recover_sliver(
+            SliverData::<Primary>::recover_sliver_without_verification(
                 secondary_slivers
                     .iter()
-                    .take(config_enum.n_secondary_source_symbols().get().into())
-                    .map(|s| s.recovery_symbol_for_sliver(index, &config_enum).unwrap()),
+                    .take(
+                        encoding_config_enum
+                            .n_secondary_source_symbols()
+                            .get()
+                            .into(),
+                    )
+                    .map(|s| {
+                        s.recovery_symbol_for_sliver(index, &encoding_config_enum)
+                            .unwrap()
+                    }),
                 index.into(),
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap()
         }));
@@ -811,7 +792,8 @@ mod tests {
                 sliver
                     .recovery_symbol_for_sliver(shard_pair_index, &config)
                     .unwrap()
-                    .verify_proof(&merkle_tree.root(), index.into())
+                    .verify_proof(&merkle_tree.root(), n_shards.into(), index.into())
+                    .is_ok()
             );
         }
     }

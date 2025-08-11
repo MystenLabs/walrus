@@ -30,6 +30,7 @@ use crate::{
         self,
         EncodingConfig,
         EncodingConfigTrait as _,
+        Primary,
         PrimaryRecoverySymbol,
         PrimarySliver,
         QuiltError,
@@ -337,7 +338,7 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
                 )
                 .unwrap()
         }),
-        config_enum.n_secondary_source_symbols().get().into(),
+        config_enum.n_symbols_for_recovery::<Primary>(),
     )
     .collect();
     Ok((

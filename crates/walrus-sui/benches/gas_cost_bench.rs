@@ -238,11 +238,12 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
 
             if args.extend {
                 let epochs_extended = Some(epochs_ahead);
+                let attribute = Default::default();
                 let certify_and_extend_params: Vec<CertifyAndExtendBlobParams> = blob_objs
                     .iter()
                     .map(|blob| CertifyAndExtendBlobParams {
                         blob,
-                        attribute: None,
+                        attribute: &attribute,
                         certificate: None,
                         epochs_extended,
                     })

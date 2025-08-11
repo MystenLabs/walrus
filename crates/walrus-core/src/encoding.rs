@@ -70,7 +70,6 @@ pub use symbols::{
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
     Symbols,
-    min_symbols_for_recovery,
 };
 
 mod utils;

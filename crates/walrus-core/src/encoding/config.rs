@@ -109,6 +109,14 @@ pub trait EncodingConfigTrait {
         }
     }
 
+    /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `T`.
+    // Important: This is an *exact* value. If a future encoding requires a variable number of
+    // symbols, the interface here needs to be changed.
+    #[inline]
+    fn n_symbols_for_recovery<T: EncodingAxis>(&self) -> usize {
+        self.n_source_symbols::<T::OrthogonalAxis>().get().into()
+    }
+
     /// Returns the number of shards as a `usize`.
     #[inline]
     fn n_shards_as_usize(&self) -> usize {

@@ -2879,7 +2879,7 @@ impl ServiceState for StorageNodeInner {
         ensure!(
             self.is_stored_at_all_shards_at_latest_epoch(blob_id)
                 .await
-                .context("database error when checkingstorage status")?,
+                .context("database error when checking storage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
@@ -3717,7 +3717,8 @@ mod tests {
             let attestation = node
                 .as_ref()
                 .verify_inconsistency_proof(&blob_id, inconsistency_proof)
-                .await?;
+                .await
+                .context("failed to verify inconsistency proof")?;
 
             // The proof should be valid and we should receive a valid signature
             node.as_ref()

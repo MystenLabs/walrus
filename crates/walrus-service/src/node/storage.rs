@@ -490,6 +490,8 @@ impl Storage {
     }
 
     /// Store the verified metadata.
+    ///
+    /// This must *not* be called for a blob that is not tracked in the blob-info table.
     #[tracing::instrument(skip_all)]
     pub async fn put_verified_metadata(
         &self,
@@ -499,6 +501,7 @@ impl Storage {
             .await
     }
 
+    // Important: This must *not* be called for a blob that is not tracked in the blob-info table.
     async fn put_metadata(
         &self,
         blob_id: &BlobId,

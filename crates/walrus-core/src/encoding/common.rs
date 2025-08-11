@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::SliverType;
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
-pub trait EncodingAxis: Clone + PartialEq + Eq + Default + core::fmt::Debug {
+pub trait EncodingAxis:
+    Clone + PartialEq + Eq + Default + core::fmt::Debug + Send + Sync + 'static
+{
     /// The complementary encoding axis.
     type OrthogonalAxis: EncodingAxis;
     /// Whether this corresponds to the primary (true) or secondary (false) encoding.
