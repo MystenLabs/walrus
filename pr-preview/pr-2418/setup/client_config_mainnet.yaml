@@ -1,0 +1,4 @@
+system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+rpc_urls:
+  - https://fullnode.mainnet.sui.io:443
