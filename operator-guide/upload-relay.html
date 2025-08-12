@@ -393,7 +393,9 @@ expose from your host.)</li>
   address: 0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a
   kind: !const 42
 tx_freshness_threshold_secs: 36000
-tx_max_future_threshold_secs: 30
+tx_max_future_threshold:
+  secs: 30
+  nanos: 0
 </code></pre>
 <p>Currently, the options are the following:</p>
 <ul>
