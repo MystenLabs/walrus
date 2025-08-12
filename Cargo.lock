@@ -13186,6 +13186,7 @@ dependencies = [
  "home",
  "indoc",
  "inflections",
+ "itertools 0.13.0",
  "jsonrpsee",
  "move-core-types",
  "move-package",

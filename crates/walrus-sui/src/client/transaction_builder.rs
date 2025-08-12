@@ -357,6 +357,51 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to destroy a storage resource.
+    pub async fn destroy_storage(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<()> {
+        let storage_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+        self.walrus_move_call(contracts::storage_resource::destroy, vec![storage_arg])?;
+        Ok(())
+    }
+
+    /// Adds a call to fuse storage resources' amount.
+    ///
+    /// The two storage resources must have the same start and end epoch.
+    pub async fn fuse_storage_amounts(
+        &mut self,
+        first_storage: ArgumentOrOwnedObject,
+        second_storage: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<()> {
+        let first_arg = self.argument_from_arg_or_obj(first_storage).await?;
+        let second_arg = self.argument_from_arg_or_obj(second_storage).await?;
+        self.walrus_move_call(
+            contracts::storage_resource::fuse_amount,
+            vec![first_arg, second_arg],
+        )?;
+        Ok(())
+    }
+
+    /// Adds a call to fuse storage resources' periods.
+    ///
+    /// The two storage resources must have the same size, and be contiguous in the epochs
+    /// dimension.
+    pub async fn fuse_storage_periods(
+        &mut self,
+        first_storage: ArgumentOrOwnedObject,
+        second_storage: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<()> {
+        let first_arg = self.argument_from_arg_or_obj(first_storage).await?;
+        let second_arg = self.argument_from_arg_or_obj(second_storage).await?;
+        self.walrus_move_call(
+            contracts::storage_resource::fuse_periods,
+            vec![first_arg, second_arg],
+        )?;
+        Ok(())
+    }
+
     /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
     pub async fn register_blob(
         &mut self,

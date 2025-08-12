@@ -45,7 +45,9 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        BuyStorageOutput,
         DeleteOutput,
+        DestroyStorageOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
         EpochTimeOrMessage,
@@ -53,6 +55,7 @@ use crate::client::{
         ExchangeOutput,
         ExtendBlobOutput,
         FundSharedBlobOutput,
+        FuseStorageOutput,
         GetBlobAttributeOutput,
         InfoBftOutput,
         InfoCommitteeOutput,
@@ -61,11 +64,13 @@ use crate::client::{
         InfoPriceOutput,
         InfoSizeOutput,
         InfoStorageOutput,
+        ListStorageOutput,
         NodeHealthOutput,
         ReadOutput,
         ReadQuiltOutput,
         ServiceHealthInfoOutput,
         ShareBlobOutput,
+        SplitStorageOutput,
         StakeOutput,
         StorageNodeInfo,
         StoreQuiltDryRunOutput,
@@ -774,6 +779,41 @@ impl CliOutput for Vec<Blob> {
     }
 }
 
+impl CliOutput for ListStorageOutput {
+    fn print_cli_output(&self) {
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![
+            b->"Storage Size",
+            bc->"Start Epoch",
+            bc->"End Epoch",
+            bc->"Expiry Time",
+            b->"Object ID",
+        ]);
+
+        for storage in &self.storage_resources {
+            let expiry_time = if storage.end_epoch > self.current_epoch {
+                let epochs_until_expiry = storage.end_epoch.saturating_sub(self.current_epoch);
+                let expiry_duration = self.epoch_duration * epochs_until_expiry;
+                let expiry_datetime = self.current_epoch_start_time
+                    + chrono::Duration::from_std(expiry_duration).unwrap_or_default();
+                expiry_datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+            } else {
+                "Expired".to_string()
+            };
+
+            table.add_row(row![
+                c->HumanReadableBytes(storage.storage_size),
+                c->storage.start_epoch,
+                c->storage.end_epoch,
+                c->expiry_time,
+                storage.id,
+            ]);
+        }
+        table.printstd();
+    }
+}
+
 impl CliOutput for DeleteOutput {
     fn print_cli_output(&self) {
         let identity = self.blob_identity.to_string();
@@ -911,6 +951,85 @@ impl CliOutput for FundSharedBlobOutput {
             "{} The blob has been funded with {}",
             success(),
             HumanReadableFrost::from(self.amount)
+        );
+    }
+}
+
+impl CliOutput for BuyStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully purchased storage: {} for {} epochs",
+            success(),
+            HumanReadableBytes(self.size_bytes),
+            self.storage_resource.end_epoch - self.storage_resource.start_epoch,
+        );
+        println!("Storage resource object ID: {}", self.storage_resource.id);
+        println!("Start epoch: {}", self.storage_resource.start_epoch);
+        println!("End epoch: {}", self.storage_resource.end_epoch);
+        println!(
+            "Storage size: {}",
+            HumanReadableBytes(self.storage_resource.storage_size)
+        );
+    }
+}
+
+impl CliOutput for DestroyStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully destroyed storage resource: {}",
+            success(),
+            self.object_id
+        );
+    }
+}
+
+impl CliOutput for SplitStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully split storage resource: {} by {}",
+            success(),
+            self.original_object_id,
+            self.split_type
+        );
+        println!("Resulting storage objects:");
+        for (i, storage) in self.resulting_storage_objects.iter().enumerate() {
+            println!(
+                "  {}. Object ID: {} | Size: {} | Epochs: {}-{}",
+                i + 1,
+                storage.id,
+                HumanReadableBytes(storage.storage_size),
+                storage.start_epoch,
+                storage.end_epoch
+            );
+        }
+    }
+}
+
+impl CliOutput for FuseStorageOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Successfully fused {} storage resources by {}",
+            success(),
+            self.original_object_ids.len(),
+            self.fuse_strategy
+        );
+        if self.extensions_performed > 0 {
+            println!(
+                "Performed {} extensions to align storage resources",
+                self.extensions_performed
+            );
+        }
+        println!("Original object IDs:");
+        for (i, object_id) in self.original_object_ids.iter().enumerate() {
+            println!("  {}. {}", i + 1, object_id);
+        }
+        println!("Fused storage object:");
+        println!(
+            "  Object ID: {} | Size: {} | Epochs: {}-{}",
+            self.fused_storage_object.id,
+            HumanReadableBytes(self.fused_storage_object.storage_size),
+            self.fused_storage_object.start_epoch,
+            self.fused_storage_object.end_epoch
         );
     }
 }
