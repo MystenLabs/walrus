@@ -36,6 +36,7 @@ use walrus_core::{
         EncodingConfigTrait as _,
         Primary,
         QUILT_TYPE_VALUE,
+        encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
     merkle::Node,
@@ -66,7 +67,7 @@ use walrus_sdk::{
         },
     },
     store_optimizations::StoreOptimizations,
-    upload_relay::tip_config::TipConfig,
+    upload_relay::tip_config::{TipConfig, TipKind},
 };
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
@@ -2439,12 +2440,6 @@ async fn test_store_with_upload_relay_no_tip() {
         .parse()
         .expect("valid server address");
 
-    let relay_config = WalrusUploadRelayConfig {
-        tip_config: TipConfig::NoTip,
-        tx_freshness_threshold: Duration::from_secs(300),
-        tx_max_future_threshold: Duration::from_secs(10),
-    };
-
     let registry = Registry::default();
 
     let upload_relay_sui_client = get_client_with_config(walrus_client_config, &registry)
@@ -2452,7 +2447,11 @@ async fn test_store_with_upload_relay_no_tip() {
         .expect("create upload relay sui client");
     let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
         upload_relay_sui_client,
-        relay_config,
+        WalrusUploadRelayConfig {
+            tip_config: TipConfig::NoTip,
+            tx_freshness_threshold: Duration::from_secs(300),
+            tx_max_future_threshold: Duration::from_secs(10),
+        },
         server_address,
         registry,
     )
@@ -2533,14 +2532,82 @@ async fn test_store_with_upload_relay_with_tip() {
         None,
     )
     .expect("loading cluster wallet should succeed");
-    let mut client_wallet = wallet_for_testing(&mut cluster_wallet, false)
+
+    let mut relay_wallet = wallet_for_testing(&mut cluster_wallet, false)
         .await
         .expect("wallet creation should succeed");
 
-    let client_address = client_wallet
+    let relay_address = relay_wallet
         .inner
         .active_address()
-        .expect("client wallet active address should exist");
+        .expect("relay wallet active address should exist");
+
+    // Create the Walrus config for the upload relay.
+    let walrus_read_client_config = ClientConfig {
+        wallet_config: None,
+        rpc_urls: vec![
+            sui_cluster_handle
+                .lock()
+                .await
+                .cluster()
+                .rpc_url()
+                .to_string(),
+        ],
+        ..cluster_client.inner.config().clone()
+    };
+
+    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
+        .parse()
+        .expect("valid server address");
+
+    const TIP_BASE: u64 = 1000;
+    const TIP_MULTIPLIER: u64 = 100;
+
+    let registry = Registry::default();
+
+    let upload_relay_sui_client = get_client_with_config(walrus_read_client_config, &registry)
+        .await
+        .expect("create upload relay sui client");
+    let upload_relay_handle = walrus_upload_relay::start_upload_relay(
+        upload_relay_sui_client,
+        WalrusUploadRelayConfig {
+            tip_config: TipConfig::SendTip {
+                address: relay_address,
+                kind: TipKind::Linear {
+                    base: TIP_BASE,
+                    encoded_size_mul_per_kib: TIP_MULTIPLIER,
+                },
+            },
+            tx_freshness_threshold: Duration::from_secs(300),
+            tx_max_future_threshold: Duration::from_secs(10),
+        },
+        server_address,
+        registry,
+    )
+    .expect("start upload relay should succeed");
+
+    upload_relay_handle
+        .wait_for_tcp_bind()
+        .await
+        .expect("wait for TCP bind");
+
+    assert_ne!(
+        cluster_wallet
+            .active_address()
+            .expect("cluster_wallet should have an address"),
+        cluster_client.inner.sui_client().address()
+    );
+    let n_shards = cluster_client.inner.encoding_config().n_shards();
+    let upload_relay_url = get_upload_relay_url(&server_address);
+    let upload_relay_client = UploadRelayClient::new(
+        cluster_client.inner.sui_client().address(),
+        n_shards,
+        upload_relay_url,
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("upload relay client creation should succeed");
 
     // Create a retry client to check balances
     let retry_client = {
@@ -2558,95 +2625,6 @@ async fn test_store_with_upload_relay_with_tip() {
         .expect("create retry client")
     };
 
-    let wal_coin_type = cluster_client
-        .inner
-        .sui_client()
-        .read_client()
-        .wal_coin_type()
-        .to_string();
-
-    //// Fund the client wallet with enough for storage and tips
-    cluster_client
-        .inner
-        .sui_client()
-        .send_sui(10_000_000_000, client_address)
-        .await
-        .expect("send WAL to client");
-    cluster_client
-        .inner
-        .sui_client()
-        .send_wal(10_000_000_000, client_address)
-        .await
-        .expect("send WAL to client");
-
-    // Use the cluster wallet's active address as the tip recipient
-    let relay_address = cluster_wallet
-        .active_address()
-        .expect("cluster wallet active address should exist");
-
-    // Create the Walrus config for the upload relay.
-    let cluster_config = cluster_client.inner.config();
-    let walrus_client_config = ClientConfig {
-        wallet_config: Some(WalletConfig::from_path(cluster_wallet_path)),
-        rpc_urls: vec![
-            sui_cluster_handle
-                .lock()
-                .await
-                .cluster()
-                .rpc_url()
-                .to_string(),
-        ],
-        ..cluster_config.clone()
-    };
-
-    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
-        .parse()
-        .expect("valid server address");
-
-    const TIP_BASE: u64 = 1000;
-    const TIP_MULTIPLIER: u64 = 100;
-    let relay_config = WalrusUploadRelayConfig {
-        tip_config: TipConfig::SendTip {
-            address: relay_address,
-            kind: walrus_sdk::upload_relay::tip_config::TipKind::Linear {
-                base: TIP_BASE,
-                encoded_size_mul_per_kib: TIP_MULTIPLIER,
-            },
-        },
-        tx_freshness_threshold: Duration::from_secs(300),
-        tx_max_future_threshold: Duration::from_secs(10),
-    };
-
-    let registry = Registry::default();
-
-    let upload_relay_sui_client = get_client_with_config(walrus_client_config, &registry)
-        .await
-        .expect("create upload relay sui client");
-    let upload_relay_handle: UploadRelayHandle = walrus_upload_relay::start_upload_relay(
-        upload_relay_sui_client,
-        relay_config,
-        server_address,
-        registry,
-    )
-    .expect("start upload relay should succeed");
-
-    upload_relay_handle
-        .wait_for_tcp_bind()
-        .await
-        .expect("wait for TCP bind");
-
-    let n_shards = cluster_client.inner.encoding_config().n_shards();
-    let upload_relay_url = get_upload_relay_url(&server_address);
-    let upload_relay_client = UploadRelayClient::new(
-        client_address,
-        n_shards,
-        upload_relay_url,
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("upload relay client creation should succeed");
-
     // Get initial balance of relay wallet to verify tip payment
     let initial_relay_balance = retry_client
         .get_balance(relay_address, None)
@@ -2654,56 +2632,9 @@ async fn test_store_with_upload_relay_with_tip() {
         .expect("get balance")
         .total_balance;
 
-    // Map the client wallet into a WithTempDir<Client<SuiContractClient>>.
-    let client_with_wallet = client_wallet
-        .map_async(async |wallet_inner| {
-            let client_config = ClientConfig {
-                wallet_config: None, // We'll pass the wallet directly
-                rpc_urls: vec![
-                    sui_cluster_handle
-                        .lock()
-                        .await
-                        .cluster()
-                        .rpc_url()
-                        .to_string(),
-                ],
-                ..cluster_config.clone()
-            };
-
-            let sui_client = client_config
-                .new_contract_client(wallet_inner, None)
-                .await
-                .expect("create sui client");
-
-            let refresh_handle = client_config
-                .refresh_config
-                .build_refresher_and_run(sui_client.read_client().clone())
-                .await
-                .expect("build refresher");
-            walrus_sdk::client::Client::new_contract_client(
-                client_config,
-                refresh_handle,
-                sui_client,
-            )
-            .await
-            .expect("create client")
-        })
-        .await;
-
-    // Get initial balance of client wallet to verify we have appropriate balance for the tip.
-    let initial_client_balance = client_with_wallet
-        .inner
-        .sui_client()
-        .sui_client()
-        .get_balance(client_address, Some(wal_coin_type.clone()))
-        .await
-        .expect("get client balance")
-        .total_balance;
-    tracing::info!("Initial client WAL balance: {initial_client_balance}");
-
     const BLOB_SIZE: usize = 40000;
     match basic_store_and_read(
-        &client_with_wallet,
+        &cluster_client,
         1,
         BLOB_SIZE,
         Some(upload_relay_client),
@@ -2734,11 +2665,13 @@ async fn test_store_with_upload_relay_with_tip() {
         Final: {final_relay_balance}",
     );
 
-    // Calculate expected tip based on the linear formula
-    // For a 40000 byte blob with the encoding parameters, we can estimate the tip
-    let blob_size_kib = (BLOB_SIZE as u64).div_ceil(1024);
-    // base + size * mul_per_kib
-    let expected_tip_lower_bound = u128::from(TIP_BASE + blob_size_kib * TIP_MULTIPLIER);
+    // Calculate expected tip based on the linear formula.
+    let encoded_blob_size =
+        encoded_blob_length_for_n_shards(n_shards, BLOB_SIZE as u64, EncodingType::RS2)
+            .expect("encoded blob size should be valid");
+
+    let expected_tip_lower_bound =
+        u128::from(TIP_BASE + encoded_blob_size.div_ceil(1024) * TIP_MULTIPLIER);
     let actual_tip = final_relay_balance - initial_relay_balance;
 
     tracing::info!(
@@ -2747,9 +2680,9 @@ async fn test_store_with_upload_relay_with_tip() {
         expected_tip_lower_bound
     );
 
-    assert!(
-        actual_tip >= expected_tip_lower_bound,
-        "Tip should be at least the calculated minimum. Actual: {actual_tip}, \
+    assert_eq!(
+        actual_tip, expected_tip_lower_bound,
+        "Tip should be the calculated minimum. Actual: {actual_tip}, \
         Expected minimum: {expected_tip_lower_bound}",
     );
 
