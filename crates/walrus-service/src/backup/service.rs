@@ -26,7 +26,7 @@ use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{BlobId, encoding::Primary};
 use walrus_sdk::{
-    client::Client,
+    client::WalrusNodeClient,
     config::{ClientConfig, combine_rpc_urls},
 };
 use walrus_sui::{
@@ -604,9 +604,11 @@ async fn backup_fetcher(
     let walrus_client_config =
         ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
-    let read_client =
-        Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())
-            .await?;
+    let read_client = WalrusNodeClient::new_read_client_with_refresher(
+        walrus_client_config,
+        sui_read_client.clone(),
+    )
+    .await?;
 
     let mut consecutive_fetch_errors = 0;
     loop {
