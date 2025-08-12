@@ -375,7 +375,7 @@ impl BlobPersistence {
                 // releases.
                 tracing::warn!(
                     "blob is marked as neither deletable nor permanent; blobs are currently \
-                    permanent by default, but this behavior will change in the future; use \
+                    permanent by default, but this behavior will change starting with v1.33; use \
                     `--deletable` or `--permanent` to explicitly specify the desired behavior"
                 );
                 Ok(Self::Permanent)

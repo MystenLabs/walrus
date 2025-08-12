@@ -1060,7 +1060,7 @@ pub struct CommonStoreOptions {
     ///
     /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
     ///
-    /// *This will become the default behavior in the future.*
+    /// *This will become the default behavior in v1.33.*
     #[arg(long, conflicts_with = "permanent")]
     #[serde(default)]
     pub deletable: bool,
@@ -1069,8 +1069,8 @@ pub struct CommonStoreOptions {
     /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
     /// beneficial if strong availability guarantees are required.
     ///
-    /// This is currently the default behavior; but *in the future, blobs will be deletable by
-    /// default*.
+    /// This is currently the default behavior; but *blobs will be deletable by
+    /// default starting with v1.33*.
     #[arg(long)]
     #[serde(default)]
     pub permanent: bool,
