@@ -661,7 +661,7 @@ async fn backup_fetch_inner_core(
     conn: &mut AsyncPgConnection,
     backup_config: &BackupConfig,
     backup_metric_set: &BackupFetcherMetricSet,
-    read_client: &Client<SuiReadClient>,
+    read_client: &WalrusNodeClient<SuiReadClient>,
     blob_id: BlobId,
 ) -> Result<()> {
     tracing::info!(blob_id = %blob_id, "[backup_fetcher] received work item");

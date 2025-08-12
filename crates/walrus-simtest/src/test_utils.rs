@@ -21,7 +21,7 @@ pub mod simtest_utils {
         EpochCount,
         encoding::{Primary, Secondary},
     };
-    use walrus_sdk::client::{Client, StoreArgs, responses::BlobStoreResult};
+    use walrus_sdk::client::{StoreArgs, WalrusNodeClient, responses::BlobStoreResult};
     use walrus_service::test_utils::{SimStorageNodeHandle, TestCluster};
     use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::{
@@ -73,7 +73,7 @@ pub mod simtest_utils {
     /// Gets the last certified event blob from the client.
     /// Returns the last certified event blob if it exists, otherwise panics.
     pub async fn get_last_certified_event_blob_must_succeed(
-        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
     ) -> EventBlob {
         const TIMEOUT: Duration = Duration::from_secs(10);
         let start = Instant::now();
@@ -99,7 +99,7 @@ pub mod simtest_utils {
     ///
     // TODO(zhewu): restructure this to a test client.
     pub async fn write_read_and_check_random_blob(
-        client: &WithTempDir<Client<SuiContractClient>>,
+        client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
         data_length: usize,
         write_only: bool,
         deletable: bool,
@@ -240,7 +240,7 @@ pub mod simtest_utils {
 
     /// Probabilistically extend one of the blobs from blobs_written.
     async fn maybe_extend_blob(
-        client: &WithTempDir<Client<SuiContractClient>>,
+        client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
         blobs_written: &HashSet<ObjectID>,
     ) {
         // Probabilistically extend one of the blobs from blobs_written.
@@ -261,7 +261,7 @@ pub mod simtest_utils {
 
     /// Probabilistically delete one of the blobs from blobs_written.
     async fn maybe_delete_blob(
-        client: &WithTempDir<Client<SuiContractClient>>,
+        client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
         blobs_written: &HashSet<ObjectID>,
     ) {
         if rand::thread_rng().gen_bool(0.1) {
@@ -276,7 +276,7 @@ pub mod simtest_utils {
 
     /// Starts a background workload that writes and reads random blobs.
     pub fn start_background_workload(
-        client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
+        client_clone: Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         write_only: bool,
         max_retry_count: Option<usize>,
         epochs_max: Option<EpochCount>,

@@ -37,7 +37,12 @@ use walrus_sui::{
 use walrus_utils::read_blob_from_file;
 
 use crate::{
-    client::{Client, StoreArgs, client_types::StoredQuiltPatch, responses::QuiltStoreResult},
+    client::{
+        StoreArgs,
+        WalrusNodeClient,
+        client_types::StoredQuiltPatch,
+        responses::QuiltStoreResult,
+    },
     error::{ClientError, ClientErrorKind, ClientResult},
 };
 
@@ -372,13 +377,13 @@ impl Default for QuiltClientConfig {
 /// A facade for interacting with Walrus quilt.
 #[derive(Debug, Clone)]
 pub struct QuiltClient<'a, T> {
-    client: &'a Client<T>,
+    client: &'a WalrusNodeClient<T>,
     config: QuiltClientConfig,
 }
 
 impl<'a, T> QuiltClient<'a, T> {
     /// Creates a new QuiltClient.
-    pub fn new(client: &'a Client<T>, config: QuiltClientConfig) -> Self {
+    pub fn new(client: &'a WalrusNodeClient<T>, config: QuiltClientConfig) -> Self {
         Self { client, config }
     }
 

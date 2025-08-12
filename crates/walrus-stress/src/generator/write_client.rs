@@ -19,7 +19,12 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{Client, StoreArgs, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{
+        StoreArgs,
+        WalrusNodeClient,
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
+    },
     error::ClientError,
     store_optimizations::StoreOptimizations,
 };
@@ -44,7 +49,7 @@ use super::blob::{BlobData, WriteBlobConfig};
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
-    client: WithTempDir<Client<SuiContractClient>>,
+    client: WithTempDir<WalrusNodeClient<SuiContractClient>>,
     blob: BlobData,
     metrics: Arc<ClientMetrics>,
 }
@@ -244,7 +249,7 @@ async fn new_client(
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
     refiller: Refiller,
-) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
+) -> anyhow::Result<WithTempDir<WalrusNodeClient<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
     let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
@@ -268,7 +273,7 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
+            WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
         })
         .await?;
     Ok(client)

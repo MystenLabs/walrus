@@ -9,7 +9,7 @@ use rand::{Rng, seq::IteratorRandom};
 use walrus_core::{BlobId, Epoch, EpochCount};
 use walrus_sdk::ObjectID;
 
-use super::client_op_generator::WalrusClientOp;
+use super::client_op_generator::WalrusNodeClientOp;
 
 /// Data and info of a blob.
 pub(crate) struct BlobDataAndInfo {
@@ -58,10 +58,10 @@ impl BlobPool {
         &mut self,
         blob_id: BlobId,
         blob_object_id: Option<ObjectID>,
-        op: WalrusClientOp,
+        op: WalrusNodeClientOp,
     ) {
         match op {
-            WalrusClientOp::Write {
+            WalrusNodeClientOp::Write {
                 blob,
                 deletable,
                 store_epoch_ahead,
@@ -74,23 +74,23 @@ impl BlobPool {
                     store_epoch_ahead,
                 );
             }
-            WalrusClientOp::Delete { blob_id } => {
+            WalrusNodeClientOp::Delete { blob_id } => {
                 self.delete_blob(blob_id);
             }
-            WalrusClientOp::Extend {
+            WalrusNodeClientOp::Extend {
                 blob_id,
                 object_id: _object_id,
                 store_epoch_ahead,
             } => {
                 self.extend_blob(blob_id, store_epoch_ahead);
             }
-            WalrusClientOp::Read {
+            WalrusNodeClientOp::Read {
                 blob_id: _blob_id,
                 sliver_type: _sliver_type,
             } => {
                 // Do nothing.
             }
-            WalrusClientOp::None => {
+            WalrusNodeClientOp::None => {
                 // Do nothing.
             }
         }
@@ -197,7 +197,7 @@ mod tests {
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
 
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: blob_data.clone(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -223,7 +223,7 @@ mod tests {
         let object_id = create_test_object_id();
 
         // First add a blob
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -232,7 +232,7 @@ mod tests {
         assert!(!pool.is_empty());
 
         // Then delete it
-        let delete_op = WalrusClientOp::Delete { blob_id };
+        let delete_op = WalrusNodeClientOp::Delete { blob_id };
         pool.update_blob_pool(blob_id, None, delete_op);
 
         assert!(pool.is_empty());
@@ -246,7 +246,7 @@ mod tests {
         let object_id = create_test_object_id();
 
         // First add a blob
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -254,7 +254,7 @@ mod tests {
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
         // Then extend it
-        let extend_op = WalrusClientOp::Extend {
+        let extend_op = WalrusNodeClientOp::Extend {
             blob_id,
             object_id,
             store_epoch_ahead: 5,
@@ -272,7 +272,7 @@ mod tests {
         let object_id = create_test_object_id();
 
         // First add a blob
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -280,7 +280,7 @@ mod tests {
         pool.update_blob_pool(blob_id, Some(object_id), write_op);
 
         // Read operation should not change anything
-        let read_op = WalrusClientOp::Read {
+        let read_op = WalrusNodeClientOp::Read {
             blob_id,
             sliver_type: SliverType::Primary,
         };
@@ -298,7 +298,7 @@ mod tests {
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
 
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: blob_data.clone(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -316,7 +316,7 @@ mod tests {
         let blob_id = create_test_blob_id();
         let object_id = create_test_object_id();
 
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: create_test_blob_data(),
             deletable: true,
             store_epoch_ahead: 10,
@@ -337,17 +337,17 @@ mod tests {
         let blob_id3 = BlobId([3; 32]);
         let object_id = create_test_object_id();
 
-        let write_op1 = WalrusClientOp::Write {
+        let write_op1 = WalrusNodeClientOp::Write {
             blob: vec![1],
             deletable: true,
             store_epoch_ahead: 5,
         };
-        let write_op2 = WalrusClientOp::Write {
+        let write_op2 = WalrusNodeClientOp::Write {
             blob: vec![2],
             deletable: true,
             store_epoch_ahead: 10,
         };
-        let write_op3 = WalrusClientOp::Write {
+        let write_op3 = WalrusNodeClientOp::Write {
             blob: vec![3],
             deletable: true,
             store_epoch_ahead: 15,
@@ -376,7 +376,7 @@ mod tests {
 
         // Add deletable blob
         let deletable_blob_id = BlobId([1; 32]);
-        let write_op1 = WalrusClientOp::Write {
+        let write_op1 = WalrusNodeClientOp::Write {
             blob: vec![1],
             deletable: true,
             store_epoch_ahead: 10,
@@ -385,7 +385,7 @@ mod tests {
 
         // Add non-deletable blob
         let permanent_blob_id = BlobId([2; 32]);
-        let write_op2 = WalrusClientOp::Write {
+        let write_op2 = WalrusNodeClientOp::Write {
             blob: vec![2],
             deletable: false,
             store_epoch_ahead: 10,

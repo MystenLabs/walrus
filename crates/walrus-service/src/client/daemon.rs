@@ -55,8 +55,8 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
-        Client,
         StoreArgs,
+        WalrusNodeClient,
         responses::{BlobStoreResult, QuiltStoreResult},
     },
     error::{ClientError, ClientResult},
@@ -162,7 +162,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     fn default_post_store_action(&self) -> PostStoreAction;
 }
 
-impl<T: ReadClient> WalrusReadClient for Client<T> {
+impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         self.read_blob_retry_committees::<Primary>(blob_id).await
     }
@@ -200,7 +200,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
     }
 }
 
-impl WalrusWriteClient for Client<SuiContractClient> {
+impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     async fn write_blob(
         &self,
         blob: &[u8],

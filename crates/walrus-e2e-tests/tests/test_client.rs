@@ -47,8 +47,8 @@ use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{
         Blocklist,
-        Client,
         StoreArgs,
+        WalrusNodeClient,
         WalrusStoreBlob,
         WalrusStoreBlobApi,
         quilt_client::QuiltClientConfig,
@@ -125,7 +125,7 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 /// It generates random blobs and stores them.
 /// It then reads the blobs back and verifies that the data is correct.
 async fn basic_store_and_read<F>(
-    client: &WithTempDir<Client<SuiContractClient>>,
+    client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
     num_blobs: usize,
     data_length: usize,
     upload_relay_client: Option<UploadRelayClient>,
@@ -509,7 +509,7 @@ async fn test_store_with_existing_blob_resource(
 
 /// Registers a blob and returns the blob ID.
 async fn register_blob(
-    client: &WithTempDir<Client<SuiContractClient>>,
+    client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
     blob: &[u8],
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
@@ -552,7 +552,7 @@ async fn register_blob(
 
 /// Store a blob and return the blob ID.
 async fn store_blob(
-    client: &WithTempDir<Client<SuiContractClient>>,
+    client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
     blob: &[u8],
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
@@ -1187,7 +1187,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
     let initial_credits_funds = client
         .sui_client()
         .read_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object::<Credits>(credits_object_id)
         .await?
         .subsidy_pool;
@@ -1211,7 +1211,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
     // Verify blob storage was extended with credits
     let extended_blob: Blob = client
         .sui_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object(blob_object.id)
         .await?;
 
@@ -1222,7 +1222,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
     let credits_funds = client
         .sui_client()
         .read_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object::<Credits>(credits_object_id)
         .await?
         .subsidy_pool;
@@ -1580,7 +1580,7 @@ async fn test_extend_owned_blobs() -> TestResult {
     let extended_blob_object: Blob = client
         .as_ref()
         .sui_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object(blob_object_id)
         .await?;
     assert_eq!(extended_blob_object.storage.end_epoch, end_epoch + 5);
@@ -1645,7 +1645,7 @@ async fn test_share_blobs() -> TestResult {
     let shared_blob: SharedBlob = client
         .as_ref()
         .sui_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
     assert_eq!(shared_blob.funds, 0);
@@ -1659,7 +1659,7 @@ async fn test_share_blobs() -> TestResult {
     let shared_blob: SharedBlob = client
         .as_ref()
         .sui_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
     assert_eq!(shared_blob.funds, INITIAL_FUNDS);
@@ -1673,7 +1673,7 @@ async fn test_share_blobs() -> TestResult {
     let shared_blob: SharedBlob = client
         .as_ref()
         .sui_client()
-        .sui_client()
+        .retriable_sui_client()
         .get_sui_object(shared_blob_object_id)
         .await?;
     assert_eq!(
@@ -1754,7 +1754,7 @@ async fn test_post_store_action(
                     let shared_blob: SharedBlob = client
                         .as_ref()
                         .sui_client()
-                        .sui_client()
+                        .retriable_sui_client()
                         .get_sui_object(shared_blob_object.unwrap())
                         .await?;
                     assert_eq!(shared_blob.funds, 0);
@@ -1838,7 +1838,7 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
 
 /// A toolkit for blob attribute tests.
 struct BlobAttributeTestContext<'a> {
-    pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
+    pub client: &'a mut WithTempDir<WalrusNodeClient<SuiContractClient>>,
     pub blob: Blob,
     pub key_value_pairs: HashMap<String, String>,
     pub expected_pairs: Option<HashMap<String, String>>,
@@ -1955,7 +1955,9 @@ impl<'a> BlobAttributeTestContext<'a> {
     }
 
     /// Create a new test context with multiple copies of the same blob.
-    pub async fn new(client: &'a mut WithTempDir<Client<SuiContractClient>>) -> TestResult<Self> {
+    pub async fn new(
+        client: &'a mut WithTempDir<WalrusNodeClient<SuiContractClient>>,
+    ) -> TestResult<Self> {
         let blobs_to_create = 2;
         let blob = walrus_test_utils::random_data(314);
         let blobs = vec![blob.as_slice()];

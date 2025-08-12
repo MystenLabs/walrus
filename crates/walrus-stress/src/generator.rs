@@ -19,7 +19,7 @@ use tokio::{
 use walrus_core::{BlobId, EpochCount, encoding::Primary};
 use walrus_sdk::{
     client::{
-        Client,
+        WalrusNodeClient,
         metrics::{self, ClientMetrics},
     },
     config::ClientConfig,
@@ -49,8 +49,8 @@ use write_client::WriteClient;
 pub struct LoadGenerator {
     write_client_pool: Receiver<WriteClient>,
     write_client_pool_tx: Sender<WriteClient>,
-    read_client_pool: Receiver<Client<SuiReadClient>>,
-    read_client_pool_tx: Sender<Client<SuiReadClient>>,
+    read_client_pool: Receiver<WalrusNodeClient<SuiReadClient>>,
+    read_client_pool_tx: Sender<WalrusNodeClient<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
     _refill_handles: RefillHandles,
 }
@@ -86,7 +86,7 @@ impl LoadGenerator {
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         for read_client in try_join_all((0..n_clients).map(|_| {
-            Client::new_read_client(
+            WalrusNodeClient::new_read_client(
                 client_config.clone(),
                 refresher_handle.clone(),
                 sui_read_client.clone(),

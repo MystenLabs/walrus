@@ -34,7 +34,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_redoc::{Redoc, Servable};
 use walrus_sdk::{
     SuiReadClient,
-    client::Client,
+    client::WalrusNodeClient,
     config::ClientConfig,
     core::{
         BlobId,
@@ -127,7 +127,7 @@ impl TryFrom<&Params> for PaidTipParams {
 /// It is shared by all Walrus Upload Relay route handlers, and is responsible for checking incoming
 /// requests and pushing slivers and metadata to storage nodes.
 pub(crate) struct Controller {
-    pub(crate) client: Client<SuiReadClient>,
+    pub(crate) client: WalrusNodeClient<SuiReadClient>,
     pub(crate) relay_config: WalrusUploadRelayConfig,
     pub(crate) n_shards: NonZeroU16,
     pub(crate) metric_set: WalrusUploadRelayMetricSet,
@@ -136,7 +136,7 @@ pub(crate) struct Controller {
 impl Controller {
     /// Creates a new controller.
     pub(crate) fn new(
-        client: Client<SuiReadClient>,
+        client: WalrusNodeClient<SuiReadClient>,
         n_shards: NonZeroU16,
         relay_config: WalrusUploadRelayConfig,
         metric_set: WalrusUploadRelayMetricSet,
@@ -232,7 +232,7 @@ impl Controller {
         let tx = self
             .client
             .sui_client()
-            .sui_client()
+            .retriable_sui_client()
             .get_transaction_with_options(
                 params.tx_id,
                 SuiTransactionBlockResponseOptions::new()
@@ -357,7 +357,7 @@ impl UploadRelayHandle {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_server(
-    client: Client<SuiReadClient>,
+    client: WalrusNodeClient<SuiReadClient>,
     relay_config: WalrusUploadRelayConfig,
     metric_set: WalrusUploadRelayMetricSet,
     server_address: SocketAddr,
@@ -400,7 +400,7 @@ async fn run_server(
 
 /// Runs the upload relay.
 pub fn start_upload_relay(
-    client: Client<SuiReadClient>,
+    client: WalrusNodeClient<SuiReadClient>,
     relay_config: WalrusUploadRelayConfig,
     server_address: SocketAddr,
     registry: Registry,
@@ -548,7 +548,7 @@ pub async fn get_client(
     context: Option<&str>,
     walrus_config: &Path,
     registry: &Registry,
-) -> Result<Client<SuiReadClient>> {
+) -> Result<WalrusNodeClient<SuiReadClient>> {
     get_client_with_config(
         walrus_sdk::config::load_configuration(Some(walrus_config), context)?,
         registry,
@@ -560,7 +560,7 @@ pub async fn get_client(
 pub async fn get_client_with_config(
     client_config: ClientConfig,
     registry: &Registry,
-) -> Result<Client<SuiReadClient>> {
+) -> Result<WalrusNodeClient<SuiReadClient>> {
     tracing::debug!(?client_config, "loaded client config");
 
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
@@ -577,7 +577,7 @@ pub async fn get_client_with_config(
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(Client::new_read_client(client_config, refresh_handle, sui_read_client).await?)
+    Ok(WalrusNodeClient::new_read_client(client_config, refresh_handle, sui_read_client).await?)
 }
 
 #[cfg(test)]

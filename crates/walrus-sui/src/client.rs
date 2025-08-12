@@ -561,8 +561,8 @@ impl SuiContractClient {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Returns the active address of the client.
@@ -1491,8 +1491,8 @@ impl SuiContractClientInner {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
@@ -1550,7 +1550,9 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -1578,7 +1580,9 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -1630,7 +1634,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -1747,7 +1753,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -1872,7 +1880,7 @@ impl SuiContractClientInner {
             cap_id.len()
         );
 
-        self.sui_client().get_sui_object(cap_id[0]).await
+        self.retriable_sui_client().get_sui_object(cap_id[0]).await
     }
 
     /// Registers candidate nodes, sending the resulting capability objects to the specified
@@ -1918,7 +1926,7 @@ impl SuiContractClientInner {
             cap_ids.len(),
         );
 
-        self.sui_client().get_sui_objects(&cap_ids).await
+        self.retriable_sui_client().get_sui_objects(&cap_ids).await
     }
 
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
@@ -1958,7 +1966,9 @@ impl SuiContractClientInner {
             count
         );
 
-        self.sui_client().get_sui_objects(&staked_wal).await
+        self.retriable_sui_client()
+            .get_sui_objects(&staked_wal)
+            .await
     }
 
     /// Call to request withdrawal of stake from StakedWal object.
@@ -2031,7 +2041,7 @@ impl SuiContractClientInner {
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         let node_capability: StorageNodeCap = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(node_capability_object_id)
             .await?;
 
@@ -2087,7 +2097,11 @@ impl SuiContractClientInner {
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
         // Compile package
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
         let (compiled_package, build_config) =
             compile_package(package_path, Default::default(), chain_id).await?;
 
@@ -2331,7 +2345,7 @@ impl SuiContractClientInner {
 
         // Execute the transaction and wait for response
         let response = self
-            .sui_client()
+            .retriable_sui_client()
             .execute_transaction(signed_transaction, method)
             .await?;
 
@@ -2359,9 +2373,12 @@ impl SuiContractClientInner {
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
         let mut tx_builder = self.transaction_builder()?;
         let address = self.wallet.active_address()?;
-        let sui_balance = self.sui_client().get_balance(address, None).await?;
+        let sui_balance = self
+            .retriable_sui_client()
+            .get_balance(address, None)
+            .await?;
         let wal_balance = self
-            .sui_client()
+            .retriable_sui_client()
             .get_balance(address, Some(self.read_client().wal_coin_type().to_owned()))
             .await?;
 
@@ -2478,7 +2495,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2517,7 +2534,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2542,7 +2559,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2845,7 +2862,7 @@ impl SuiContractClientInner {
         );
 
         let shared_blobs = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_objects::<SharedBlob>(&object_ids)
             .await?;
 
@@ -2880,7 +2897,7 @@ impl SuiContractClientInner {
             // Fetch all SharedBlob objects and collect them as a mapping from blob object ID
             // to shared blob object ID.
             let shared_blobs = self
-                .sui_client()
+                .retriable_sui_client()
                 .get_sui_objects::<SharedBlob>(&object_ids)
                 .await?;
             Ok(shared_blobs

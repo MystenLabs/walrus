@@ -2548,7 +2548,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<StorageNodeHandle>,
-            WithTempDir<client::Client<SuiContractClient>>,
+            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
         )> {
             self.build_generic().await
@@ -2563,7 +2563,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<T>,
-            WithTempDir<client::Client<SuiContractClient>>,
+            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
         )> {
             #[cfg(not(msim))]
@@ -2784,7 +2784,10 @@ pub mod test_cluster {
 
             let client = admin_contract_client
                 .and_then_async(|contract_client| {
-                    client::Client::new_contract_client_with_refresher(config, contract_client)
+                    client::WalrusNodeClient::new_contract_client_with_refresher(
+                        config,
+                        contract_client,
+                    )
                 })
                 .await?;
 

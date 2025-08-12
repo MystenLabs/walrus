@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
-use walrus_sdk::client::{Client, metrics::ClientMetrics};
+use walrus_sdk::client::{WalrusNodeClient, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_stress::single_client_workload::{
     SingleClientWorkload,
@@ -367,7 +367,9 @@ async fn run_single_client_workload(
     )
     .context("Failed to load wallet context")?;
     let contract_client = client_config.new_contract_client(wallet, None).await?;
-    let client = Client::new_contract_client_with_refresher(client_config, contract_client).await?;
+    let client =
+        WalrusNodeClient::new_contract_client_with_refresher(client_config, contract_client)
+            .await?;
 
     let single_client_workload = SingleClientWorkload::new(
         client,

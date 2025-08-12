@@ -154,7 +154,7 @@ impl<E: EncodingAxis> SliverSelector<E> {
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
-pub struct Client<T> {
+pub struct WalrusNodeClient<T> {
     config: ClientConfig,
     sui_client: T,
     communication_limits: CommunicationLimits,
@@ -166,7 +166,7 @@ pub struct Client<T> {
     communication_factory: NodeCommunicationFactory,
 }
 
-impl Client<()> {
+impl WalrusNodeClient<()> {
     /// Creates a new Walrus client without a Sui client.
     pub async fn new(
         config: ClientConfig,
@@ -219,8 +219,8 @@ impl Client<()> {
         })
     }
 
-    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
-    pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
+    /// Converts `self` to a [`WalrusNodeClient<C>`] by adding the `sui_client`.
+    pub async fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
         let Self {
             config,
             sui_client: _,
@@ -230,7 +230,7 @@ impl Client<()> {
             blocklist,
             communication_factory: node_client_factory,
         } = self;
-        Client::<C> {
+        WalrusNodeClient::<C> {
             config,
             sui_client,
             committees_handle,
@@ -242,14 +242,14 @@ impl Client<()> {
     }
 }
 
-impl<T: ReadClient> Client<T> {
+impl<T: ReadClient> WalrusNodeClient<T> {
     /// Creates a new read client starting from a config file.
     pub async fn new_read_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -270,7 +270,7 @@ impl<T: ReadClient> Client<T> {
             .build_refresher_and_run(sui_read_client.clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -823,14 +823,14 @@ impl<T: ReadClient> Client<T> {
     }
 }
 
-impl Client<SuiContractClient> {
+impl WalrusNodeClient<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_client)
             .await)
@@ -848,7 +848,7 @@ impl Client<SuiContractClient> {
             .build_refresher_and_run(sui_client.read_client().clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_client)
             .await)
@@ -1502,7 +1502,7 @@ impl Client<SuiContractClient> {
     }
 }
 
-impl<T> Client<T> {
+impl<T> WalrusNodeClient<T> {
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.

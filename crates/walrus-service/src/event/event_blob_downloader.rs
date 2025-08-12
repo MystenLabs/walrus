@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use walrus_core::{BlobId, Epoch};
-use walrus_sdk::{client::Client as WalrusClient, error::ClientResult};
+use walrus_sdk::{client::WalrusNodeClient, error::ClientResult};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::move_structs::EventBlob,
@@ -62,13 +62,16 @@ pub enum LastCertifiedEventBlob {
 /// Responsible for downloading and managing event blobs
 #[derive(Debug)]
 pub struct EventBlobDownloader {
-    walrus_client: WalrusClient<SuiReadClient>,
+    walrus_client: WalrusNodeClient<SuiReadClient>,
     sui_read_client: SuiReadClient,
 }
 
 impl EventBlobDownloader {
     /// Creates a new instance of the event blob downloader.
-    pub fn new(walrus_client: WalrusClient<SuiReadClient>, sui_read_client: SuiReadClient) -> Self {
+    pub fn new(
+        walrus_client: WalrusNodeClient<SuiReadClient>,
+        sui_read_client: SuiReadClient,
+    ) -> Self {
         Self {
             walrus_client,
             sui_read_client,

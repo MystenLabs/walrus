@@ -761,14 +761,14 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let exchange: WalExchange = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(exchange_id)
             .await?;
         // We can get the package ID from the exchange object because we only use it in testnet
         // and the exchange is currently not designed for upgrades.
         let exchange_package = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_package_id_from_object(exchange_id)
             .await?;
         let exchange_arg = self.pt_builder.obj(
@@ -1130,7 +1130,7 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<Argument> {
         let object_data = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_object_with_options(object, SuiObjectDataOptions::new().with_type())
             .await?
             .data
@@ -1633,7 +1633,7 @@ impl WalrusPtbBuilder {
             Authorized::Object(receiver) => {
                 let object = self
                     .read_client
-                    .sui_client()
+                    .retriable_sui_client()
                     .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
                     .await?;
                 ensure!(
@@ -1664,7 +1664,7 @@ impl WalrusPtbBuilder {
             Some(credits_object_id) if with_credits => {
                 let credits_object = self
                     .read_client
-                    .sui_client()
+                    .retriable_sui_client()
                     .get_credits_object(credits_object_id)
                     .await?;
                 let subsidy = full_price * u64::from(credits_object.buyer_subsidy_rate)
@@ -1691,7 +1691,7 @@ impl WalrusPtbBuilder {
             Some(credits_object_id) if with_credits => {
                 let buyer_subsidy_rate = self
                     .read_client
-                    .sui_client()
+                    .retriable_sui_client()
                     .get_credits_object(credits_object_id)
                     .await?
                     .buyer_subsidy_rate;
@@ -1800,7 +1800,7 @@ pub async fn build_transaction_data_with_min_gas_balance(
     } else {
         let tx_kind = TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
         read_client
-            .sui_client()
+            .retriable_sui_client()
             .estimate_gas_budget(sender_address, tx_kind, gas_price)
             .await?
     };

@@ -572,7 +572,7 @@ async fn test_automatic_wal_coin_squashing(
     // `n_target_coins` coins.
     let n_coins = client_1
         .as_ref()
-        .sui_client()
+        .retriable_sui_client()
         .get_balance(
             client_1_address,
             Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
@@ -622,7 +622,7 @@ async fn test_automatic_wal_coin_squashing(
     assert_eq!(
         client_1
             .as_ref()
-            .sui_client()
+            .retriable_sui_client()
             .get_balance(
                 client_1_address,
                 Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),

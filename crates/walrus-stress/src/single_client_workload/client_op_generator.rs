@@ -20,7 +20,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WalrusClientOp {
+pub(crate) enum WalrusNodeClientOp {
     Read {
         blob_id: BlobId,
         sliver_type: SliverType,
@@ -62,7 +62,11 @@ impl ClientOpGenerator {
         }
     }
 
-    pub fn generate_client_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
+    pub fn generate_client_op<R: Rng>(
+        &self,
+        blob_pool: &BlobPool,
+        rng: &mut R,
+    ) -> WalrusNodeClientOp {
         let request_type = self.request_type_distribution.sample(rng);
         match request_type {
             RequestType::Read => {
@@ -93,7 +97,7 @@ impl ClientOpGenerator {
         }
     }
 
-    fn generate_read_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
+    fn generate_read_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusNodeClientOp {
         let blob_id = blob_pool
             .select_random_blob_id(rng)
             .expect("blob must exist");
@@ -102,38 +106,38 @@ impl ClientOpGenerator {
         } else {
             SliverType::Secondary
         };
-        WalrusClientOp::Read {
+        WalrusNodeClientOp::Read {
             blob_id,
             sliver_type,
         }
     }
 
     // TODO(WAL-946): generate write to existing blob.
-    fn generate_write_op<R: Rng>(&self, deletable: bool, rng: &mut R) -> WalrusClientOp {
+    fn generate_write_op<R: Rng>(&self, deletable: bool, rng: &mut R) -> WalrusNodeClientOp {
         let blob = self.blob_generator.generate_blob(rng);
         let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
-        WalrusClientOp::Write {
+        WalrusNodeClientOp::Write {
             blob,
             deletable,
             store_epoch_ahead,
         }
     }
 
-    fn generate_delete_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
+    fn generate_delete_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusNodeClientOp {
         let blob_id = blob_pool.select_random_deletable_blob_id(rng);
         if let Some(blob_id) = blob_id {
-            WalrusClientOp::Delete { blob_id }
+            WalrusNodeClientOp::Delete { blob_id }
         } else {
             tracing::info!("no deletable blob found, generating none op");
-            WalrusClientOp::None
+            WalrusNodeClientOp::None
         }
     }
 
-    fn generate_extend_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusClientOp {
+    fn generate_extend_op<R: Rng>(&self, blob_pool: &BlobPool, rng: &mut R) -> WalrusNodeClientOp {
         let blob_id = blob_pool.select_random_blob_id(rng);
         if let Some(blob_id) = blob_id {
             let store_epoch_ahead = self.epoch_length_generator.generate_epoch_length(rng);
-            WalrusClientOp::Extend {
+            WalrusNodeClientOp::Extend {
                 blob_id,
                 object_id: blob_pool
                     .get_blob_object_id(blob_id)
@@ -142,7 +146,7 @@ impl ClientOpGenerator {
             }
         } else {
             tracing::info!("no blob found, generating none op");
-            WalrusClientOp::None
+            WalrusNodeClientOp::None
         }
     }
 }
@@ -181,7 +185,7 @@ mod tests {
         let object_id = create_test_object_id();
         let blob_data = create_test_blob_data();
 
-        let write_op = WalrusClientOp::Write {
+        let write_op = WalrusNodeClientOp::Write {
             blob: blob_data,
             deletable: true,
             store_epoch_ahead: 10,
@@ -232,20 +236,20 @@ mod tests {
             // When pool is full, WritePermanent and WriteDeletable should become Read operations
             // Only Read, Delete, and Extend operations should be generated
             match op {
-                WalrusClientOp::Write { .. } => {
+                WalrusNodeClientOp::Write { .. } => {
                     panic!("Write operation generated when blob pool is full");
                 }
-                WalrusClientOp::Read { .. } => {
+                WalrusNodeClientOp::Read { .. } => {
                     // This is expected when pool is full and WritePermanent/WriteDeletable are
                     // sampled.
                 }
-                WalrusClientOp::Delete { .. } => {
+                WalrusNodeClientOp::Delete { .. } => {
                     // This is fine - delete operations are still allowed when pool is full
                 }
-                WalrusClientOp::Extend { .. } => {
+                WalrusNodeClientOp::Extend { .. } => {
                     // This is fine - extend operations are still allowed when pool is full
                 }
-                WalrusClientOp::None => {
+                WalrusNodeClientOp::None => {
                     // This is fine - none operations are still allowed when pool is full
                 }
             }

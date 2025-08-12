@@ -31,7 +31,7 @@ use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, Exponenti
 use super::{WalrusStoreBlob, WalrusStoreBlobApi};
 use crate::{
     ObjectID,
-    client::Client as WalrusClient,
+    client::WalrusNodeClient,
     config::{ClientConfig as WalrusConfig, load_configuration},
     core::{
         BlobId,

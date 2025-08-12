@@ -39,9 +39,9 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
-        Client,
         NodeCommunicationFactory,
         StoreArgs,
+        WalrusNodeClient,
         quilt_client::{
             assign_identifiers_with_paths,
             generate_identifier_from_path,
@@ -597,7 +597,8 @@ impl ClientCommandRunner {
         let config = self.config?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client =
+            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
 
@@ -643,7 +644,8 @@ impl ClientCommandRunner {
         let config = self.config?;
         let sui_read_client =
             get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, self.wallet).await?;
-        let read_client = Client::new_read_client_with_refresher(config, sui_read_client).await?;
+        let read_client =
+            WalrusNodeClient::new_read_client_with_refresher(config, sui_read_client).await?;
 
         let quilt_read_client = read_client.quilt_client();
         let quilt_metadata = quilt_read_client.get_quilt_metadata(&quilt_id).await?;
@@ -758,7 +760,7 @@ impl ClientCommandRunner {
     }
 
     async fn store_dry_run(
-        client: Client<SuiContractClient>,
+        client: WalrusNodeClient<SuiContractClient>,
         files: Vec<PathBuf>,
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
@@ -933,7 +935,7 @@ impl ClientCommandRunner {
 
     /// Performs a dry run of storing a quilt.
     async fn store_quilt_dry_run(
-        client: Client<SuiContractClient>,
+        client: WalrusNodeClient<SuiContractClient>,
         blobs: &[QuiltStoreBlob<'static>],
         encoding_type: EncodingType,
         epochs_ahead: EpochCount,
@@ -995,7 +997,7 @@ impl ClientCommandRunner {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let client = Client::new(config, refresher_handle).await?;
+        let client = WalrusNodeClient::new(config, refresher_handle).await?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id =
@@ -1532,7 +1534,7 @@ impl ClientCommandRunner {
 }
 
 async fn delete_blob(
-    client: &Client<SuiContractClient>,
+    client: &WalrusNodeClient<SuiContractClient>,
     target: BlobIdentity,
     confirmation: UserConfirmation,
     no_status_check: bool,
@@ -1635,7 +1637,7 @@ async fn delete_blob(
 async fn get_epochs_ahead(
     epoch_arg: EpochArg,
     max_epochs_ahead: EpochCount,
-    client: &Client<SuiContractClient>,
+    client: &WalrusNodeClient<SuiContractClient>,
 ) -> Result<u32, anyhow::Error> {
     let epochs_ahead = match epoch_arg {
         EpochArg {

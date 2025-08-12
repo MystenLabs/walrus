@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
 use walrus_sdk::{
     blocklist::Blocklist,
-    client::Client,
+    client::WalrusNodeClient,
     config::ClientConfig,
     sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
@@ -48,7 +48,8 @@ pub use args::{
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 
-/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
+/// Creates a [`WalrusNodeClient`] based on the provided [`ClientConfig`] with read-only access to
+/// Sui.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
 /// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
@@ -58,7 +59,7 @@ pub async fn get_read_client(
     rpc_url: Option<String>,
     wallet: Result<Wallet>,
     blocklist_path: &Option<PathBuf>,
-) -> Result<Client<SuiReadClient>> {
+) -> Result<WalrusNodeClient<SuiReadClient>> {
     let sui_read_client =
         get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
 
@@ -66,7 +67,7 @@ pub async fn get_read_client(
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    let client = Client::new_read_client(config, refresh_handle, sui_read_client).await?;
+    let client = WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -75,21 +76,21 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with
+/// Creates a [`WalrusNodeClient<SuiContractClient>`] based on the provided [`ClientConfig`] with
 /// write access to Sui.
 pub async fn get_contract_client(
     config: ClientConfig,
     wallet: Result<Wallet>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
-) -> Result<Client<SuiContractClient>> {
+) -> Result<WalrusNodeClient<SuiContractClient>> {
     let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
 
     let refresh_handle = config
         .refresh_config
         .build_refresher_and_run(sui_client.read_client().clone())
         .await?;
-    let client = Client::new_contract_client(config, refresh_handle, sui_client).await?;
+    let client = WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))

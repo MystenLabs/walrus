@@ -328,7 +328,7 @@ async fn gas_cost_summary_for_last_tx(
         ),
     );
     let transaction = walrus_client
-        .sui_client()
+        .retriable_sui_client()
         .query_transaction_blocks(query.clone(), None, None, true)
         .await?
         .data

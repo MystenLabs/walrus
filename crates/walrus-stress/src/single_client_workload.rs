@@ -9,7 +9,7 @@ use std::{
 };
 
 use blob_pool::BlobPool;
-use client_op_generator::{ClientOpGenerator, WalrusClientOp};
+use client_op_generator::{ClientOpGenerator, WalrusNodeClientOp};
 use rand::SeedableRng;
 use single_client_workload_config::{
     RequestTypeDistributionConfig,
@@ -24,8 +24,8 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
-        Client,
         StoreArgs,
+        WalrusNodeClient,
         metrics::{self, ClientMetrics},
         responses::BlobStoreResult,
     },
@@ -47,7 +47,7 @@ pub mod single_client_workload_config;
 #[derive(Debug)]
 pub struct SingleClientWorkload {
     /// The client to use for the workload.
-    client: Client<SuiContractClient>,
+    client: WalrusNodeClient<SuiContractClient>,
     /// The target requests per minute. Note that since there is only one client, if the target
     /// request rate is higher than the maximum request rate the client can issue, the workload
     /// is essentially the same as a sequential workload. There won't be any parallelism of
@@ -72,7 +72,7 @@ impl SingleClientWorkload {
     /// Creates a new single client workload.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        client: Client<SuiContractClient>,
+        client: WalrusNodeClient<SuiContractClient>,
         target_requests_per_minute: u64,
         check_read_result: bool,
         max_blobs_in_pool: usize,
@@ -132,11 +132,11 @@ impl SingleClientWorkload {
 
     async fn execute_client_op(
         &self,
-        client_op: &WalrusClientOp,
+        client_op: &WalrusNodeClientOp,
         blob_pool: &mut BlobPool,
     ) -> anyhow::Result<()> {
         match client_op {
-            WalrusClientOp::Read {
+            WalrusNodeClientOp::Read {
                 blob_id,
                 sliver_type,
             } => {
@@ -151,7 +151,7 @@ impl SingleClientWorkload {
                     blob_pool.assert_blob_data(*blob_id, &blob);
                 }
             }
-            WalrusClientOp::Write {
+            WalrusNodeClientOp::Write {
                 blob,
                 deletable,
                 store_epoch_ahead,
@@ -189,13 +189,13 @@ impl SingleClientWorkload {
                     }
                 }
             }
-            WalrusClientOp::Delete { blob_id } => {
+            WalrusNodeClientOp::Delete { blob_id } => {
                 let now = Instant::now();
                 self.client.delete_owned_blob(blob_id).await?;
                 self.metrics.observe_latency("delete_blob", now.elapsed());
                 blob_pool.update_blob_pool(*blob_id, None, client_op.clone());
             }
-            WalrusClientOp::Extend {
+            WalrusNodeClientOp::Extend {
                 blob_id,
                 object_id,
                 store_epoch_ahead,
@@ -208,7 +208,7 @@ impl SingleClientWorkload {
                 self.metrics.observe_latency("extend_blob", now.elapsed());
                 blob_pool.update_blob_pool(*blob_id, Some(*object_id), client_op.clone());
             }
-            WalrusClientOp::None => {
+            WalrusNodeClientOp::None => {
                 tracing::info!("none op received, skipping");
             }
         }
