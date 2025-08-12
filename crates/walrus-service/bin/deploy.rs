@@ -203,9 +203,6 @@ struct GenerateDryRunConfigsArgs {
     /// sending another request.
     #[arg(long, value_parser = humantime::parse_duration)]
     faucet_cooldown: Option<Duration>,
-    /// Use the legacy event processor instead of the standard checkpoint-based event processor.
-    #[arg(long)]
-    use_legacy_event_provider: bool,
     /// Disable the event blob writer.
     /// This will disable the event blob writer and the event blob writer service.
     #[arg(long)]
@@ -478,7 +475,6 @@ mod commands {
             listening_ips,
             set_db_path,
             faucet_cooldown,
-            use_legacy_event_provider,
             disable_event_blob_writer,
             backup_database_url,
             rpc_fallback_config_args,
@@ -577,7 +573,6 @@ mod commands {
                 .as_ref()
                 .and_then(|args| args.to_config()),
             &mut admin_contract_client,
-            use_legacy_event_provider,
             disable_event_blob_writer,
             sui_amount,
             sui_client_request_timeout,
