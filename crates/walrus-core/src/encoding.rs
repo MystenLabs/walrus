@@ -29,6 +29,7 @@ pub use config::{
     EncodingConfigTrait,
     MAX_SOURCE_SYMBOLS,
     ReedSolomonEncodingConfig,
+    RequiredSymbolsCount,
     encoded_blob_length_for_n_shards,
     encoded_slivers_length_for_n_shards,
     max_blob_size_for_n_shards,

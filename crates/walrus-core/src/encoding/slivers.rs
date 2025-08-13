@@ -29,6 +29,7 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
+    encoding::RequiredSymbolsCount,
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
@@ -251,10 +252,15 @@ impl<T: EncodingAxis> SliverData<T> {
         U: MerkleAuth,
     {
         let recovery_symbols = recovery_symbols.into_iter();
-        if recovery_symbols.len() < config.n_symbols_for_recovery::<T>() {
+
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredSymbolsCount::Exact(n_symbols_required) = config.n_symbols_for_recovery::<T>();
+        if recovery_symbols.len() < n_symbols_required {
             // We don't even have to attempt decoding if we don't have enough recovery symbols.
             return None;
         }
+
         config
             .decode_from_decoding_symbols(
                 symbol_size,
@@ -290,11 +296,10 @@ impl<T: EncodingAxis> SliverData<T> {
         let symbol_size = metadata.symbol_size(encoding_config)?;
         let config_enum = encoding_config.get_for_type(metadata.encoding_type());
 
-        // Important: For RS2 encoding, the number of recovery symbols required to reconstruct a
-        // sliver is fixed, allowing to specify an exact number of symbols for the recovery
-        // proof. This may not be the case for other future encodings, in which case this
-        // error type and the corresponding checks may have to be adjusted.
-        let n_symbols_required = config_enum.n_symbols_for_recovery::<T>();
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredSymbolsCount::Exact(n_symbols_required) =
+            config_enum.n_symbols_for_recovery::<T>();
         let verified_recovery_symbols: Vec<_> = verified_recovery_symbols
             .into_iter()
             .take(n_symbols_required)

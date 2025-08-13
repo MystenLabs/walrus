@@ -53,10 +53,10 @@ use crate::{
     encoding::{
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigEnum,
         EncodingConfigTrait as _,
         Primary,
         RecoverySymbol,
+        RequiredSymbolsCount,
         Secondary,
         SliverData,
         SliverVerificationError,
@@ -129,21 +129,17 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
 
     /// Checks that the proof contains the correct number of recovery symbols and that they are
     /// valid.
-    ///
-    /// By checking the recovery symbols, we also check that the metadata
     fn check_recovery_symbols(
         &self,
         metadata: &BlobMetadata,
         symbol_size: usize,
         encoding_config: &EncodingConfig,
     ) -> Result<(), InconsistencyVerificationError> {
-        // For RS2 encoding, the number of recovery symbols is equal to the number of source
-        // symbols of the corresponding encoding axis. This may not be the case for other future
-        // encodings; the following match ensures that this will be revisited when we add new
-        // encodings.
-        let EncodingConfigEnum::ReedSolomon(rs_encoding_config) =
-            encoding_config.get_for_type(metadata.encoding_type());
-        let expected_symbol_count = rs_encoding_config.n_symbols_for_recovery::<T>();
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredSymbolsCount::Exact(expected_symbol_count) = encoding_config
+            .get_for_type(metadata.encoding_type())
+            .n_symbols_for_recovery::<T>();
         ensure!(
             self.recovery_symbols.len() == expected_symbol_count,
             InconsistencyVerificationError::IncorrectSymbolCount(

@@ -110,11 +110,9 @@ pub trait EncodingConfigTrait {
     }
 
     /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `T`.
-    // Important: This is an *exact* value. If a future encoding requires a variable number of
-    // symbols, the interface here needs to be changed.
     #[inline]
-    fn n_symbols_for_recovery<T: EncodingAxis>(&self) -> usize {
-        self.n_source_symbols::<T::OrthogonalAxis>().get().into()
+    fn n_symbols_for_recovery<T: EncodingAxis>(&self) -> RequiredSymbolsCount {
+        RequiredSymbolsCount::Exact(self.n_source_symbols::<T::OrthogonalAxis>().get().into())
     }
 
     /// Returns the number of shards as a `usize`.
@@ -241,6 +239,20 @@ pub trait EncodingConfigTrait {
     fn max_sliver_size(&self) -> u64 {
         max_sliver_size_for_n_secondary(self.n_secondary_source_symbols(), self.encoding_type())
     }
+}
+
+/// The number of symbols required to recover a sliver.
+///
+/// For our current RS2 encoding, which is based on Reed-Solomon codes, the number of symbols
+/// required to recover a sliver is exactly the number of source symbols. This could be different
+/// for future encodings that use other types of erasure codes.
+// Important: Currently, quite some code assumes that the number of symbols required to recover a
+// sliver is an exact number. This code needs to be changed if this enum is extended in the future.
+// By explicitly matching on `Exact`, we ensure that the compiler will warn us in that case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequiredSymbolsCount {
+    /// An exact number of symbols required to recover a sliver.
+    Exact(usize),
 }
 
 /// Configuration parameters for the encoding.

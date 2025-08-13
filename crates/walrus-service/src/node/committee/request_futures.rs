@@ -38,6 +38,7 @@ use walrus_core::{
         GeneralRecoverySymbol,
         Primary,
         RecoverySymbol as RecoverySymbolData,
+        RequiredSymbolsCount,
         Secondary,
         SliverData,
         SliverRecoveryOrVerificationError,
@@ -296,39 +297,24 @@ where
             "starting recovery for sliver"
         );
 
-        // Since recovery currently consumes the symbols, rather than copy the symbols in every case
-        // to handle the rare cases when we fail to *decode* the sliver despite collecting the
-        // required number of symbols, we instead retry the entire process with an increased amount.
-        //
-        // Remark: With the current RS2 encoding, we know the exact number of symbols required to
-        // decode the sliver, so this loop would not be necessary. However, future encodings may
-        // require a variable number of symbols to decode the sliver, in which case this loop is
-        // actually needed.
-        let mut additional_symbols = 0;
         loop {
-            if let Some(result) = self
-                .recover_with_additional_symbols(additional_symbols)
-                .await
-            {
+            if let Some(result) = self.recover().await {
                 return result;
             }
-            additional_symbols += 1;
+            tracing::error!("unable to recover sliver from sufficient number of symbols; retrying");
         }
     }
 
     #[tracing::instrument(skip(self))]
-    async fn recover_with_additional_symbols(
-        &mut self,
-        additional_symbols: usize,
-    ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
+    async fn recover(&mut self) -> Option<Result<Sliver, InconsistencyProofEnum>> {
         let mut committee_listener = self.shared.subscribe_to_committee_changes();
 
-        // Total symbols required to decode the sliver.
-        let total_symbols_required = self.total_symbols_required(additional_symbols);
+        // The number of symbols required to decode the sliver.
+        let n_symbols_required = self.n_symbols_required();
 
-        // Total symbols to request from other storage nodes initially.
-        let total_symbols_to_request = std::cmp::min(
-            total_symbols_required
+        // The number of symbols to request from other storage nodes initially.
+        let n_symbols_to_request = std::cmp::min(
+            n_symbols_required
                 + self
                     .shared
                     .config
@@ -338,8 +324,8 @@ where
 
         // Track the collection of recovery symbols.
         let mut symbol_tracker = SymbolTracker::new(
-            total_symbols_required,
-            total_symbols_to_request,
+            n_symbols_required,
+            n_symbols_to_request,
             self.target_index,
             self.target_sliver_type,
         );
@@ -372,6 +358,7 @@ where
                                 %n_symbols,
                                 "successfully collected the desired number of recovery symbols"
                             );
+                            assert!(n_symbols >= n_symbols_required);
                             self.stats.metrics.recovery_future_backoffs
                                 .observe(self.stats.total_backoffs as f64);
                             self.stats.metrics.recovery_future_failed_requests
@@ -407,17 +394,18 @@ where
         }
     }
 
-    fn total_symbols_required(&self, additional_symbols: usize) -> usize {
+    fn n_symbols_required(&self) -> usize {
         let encoding_config = self
             .shared
             .encoding_config
             .get_for_type(self.metadata.metadata().encoding_type());
-        let min_symbols_for_recovery = if self.target_sliver_type == SliverType::Primary {
-            encoding_config.n_symbols_for_recovery::<Primary>()
-        } else {
-            encoding_config.n_symbols_for_recovery::<Secondary>()
-        };
-        min_symbols_for_recovery + additional_symbols
+        let RequiredSymbolsCount::Exact(n_symbols_required) =
+            if self.target_sliver_type == SliverType::Primary {
+                encoding_config.n_symbols_for_recovery::<Primary>()
+            } else {
+                encoding_config.n_symbols_for_recovery::<Secondary>()
+            };
+        n_symbols_required
     }
 
     #[tracing::instrument(skip_all)]
@@ -439,6 +427,10 @@ where
     /// The function *does not* verify the recovery symbols. It is the caller's responsibility to
     /// ensure that the recovery symbols have been verified to be useable to recover the identified
     /// symbol.
+    ///
+    /// It is also the caller's responsibility to ensure that the number of recovery symbols is
+    /// sufficient to recover the sliver. The function returns `None` if this is not the case or
+    /// decoding fails for other reasons.
     ///
     /// Returns an inconsistency proof if the sliver turns out to be inconsistent.
     async fn decode_sliver_by_axis<A, I>(

@@ -352,6 +352,8 @@ fn path_length(n_leaves: usize) -> usize {
 
 #[cfg(test)]
 mod test {
+    use walrus_test_utils::param_test;
+
     use super::*;
 
     const TEST_INPUT: [&[u8]; 9] = [
@@ -442,5 +444,23 @@ mod test {
                 );
             }
         }
+    }
+
+    param_test! {
+        test_path_length: [
+            zero: (0, 0),
+            one: (1, 0),
+            two: (2, 1),
+            three: (3, 2),
+            four: (4, 2),
+            five: (5, 3),
+            six: (6, 3),
+            seven: (7, 3),
+            eight: (8, 3),
+            nine: (9, 4),
+        ]
+    }
+    fn test_path_length(n_leaves: usize, expected_path_length: usize) {
+        assert_eq!(path_length(n_leaves), expected_path_length);
     }
 }

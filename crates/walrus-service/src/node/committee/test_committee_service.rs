@@ -32,6 +32,7 @@ use walrus_core::{
         GeneralRecoverySymbol,
         Primary,
         PrimaryRecoverySymbol,
+        RequiredSymbolsCount,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -454,6 +455,8 @@ fn recovery_symbols_by_shard(
     let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
     let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
 
+    let RequiredSymbolsCount::Exact(n_symbols_for_recovery) =
+        encoding_config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = sliver_pairs
         .iter()
         .map(|pair| {
@@ -463,10 +466,7 @@ fn recovery_symbols_by_shard(
                 .unwrap();
             (pair.index(), symbol)
         })
-        .choose_multiple(
-            rng,
-            encoding_config_enum.n_symbols_for_recovery::<Primary>(),
-        );
+        .choose_multiple(rng, n_symbols_for_recovery);
 
     Ok((
         metadata,
