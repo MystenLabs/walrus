@@ -198,6 +198,7 @@ impl Debug for BlobId {
 /// A quilt patch is a individual blob within a quilt.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct QuiltPatchId {
     /// The BlobId of the quilt as a Walrus blob.
     pub quilt_id: BlobId,
