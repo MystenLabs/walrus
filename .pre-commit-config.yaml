@@ -105,12 +105,18 @@ repos:
         language: rust
         files: ^(crates/|Cargo\.(toml|lock)$)
         pass_filenames: false
-      - id: move-test
-        name: move-test
-        entry: scripts/move_coverage.sh
-        args: ["-t"]
+      - id: move-tests
+        name: move-tests
+        entry: scripts/move_tests.sh
         language: system
         files: "contracts/.*"
+        pass_filenames: false
+      - id: move-tests-testnet
+        name: move-tests-testnet
+        entry: scripts/move_tests.sh
+        args: ["-d", "testnet"]
+        language: system
+        files: "testnet-contracts/.*"
         pass_filenames: false
       - id: move-format
         name: move-format
