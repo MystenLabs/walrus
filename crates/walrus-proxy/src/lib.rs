@@ -1,9 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
-#![allow(clippy::unwrap_used)]
-
 //! # Walrus Proxy
 //!
 //! This crate provides a proxy layer for the Walrus system.
@@ -83,7 +80,10 @@ macro_rules! var {
     };
     ($key:expr, $default:expr) => {
         match std::env::var($key) {
-            Ok(val) => val.parse::<_>().unwrap(),
+            Ok(val) => val.parse::<_>().unwrap_or_else(|_| {
+                tracing::warn!("cannot fail when parsing environment variable {} because fallback to default value", stringify!($key));
+                $default
+            }),
             Err(_) => $default,
         }
     };

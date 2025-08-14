@@ -1045,11 +1045,11 @@ impl<K, V> DBMap<K, V> {
     {
         let mut readopts = self.opts.readopts();
         if let Some(lower_bound) = lower_bound {
-            let key_buf = be_fix_int_ser(&lower_bound).unwrap();
+            let key_buf = be_fix_int_ser(&lower_bound).expect("serialization must not fail");
             readopts.set_iterate_lower_bound(key_buf);
         }
         if let Some(upper_bound) = upper_bound {
-            let key_buf = be_fix_int_ser(&upper_bound).unwrap();
+            let key_buf = be_fix_int_ser(&upper_bound).expect("serialization must not fail");
             readopts.set_iterate_upper_bound(key_buf);
         }
         readopts

@@ -76,7 +76,7 @@ macro_rules! crumb {
             file!(),
             line!(),
             std::thread::current().id(),
-            name.strip_suffix("::f").unwrap(),
+            name.strip_suffix("::f").unwrap_or(name),
             format!($($arg)+),
         );
     }};
