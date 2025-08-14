@@ -500,7 +500,10 @@ impl ReedSolomonEncodingConfig {
         )
     }
 
-    fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<ReedSolomonEncoder, EncodeError> {
+    fn get_encoder<'a, E: EncodingAxis>(
+        &'_ self,
+        data: &'a [u8],
+    ) -> Result<ReedSolomonEncoder<'a>, EncodeError> {
         ReedSolomonEncoder::new(data, self.n_source_symbols::<E>(), self.n_shards())
     }
 

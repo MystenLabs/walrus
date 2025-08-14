@@ -50,18 +50,18 @@ pub trait Decoder {
 }
 
 /// Wrapper to perform a single encoding with Reed-Solomon for the provided parameters.
-pub struct ReedSolomonEncoder {
+pub struct ReedSolomonEncoder<'a> {
     encoder: reed_solomon_simd::ReedSolomonEncoder,
     n_source_symbols: NonZeroU16,
     // INV: n_source_symbols <= n_shards.
     n_shards: NonZeroU16,
     symbol_size: NonZeroU16,
-    source_symbols: Vec<Vec<u8>>,
+    source_symbols: Vec<&'a [u8]>,
 }
 
-impl fmt::Debug for ReedSolomonEncoder {
+impl<'a> fmt::Debug for ReedSolomonEncoder<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RSEncoder")
+        f.debug_struct("ReedSolomonEncoder")
             .field("n_source_symbols", &self.n_source_symbols)
             .field("n_shards", &self.n_shards)
             .field("symbol_size", &self.symbol_size)
@@ -69,7 +69,7 @@ impl fmt::Debug for ReedSolomonEncoder {
     }
 }
 
-impl ReedSolomonEncoder {
+impl<'a> ReedSolomonEncoder<'a> {
     const ASSOCIATED_ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
@@ -89,7 +89,7 @@ impl ReedSolomonEncoder {
         skip(data)
     )]
     pub fn new(
-        data: &[u8],
+        data: &'a [u8],
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
     ) -> Result<Self, EncodeError> {
@@ -106,10 +106,7 @@ impl ReedSolomonEncoder {
         if data.len() != usize::from(n_source_symbols.get()) * usize::from(symbol_size.get()) {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
-        let source_symbols: Vec<Vec<u8>> = data
-            .chunks(symbol_size.get().into())
-            .map(Vec::from)
-            .collect();
+        let source_symbols: Vec<_> = data.chunks(symbol_size.get().into()).collect();
         assert_eq!(source_symbols.len(), usize::from(n_source_symbols.get()));
 
         let mut encoder = reed_solomon_simd::ReedSolomonEncoder::new(
@@ -140,7 +137,8 @@ impl ReedSolomonEncoder {
     /// Returns an iterator over all `n_shards` source and repair symbols.
     pub fn encode_all(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all symbols");
-        let mut result = self.source_symbols;
+        let mut result = Vec::with_capacity(self.n_shards.get().into());
+        result.extend(self.source_symbols.into_iter().map(Vec::from));
         result.extend(
             self.encoder
                 .encode()
@@ -154,7 +152,10 @@ impl ReedSolomonEncoder {
     /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
     pub fn encode_all_repair_symbols(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all repair symbols");
-        self.encode().recovery_iter().map(Vec::from).collect()
+        let mut result =
+            Vec::with_capacity((self.n_shards.get() - self.n_source_symbols.get()).into());
+        result.extend(self.encode().recovery_iter().map(Vec::from));
+        result
     }
 
     /// Returns the symbol at the given index.
@@ -166,7 +167,7 @@ impl ReedSolomonEncoder {
         assert!(index < self.n_shards.get());
         let n_source_symbols = self.n_source_symbols.get();
         if index < n_source_symbols {
-            self.source_symbols[usize::from(index)].clone()
+            self.source_symbols[usize::from(index)].to_vec()
         } else {
             self.encode()
                 .recovery(usize::from(index - n_source_symbols))
@@ -177,7 +178,7 @@ impl ReedSolomonEncoder {
         }
     }
 
-    fn encode(&mut self) -> reed_solomon_simd::EncoderResult {
+    fn encode(&mut self) -> reed_solomon_simd::EncoderResult<'_> {
         self.encoder
             .encode()
             .expect("we have added all source symbols, so this cannot fail")
