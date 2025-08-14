@@ -42,19 +42,6 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/run_tarpaulin
 
-  simtests:
-    name: Run all simtests
-    runs-on: ubuntu-ghcloud
-    env:
-      MSIM_TEST_NUM: 30
-    steps:
-      - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
-        with:
-          tool: cargo-nextest
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - run: ./scripts/simtest/install.sh
-      - run: cargo simtest simtest --profile simtest
-
   dependencies:
     name: Check dependencies (including vulnerabilities)
     runs-on: ubuntu-latest
@@ -62,6 +49,6 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
-          tool: cargo-deny@0.17.0
+          tool: cargo-deny@0.18.4
       - name: Check dependencies
         run: cargo deny check bans licenses sources

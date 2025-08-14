@@ -17,7 +17,6 @@ serde_with.workspace = true
 sui-macros.workspace = true
 sui-rpc-api.workspace = true
 sui-types.workspace = true
-telemetry-subscribers.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -31,3 +30,4 @@ workspace = true
 [dev-dependencies]
 rocksdb.workspace = true
 tempfile.workspace = true
+walrus-test-utils.workspace = true

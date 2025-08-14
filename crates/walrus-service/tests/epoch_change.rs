@@ -13,7 +13,7 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
     use walrus_core::Epoch;
     use walrus_service::test_utils::{StorageNodeHandleTrait, TestNodesConfig, test_cluster};
 
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let epoch_duration = Duration::from_secs(5);
     let (_sui, storage_nodes, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(epoch_duration)

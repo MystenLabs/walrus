@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
-          tool: cargo-deny@0.17.0
+          tool: cargo-deny@0.18.4
       - name: Check dependencies
         run: cargo deny check bans licenses sources
 
