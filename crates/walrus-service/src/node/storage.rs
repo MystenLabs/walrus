@@ -27,6 +27,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     ShardIndex,
+    encoding::SliverPair,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
@@ -46,6 +47,7 @@ use self::{
         metadata_cf_name,
         node_status_cf_name,
         pending_recover_slivers_column_family_name,
+        pre_registered_blobs_cf_name,
         primary_slivers_column_family_name,
         secondary_slivers_column_family_name,
         shard_status_column_family_name,
@@ -68,6 +70,8 @@ pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
 mod metrics;
+mod pre_registered_cache;
+pub(crate) use pre_registered_cache::{CachedBlobSlivers, PreRegisteredCache};
 mod shard;
 
 pub(crate) use shard::{
@@ -190,6 +194,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
+    pre_registered_cache: PreRegisteredCache,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -266,6 +271,8 @@ impl Storage {
         let metadata_cf_name = metadata_cf_name();
         let blob_info_column_families = BlobInfoTable::options(&db_config);
         let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
+        let pre_registered_cf_name = pre_registered_blobs_cf_name();
+        let pre_registered_options = PreRegisteredCache::cf_options(&db_config);
 
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -274,6 +281,7 @@ impl Storage {
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
+                (pre_registered_cf_name, pre_registered_options),
             ])
             .chain(blob_info_column_families)
             .collect::<Vec<_>>();
@@ -304,6 +312,14 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
+
+        let pre_registered_cache = PreRegisteredCache::new(DBMap::reopen(
+            &database,
+            Some(pre_registered_cf_name),
+            &ReadWriteOptions::default(),
+            false,
+        )?);
+
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -320,6 +336,7 @@ impl Storage {
             metadata,
             blob_info,
             event_cursor,
+            pre_registered_cache,
             shards,
             config: db_config,
             metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
@@ -711,6 +728,42 @@ impl Storage {
         }
 
         Ok(shards_with_sliver_pairs)
+    }
+
+    // Pre-registered cache operations
+
+    /// Caches blob slivers and metadata for later processing.
+    pub fn cache_blob_slivers(
+        &self,
+        blob_id: &BlobId,
+        sliver_pairs: Vec<SliverPair>,
+        metadata: Option<VerifiedBlobMetadataWithId>,
+    ) -> Result<(), TypedStoreError> {
+        self.pre_registered_cache
+            .cache_blob(blob_id, sliver_pairs, metadata)
+    }
+
+    /// Retrieves cached blob slivers if they exist and haven't expired.
+    pub fn get_cached_blob(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<CachedBlobSlivers>, TypedStoreError> {
+        self.pre_registered_cache.get_cached_blob(blob_id)
+    }
+
+    /// Removes cached blob slivers after processing.
+    pub fn remove_cached_blob(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        self.pre_registered_cache.remove_cached_blob(blob_id)
+    }
+
+    /// Checks if a blob is cached.
+    pub fn is_blob_cached(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        self.pre_registered_cache.is_cached(blob_id)
+    }
+
+    /// Returns the number of cached blobs.
+    pub fn num_cached_blobs(&self) -> Result<usize, TypedStoreError> {
+        self.pre_registered_cache.num_cached_blobs()
     }
 
     /// Returns the shards currently present in the storage.
