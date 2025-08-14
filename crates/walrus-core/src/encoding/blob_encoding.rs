@@ -18,7 +18,7 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
-    basic_encoding::{Decoder, ReedSolomonDecoder},
+    basic_encoding::Decoder,
     utils,
 };
 use crate::{
@@ -447,28 +447,6 @@ impl<'a> ExpandedMessageMatrix<'a> {
         for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(self.matrix.into_iter()) {
             row.truncate(self.config.n_source_symbols::<Secondary>().get().into());
             sliver_pair.primary.symbols = row;
-        }
-    }
-}
-
-/// A wrapper around the blob decoder for different encoding types.
-#[derive(Debug)]
-pub enum BlobDecoderEnum<'a, E: EncodingAxis> {
-    /// The Reed-Solomon decoder.
-    ReedSolomon(BlobDecoder<'a, ReedSolomonDecoder, E>),
-}
-
-impl<E: EncodingAxis> BlobDecoderEnum<'_, E> {
-    /// Attempts to decode the source blob from the provided slivers.
-    ///
-    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
-    pub fn decode_and_verify(
-        &mut self,
-        blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = SliverData<E>>,
-    ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
-        match self {
-            Self::ReedSolomon(d) => d.decode_and_verify(blob_id, slivers),
         }
     }
 }

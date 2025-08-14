@@ -9,7 +9,7 @@
 use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{EncodingConfigTrait as _, Primary, ReedSolomonEncodingConfig};
+use walrus_core::encoding::{EncodingConfigTrait as _, ReedSolomonEncodingConfig};
 use walrus_test_utils::{random_data, random_subset};
 
 const N_SHARDS: u16 = 1000;
@@ -84,8 +84,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
-                        let decoded_blob = decoder.decode(slivers).unwrap();
+                        let decoded_blob = config.decode(*blob_size, slivers).unwrap().unwrap();
                         assert_eq!(blob.len(), decoded_blob.len());
                         assert_eq!(blob, decoded_blob);
                     },
@@ -101,9 +100,9 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
-                        let (decoded_blob, _metadata) = decoder
-                            .decode_and_verify(blob_id, slivers)
+                        let (decoded_blob, _metadata) = config
+                            .decode_and_verify(blob_id, *blob_size, slivers)
+                            .unwrap()
                             .unwrap()
                             .unwrap();
                         assert_eq!(blob.len(), decoded_blob.len());

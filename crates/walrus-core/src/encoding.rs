@@ -15,7 +15,7 @@ pub use basic_encoding::{
 };
 
 mod blob_encoding;
-pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
+pub use blob_encoding::{BlobDecoder, BlobEncoder};
 
 pub mod quilt_encoding;
 
@@ -29,7 +29,7 @@ pub use config::{
     EncodingConfigTrait,
     MAX_SOURCE_SYMBOLS,
     ReedSolomonEncodingConfig,
-    RequiredSymbolsCount,
+    RequiredCount,
     encoded_blob_length_for_n_shards,
     encoded_slivers_length_for_n_shards,
     max_blob_size_for_n_shards,

@@ -28,6 +28,11 @@ pub trait Decoder {
     ///
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
     /// `symbol_size`.
+    ///
+    /// # Panics
+    ///
+    /// Can panic if the provided parameters are not consistent with the decoder.
+    // TODO(mlegner): Return an error instead of panicking?
     fn new(n_source_symbols: NonZeroU16, n_shards: NonZeroU16, symbol_size: NonZeroU16) -> Self;
 
     /// Attempts to decode the source data from the provided iterator over
@@ -133,31 +138,49 @@ impl ReedSolomonEncoder {
     }
 
     /// Returns an iterator over all `n_shards` source and repair symbols.
-    // TODO (WAL-611): Return an iterator over all symbols.
-    pub fn encode_all(&mut self) -> Vec<Vec<u8>> {
+    pub fn encode_all(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all symbols");
-        self.source_symbols
-            .iter()
-            .cloned()
-            .chain(
-                self.encoder
-                    .encode()
-                    .expect("we have added all source symbols, so this cannot fail")
-                    .recovery_iter()
-                    .map(Vec::from),
-            )
-            .collect()
+        let mut result = self.source_symbols;
+        result.extend(
+            self.encoder
+                .encode()
+                .expect("we have added all source symbols, so this cannot fail")
+                .recovery_iter()
+                .map(Vec::from),
+        );
+        result
     }
 
     /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
-    pub fn encode_all_repair_symbols(&mut self) -> Vec<Vec<u8>> {
+    pub fn encode_all_repair_symbols(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all repair symbols");
+        self.encode().recovery_iter().map(Vec::from).collect()
+    }
+
+    /// Returns the symbol at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds (i.e, `index >= self.n_shards`).
+    pub fn into_symbol(mut self, index: u16) -> Vec<u8> {
+        assert!(index < self.n_shards.get());
+        let n_source_symbols = self.n_source_symbols.get();
+        if index < n_source_symbols {
+            self.source_symbols[usize::from(index)].clone()
+        } else {
+            self.encode()
+                .recovery(usize::from(index - n_source_symbols))
+                .expect(
+                    "we have added all source symbols and checked the index, so this cannot fail",
+                )
+                .to_vec()
+        }
+    }
+
+    fn encode(&mut self) -> reed_solomon_simd::EncoderResult {
         self.encoder
             .encode()
             .expect("we have added all source symbols, so this cannot fail")
-            .recovery_iter()
-            .map(Vec::from)
-            .collect()
     }
 }
 
@@ -189,7 +212,6 @@ impl Decoder for ReedSolomonDecoder {
                 (n_shards.get() - n_source_symbols.get()).into(),
                 symbol_size.get().into(),
             )
-            // TODO (WAL-621): Replace this by an error.
             .expect("parameters must be consistent with the Reed-Solomon decoder"),
             n_source_symbols,
             symbol_size,
@@ -285,7 +307,8 @@ mod tests {
         let end = encoded_symbols_range.end;
         let n_shards = end.max(n_source_symbols.get() + 1).try_into().unwrap();
 
-        let mut encoder = ReedSolomonEncoder::new(data, n_source_symbols, n_shards)?;
+        let encoder = ReedSolomonEncoder::new(data, n_source_symbols, n_shards)?;
+        let symbol_size = encoder.symbol_size();
         let encoded_symbols = encoder
             .encode_all()
             .into_iter()
@@ -295,8 +318,7 @@ mod tests {
             .map(|(i, symbol)| {
                 DecodingSymbol::<Primary>::new(u16::try_from(i).unwrap() + start, symbol)
             });
-        let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
+        let mut decoder = ReedSolomonDecoder::new(n_source_symbols, n_shards, symbol_size);
         let decoding_result = decoder.decode(encoded_symbols);
 
         if should_succeed {
@@ -313,7 +335,8 @@ mod tests {
         let n_source_symbols = NonZeroU16::new(3).unwrap();
         let n_shards = NonZeroU16::new(10).unwrap();
         let data = [1, 2, 3, 4, 5, 6];
-        let mut encoder = ReedSolomonEncoder::new(&data, n_source_symbols, n_shards)?;
+        let encoder = ReedSolomonEncoder::new(&data, n_source_symbols, n_shards)?;
+        let symbol_size = encoder.symbol_size();
         let mut encoded_symbols = encoder
             .encode_all_repair_symbols()
             .into_iter()
@@ -324,8 +347,7 @@ mod tests {
                     symbol,
                 )]
             });
-        let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
+        let mut decoder = ReedSolomonDecoder::new(n_source_symbols, n_shards, symbol_size);
 
         assert_eq!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),

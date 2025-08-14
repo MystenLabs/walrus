@@ -2364,20 +2364,18 @@ mod tests {
             }
         }
 
-        let mut decoder = config
-            .get_blob_decoder::<Secondary>(quilt_metadata_v1.metadata.unencoded_length())
-            .expect("Should create decoder");
-
-        let (quilt_blob, metadata_with_id) = decoder
+        let (quilt_blob, metadata_with_id) = config
             .decode_and_verify(
                 &quilt_metadata_v1.quilt_id,
+                quilt_metadata_v1.metadata.unencoded_length(),
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
                     .collect::<Vec<_>>(),
             )
-            .expect("Should decode and verify quilt")
-            .expect("Should decode quilt");
+            .expect("data is not too large")
+            .expect("should decode and verify quilt")
+            .expect("should decode quilt");
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 

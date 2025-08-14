@@ -8,7 +8,6 @@ use enum_dispatch::enum_dispatch;
 
 use super::{
     BlobDecoder,
-    BlobDecoderEnum,
     BlobEncoder,
     DataTooLargeError,
     DecodingSymbol,
@@ -20,7 +19,14 @@ use super::{
     basic_encoding::Decoder as _,
     utils,
 };
-use crate::{BlobId, EncodingType, bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId};
+use crate::{
+    BlobId,
+    EncodingType,
+    bft,
+    encoding::{DecodingVerificationError, SliverData},
+    merkle::DIGEST_LEN,
+    metadata::VerifiedBlobMetadataWithId,
+};
 
 /// The maximum number of source symbols that can be encoded with our encoding (currently
 /// Reed-Solomon). This is dictated by [`reed_solomon_simd::engine::GF_ORDER`].
@@ -52,6 +58,13 @@ pub trait EncodingConfigTrait {
         &self,
         data: &[u8],
     ) -> Result<Vec<Vec<u8>>, EncodeError>;
+
+    /// Returns the symbol at the given index.
+    fn encode_symbol<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+        index: u16,
+    ) -> Result<Vec<u8>, EncodeError>;
 
     /// Attempts to decode the source data from the provided iterator over
     /// [`DecodingSymbol`s][DecodingSymbol].
@@ -90,6 +103,57 @@ pub trait EncodingConfigTrait {
         blob: &[u8],
     ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError>;
 
+    /// Attempts to decode the source blob from the provided slivers.
+    ///
+    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the decoded blob in
+    /// addition to the slivers, notably on 32-bit architectures.
+    // TODO(mlegner): Flatten the return type to something like `Result<Vec<u8>, SomeError>`.
+    fn decode<S, E>(
+        &self,
+        blob_size: u64,
+        slivers: S,
+    ) -> Result<Option<Vec<u8>>, DataTooLargeError>
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis;
+
+    /// Attempts to decode the source blob from the provided slivers, and to verify that the decoded
+    /// blob matches the blob ID.
+    ///
+    /// If the decoding and the checks are successful, the function returns a tuple of two values:
+    /// * the reconstructed source blob as a byte vector; and
+    /// * the [`VerifiedBlobMetadataWithId`] corresponding to the source blob.
+    ///
+    /// It returns `None` if the decoding fails.
+    ///
+    /// # Errors
+    ///
+    /// If, upon successful decoding, the recomputed blob ID does not match the input blob ID,
+    /// returns a [`DecodingVerificationError`].
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the encoded data,
+    /// notably on 32-bit architectures. As this function re-encodes the blob to verify the
+    /// metadata, similar limits apply as in [`BlobEncoder::encode_with_metadata`].
+    // TODO(mlegner): Flatten the return type to something like `Result<Vec<u8>, SomeError>`.
+    fn decode_and_verify<S, E>(
+        &self,
+        blob_id: &BlobId,
+        blob_size: u64,
+        slivers: S,
+    ) -> Result<
+        Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError>,
+        DataTooLargeError,
+    >
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis;
+
     /// Returns the number of primary source symbols as a `NonZeroU16`.
     fn n_primary_source_symbols(&self) -> NonZeroU16;
 
@@ -109,10 +173,17 @@ pub trait EncodingConfigTrait {
         }
     }
 
-    /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `T`.
+    /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `A`.
     #[inline]
-    fn n_symbols_for_recovery<T: EncodingAxis>(&self) -> RequiredSymbolsCount {
-        RequiredSymbolsCount::Exact(self.n_source_symbols::<T::OrthogonalAxis>().get().into())
+    fn n_symbols_for_recovery<A: EncodingAxis>(&self) -> RequiredCount {
+        self.n_slivers_for_reconstruction::<A::OrthogonalAxis>()
+    }
+
+    /// Returns the number of source symbols required to reconstruct a blob using slivers of
+    /// [`EncodingAxis`] `A`.
+    #[inline]
+    fn n_slivers_for_reconstruction<A: EncodingAxis>(&self) -> RequiredCount {
+        RequiredCount::Exact(self.n_source_symbols::<A>().get().into())
     }
 
     /// Returns the number of shards as a `usize`.
@@ -250,7 +321,7 @@ pub trait EncodingConfigTrait {
 // sliver is an exact number. This code needs to be changed if this enum is extended in the future.
 // By explicitly matching on `Exact`, we ensure that the compiler will warn us in that case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequiredSymbolsCount {
+pub enum RequiredCount {
     /// An exact number of symbols required to recover a sliver.
     Exact(usize),
 }
@@ -318,20 +389,6 @@ impl EncodingConfig {
 pub enum EncodingConfigEnum<'a> {
     /// Configuration of the Reed-Solomon encoding.
     ReedSolomon(&'a ReedSolomonEncodingConfig),
-}
-
-impl<'a> EncodingConfigEnum<'a> {
-    /// Returns a decoder for the given blob size and encoding axis.
-    pub fn get_blob_decoder<E: EncodingAxis>(
-        &self,
-        blob_size: u64,
-    ) -> Result<BlobDecoderEnum<'a, E>, DataTooLargeError> {
-        match self {
-            Self::ReedSolomon(config) => {
-                BlobDecoder::new(*config, blob_size).map(BlobDecoderEnum::ReedSolomon)
-            }
-        }
-    }
 }
 
 /// Configuration of the Reed-Solomon encoding.
@@ -503,6 +560,32 @@ impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
         Ok(self.get_blob_encoder(blob)?.compute_metadata())
     }
 
+    fn decode<S, E>(&self, blob_size: u64, slivers: S) -> Result<Option<Vec<u8>>, DataTooLargeError>
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
+    {
+        Ok(self.get_blob_decoder::<E>(blob_size)?.decode(slivers))
+    }
+
+    fn decode_and_verify<S, E>(
+        &self,
+        blob_id: &BlobId,
+        blob_size: u64,
+        slivers: S,
+    ) -> Result<
+        Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError>,
+        DataTooLargeError,
+    >
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
+    {
+        Ok(self
+            .get_blob_decoder::<E>(blob_size)?
+            .decode_and_verify(blob_id, slivers))
+    }
+
     fn encode_all_symbols<E: EncodingAxis>(
         &self,
         data: &[u8],
@@ -514,9 +597,16 @@ impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
         &self,
         data: &[u8],
     ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        // TODO (WAL-621): Can we delegate this to the implementation for
-        // `&ReedSolomonEncodingConfig`?
         Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+    }
+
+    fn encode_symbol<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+        index: u16,
+    ) -> Result<Vec<u8>, EncodeError> {
+        // TODO(mlegner): Don't construct the encoder here if it is a source symbol.
+        Ok(self.get_encoder::<E>(data)?.into_symbol(index))
     }
 
     fn decode_from_decoding_symbols<T, E>(
@@ -553,6 +643,30 @@ impl EncodingConfigTrait for ReedSolomonEncodingConfig {
         (&self).compute_metadata(blob)
     }
 
+    fn decode<S, E>(&self, blob_size: u64, slivers: S) -> Result<Option<Vec<u8>>, DataTooLargeError>
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
+    {
+        (&self).decode(blob_size, slivers)
+    }
+
+    fn decode_and_verify<S, E>(
+        &self,
+        blob_id: &BlobId,
+        blob_size: u64,
+        slivers: S,
+    ) -> Result<
+        Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError>,
+        DataTooLargeError,
+    >
+    where
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
+    {
+        (&self).decode_and_verify(blob_id, blob_size, slivers)
+    }
+
     fn n_primary_source_symbols(&self) -> NonZeroU16 {
         (&self).n_primary_source_symbols()
     }
@@ -565,21 +679,26 @@ impl EncodingConfigTrait for ReedSolomonEncodingConfig {
         (&self).n_shards()
     }
 
-    // TODO (WAL-621): Can we also delegate the following methods to the implementations for
-    // `&ReedSolomonEncodingConfig`?
-
     fn encode_all_symbols<E: EncodingAxis>(
         &self,
         data: &[u8],
     ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all())
+        (&self).encode_all_symbols::<E>(data)
     }
 
     fn encode_all_repair_symbols<E: EncodingAxis>(
         &self,
         data: &[u8],
     ) -> Result<Vec<Vec<u8>>, EncodeError> {
-        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+        (&self).encode_all_repair_symbols::<E>(data)
+    }
+
+    fn encode_symbol<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+        index: u16,
+    ) -> Result<Vec<u8>, EncodeError> {
+        (&self).encode_symbol::<E>(data, index)
     }
 
     fn decode_from_decoding_symbols<T, E>(
@@ -592,8 +711,7 @@ impl EncodingConfigTrait for ReedSolomonEncodingConfig {
         T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
         E: EncodingAxis,
     {
-        self.get_decoder::<E::OrthogonalAxis>(symbol_size)
-            .decode(symbols)
+        (&self).decode_from_decoding_symbols::<T, E>(symbol_size, symbols)
     }
 }
 

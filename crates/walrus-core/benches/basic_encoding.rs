@@ -45,7 +45,7 @@ fn basic_encoding(c: &mut Criterion) {
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
                     b.iter(|| {
-                        let mut encoder = ReedSolomonEncoder::new(
+                        let encoder = ReedSolomonEncoder::new(
                             data,
                             (*symbol_count).try_into().unwrap(),
                             N_SHARDS.try_into().unwrap(),
@@ -72,7 +72,7 @@ fn basic_decoding(c: &mut Criterion) {
             group.throughput(criterion::Throughput::Bytes(
                 u64::try_from(data_length).unwrap(),
             ));
-            let mut encoder = ReedSolomonEncoder::new(
+            let encoder = ReedSolomonEncoder::new(
                 &data,
                 symbol_count.try_into().unwrap(),
                 N_SHARDS.try_into().unwrap(),

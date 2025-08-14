@@ -38,7 +38,7 @@ use walrus_core::{
         GeneralRecoverySymbol,
         Primary,
         RecoverySymbol as RecoverySymbolData,
-        RequiredSymbolsCount,
+        RequiredCount,
         Secondary,
         SliverData,
         SliverRecoveryOrVerificationError,
@@ -399,7 +399,7 @@ where
             .shared
             .encoding_config
             .get_for_type(self.metadata.metadata().encoding_type());
-        let RequiredSymbolsCount::Exact(n_symbols_required) =
+        let RequiredCount::Exact(n_symbols_required) =
             if self.target_sliver_type == SliverType::Primary {
                 encoding_config.n_symbols_for_recovery::<Primary>()
             } else {
