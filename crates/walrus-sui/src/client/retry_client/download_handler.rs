@@ -5,8 +5,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Instant,
@@ -15,9 +14,7 @@ use std::{
 use atomic_time::AtomicInstant;
 
 use crate::client::{
-    SuiClientMetricSet,
-    retry_client::RetriableClientError,
-    rpc_config::RpcFallbackConfig,
+    SuiClientMetricSet, retry_client::RetriableClientError, rpc_config::RpcFallbackConfig,
 };
 
 /// The decision to make where to download a checkpoint.

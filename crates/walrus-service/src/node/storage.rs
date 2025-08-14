@@ -19,14 +19,11 @@ use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
-    BlobId,
-    Epoch,
-    ShardIndex,
+    BlobId, Epoch, ShardIndex,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
@@ -35,21 +32,13 @@ use walrus_utils::metrics::Registry;
 
 use self::{
     blob_info::{
-        BlobInfo,
-        BlobInfoApi,
-        BlobInfoIterator,
-        BlobInfoTable,
-        PerObjectBlobInfo,
+        BlobInfo, BlobInfoApi, BlobInfoIterator, BlobInfoTable, PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
     },
     constants::{
-        metadata_cf_name,
-        node_status_cf_name,
-        pending_recover_slivers_column_family_name,
-        primary_slivers_column_family_name,
-        secondary_slivers_column_family_name,
-        shard_status_column_family_name,
-        shard_sync_progress_column_family_name,
+        metadata_cf_name, node_status_cf_name, pending_recover_slivers_column_family_name,
+        primary_slivers_column_family_name, secondary_slivers_column_family_name,
+        shard_status_column_family_name, shard_sync_progress_column_family_name,
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
@@ -71,14 +60,9 @@ mod metrics;
 mod shard;
 
 pub(crate) use shard::{
-    PrimarySliverData,
-    SecondarySliverData,
-    ShardStatus,
-    ShardStorage,
-    pending_recover_slivers_column_family_options,
-    primary_slivers_column_family_options,
-    secondary_slivers_column_family_options,
-    shard_status_column_family_options,
+    PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage,
+    pending_recover_slivers_column_family_options, primary_slivers_column_family_options,
+    secondary_slivers_column_family_options, shard_status_column_family_options,
     shard_sync_progress_column_family_options,
 };
 
@@ -833,27 +817,18 @@ pub(crate) mod tests {
     use std::ops::Bound::{Excluded, Unbounded};
 
     use blob_info::{
-        BlobCertificationStatus,
-        BlobInfoMergeOperand,
-        BlobInfoV1,
-        BlobStatusChangeType,
-        PermanentBlobInfoV1,
-        ValidBlobInfoV1,
+        BlobCertificationStatus, BlobInfoMergeOperand, BlobInfoV1, BlobStatusChangeType,
+        PermanentBlobInfoV1, ValidBlobInfoV1,
     };
     use constants::{
-        pending_recover_slivers_column_family_name,
-        primary_slivers_column_family_name,
-        secondary_slivers_column_family_name,
-        shard_status_column_family_name,
+        pending_recover_slivers_column_family_name, primary_slivers_column_family_name,
+        secondary_slivers_column_family_name, shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     };
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
-        Sliver,
-        SliverIndex,
-        SliverType,
-        SuiObjectId,
+        Sliver, SliverIndex, SliverType, SuiObjectId,
         encoding::{EncodingAxis, SliverData},
     };
     use walrus_sui::{

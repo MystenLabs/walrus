@@ -4,12 +4,7 @@
 //! Helper functions for the crate.
 
 use std::{
-    collections::HashSet,
-    future::Future,
-    num::NonZeroU16,
-    path::Path,
-    str::FromStr,
-    time::Duration,
+    collections::HashSet, future::Future, num::NonZeroU16, path::Path, str::FromStr, time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -24,15 +19,11 @@ use sui_sdk::{
     types::base_types::ObjectID,
 };
 use sui_types::{
-    base_types::SuiAddress,
-    crypto::SignatureScheme,
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
+    base_types::SuiAddress, crypto::SignatureScheme,
+    programmable_transaction_builder::ProgrammableTransactionBuilder, transaction::TransactionData,
 };
 use walrus_core::{
-    EncodingType,
-    Epoch,
-    EpochCount,
+    EncodingType, Epoch, EpochCount,
     encoding::encoded_blob_length_for_n_shards,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},

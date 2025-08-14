@@ -15,20 +15,11 @@ use sui_types::base_types::ObjectID;
 use tokio::sync::{Semaphore, SemaphorePermit, TryAcquireError};
 use tracing::Level;
 use walrus_core::{
-    BlobId,
-    InconsistencyProof,
-    RecoverySymbol,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
+    BlobId, InconsistencyProof, RecoverySymbol, Sliver, SliverIndex, SliverPairIndex, SliverType,
     SymbolId,
     encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
-        BlobPersistenceType,
-        InvalidBlobIdAttestation,
-        SignedMessage,
-        SignedSyncShardRequest,
+        BlobPersistenceType, InvalidBlobIdAttestation, SignedMessage, SignedSyncShardRequest,
         StorageConfirmation,
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
@@ -48,16 +39,9 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
-        BlobStatusError,
-        ComputeStorageConfirmationError,
-        InconsistencyProofError,
-        RetrieveMetadataError,
-        RetrieveSliverError,
-        RetrieveSymbolError,
-        ServiceState,
-        StoreMetadataError,
-        StoreSliverError,
-        SyncShardServiceError,
+        BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError,
+        RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, ServiceState,
+        StoreMetadataError, StoreSliverError, SyncShardServiceError,
         errors::{IndexOutOfRange, ListSymbolsError, Unavailable},
     },
 };

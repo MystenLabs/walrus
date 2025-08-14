@@ -23,21 +23,9 @@ use std::{
 use bincode::Options;
 use prometheus::{Histogram, HistogramTimer};
 use rocksdb::{
-    AsColumnFamilyRef,
-    BlockBasedOptions,
-    BottommostLevelCompaction,
-    CStrLike,
-    Cache,
-    ColumnFamilyDescriptor,
-    CompactOptions,
-    DBPinnableSlice,
-    DBWithThreadMode,
-    Error,
-    LiveFile,
-    MultiThreaded,
-    ReadOptions,
-    WriteBatch,
-    WriteOptions,
+    AsColumnFamilyRef, BlockBasedOptions, BottommostLevelCompaction, CStrLike, Cache,
+    ColumnFamilyDescriptor, CompactOptions, DBPinnableSlice, DBWithThreadMode, Error, LiveFile,
+    MultiThreaded, ReadOptions, WriteBatch, WriteOptions,
     checkpoint::Checkpoint,
     properties::{self, num_files_at_level},
     statistics::Ticker,
@@ -51,8 +39,7 @@ use crate::{
     metrics::{DBMetrics, RocksDBPerfContext, SamplingInterval},
     rocks::{
         errors::{
-            typed_store_err_from_bcs_err,
-            typed_store_err_from_bincode_err,
+            typed_store_err_from_bcs_err, typed_store_err_from_bincode_err,
             typed_store_err_from_rocks_err,
         },
         safe_iter::{SafeIter, SafeRevIter},

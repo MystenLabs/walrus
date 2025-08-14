@@ -12,13 +12,8 @@ use std::{
 
 use once_cell::sync::OnceCell;
 use prometheus::{
-    HistogramVec,
-    IntCounterVec,
-    IntGaugeVec,
-    Registry,
-    register_histogram_vec_with_registry,
-    register_int_counter_vec_with_registry,
-    register_int_gauge_vec_with_registry,
+    HistogramVec, IntCounterVec, IntGaugeVec, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry, register_int_gauge_vec_with_registry,
 };
 use rocksdb::{PerfContext, PerfMetric, PerfStatsLevel, perf::set_perf_stats};
 use tap::TapFallible;

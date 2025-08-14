@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 use utoipa::ToSchema;
 use walrus_core::{
-    BlobId,
-    Epoch,
-    EpochCount,
+    BlobId, Epoch, EpochCount,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{

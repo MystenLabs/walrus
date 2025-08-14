@@ -12,9 +12,7 @@ use super::{
     blob_pool::BlobPool,
     epoch_length_generator::EpochLengthGenerator,
     single_client_workload_config::{
-        RequestType,
-        RequestTypeDistributionConfig,
-        SizeDistributionConfig,
+        RequestType, RequestTypeDistributionConfig, SizeDistributionConfig,
         StoreLengthDistributionConfig,
     },
 };
@@ -161,9 +159,7 @@ mod tests {
     use crate::single_client_workload::{
         blob_pool::BlobPool,
         single_client_workload_config::{
-            RequestTypeDistributionConfig,
-            SizeDistributionConfig,
-            StoreLengthDistributionConfig,
+            RequestTypeDistributionConfig, SizeDistributionConfig, StoreLengthDistributionConfig,
         },
     };
 

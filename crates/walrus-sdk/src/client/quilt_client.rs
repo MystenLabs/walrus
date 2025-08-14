@@ -13,19 +13,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    QuiltPatchId,
-    Sliver,
-    SliverIndex,
+    BlobId, EncodingType, Epoch, QuiltPatchId, Sliver, SliverIndex,
     encoding::{
-        BLOB_TYPE_ATTRIBUTE_KEY,
-        Primary,
-        QUILT_TYPE_VALUE,
-        QuiltError,
-        Secondary,
-        SliverData,
+        BLOB_TYPE_ATTRIBUTE_KEY, Primary, QUILT_TYPE_VALUE, QuiltError, Secondary, SliverData,
         quilt_encoding::*,
     },
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
@@ -38,10 +28,7 @@ use walrus_utils::read_blob_from_file;
 
 use crate::{
     client::{
-        StoreArgs,
-        WalrusNodeClient,
-        client_types::StoredQuiltPatch,
-        responses::QuiltStoreResult,
+        StoreArgs, WalrusNodeClient, client_types::StoredQuiltPatch, responses::QuiltStoreResult,
     },
     error::{ClientError, ClientErrorKind, ClientResult},
 };

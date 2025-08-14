@@ -11,8 +11,7 @@ use sui_types::base_types::ObjectID;
 use tracing::{Level, Span, field};
 use utoipa::ToSchema;
 use walrus_core::{
-    BlobId,
-    QuiltPatchId,
+    BlobId, QuiltPatchId,
     encoding::{SliverPair, quilt_encoding::QuiltPatchInternalIdApi},
     messages::ConfirmationCertificate,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
@@ -24,8 +23,7 @@ use walrus_sui::{
 };
 
 use super::{
-    ClientError,
-    ClientResult,
+    ClientError, ClientResult,
     resource::{PriceComputation, RegisterBlobOp, StoreOp},
     responses::{BlobStoreResult, EventOrObjectId},
 };

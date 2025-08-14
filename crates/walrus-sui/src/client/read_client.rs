@@ -19,19 +19,13 @@ use chrono::{DateTime, Utc};
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{
-        Coin,
-        EventFilter,
-        SuiEvent,
-        SuiObjectData,
-        SuiObjectDataFilter,
-        SuiObjectDataOptions,
+        Coin, EventFilter, SuiEvent, SuiObjectData, SuiObjectDataFilter, SuiObjectDataOptions,
         SuiObjectResponseQuery,
     },
     types::base_types::ObjectID,
 };
 use sui_types::{
-    Identifier,
-    TypeTag,
+    Identifier, TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     transaction::ObjectArg,
@@ -43,8 +37,7 @@ use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
-    SuiClientError,
-    SuiClientResult,
+    SuiClientError, SuiClientResult,
     contract_config::ContractConfig,
     retry_client::{MULTI_GET_OBJ_LIMIT, RetriableSuiClient},
 };
@@ -52,30 +45,13 @@ use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     system_setup::compile_package,
     types::{
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        StakingObject,
-        StorageNode,
-        StorageNodeCap,
+        BlobEvent, Committee, ContractEvent, StakingObject, StorageNode, StorageNodeCap,
         SystemObject,
         move_structs::{
-            Blob,
-            BlobAttribute,
-            BlobWithAttribute,
-            EpochState,
-            EventBlob,
-            NodeMetadata,
-            SharedBlob,
-            StakingInnerV1,
-            StakingObjectForDeserialization,
-            StakingPool,
-            SubsidiesInnerKey,
-            SystemObjectForDeserialization,
-            SystemStateInnerV1,
-            WalrusSubsidies,
-            WalrusSubsidiesForDeserialization,
-            WalrusSubsidiesInner,
+            Blob, BlobAttribute, BlobWithAttribute, EpochState, EventBlob, NodeMetadata,
+            SharedBlob, StakingInnerV1, StakingObjectForDeserialization, StakingPool,
+            SubsidiesInnerKey, SystemObjectForDeserialization, SystemStateInnerV1, WalrusSubsidies,
+            WalrusSubsidiesForDeserialization, WalrusSubsidiesInner,
         },
     },
     utils::{get_sui_object_from_object_response, handle_pagination},

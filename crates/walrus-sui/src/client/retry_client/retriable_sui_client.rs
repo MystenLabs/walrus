@@ -22,27 +22,14 @@ use rand::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use sui_sdk::{
-    SuiClient,
-    SuiClientBuilder,
+    SuiClient, SuiClientBuilder,
     error::Error as SuiSdkError,
     rpc_types::{
-        Balance,
-        Coin,
-        DryRunTransactionBlockResponse,
-        ObjectsPage,
-        SuiCommittee,
-        SuiEvent,
-        SuiMoveNormalizedModule,
-        SuiMoveNormalizedStructType,
-        SuiMoveNormalizedType,
-        SuiObjectDataOptions,
-        SuiObjectResponse,
-        SuiObjectResponseQuery,
-        SuiRawData,
-        SuiTransactionBlockEffectsAPI,
-        SuiTransactionBlockResponse,
-        SuiTransactionBlockResponseOptions,
-        SuiTransactionBlockResponseQuery,
+        Balance, Coin, DryRunTransactionBlockResponse, ObjectsPage, SuiCommittee, SuiEvent,
+        SuiMoveNormalizedModule, SuiMoveNormalizedStructType, SuiMoveNormalizedType,
+        SuiObjectDataOptions, SuiObjectResponse, SuiObjectResponseQuery, SuiRawData,
+        SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse,
+        SuiTransactionBlockResponseOptions, SuiTransactionBlockResponseQuery,
         TransactionBlocksPage,
     },
 };
@@ -62,11 +49,7 @@ use walrus_core::ensure;
 use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{
-    FailoverWrapper,
-    GAS_SAFE_OVERHEAD,
-    MULTI_GET_OBJ_LIMIT,
-    SuiClientError,
-    SuiClientResult,
+    FailoverWrapper, GAS_SAFE_OVERHEAD, MULTI_GET_OBJ_LIMIT, SuiClientError, SuiClientResult,
     failover::{FailoverError, LazyClientBuilder},
     retry_rpc_errors,
 };

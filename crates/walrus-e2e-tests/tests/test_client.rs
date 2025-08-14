@@ -24,18 +24,9 @@ use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tokio_stream::StreamExt;
 use walrus_core::{
-    BlobId,
-    DEFAULT_ENCODING,
-    EncodingType,
-    EpochCount,
-    QuiltPatchId,
-    ShardIndex,
-    SliverPairIndex,
+    BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, QuiltPatchId, ShardIndex, SliverPairIndex,
     encoding::{
-        BLOB_TYPE_ATTRIBUTE_KEY,
-        EncodingConfigTrait as _,
-        Primary,
-        QUILT_TYPE_VALUE,
+        BLOB_TYPE_ATTRIBUTE_KEY, EncodingConfigTrait as _, Primary, QUILT_TYPE_VALUE,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
@@ -46,11 +37,7 @@ use walrus_core::{
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{
-        Blocklist,
-        StoreArgs,
-        WalrusNodeClient,
-        WalrusStoreBlob,
-        WalrusStoreBlobApi,
+        Blocklist, StoreArgs, WalrusNodeClient, WalrusStoreBlob, WalrusStoreBlobApi,
         quilt_client::QuiltClientConfig,
         responses::{BlobStoreResult, QuiltStoreResult},
         upload_relay_client::UploadRelayClient,
@@ -59,10 +46,7 @@ use walrus_sdk::{
     error::{
         ClientError,
         ClientErrorKind::{
-            self,
-            NoMetadataReceived,
-            NoValidStatusReceived,
-            NotEnoughConfirmations,
+            self, NoMetadataReceived, NoValidStatusReceived, NotEnoughConfirmations,
             NotEnoughSlivers,
         },
     },
@@ -70,35 +54,27 @@ use walrus_sdk::{
     upload_relay::tip_config::{TipConfig, TipKind},
 };
 use walrus_service::test_utils::{
-    StorageNodeHandleTrait,
-    TestNodesConfig,
+    StorageNodeHandleTrait, TestNodesConfig,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
-        BlobPersistence,
-        ExpirySelectionPolicy,
-        PostStoreAction,
-        ReadClient,
-        SuiClientError,
+        BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient, SuiClientError,
         SuiContractClient,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     config::WalletConfig,
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
-        Blob,
-        BlobEvent,
-        ContractEvent,
+        Blob, BlobEvent, ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_upload_relay::{
-    DEFAULT_SERVER_ADDRESS,
-    UploadRelayHandle,
+    DEFAULT_SERVER_ADDRESS, UploadRelayHandle,
     controller::{WalrusUploadRelayConfig, get_client_with_config},
 };
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};

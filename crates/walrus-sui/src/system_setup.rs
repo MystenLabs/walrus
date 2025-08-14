@@ -14,26 +14,19 @@ use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::account_address::AccountAddress;
 use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
-    BuildConfig,
-    CompiledPackage,
-    build_from_resolution_graph,
-    check_invalid_dependencies,
-    check_unpublished_dependencies,
-    gather_published_ids,
+    BuildConfig, CompiledPackage, build_from_resolution_graph, check_invalid_dependencies,
+    check_unpublished_dependencies, gather_published_ids,
 };
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
-        Identifier,
-        base_types::ObjectID,
+        Identifier, base_types::ObjectID,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::TransactionData,
     },
 };
 use sui_types::{
-    SUI_CLOCK_OBJECT_ID,
-    SUI_CLOCK_OBJECT_SHARED_VERSION,
-    SUI_FRAMEWORK_ADDRESS,
+    SUI_CLOCK_OBJECT_ID, SUI_CLOCK_OBJECT_SHARED_VERSION, SUI_FRAMEWORK_ADDRESS,
     transaction::{ObjectArg, TransactionKind},
 };
 use walkdir::WalkDir;

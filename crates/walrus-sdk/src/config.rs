@@ -15,10 +15,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
-        SuiClientError,
-        SuiContractClient,
-        SuiReadClient,
-        contract_config::ContractConfig,
+        SuiClientError, SuiContractClient, SuiReadClient, contract_config::ContractConfig,
         retry_client::RetriableSuiClient,
     },
     config::WalletConfig,

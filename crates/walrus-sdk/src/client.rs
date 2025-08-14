@@ -19,8 +19,7 @@ use bimap::BiMap;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
 use futures::{
-    Future,
-    FutureExt,
+    Future, FutureExt,
     future::{Either, select},
 };
 use indicatif::{HumanDuration, MultiProgress};
@@ -31,19 +30,9 @@ use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    ShardIndex,
-    Sliver,
-    SliverIndex,
-    bft,
+    BlobId, EncodingType, Epoch, ShardIndex, Sliver, SliverIndex, bft,
     encoding::{
-        BlobDecoderEnum,
-        EncodingAxis,
-        EncodingConfig,
-        EncodingConfigTrait as _,
-        SliverData,
+        BlobDecoderEnum, EncodingAxis, EncodingConfig, EncodingConfigTrait as _, SliverData,
         SliverPair,
     },
     ensure,
@@ -53,16 +42,11 @@ use walrus_core::{
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
-        CertifyAndExtendBlobParams,
-        CertifyAndExtendBlobResult,
-        ExpirySelectionPolicy,
-        ReadClient,
+        CertifyAndExtendBlobParams, CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient,
         SuiContractClient,
     },
     types::{
-        Blob,
-        BlobEvent,
-        StakedWal,
+        Blob, BlobEvent, StakedWal,
         move_structs::{BlobAttribute, BlobWithAttribute},
     },
 };

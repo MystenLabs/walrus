@@ -15,24 +15,12 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BlobId,
-    EncodingType,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
+    BlobId, EncodingType, SliverIndex, SliverPairIndex, SliverType,
     encoding::{
-        DataTooLargeError,
-        EncodingAxis,
-        EncodingConfig,
-        EncodingConfigTrait as _,
-        QuiltError,
+        DataTooLargeError, EncodingAxis, EncodingConfig, EncodingConfigTrait as _, QuiltError,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{
-            QuiltIndexApi,
-            QuiltPatchApi,
-            QuiltPatchInternalIdApi,
-            QuiltVersion,
-            QuiltVersionV1,
+            QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi, QuiltVersion, QuiltVersionV1,
         },
         source_symbols_for_n_shards,
     },

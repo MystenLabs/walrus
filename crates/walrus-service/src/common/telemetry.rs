@@ -20,9 +20,7 @@ use axum::{
     body::{Body, Bytes, HttpBody},
     extract::{ConnectInfo, MatchedPath, State},
     http::{
-        self,
-        Request,
-        Version,
+        self, Request, Version,
         header::{self, AsHeaderName},
         uri::Scheme,
     },
@@ -30,11 +28,7 @@ use axum::{
 };
 use opentelemetry::propagation::Extractor;
 use prometheus::{
-    Gauge,
-    Histogram,
-    HistogramVec,
-    IntGaugeVec,
-    Opts,
+    Gauge, Histogram, HistogramVec, IntGaugeVec, Opts,
     core::{AtomicU64, Collector, GenericGauge},
 };
 use reqwest::Method;

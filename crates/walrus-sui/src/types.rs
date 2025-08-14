@@ -16,34 +16,15 @@ use thiserror::Error;
 
 mod events;
 pub use events::{
-    BlobCertified,
-    BlobDeleted,
-    BlobEvent,
-    BlobRegistered,
-    ContractEvent,
-    ContractUpgradedEvent,
-    DenyListEvent,
-    DenyListUpdateEvent,
-    EpochChangeDone,
-    EpochChangeEvent,
-    EpochChangeStart,
-    EpochParametersSelected,
-    InvalidBlobId,
-    PackageEvent,
-    ProtocolEvent,
-    ProtocolVersionUpdatedEvent,
-    RegisterDenyListUpdateEvent,
+    BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, ContractEvent, ContractUpgradedEvent,
+    DenyListEvent, DenyListUpdateEvent, EpochChangeDone, EpochChangeEvent, EpochChangeStart,
+    EpochParametersSelected, InvalidBlobId, PackageEvent, ProtocolEvent,
+    ProtocolVersionUpdatedEvent, RegisterDenyListUpdateEvent,
 };
 
 pub mod move_structs;
 pub use move_structs::{
-    Blob,
-    NodeMetadata,
-    StakedWal,
-    StakingObject,
-    StorageNode,
-    StorageNodeCap,
-    StorageResource,
+    Blob, NodeMetadata, StakedWal, StakingObject, StorageNode, StorageNodeCap, StorageResource,
     SystemObject,
 };
 
@@ -51,13 +32,7 @@ pub mod move_errors;
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{
-    Epoch,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    bft,
-    ensure,
-    messages::ProofOfPossession,
+    Epoch, NetworkPublicKey, PublicKey, ShardIndex, bft, ensure, messages::ProofOfPossession,
 };
 
 /// The zero-th Epoch is special in that it's the genesis epoch.

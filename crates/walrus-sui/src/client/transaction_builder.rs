@@ -15,49 +15,28 @@ use fastcrypto::traits::ToFromBytes;
 use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
-    Identifier,
-    SUI_CLOCK_OBJECT_ID,
-    SUI_CLOCK_OBJECT_SHARED_VERSION,
+    Identifier, SUI_CLOCK_OBJECT_ID, SUI_CLOCK_OBJECT_SHARED_VERSION,
     base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
-        Argument,
-        Command,
-        ObjectArg,
-        ProgrammableTransaction,
-        TransactionData,
-        TransactionKind,
+        Argument, Command, ObjectArg, ProgrammableTransaction, TransactionData, TransactionKind,
     },
 };
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
-    Epoch,
-    EpochCount,
-    NetworkPublicKey,
-    ensure,
+    Epoch, EpochCount, NetworkPublicKey, ensure,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
 };
 
 use super::{
-    BlobObjectMetadata,
-    BlobPersistence,
-    CoinType,
-    PoolOperationWithAuthorization,
-    ReadClient,
-    SuiClientError,
-    SuiClientResult,
-    SuiReadClient,
-    UpgradeType,
-    read_client::Mutability,
+    BlobObjectMetadata, BlobPersistence, CoinType, PoolOperationWithAuthorization, ReadClient,
+    SuiClientError, SuiClientResult, SuiReadClient, UpgradeType, read_client::Mutability,
 };
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        NetworkAddress,
-        NodeRegistrationParams,
-        NodeUpdateParams,
-        SystemObject,
+        NetworkAddress, NodeRegistrationParams, NodeUpdateParams, SystemObject,
         UpdatePublicKeyParams,
         move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },

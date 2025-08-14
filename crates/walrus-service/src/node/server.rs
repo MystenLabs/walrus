@@ -517,42 +517,24 @@ mod tests {
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        BlobId,
-        InconsistencyProof,
-        PublicKey,
-        RecoverySymbol,
-        Sliver,
-        SliverIndex,
-        SliverPairIndex,
-        SliverType,
-        SymbolId,
+        BlobId, InconsistencyProof, PublicKey, RecoverySymbol, Sliver, SliverIndex,
+        SliverPairIndex, SliverType, SymbolId,
         encoding::{EncodingAxis, GeneralRecoverySymbol, Primary, Secondary},
         inconsistency::{
-            InconsistencyProof as InconsistencyProofInner,
-            InconsistencyVerificationError,
+            InconsistencyProof as InconsistencyProofInner, InconsistencyVerificationError,
         },
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
         messages::{
-            BlobPersistenceType,
-            InvalidBlobIdAttestation,
-            SignedMessage,
-            StorageConfirmation,
-            SyncShardMsg,
-            SyncShardResponse,
+            BlobPersistenceType, InvalidBlobIdAttestation, SignedMessage, StorageConfirmation,
+            SyncShardMsg, SyncShardResponse,
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     };
     use walrus_storage_node_client::{
-        RecoverySymbolsFilter,
-        StorageNodeClient,
-        StorageNodeClientBuilder,
+        RecoverySymbolsFilter, StorageNodeClient, StorageNodeClientBuilder,
         api::{
-            BlobStatus,
-            DeletableCounts,
-            ServiceHealthInfo,
-            ShardStatusSummary,
-            StoredOnNodeStatus,
+            BlobStatus, DeletableCounts, ServiceHealthInfo, ShardStatusSummary, StoredOnNodeStatus,
             errors::StatusCode as ApiStatusCode,
         },
     };
@@ -562,16 +544,9 @@ mod tests {
     use super::*;
     use crate::{
         node::{
-            BlobStatusError,
-            ComputeStorageConfirmationError,
-            InconsistencyProofError,
-            RetrieveMetadataError,
-            RetrieveSliverError,
-            RetrieveSymbolError,
-            StoreMetadataError,
-            StoreSliverError,
-            SyncShardServiceError,
-            config::StorageNodeConfig,
+            BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError,
+            RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, StoreMetadataError,
+            StoreSliverError, SyncShardServiceError, config::StorageNodeConfig,
             errors::ListSymbolsError,
         },
         test_utils,

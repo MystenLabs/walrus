@@ -21,11 +21,7 @@ use serde_with::{DisplayFromStr, serde_as};
 use utoipa::{
     ToSchema,
     openapi::{
-        ContentBuilder,
-        RefOr,
-        Response as OpenApiResponse,
-        ResponseBuilder,
-        ResponsesBuilder,
+        ContentBuilder, RefOr, Response as OpenApiResponse, ResponseBuilder, ResponsesBuilder,
         schema,
     },
 };

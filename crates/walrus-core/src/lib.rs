@@ -23,19 +23,9 @@ use core::{
 use base64::{Engine, display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD};
 use by_axis::{Axis, ByAxis, WrongAxisError};
 use encoding::{
-    EncodingAxis,
-    EncodingConfig,
-    EncodingConfigEnum,
-    Primary,
-    PrimaryRecoverySymbol,
-    PrimarySliver,
-    QuiltError,
-    RecoverySymbolError,
-    Secondary,
-    SecondaryRecoverySymbol,
-    SecondarySliver,
-    SliverVerificationError,
-    WrongSliverVariantError,
+    EncodingAxis, EncodingConfig, EncodingConfigEnum, Primary, PrimaryRecoverySymbol,
+    PrimarySliver, QuiltError, RecoverySymbolError, Secondary, SecondaryRecoverySymbol,
+    SecondarySliver, SliverVerificationError, WrongSliverVariantError,
     quilt_encoding::QuiltVersionEnum,
 };
 use fastcrypto::{
@@ -44,9 +34,7 @@ use fastcrypto::{
     secp256r1::Secp256r1PublicKey,
 };
 use inconsistency::{
-    InconsistencyVerificationError,
-    PrimaryInconsistencyProof,
-    SecondaryInconsistencyProof,
+    InconsistencyVerificationError, PrimaryInconsistencyProof, SecondaryInconsistencyProof,
 };
 use merkle::{MerkleAuth, MerkleProof, Node};
 pub use metadata::BlobMetadata;

@@ -10,8 +10,7 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction};
 
 use super::{metrics::ClientMetrics, upload_relay_client::UploadRelayClient};
 use crate::{
-    client::upload_relay_client::UploadRelayClientError,
-    store_optimizations::StoreOptimizations,
+    client::upload_relay_client::UploadRelayClientError, store_optimizations::StoreOptimizations,
     upload_relay::tip_config::TipConfig,
 };
 

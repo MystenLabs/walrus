@@ -18,24 +18,14 @@ use regex::Regex;
 use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
 use typed_store::{
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
     rocks::{
-        DBBatch,
-        DBMap,
-        ReadWriteOptions,
-        RocksDB,
-        be_fix_int_ser as to_rocks_db_key,
+        DBBatch, DBMap, ReadWriteOptions, RocksDB, be_fix_int_ser as to_rocks_db_key,
         errors::typed_store_err_from_rocks_err,
     },
 };
 use walrus_core::{
-    BlobId,
-    Epoch,
-    InconsistencyProof,
-    ShardIndex,
-    Sliver,
-    SliverType,
+    BlobId, Epoch, InconsistencyProof, ShardIndex, Sliver, SliverType,
     by_axis::ByAxis,
     encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
 };
@@ -49,10 +39,8 @@ use super::{
 };
 use crate::{
     node::{
-        StorageNodeInner,
-        blob_retirement_notifier::ExecutionResultWithRetirementCheck,
-        config::ShardSyncConfig,
-        errors::SyncShardClientError,
+        StorageNodeInner, blob_retirement_notifier::ExecutionResultWithRetirementCheck,
+        config::ShardSyncConfig, errors::SyncShardClientError,
     },
     utils,
 };

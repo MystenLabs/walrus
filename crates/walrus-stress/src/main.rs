@@ -20,8 +20,7 @@ use sui_types::base_types::ObjectID;
 use walrus_sdk::client::{WalrusNodeClient, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_stress::single_client_workload::{
-    SingleClientWorkload,
-    single_client_workload_arg::SingleClientWorkloadArgs,
+    SingleClientWorkload, single_client_workload_arg::SingleClientWorkloadArgs,
 };
 use walrus_sui::{
     client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},

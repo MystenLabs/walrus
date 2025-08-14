@@ -9,19 +9,13 @@ use rand::rngs::StdRng;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
-    BlobId,
-    Epoch,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
+    BlobId, Epoch, PublicKey, ShardIndex, Sliver, SliverPairIndex,
     encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
     messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
-    NodeError,
-    StorageNodeClient,
+    NodeError, StorageNodeClient,
     api::{BlobStatus, StoredOnNodeStatus},
 };
 use walrus_sui::types::StorageNode;

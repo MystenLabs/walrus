@@ -30,20 +30,12 @@ use tracing::{Level, Span};
 
 use super::{EncodingConfigEnum, Primary, Secondary, SliverData, SliverPair};
 use crate::{
-    EncodingType,
-    SliverIndex,
+    EncodingType, SliverIndex,
     encoding::{
-        EncodingAxis,
-        QuiltError,
-        blob_encoding::BlobEncoder,
-        config::EncodingConfigTrait as _,
+        EncodingAxis, QuiltError, blob_encoding::BlobEncoder, config::EncodingConfigTrait as _,
     },
     metadata::{
-        QuiltIndex,
-        QuiltIndexV1,
-        QuiltMetadata,
-        QuiltMetadataV1,
-        QuiltPatchInternalIdV1,
+        QuiltIndex, QuiltIndexV1, QuiltMetadata, QuiltMetadataV1, QuiltPatchInternalIdV1,
         QuiltPatchV1,
     },
 };
@@ -1880,8 +1872,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        encoding::ReedSolomonEncodingConfig,
-        metadata::BlobMetadataApi as _,
+        encoding::ReedSolomonEncodingConfig, metadata::BlobMetadataApi as _,
         test_utils::QuiltTestData,
     };
 

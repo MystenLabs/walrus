@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
 use typed_store::{
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};

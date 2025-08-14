@@ -30,9 +30,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    EpochCount,
+    BlobId, EncodingType, EpochCount,
     encoding::{
         QuiltError,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
@@ -46,8 +44,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
-    ObjectIdSchema,
-    SuiAddressSchema,
+    ObjectIdSchema, SuiAddressSchema,
     client::{BlobPersistence, InvalidBlobPersistenceError},
     types::move_structs::{BlobAttribute, BlobWithAttribute},
 };

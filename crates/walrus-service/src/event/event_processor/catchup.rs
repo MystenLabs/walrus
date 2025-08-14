@@ -6,9 +6,7 @@
 use std::{fs, path::PathBuf};
 
 use sui_types::{
-    committee::Committee,
-    event::EventID,
-    messages_checkpoint::VerifiedCheckpoint,
+    committee::Committee, event::EventID, messages_checkpoint::VerifiedCheckpoint,
     sui_serde::BigInt,
 };
 use tracing;

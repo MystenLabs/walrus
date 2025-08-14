@@ -7,17 +7,8 @@ use core::num::{NonZeroU16, NonZeroU32};
 use enum_dispatch::enum_dispatch;
 
 use super::{
-    BlobDecoder,
-    BlobDecoderEnum,
-    BlobEncoder,
-    DataTooLargeError,
-    DecodingSymbol,
-    EncodeError,
-    EncodingAxis,
-    ReedSolomonDecoder,
-    ReedSolomonEncoder,
-    SliverPair,
-    basic_encoding::Decoder as _,
+    BlobDecoder, BlobDecoderEnum, BlobEncoder, DataTooLargeError, DecodingSymbol, EncodeError,
+    EncodingAxis, ReedSolomonDecoder, ReedSolomonEncoder, SliverPair, basic_encoding::Decoder as _,
     utils,
 };
 use crate::{BlobId, EncodingType, bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId};

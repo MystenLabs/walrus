@@ -16,19 +16,11 @@ use serde::{Deserialize, Serialize};
 use serde_with::{Bytes, serde_as};
 
 use super::{
-    EncodingAxis,
-    EncodingConfig,
-    Primary,
-    Secondary,
-    WrongSymbolSizeError,
+    EncodingAxis, EncodingConfig, Primary, Secondary, WrongSymbolSizeError,
     errors::SymbolVerificationError,
 };
 use crate::{
-    RecoverySymbol as EitherRecoverySymbol,
-    SliverIndex,
-    SliverType,
-    SymbolId,
-    WrongAxisError,
+    RecoverySymbol as EitherRecoverySymbol, SliverIndex, SliverType, SymbolId, WrongAxisError,
     by_axis::{self, ByAxis},
     ensure,
     merkle::{MerkleAuth, MerkleProof, MerkleProofError, Node},
@@ -668,11 +660,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        EncodingType,
-        SliverPairIndex,
-        SliverType,
-        encoding::EncodingConfigTrait as _,
-        test_utils,
+        EncodingType, SliverPairIndex, SliverType, encoding::EncodingConfigTrait as _, test_utils,
     };
 
     param_test! {

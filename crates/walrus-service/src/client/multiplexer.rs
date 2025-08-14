@@ -14,9 +14,7 @@ use std::{
 use sui_sdk::{sui_client_config::SuiEnv, types::base_types::SuiAddress};
 use sui_types::base_types::ObjectID;
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    EpochCount,
+    BlobId, EncodingType, EpochCount,
     encoding::quilt_encoding::{QuiltStoreBlob, QuiltVersion},
 };
 use walrus_sdk::{
@@ -32,10 +30,7 @@ use walrus_sdk::{
 };
 use walrus_sui::{
     client::{
-        BlobPersistence,
-        PostStoreAction,
-        SuiContractClient,
-        SuiReadClient,
+        BlobPersistence, PostStoreAction, SuiContractClient, SuiReadClient,
         retry_client::RetriableSuiClient,
     },
     config::load_wallet_context_from_path,

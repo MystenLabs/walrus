@@ -10,12 +10,8 @@ use serde_with::{DurationMilliSeconds, serde_as};
 use walrus_sdk::config::combine_rpc_urls;
 use walrus_sui::{
     client::{
-        SuiClientError,
-        SuiClientMetricSet,
-        SuiContractClient,
-        SuiReadClient,
-        contract_config::ContractConfig,
-        rpc_config::RpcFallbackConfig,
+        SuiClientError, SuiClientMetricSet, SuiContractClient, SuiReadClient,
+        contract_config::ContractConfig, rpc_config::RpcFallbackConfig,
     },
     config::WalletConfig,
 };

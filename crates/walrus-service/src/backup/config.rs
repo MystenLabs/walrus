@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DurationMilliSeconds, DurationSeconds, serde_as};
 
 use crate::{
-    common::config::SuiReaderConfig,
-    event::event_processor::config::EventProcessorConfig,
+    common::config::SuiReaderConfig, event::event_processor::config::EventProcessorConfig,
 };
 
 /// The subdirectory in which to store the backup blobs when running without remote storage.

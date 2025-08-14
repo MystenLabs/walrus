@@ -36,16 +36,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 use typed_store::{Map, rocks::MetricConf};
 use walrus_core::{
-    BlobId,
-    Epoch,
-    EpochCount,
-    InconsistencyProof as InconsistencyProofEnum,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
+    BlobId, Epoch, EpochCount, InconsistencyProof as InconsistencyProofEnum, NetworkPublicKey,
+    PublicKey, ShardIndex, Sliver, SliverPairIndex, SliverType,
     encoding::EncodingConfig,
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::MerkleProof,
@@ -58,20 +50,12 @@ use walrus_sdk::config::combine_rpc_urls;
 use walrus_storage_node_client::StorageNodeClient;
 use walrus_sui::{
     client::{
-        BlobObjectMetadata,
-        FixedSystemParameters,
-        SuiClientError,
-        retry_client::RetriableRpcClient,
+        BlobObjectMetadata, FixedSystemParameters, SuiClientError, retry_client::RetriableRpcClient,
     },
     test_utils::system_setup::{DEFAULT_MAX_EPOCHS_AHEAD, SystemContext},
     types::{
-        Committee,
-        ContractEvent,
-        GENESIS_EPOCH,
-        NetworkAddress,
-        NodeRegistrationParams,
-        StorageNode as SuiStorageNode,
-        StorageNodeCap,
+        Committee, ContractEvent, GENESIS_EPOCH, NetworkAddress, NodeRegistrationParams,
+        StorageNode as SuiStorageNode, StorageNodeCap,
         move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
     },
 };
@@ -92,25 +76,14 @@ use crate::{
         events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{
-        DatabaseConfig,
-        Storage,
-        StorageNode,
+        DatabaseConfig, Storage, StorageNode,
         committee::{
-            BeginCommitteeChangeError,
-            CommitteeLookupService,
-            CommitteeService,
-            DefaultNodeServiceFactory,
-            EndCommitteeChangeError,
-            NodeCommitteeService,
+            BeginCommitteeChangeError, CommitteeLookupService, CommitteeService,
+            DefaultNodeServiceFactory, EndCommitteeChangeError, NodeCommitteeService,
         },
         config::{
-            self,
-            BlobEventProcessorConfig,
-            BlobRecoveryConfig,
-            ConfigSynchronizerConfig,
-            NodeRecoveryConfig,
-            ShardSyncConfig,
-            StorageNodeConfig,
+            self, BlobEventProcessorConfig, BlobRecoveryConfig, ConfigSynchronizerConfig,
+            NodeRecoveryConfig, ShardSyncConfig, StorageNodeConfig,
         },
         consistency_check::StorageNodeConsistencyCheckConfig,
         contract_service::SystemContractService,
@@ -2471,12 +2444,9 @@ pub mod test_cluster {
         sui::{
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
-                self,
-                TestClusterHandle,
+                self, TestClusterHandle,
                 system_setup::{
-                    create_and_init_system_for_test,
-                    end_epoch_zero,
-                    register_committee_and_stake,
+                    create_and_init_system_for_test, end_epoch_zero, register_committee_and_stake,
                 },
             },
             types::move_structs::Authorized,

@@ -17,10 +17,8 @@ use rand::{
 };
 use sui_rpc_api::{Client, client::ResponseExt};
 use sui_types::{
-    base_types::ObjectID,
-    full_checkpoint_content::CheckpointData,
-    messages_checkpoint::CertifiedCheckpointSummary,
-    object::Object,
+    base_types::ObjectID, full_checkpoint_content::CheckpointData,
+    messages_checkpoint::CertifiedCheckpointSummary, object::Object,
 };
 use thiserror::Error;
 use walrus_utils::{
@@ -32,8 +30,7 @@ use walrus_utils::{
 use self::fallback_client::FallbackClient;
 pub use self::fallback_client::FallbackError;
 use super::{
-    FailoverWrapper,
-    FallibleRpcClient,
+    FailoverWrapper, FallibleRpcClient,
     download_handler::{CheckpointDownloadDecision, CheckpointDownloadHandler},
     failover::{FailoverError, LazyClientBuilder},
     retry_rpc_errors,

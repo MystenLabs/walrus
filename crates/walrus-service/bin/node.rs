@@ -36,27 +36,19 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_service::{
-    DbCheckpointManager,
-    SyncNodeConfigError,
+    DbCheckpointManager, SyncNodeConfigError,
     common::{config::SuiConfig, telemetry::WalrusTracingHandle},
     event::event_processor::runtime::EventProcessorRuntime,
     node::{
-        ConfigLoader,
-        StorageNode,
-        StorageNodeConfigLoader,
+        ConfigLoader, StorageNode, StorageNodeConfigLoader,
         config::{self, StorageNodeConfig, defaults::REST_API_PORT},
         dbtool::DbToolCommands,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
     },
     utils::{
-        self,
-        ByteCount,
-        EnableMetricsPush,
-        MAX_NODE_NAME_LENGTH,
-        MetricPushRuntime,
-        MetricsAndLoggingRuntime,
-        wait_until_terminated,
+        self, ByteCount, EnableMetricsPush, MAX_NODE_NAME_LENGTH, MetricPushRuntime,
+        MetricsAndLoggingRuntime, wait_until_terminated,
     },
 };
 use walrus_sui::{
@@ -574,9 +566,7 @@ fn main() -> anyhow::Result<()> {
 
 mod commands {
     use config::{
-        LoadsFromPath,
-        MetricsPushConfig,
-        NodeRegistrationParamsForThirdPartyRegistration,
+        LoadsFromPath, MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
     };
     #[cfg(not(msim))]
@@ -595,8 +585,7 @@ mod commands {
     };
     use walrus_sui::{
         client::{
-            ReadClient as _,
-            SuiReadClient,
+            ReadClient as _, SuiReadClient,
             contract_config::ContractConfig,
             retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
         },

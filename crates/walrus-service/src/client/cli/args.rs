@@ -20,11 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    QuiltPatchId,
+    BlobId, EncodingType, Epoch, EpochCount, QuiltPatchId,
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
 };

@@ -23,8 +23,7 @@ use sui_types::{
 };
 use walrus_core::messages::BlobPersistenceType;
 use walrus_sui::client::{
-    SuiClientError,
-    transaction_builder::build_transaction_data_with_min_gas_balance,
+    SuiClientError, transaction_builder::build_transaction_data_with_min_gas_balance,
 };
 use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
@@ -34,28 +33,21 @@ use crate::{
     client::WalrusNodeClient,
     config::{ClientConfig as WalrusConfig, load_configuration},
     core::{
-        BlobId,
-        EncodingType,
-        EpochCount,
+        BlobId, EncodingType, EpochCount,
         encoding::EncodingConfigTrait,
         messages::ConfirmationCertificate,
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },
     sui::{
         client::{
-            BlobPersistence,
-            CoinType,
-            SuiContractClient,
-            transaction_builder::WalrusPtbBuilder,
+            BlobPersistence, CoinType, SuiContractClient, transaction_builder::WalrusPtbBuilder,
         },
         config::WalletConfig,
         types::{BlobEvent, BlobRegistered},
         wallet::Wallet,
     },
     upload_relay::{
-        ResponseType,
-        TIP_CONFIG_ROUTE,
-        blob_upload_relay_url,
+        ResponseType, TIP_CONFIG_ROUTE, blob_upload_relay_url,
         params::{AuthPackage, NONCE_LEN, Params},
         tip_config::{TipConfig, TipKind},
     },
