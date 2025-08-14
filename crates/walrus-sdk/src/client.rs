@@ -77,7 +77,7 @@ use self::{
 pub(crate) use crate::utils::{CompletedReasonWeight, WeightedFutures};
 use crate::{
     active_committees::ActiveCommittees,
-    client::quilt_client::QuiltClient,
+    client::{metrics::ClientMetrics, quilt_client::QuiltClient},
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult, StoreError},
     utils::{WeightedResult, styled_progress_bar, styled_spinner},
@@ -1398,11 +1398,12 @@ impl WalrusNodeClient<SuiContractClient> {
                             .await
                             .map_err(|error| ClientErrorKind::UploadRelayError(error).into())
                     } else {
-                        self.send_blob_data_and_get_certificate(
+                        self.send_blob_data_and_get_certificate_with_metrics(
                             metadata,
                             pairs,
                             &blob_object.blob_persistence_type(),
                             Some(multi_pb),
+                            store_args.metrics_ref(),
                         )
                         .await
                     };
@@ -1539,11 +1540,48 @@ impl<T> WalrusNodeClient<T> {
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: Option<&MultiProgress>,
     ) -> ClientResult<ConfirmationCertificate> {
+        self.send_blob_data_and_get_certificate_with_metrics(
+            metadata,
+            pairs,
+            blob_persistence_type,
+            multi_pb,
+            None,
+        )
+        .await
+    }
+
+    /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
+    /// sliver pairs to at least 2f+1 shards, with optional metrics collection.
+    ///
+    /// Assumes the blob ID has already been registered, with an appropriate blob size.
+    #[tracing::instrument(skip_all)]
+    pub async fn send_blob_data_and_get_certificate_with_metrics(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
+        multi_pb: Option<&MultiProgress>,
+        metrics: Option<&Arc<ClientMetrics>>,
+    ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
+
+        // Track expected slivers if metrics are enabled
+        if let Some(m) = metrics {
+            m.slivers_expected_total.inc_by(pairs.len() as u64);
+        }
+
         let committees = self.get_committees().await?;
         let mut pairs_per_node = self
             .pairs_per_node(metadata.blob_id(), pairs, &committees)
             .await;
+
+        // Track concurrent node connections if metrics are enabled
+        if let Some(m) = metrics {
+            let n_members = committees.write_committee().n_members();
+            m.concurrent_node_connections
+                .set(i64::try_from(n_members).unwrap_or(i64::MAX));
+        }
+
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
@@ -1569,19 +1607,99 @@ impl<T> WalrusNodeClient<T> {
 
         let mut requests = WeightedFutures::new(comms.iter().map({
             let progress_bar = progress_bar.clone();
+            let metrics = metrics.cloned();
 
             move |n| {
+                let node_index = n.node_index;
+                let shard_count = pairs_per_node
+                    .get(&node_index)
+                    .map(|p| p.len())
+                    .unwrap_or(0);
+                let node_id = format!("node_{node_index}");
+
+                // Track task creation time and queue status
+                let task_created = Instant::now();
+                if let Some(ref m) = metrics {
+                    m.tasks_in_queue.with_label_values(&["sliver_upload"]).inc();
+                    m.concurrent_sliver_uploads
+                        .add(i64::try_from(shard_count).unwrap_or(i64::MAX));
+
+                    // Track queue depth when this task arrives
+                    let queue_depth = m.tasks_in_queue.with_label_values(&["sliver_upload"]).get();
+                    m.queue_depth_on_arrival.observe(queue_depth);
+                }
+
                 let fut = n.store_metadata_and_pairs(
                     metadata,
                     pairs_per_node
-                        .remove(&n.node_index)
+                        .remove(&node_index)
                         .expect("there are shards for each node"),
                     blob_persistence_type,
                 );
 
                 let progress_bar = progress_bar.clone();
+                let metrics = metrics.clone();
+
                 async move {
+                    // Task is now executing
+                    let execution_start = Instant::now();
+                    let wait_time = execution_start.duration_since(task_created);
+
+                    if let Some(ref m) = metrics {
+                        // Track wait time
+                        m.task_queue_wait_time_s
+                            .with_label_values(&["sliver_upload", &node_id])
+                            .observe(wait_time.as_secs_f64());
+
+                        // Update queue/execution gauges
+                        m.tasks_in_queue.with_label_values(&["sliver_upload"]).dec();
+                        m.tasks_executing
+                            .with_label_values(&["sliver_upload"])
+                            .inc();
+                    }
+
+                    // Execute the actual work
                     let result = fut.await;
+
+                    // Track completion metrics
+                    let execution_time = execution_start.elapsed();
+                    let total_time = task_created.elapsed();
+
+                    if let Some(ref m) = metrics {
+                        // Track execution and total time
+                        m.task_execution_time_s
+                            .with_label_values(&["sliver_upload", &node_id])
+                            .observe(execution_time.as_secs_f64());
+
+                        m.task_total_latency_s
+                            .with_label_values(&["sliver_upload", &node_id])
+                            .observe(total_time.as_secs_f64());
+
+                        // Track per-node completion
+                        m.per_node_complete_latency_s
+                            .with_label_values(&[&node_id, &shard_count.to_string()])
+                            .observe(total_time.as_secs_f64());
+
+                        // Update based on result
+                        if result.is_ok() {
+                            m.slivers_sent_total.inc_by(shard_count as u64);
+                            m.nodes_with_slivers_gauge.inc();
+                        } else {
+                            // Track retry/error
+                            m.retry_attempts_total
+                                .with_label_values(&[&node_id, "store_error", "sliver"])
+                                .inc();
+                        }
+
+                        // Clean up gauges
+                        m.tasks_executing
+                            .with_label_values(&["sliver_upload"])
+                            .dec();
+                        m.concurrent_sliver_uploads
+                            .sub(i64::try_from(shard_count).unwrap_or(i64::MAX));
+                    }
+
+                    // Update progress bar
                     if result.is_ok()
                         && let Some(value) = progress_bar
                         && !value.is_finished()
