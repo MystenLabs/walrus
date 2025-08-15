@@ -38,7 +38,7 @@ use walrus_core::{
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::{
     ClientBuildError,
@@ -229,11 +229,18 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     sliver_pair_at_remote,
                     intersecting_pair_index,
                 } => {
+                    let n_shards = encoding_config.n_shards();
+                    let symbol_size = metadata
+                        .metadata()
+                        .symbol_size(&encoding_config)
+                        .map_err(NodeError::other)?;
+
                     let symbol = if sliver_type == SliverType::Primary {
                         client
                             .get_and_verify_recovery_symbol::<Primary>(
+                                n_shards,
+                                symbol_size.get().into(),
                                 &metadata,
-                                &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
                             )
@@ -242,8 +249,9 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     } else {
                         client
                             .get_and_verify_recovery_symbol::<Secondary>(
+                                n_shards,
+                                symbol_size.get().into(),
                                 &metadata,
-                                &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
                             )

@@ -30,9 +30,11 @@ use crate::{
         self,
         EncodingConfig,
         EncodingConfigTrait as _,
+        Primary,
         PrimaryRecoverySymbol,
         PrimarySliver,
         QuiltError,
+        RequiredSymbolsCount,
         SecondarySliver,
         quilt_encoding::QuiltStoreBlob,
     },
@@ -327,6 +329,8 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
     let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
     let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
     let target_sliver_index = SliverIndex(0);
+    let RequiredSymbolsCount::Exact(n_symbols_required) =
+        config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = walrus_test_utils::random_subset(
         (1..encoding_config.n_shards.get()).map(|i| {
             sliver_pairs[i as usize]
@@ -337,7 +341,7 @@ pub fn generate_config_metadata_and_valid_recovery_symbols()
                 )
                 .unwrap()
         }),
-        config_enum.n_secondary_source_symbols().get().into(),
+        n_symbols_required,
     )
     .collect();
     Ok((

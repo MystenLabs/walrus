@@ -6,7 +6,7 @@ use core::num::NonZeroU16;
 
 use thiserror::Error;
 
-use crate::SliverIndex;
+use crate::{SliverIndex, merkle::MerkleProofError};
 
 /// Error indicating that the data is too large to be encoded/decoded.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
@@ -138,8 +138,8 @@ pub enum SymbolVerificationError {
     #[error("the symbol size does not match the metadata")]
     SymbolSizeMismatch,
     /// The verification of the Merkle proof failed.
-    #[error("verification of the Merkle proof failed")]
-    InvalidProof,
+    #[error("verification of the Merkle proof failed: {0}")]
+    InvalidProof(#[from] MerkleProofError),
     /// The provided metadata is itself invalid.
     #[error("the metadata is invalid")]
     InvalidMetadata,

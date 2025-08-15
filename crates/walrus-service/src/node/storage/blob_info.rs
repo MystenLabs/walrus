@@ -307,7 +307,7 @@ impl BlobInfoTable {
         &self,
         before_epoch: Epoch,
         starting_blob_id_bound: Bound<BlobId>,
-    ) -> BlobInfoIterator {
+    ) -> BlobInfoIterator<'_> {
         BlobInfoIter::new(
             Box::new(
                 self.aggregate_blob_info
@@ -325,7 +325,7 @@ impl BlobInfoTable {
         &self,
         before_epoch: Epoch,
         starting_object_id_bound: Bound<ObjectID>,
-    ) -> PerObjectBlobInfoIterator {
+    ) -> PerObjectBlobInfoIterator<'_> {
         BlobInfoIter::new(
             Box::new(
                 self.per_object_blob_info
@@ -767,30 +767,28 @@ impl ValidBlobInfoV1 {
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
         }) = self.permanent_certified.as_ref()
+            && *end_epoch > current_epoch
         {
-            if *end_epoch > current_epoch {
-                return BlobStatus::Permanent {
-                    end_epoch: *end_epoch,
-                    is_certified: true,
-                    status_event: *event,
-                    deletable_counts,
-                    initial_certified_epoch,
-                };
-            }
+            return BlobStatus::Permanent {
+                end_epoch: *end_epoch,
+                is_certified: true,
+                status_event: *event,
+                deletable_counts,
+                initial_certified_epoch,
+            };
         }
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
         }) = self.permanent_total.as_ref()
+            && *end_epoch > current_epoch
         {
-            if *end_epoch > current_epoch {
-                return BlobStatus::Permanent {
-                    end_epoch: *end_epoch,
-                    is_certified: false,
-                    status_event: *event,
-                    deletable_counts,
-                    initial_certified_epoch,
-                };
-            }
+            return BlobStatus::Permanent {
+                end_epoch: *end_epoch,
+                is_certified: false,
+                status_event: *event,
+                deletable_counts,
+                initial_certified_epoch,
+            };
         }
 
         if deletable_counts != Default::default() {

@@ -210,7 +210,7 @@ jobs:
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
-        run: bash ./scripts/move_coverage.sh
+        run: bash ./scripts/move_tests.sh -c
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
@@ -233,7 +233,8 @@ jobs:
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
-            done if the Testnet contracts are updated.
+            done as part of a version bump of Sui dependencies or if the Testnet contracts are
+            actually updated.
 
             cc @karlwuest @mlegner
 

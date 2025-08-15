@@ -146,7 +146,7 @@ impl BlobRetirementNotify {
     /// Wait for notification.
     /// Note that in order to be awakened, notified must be called before any future possible
     /// notify_waiters.
-    pub fn notified(&self) -> Notified {
+    pub fn notified(&self) -> Notified<'_> {
         self.notify.notified()
     }
 

@@ -880,7 +880,7 @@ impl StorageNode {
         event_blob_writer_cursor: EventStreamCursor,
         storage_node_cursor: EventStreamCursor,
         event_blob_writer: &mut Option<EventBlobWriter>,
-    ) -> anyhow::Result<EventStreamWithStartingIndices> {
+    ) -> anyhow::Result<EventStreamWithStartingIndices<'_>> {
         let event_cursor = storage_node_cursor.min(event_blob_writer_cursor);
         let lowest_needed_event_index = event_cursor.element_index;
         let processing_starting_index = storage_node_cursor.element_index;
@@ -1195,13 +1195,12 @@ impl StorageNode {
             if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
             )) = &stream_element.element
+                && *epoch >= first_complete_epoch
             {
-                if *epoch >= first_complete_epoch {
-                    // Processing the `EpochChangeStart` event for the first complete epoch will set
-                    // the `current_event_epoch` to `epoch`, such that we will take the previous
-                    // if-statement and return `false` for all future events.
-                    return Ok(false);
-                }
+                // Processing the `EpochChangeStart` event for the first complete epoch will set
+                // the `current_event_epoch` to `epoch`, such that we will take the previous
+                // if-statement and return `false` for all future events.
+                return Ok(false);
             }
         }
 
@@ -1547,20 +1546,18 @@ impl StorageNode {
             self.inner.storage.get_latest_handled_event_index()? >= event_handle.index();
         if self.inner.consistency_check_config.enable_consistency_check
             && !node_is_reprocessing_events
-        {
-            if let Err(err) = consistency_check::schedule_background_consistency_check(
+            && let Err(err) = consistency_check::schedule_background_consistency_check(
                 self.inner.clone(),
                 self.blob_sync_handler.clone(),
                 event.epoch,
             )
             .await
-            {
-                tracing::warn!(
-                    ?err,
-                    epoch = %event.epoch,
-                    "failed to schedule background blob info consistency check"
-                );
-            }
+        {
+            tracing::warn!(
+                ?err,
+                epoch = %event.epoch,
+                "failed to schedule background blob info consistency check"
+            );
         }
 
         // During epoch change, we need to lock the read access to shard map until all the new
@@ -2879,7 +2876,7 @@ impl ServiceState for StorageNodeInner {
         ensure!(
             self.is_stored_at_all_shards_at_latest_epoch(blob_id)
                 .await
-                .context("database error when checkingstorage status")?,
+                .context("database error when checking storage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
@@ -3717,7 +3714,8 @@ mod tests {
             let attestation = node
                 .as_ref()
                 .verify_inconsistency_proof(&blob_id, inconsistency_proof)
-                .await?;
+                .await
+                .context("failed to verify inconsistency proof")?;
 
             // The proof should be valid and we should receive a valid signature
             node.as_ref()

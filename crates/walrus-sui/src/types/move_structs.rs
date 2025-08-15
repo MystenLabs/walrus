@@ -167,7 +167,7 @@ impl BlobAttribute {
     }
 
     /// Returns an iterator over the key-value pairs in the metadata.
-    pub fn iter(&self) -> MetadataIter {
+    pub fn iter(&self) -> MetadataIter<'_> {
         MetadataIter {
             inner: self.metadata.contents.iter(),
         }
