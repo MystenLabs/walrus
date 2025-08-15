@@ -480,8 +480,7 @@ components:
             minimum: 0
       examples:
       - txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
-        eventSeq:
-          $serde_json::private::Number: '0'
+        eventSeq: 0
     EventOrObjectId:
       oneOf:
       - type: object
