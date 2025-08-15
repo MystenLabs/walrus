@@ -198,13 +198,10 @@ components:
                 minimum: 0
       description: The kinds of tip that the proxy can choose to configure.
       examples:
-      - const:
-          $serde_json::private::Number: '31415'
+      - const: 31415
       - linear:
-          base:
-            $serde_json::private::Number: '101'
-          encoded_size_mul_per_kib:
-            $serde_json::private::Number: '42'
+          base: 101
+          encoded_size_mul_per_kib: 42
     TransactionDigest:
       type: string
       title: Sui transaction digest
