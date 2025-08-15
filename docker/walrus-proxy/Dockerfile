@@ -1,5 +1,5 @@
-# This is the same as rust:1.88-bookworm but we use the GCP registry to avoid rate limiting.
-FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.88-bookworm-amd64 as builder
+# This is the same as rust:1.89-bookworm but we use the GCP registry to avoid rate limiting.
+FROM us-central1-docker.pkg.dev/cryptic-bolt-398315/base-images/rust:1.89-bookworm-amd64 as builder
 
 ARG PROFILE=release
 WORKDIR /work
