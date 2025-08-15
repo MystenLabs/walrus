@@ -47,14 +47,11 @@ use super::{
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
-use crate::{
-    node::{
-        StorageNodeInner,
-        blob_retirement_notifier::ExecutionResultWithRetirementCheck,
-        config::ShardSyncConfig,
-        errors::SyncShardClientError,
-    },
-    utils,
+use crate::node::{
+    StorageNodeInner,
+    blob_retirement_notifier::ExecutionResultWithRetirementCheck,
+    config::ShardSyncConfig,
+    errors::SyncShardClientError,
 };
 
 type ShardMetrics = CommonDatabaseMetrics;
@@ -371,22 +368,17 @@ impl ShardStorage {
         let response = match sliver {
             Sliver::Primary(primary) => {
                 let table = self.primary_slivers.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    table.insert(&blob_id, &PrimarySliverData::from(primary))
-                })
-                .await
+                table
+                    .insert_smart(&blob_id, &PrimarySliverData::from(primary))
+                    .await
             }
             Sliver::Secondary(secondary) => {
                 let table = self.secondary_slivers.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    table.insert(&blob_id, &SecondarySliverData::from(secondary))
-                })
-                .await
+                table
+                    .insert_smart(&blob_id, &SecondarySliverData::from(secondary))
+                    .await
             }
         };
-        let response = utils::unwrap_or_resume_unwind(response);
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());

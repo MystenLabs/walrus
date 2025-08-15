@@ -34,7 +34,7 @@ use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
-    task::{JoinError, JoinHandle},
+    task::JoinHandle,
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
@@ -733,23 +733,6 @@ where
 {
     let unready_clone = svc.clone();
     mem::replace(svc, unready_clone)
-}
-
-/// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
-/// or resumes a panic if the function had panicked.
-pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::JoinError>>(
-    result: Result<Result<T, E>, JoinError>,
-) -> Result<T, E> {
-    match result {
-        Ok(value) => value,
-        Err(error) => {
-            if error.is_panic() {
-                std::panic::resume_unwind(error.into_panic())
-            } else {
-                Err(error.into())
-            }
-        }
-    }
 }
 
 /// Creates a new Walrus client with a refresher using the provided configuration
