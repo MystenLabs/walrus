@@ -16,7 +16,7 @@ use self::errors::Status;
 pub mod errors;
 
 /// Error message returned by the service.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ServiceResponse<T> {
     /// The request was successful.
@@ -327,4 +327,60 @@ pub struct EventProgress {
     pub pending: u64,
     /// The highest event index that has been finished.
     pub highest_finished_event_index: Option<u64>,
+}
+
+/// Multi-put API structures for batched sliver uploads.
+/// A bundle of slivers and metadata for a single blob in a multi-put request.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiPutBundle {
+    /// The blob ID for this bundle.
+    #[schema(format = Binary, value_type = [u8])]
+    pub blob_id: walrus_core::BlobId,
+    /// The blob metadata (optional, sent once per blob).
+    #[schema(value_type = Object)]
+    pub metadata: Option<walrus_core::metadata::VerifiedBlobMetadataWithId>,
+    /// The sliver pairs for this blob that this node should store.
+    #[schema(value_type = Vec<Object>)]
+    pub sliver_pairs: Vec<walrus_core::encoding::SliverPair>,
+    /// The blob persistence type for certificate generation.
+    #[schema(value_type = Object)]
+    pub blob_persistence_type: walrus_core::messages::BlobPersistenceType,
+}
+
+/// Request structure for batched multi-put operation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiPutRequest {
+    /// The epoch for this request.
+    #[schema(value_type = u64)]
+    pub epoch: walrus_core::Epoch,
+    /// Vector of blob bundles to store.
+    pub bundles: Vec<MultiPutBundle>,
+}
+
+/// Response for a single blob in a multi-put operation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiPutBlobResult {
+    /// The blob ID this result corresponds to.
+    #[schema(format = Binary, value_type = [u8])]
+    pub blob_id: walrus_core::BlobId,
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// The storage confirmation for this blob (only present on success).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub confirmation: Option<walrus_core::messages::SignedStorageConfirmation>,
+    /// The error status (only present on failure).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<errors::Status>,
+}
+
+/// Response structure for batched multi-put operation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiPutResponse {
+    /// Results for each blob in the request, in the same order.
+    pub results: Vec<MultiPutBlobResult>,
 }

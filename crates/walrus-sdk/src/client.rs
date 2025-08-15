@@ -1362,6 +1362,7 @@ impl WalrusNodeClient<SuiContractClient> {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // If the blob is already certified on chain and there is no committee change in
                 // progress, all nodes already have the slivers.
+                // TODO(heliu): Can we skip this certification collection, and extend the blob?
                 self.get_certificate_standalone(
                     &blob_object.blob_id,
                     certified_epoch,

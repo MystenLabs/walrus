@@ -91,6 +91,13 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     }
 }
 
+/// Response from a single blob in a multi-put operation.
+#[allow(dead_code)]
+pub struct MultiPutBlobResponse {
+    pub blob_id: BlobId,
+    pub result: Result<SignedStorageConfirmation, walrus_storage_node_client::NodeError>,
+}
+
 pub(crate) struct NodeCommunication<'a, W = ()> {
     pub node_index: NodeIndex,
     pub committee_epoch: Epoch,
@@ -541,6 +548,102 @@ impl NodeWriteCommunication<'_> {
             sliver_type: A::sliver_type(),
             error,
         })
+    }
+
+    /// Stores multiple blobs' metadata and sliver pairs on a node using the multi-put API.
+    ///
+    /// Returns a [`NodeResult`], where the weight is the number of shards for which storage
+    /// confirmations were issued (total across all blobs).
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn multi_put(
+        &self,
+        blob_bundles: Vec<(
+            &VerifiedBlobMetadataWithId,
+            Vec<&SliverPair>,
+            &BlobPersistenceType,
+        )>,
+    ) -> NodeResult<Vec<MultiPutBlobResponse>, walrus_storage_node_client::NodeError> {
+        use walrus_storage_node_client::api::{MultiPutBundle, MultiPutRequest};
+
+        tracing::debug!("storing {} blobs via multi-put", blob_bundles.len());
+
+        let bundles: Vec<MultiPutBundle> = blob_bundles
+            .into_iter()
+            .map(|(metadata, pairs, blob_type)| MultiPutBundle {
+                blob_id: *metadata.blob_id(),
+                metadata: Some(metadata.clone()),
+                sliver_pairs: pairs.into_iter().cloned().collect(),
+                blob_persistence_type: *blob_type,
+            })
+            .collect();
+
+        let request = MultiPutRequest {
+            epoch: self.committee_epoch,
+            bundles,
+        };
+
+        let total_shards = request
+            .bundles
+            .iter()
+            .map(|bundle| bundle.sliver_pairs.len() * 2) // each pair has 2 slivers
+            .sum::<usize>();
+
+        let result = self
+            .retry_with_limits_and_backoff(|| self.client.multi_put(&request))
+            .await;
+
+        match result {
+            Ok(response) => {
+                let blob_results: Vec<MultiPutBlobResponse> = response
+                    .results
+                    .into_iter()
+                    .map(|blob_result| {
+                        let confirmation_result = if blob_result.success {
+                            blob_result.confirmation.ok_or_else(|| {
+                                use std::io::Error;
+                                walrus_storage_node_client::NodeError::other(Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Success response missing confirmation",
+                                ))
+                            })
+                        } else {
+                            Err(blob_result
+                                .error
+                                .map(|status| {
+                                    use std::io::Error;
+                                    walrus_storage_node_client::NodeError::other(Error::other(
+                                        format!("Storage error: {status}"),
+                                    ))
+                                })
+                                .unwrap_or_else(|| {
+                                    use std::io::Error;
+                                    walrus_storage_node_client::NodeError::other(Error::new(
+                                        std::io::ErrorKind::InvalidData,
+                                        "Failed response missing error",
+                                    ))
+                                }))
+                        };
+                        MultiPutBlobResponse {
+                            blob_id: blob_result.blob_id,
+                            result: confirmation_result,
+                        }
+                    })
+                    .collect();
+
+                NodeResult::new(
+                    self.committee_epoch,
+                    total_shards,
+                    self.node_index,
+                    Ok(blob_results),
+                )
+            }
+            Err(error) => NodeResult::new(
+                self.committee_epoch,
+                total_shards,
+                self.node_index,
+                Err(error),
+            ),
+        }
     }
 
     async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>

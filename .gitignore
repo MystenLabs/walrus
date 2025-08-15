@@ -5,6 +5,8 @@
 
 .nvimrc
 .DS_Store
+CLAUD.md
+sliver-upload-optimization-plan.md
 
 # Rust build and test files
 **/target

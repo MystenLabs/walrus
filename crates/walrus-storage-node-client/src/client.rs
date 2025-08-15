@@ -50,7 +50,7 @@ use walrus_core::{
 };
 
 use crate::{
-    api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
+    api::{BlobStatus, MultiPutRequest, MultiPutResponse, ServiceHealthInfo, StoredOnNodeStatus},
     error::{ClientBuildError, ListAndVerifyRecoverySymbolsError, NodeError},
     node_response::NodeResponse,
 };
@@ -76,6 +76,7 @@ const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistency
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
 const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
+const MULTI_PUT_URL_TEMPLATE: &str = "/v1/multi-put";
 
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
@@ -230,6 +231,13 @@ impl UrlEndpoints {
                 .join("/v1/migrate/sync_shard")
                 .expect("this is a valid URL"),
             SYNC_SHARD_TEMPLATE,
+        )
+    }
+
+    fn multi_put(&self) -> (Url, &'static str) {
+        (
+            self.0.join("/v1/multi-put").expect("this is a valid URL"),
+            MULTI_PUT_URL_TEMPLATE,
         )
     }
 }
@@ -889,6 +897,20 @@ impl StorageNodeClient {
             key_pair.as_ref().public(),
         )?;
         self.send_and_parse_bcs_response(http_request, template)
+            .await
+    }
+
+    /// Performs a batched multi-put operation, storing multiple blobs' slivers and metadata.
+    ///
+    /// Returns a response with storage confirmations for each blob in the request.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    pub async fn multi_put(
+        &self,
+        request: &MultiPutRequest,
+    ) -> Result<MultiPutResponse, NodeError> {
+        let (url, template) = self.endpoints.multi_put();
+        let http_request = self.create_request_with_payload(Method::POST, url, request);
+        self.send_and_parse_service_response(http_request, template)
             .await
     }
 
