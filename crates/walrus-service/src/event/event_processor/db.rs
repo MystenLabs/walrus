@@ -19,7 +19,7 @@ use typed_store::{
 
 use crate::{
     event::events::{InitState, PositionedStreamEvent},
-    node::DatabaseConfig,
+    node::{DatabaseConfig, DatabaseTableOptionsFactory},
 };
 
 /// Constants used by the event processor.
@@ -72,6 +72,7 @@ impl EventProcessorStores {
         metric_conf: MetricConf,
     ) -> Result<Arc<RocksDB>> {
         let mut db_opts = rocksdb::Options::from(&db_config.global());
+        let db_table_opts_factory = DatabaseTableOptionsFactory::new(db_config.clone());
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let db = rocks::open_cf_opts(
@@ -81,18 +82,18 @@ impl EventProcessorStores {
             &[
                 (
                     constants::CHECKPOINT_STORE,
-                    db_config.checkpoint_store().to_options(),
+                    db_table_opts_factory.checkpoint_store(),
                 ),
                 (
                     constants::WALRUS_PACKAGE_STORE,
-                    db_config.walrus_package_store().to_options(),
+                    db_table_opts_factory.walrus_package_store(),
                 ),
                 (
                     constants::COMMITTEE_STORE,
-                    db_config.committee_store().to_options(),
+                    db_table_opts_factory.committee_store(),
                 ),
-                (constants::EVENT_STORE, db_config.event_store().to_options()),
-                (constants::INIT_STATE, db_config.init_state().to_options()),
+                (constants::EVENT_STORE, db_table_opts_factory.event_store()),
+                (constants::INIT_STATE, db_table_opts_factory.init_state()),
             ],
         )?;
 
