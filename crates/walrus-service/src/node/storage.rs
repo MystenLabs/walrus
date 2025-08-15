@@ -776,7 +776,10 @@ impl Storage {
     }
 
     /// Returns an iterator over the certified blob info before the specified epoch.
-    pub(crate) fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
+    pub(crate) fn certified_blob_info_iter_before_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> BlobInfoIterator<'_> {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
@@ -785,7 +788,7 @@ impl Storage {
     pub(crate) fn certified_per_object_blob_info_iter_before_epoch(
         &self,
         epoch: Epoch,
-    ) -> PerObjectBlobInfoIterator {
+    ) -> PerObjectBlobInfoIterator<'_> {
         self.blob_info
             .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }

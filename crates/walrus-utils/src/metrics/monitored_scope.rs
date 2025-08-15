@@ -23,21 +23,21 @@ impl MonitoredScopeMetrics {
                 &["scope_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             scope_iterations: register_int_gauge_vec_with_registry!(
                 "walrus_monitored_scope_iterations",
                 "Total number of times where the monitored scope runs",
                 &["scope_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             scope_duration_ns: register_int_gauge_vec_with_registry!(
                 "walrus_monitored_scope_duration_ns",
                 "Total duration in nanosecs where the monitored scope is running",
                 &["scope_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
         }
     }
 }

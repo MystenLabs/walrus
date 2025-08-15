@@ -122,10 +122,9 @@ impl CheckpointProcessor {
                 .effects
                 .events_digest()
                 .zip(transaction.events.as_ref())
+                && *events_digest != events.digest()
             {
-                if *events_digest != events.digest() {
-                    anyhow::bail!("Events digest does not match");
-                }
+                anyhow::bail!("Events digest does not match");
             }
         }
 

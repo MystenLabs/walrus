@@ -216,7 +216,7 @@ impl<'a> BlobEncoder<'a> {
         })
     }
 
-    fn rows(&self) -> Chunks<u8> {
+    fn rows(&self) -> Chunks<'_, u8> {
         self.blob.chunks(self.n_columns * self.symbol_usize())
     }
 
@@ -241,7 +241,7 @@ impl<'a> BlobEncoder<'a> {
     }
 
     /// Computes the fully expanded message matrix by encoding rows and columns.
-    fn get_expanded_matrix(&self) -> ExpandedMessageMatrix {
+    fn get_expanded_matrix(&self) -> ExpandedMessageMatrix<'_> {
         self.span
             .in_scope(|| ExpandedMessageMatrix::new(&self.config, self.symbol_size, self.blob))
     }

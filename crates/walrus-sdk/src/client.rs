@@ -1421,7 +1421,7 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 
     /// Creates a resource manager for the client.
-    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager {
+    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager<'_> {
         ResourceManager::new(&self.sui_client, committees.write_committee().epoch)
     }
 

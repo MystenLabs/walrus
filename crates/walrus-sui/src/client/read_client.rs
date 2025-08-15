@@ -531,37 +531,37 @@ impl SuiReadClient {
         self.sui_client.get_sui_object(node_id).await
     }
 
-    fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
+    fn walrus_package_id(&self) -> RwLockReadGuard<'_, ObjectID> {
         self.walrus_package_id
             .read()
             .expect("mutex should not be poisoned")
     }
 
-    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<ObjectID> {
+    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<'_, ObjectID> {
         self.walrus_package_id
             .write()
             .expect("mutex should not be poisoned")
     }
 
     /// Returns a mutable reference to the credits object.
-    fn credits_mut(&self) -> RwLockWriteGuard<Option<SharedObjectWithPkgConfig>> {
+    fn credits_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
         self.credits.write().expect("mutex should not be poisoned")
     }
 
     /// Returns a mutable reference to the walrus subsidies object.
-    fn walrus_subsidies_mut(&self) -> RwLockWriteGuard<Option<SharedObjectWithPkgConfig>> {
+    fn walrus_subsidies_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
         self.walrus_subsidies
             .write()
             .expect("mutex should not be poisoned")
     }
 
-    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
+    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .read()
             .expect("mutex should not be poisoned")
     }
 
-    fn type_origin_map_mut(&self) -> RwLockWriteGuard<TypeOriginMap> {
+    fn type_origin_map_mut(&self) -> RwLockWriteGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .write()
             .expect("mutex should not be poisoned")

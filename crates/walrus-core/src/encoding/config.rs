@@ -299,7 +299,7 @@ impl EncodingConfig {
 
     /// Returns the encoding config for the given encoding type wrapped as an
     /// [`EncodingConfigEnum`].
-    pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
+    pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum<'_> {
         match encoding_type {
             EncodingType::RS2 => EncodingConfigEnum::ReedSolomon(&self.reed_solomon),
             _ => panic!("unsupported encoding type: {:?}", encoding_type),
@@ -463,7 +463,7 @@ impl ReedSolomonEncodingConfig {
     pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<ReedSolomonDecoder, E>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<'_, ReedSolomonDecoder, E>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
