@@ -69,7 +69,7 @@ repos:
           - "--config"
           - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        files: &rust-files-pattern ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: cargo-test
         name: cargo-test
@@ -82,28 +82,28 @@ repos:
         name: cargo-doctests
         entry: cargo test --doc
         language: rust
-        files: (^crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: clippy-with-tests
         name: clippy-with-tests
         entry: cargo clippy
         args: ["--all-features", "--tests", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: clippy
         name: clippy
         entry: cargo clippy
         args: ["--all-features", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: cargo-doc
         name: cargo-doc
         entry: env RUSTDOCFLAGS="-D warnings" cargo doc
         args: ["--workspace", "--no-deps"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: move-tests
         name: move-tests
