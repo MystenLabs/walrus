@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
@@ -10,7 +10,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: "3.2.1"
+    rev: "3.4.0"
     hooks:
       - id: editorconfig-checker
         alias: ec
@@ -25,7 +25,7 @@ repos:
         args: []
         pass_filenames: false
   - repo: https://github.com/crate-ci/typos
-    rev: v1.34.0
+    rev: v1.35.4
     hooks:
       - id: typos
         pass_filenames: false
@@ -36,7 +36,7 @@ repos:
         args: ["--fix"]
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.18.3
+    rev: 0.18.4
     hooks:
       - id: cargo-deny
         args: ["--all-features", "check", "--hide-inclusion-graph"]
@@ -60,7 +60,7 @@ repos:
         language: python
         types: [shell]
         require_serial: true # shellcheck can detect sourcing this way
-        additional_dependencies: ["shellcheck-py==0.10.0.1"]
+        additional_dependencies: ["shellcheck-py==0.11.0.1"]
       - id: cargo-fmt
         name: cargo-fmt
         entry: cargo fmt
@@ -69,41 +69,41 @@ repos:
           - "--config"
           - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
         language: rust
-        types: [rust]
+        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: cargo-test
         name: cargo-test
         entry: cargo nextest run
         language: rust
-        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
+        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml|rust-toolchain\.toml$)
         pass_filenames: false
         verbose: true
       - id: cargo-doctests
         name: cargo-doctests
         entry: cargo test --doc
         language: rust
-        files: (^crates/|Cargo\.(toml|lock)$)
+        files: (^crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: clippy-with-tests
         name: clippy-with-tests
         entry: cargo clippy
         args: ["--all-features", "--tests", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: clippy
         name: clippy
         entry: cargo clippy
         args: ["--all-features", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: cargo-doc
         name: cargo-doc
         entry: env RUSTDOCFLAGS="-D warnings" cargo doc
         args: ["--workspace", "--no-deps"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: move-tests
         name: move-tests
@@ -114,7 +114,7 @@ repos:
       - id: move-tests-testnet
         name: move-tests-testnet
         entry: scripts/move_tests.sh
-        args: ["-d", "testnet"]
+        args: ["-d", "testnet-contracts"]
         language: system
         files: "testnet-contracts/.*"
         pass_filenames: false
@@ -123,8 +123,8 @@ repos:
         entry: prettier-move -w
         language: node
         additional_dependencies:
-          - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.3.0"
+          - "prettier@3.6.2"
+          - "@mysten/prettier-plugin-move@0.3.1"
         files: "^contracts/.*\\.move"
       - id: mdBook
         name: Build docs if mdBook is installed
