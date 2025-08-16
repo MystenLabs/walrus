@@ -24,7 +24,6 @@ pub use client_types::{
     WalrusStoreBlobApi,
 };
 pub use communication::NodeCommunicationFactory;
-use communication::node::MultiPutBlobResponse;
 use futures::{
     Future,
     FutureExt,
@@ -1770,8 +1769,9 @@ impl<T> WalrusNodeClient<T> {
 
         let committees = self.get_committees().await?;
 
-        // For pre-registration uploads, we use Permanent type as a placeholder
-        // The actual persistence type will be determined during registration
+        // For pre-registration uploads, we always use Permanent type
+        // The actual persistence type (with correct object ID for deletable blobs)
+        // will be set during the actual registration process
         let blob_persistence_type = walrus_core::messages::BlobPersistenceType::Permanent;
 
         // Group all blobs' slivers by target node to create batched requests
