@@ -8,8 +8,11 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+once_cell.workspace = true
 rand.workspace = true
 tempfile.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

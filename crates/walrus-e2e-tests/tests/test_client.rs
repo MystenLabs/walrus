@@ -113,7 +113,7 @@ async_param_test! {
     ]
 }
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     assert!(matches!(
         run_store_and_read_with_crash_failures(&[], &[], blob_size, None).await,
         Ok(()),
@@ -216,7 +216,7 @@ async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_read: &[usize],
     expected_errors: &[ClientErrorKind],
 ) {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let result = run_store_and_read_with_crash_failures(
         failed_shards_write,
         failed_shards_read,
@@ -252,7 +252,7 @@ async fn run_store_and_read_with_crash_failures(
     data_length: usize,
     upload_relay_client: Option<UploadRelayClient>,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, mut cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -288,7 +288,7 @@ async_param_test! {
 }
 /// Stores a blob that is inconsistent in 1 shard.
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, mut cluster, mut client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -439,7 +439,7 @@ async fn test_store_with_existing_blob_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -575,7 +575,7 @@ async fn store_blob(
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -632,7 +632,7 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_with_existing_blobs() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -747,7 +747,7 @@ async fn test_store_with_existing_storage_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -819,7 +819,7 @@ async_param_test! {
 }
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let blob = walrus_test_utils::random_data(314);
@@ -877,7 +877,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
@@ -947,7 +947,7 @@ async_param_test! {
 }
 /// Tests that a quilt can be stored.
 async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let test_nodes_config = TestNodesConfig {
         node_weights: vec![7, 7, 7, 7, 7],
@@ -1080,7 +1080,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
@@ -1171,7 +1171,7 @@ async fn test_blocklist() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blob_operations_with_credits() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_credits()
         .build()
@@ -1237,7 +1237,7 @@ async fn test_blob_operations_with_credits() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
@@ -1282,7 +1282,7 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let client = client.as_ref();
@@ -1422,7 +1422,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
@@ -1500,7 +1500,7 @@ async fn test_repeated_shard_move() -> TestResult {
 async fn test_burn_blobs() -> TestResult {
     const N_BLOBS: usize = 3;
     const N_TO_DELETE: usize = 2;
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -1551,7 +1551,7 @@ async fn test_burn_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_extend_owned_blobs() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
@@ -1614,7 +1614,7 @@ async fn test_extend_owned_blobs() -> TestResult {
 async fn test_share_blobs() -> TestResult {
     const EXTEND_EPOCHS: EpochCount = 10;
     const INITIAL_FUNDS: u64 = 1000000000;
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -1712,7 +1712,7 @@ async fn test_post_store_action(
     n_owned_blobs: usize,
     n_target_blobs: usize,
 ) -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
@@ -1782,7 +1782,7 @@ async fn test_post_store_action(
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_blob_with_random_attributes() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -2013,7 +2013,7 @@ impl<'a> BlobAttributeTestContext<'a> {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blob_attribute_add_and_remove() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, mut client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -2069,7 +2069,7 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blob_attribute_fields_operations() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, mut client, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
@@ -2168,7 +2168,7 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(20))
         .with_test_nodes_config(TestNodesConfig {
@@ -2312,7 +2312,7 @@ async fn test_ptb_retriable_error() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 pub async fn test_select_coins_max_objects() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let (sui_cluster_handle, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Create a new wallet on the cluster.
@@ -2390,8 +2390,8 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_with_upload_relay_no_tip() {
-    telemetry_subscribers::init_for_testing();
-    let _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
+    walrus_test_utils::init_tracing();
 
     // Start the Sui and Walrus clusters.
     let (sui_cluster_handle, _cluster, cluster_client, _) =
@@ -2517,8 +2517,8 @@ fn get_upload_relay_url(server_address: &SocketAddr) -> Url {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_with_upload_relay_with_tip() {
-    telemetry_subscribers::init_for_testing();
-    let _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
+    walrus_test_utils::init_tracing();
 
     // Start the Sui and Walrus clusters.
     let (sui_cluster_handle, _cluster, cluster_client, _system_context) =

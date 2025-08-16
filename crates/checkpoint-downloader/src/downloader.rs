@@ -578,7 +578,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
-        telemetry_subscribers::init_for_testing();
+        walrus_test_utils::init_tracing();
         let rest_url = "http://localhost:9000";
         let retriable_client = RetriableRpcClient::new(
             vec![LazyFallibleRpcClientBuilder::Url {

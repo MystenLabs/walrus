@@ -3,9 +3,11 @@ out = ["Html", "Xml"]
 packages = [
   "walrus-core",
   "walrus-e2e-tests",
-  "walrus-rest-client",
+  "walrus-sdk",
   "walrus-service",
+  "walrus-storage-node-client",
   "walrus-sui",
+  "walrus-upload-relay",
   "walrus-utils",
 ]
 run-types = ["Lib", "Tests"]
@@ -26,5 +28,5 @@ exclude-files = [
   "crates/walrus-stress/**/*",
   "crates/walrus-test-utils/**/*",
 ]
-# Include all tests, even longer integration tests.
-args = ["--include-ignored"]
+# TODO(WAL-986): Add the following after end-to-end tests work with `cargo tarpaulin`.
+# args = ["--include-ignored"]

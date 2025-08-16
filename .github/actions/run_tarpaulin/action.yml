@@ -1,6 +1,12 @@
 name: Test coverage
 description: Run all tests and report coverage
 
+inputs:
+  RUST_LOG:
+    description: Controls the logging level for the tests
+    required: false
+    default: "warn,walrus=info,checkpoint-downloader=info"
+
 runs:
   using: "composite"
   steps:
@@ -9,6 +15,8 @@ runs:
 
     - name: Run tests (including integration E2E tests) and record coverage
       run: cargo tarpaulin
+      env:
+        RUST_LOG: ${{ inputs.RUST_LOG }}
       shell: bash
 
     - name: Upload coverage report
