@@ -413,6 +413,7 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
+            .route(routes::MULTI_PUT_ENDPOINT, post(routes::handle_multi_put))
     }
 
     /// Returns the CORS leayer for the server.
@@ -778,6 +779,27 @@ mod tests {
             _signed_request: SignedMessage<SyncShardMsg>,
         ) -> Result<SyncShardResponse, SyncShardServiceError> {
             Ok(SyncShardResponse::V1(vec![]))
+        }
+
+        async fn cache_blob_slivers(
+            &self,
+            request: walrus_storage_node_client::api::MultiPutRequest,
+        ) -> Result<walrus_storage_node_client::api::MultiPutResponse, StoreSliverError> {
+            use walrus_storage_node_client::api::{MultiPutBlobResult, MultiPutResponse};
+
+            // Mock implementation - just return success for all
+            let results = request
+                .bundles
+                .into_iter()
+                .map(|bundle| MultiPutBlobResult {
+                    blob_id: bundle.blob_id,
+                    success: true,
+                    confirmation: Some(walrus_core::test_utils::random_signed_message()),
+                    error: None,
+                })
+                .collect();
+
+            Ok(MultiPutResponse { results })
         }
     }
 

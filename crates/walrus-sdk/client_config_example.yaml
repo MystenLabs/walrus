@@ -36,6 +36,7 @@ communication_config:
     max_backoff_millis: 5000
     max_retries: 5
   sui_client_request_timeout_millis: null
+  use_multi_put_api: false
 refresh_config:
   refresh_grace_period_secs: 10
   max_auto_refresh_interval_secs: 30

@@ -308,6 +308,15 @@ pub trait ServiceState {
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send;
+
+    /// Cache blob slivers for batch blob storage.
+    /// Validates that the slivers match what this node should store and processes them.
+    fn cache_blob_slivers(
+        &self,
+        request: walrus_storage_node_client::api::MultiPutRequest,
+    ) -> impl Future<
+        Output = Result<walrus_storage_node_client::api::MultiPutResponse, StoreSliverError>,
+    > + Send;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -2567,6 +2576,62 @@ impl StorageNodeInner {
     }
 }
 
+impl StorageNodeInner {
+    /// Validates that the provided sliver indices match exactly what this node should store
+    /// for the given blob at the specified epoch.
+    fn validate_sliver_indices_for_epoch(
+        &self,
+        blob_id: &BlobId,
+        provided_indices: &[SliverPairIndex],
+        owned_shards: &[ShardIndex],
+        epoch: Epoch,
+    ) -> Result<(), walrus_storage_node_client::api::errors::Status> {
+        use std::collections::HashSet;
+
+        use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
+
+        // Convert owned shards to a HashSet for efficient lookup
+        let owned_shards_set: HashSet<ShardIndex> = owned_shards.iter().cloned().collect();
+
+        // Derive target shards from the provided sliver indices
+        let target_shards: HashSet<ShardIndex> = provided_indices
+            .iter()
+            .map(|&idx| idx.to_shard_index(self.n_shards(), blob_id))
+            .collect();
+
+        // Check if the target shards match the owned shards exactly
+        if target_shards != owned_shards_set {
+            // Find differences for better error reporting
+            let missing: Vec<_> = owned_shards_set.difference(&target_shards).collect();
+            let extra: Vec<_> = target_shards.difference(&owned_shards_set).collect();
+
+            let mut error_msg = String::new();
+            if !missing.is_empty() {
+                error_msg.push_str(&format!("missing shards: {missing:?}"));
+            }
+            if !extra.is_empty() {
+                if !error_msg.is_empty() {
+                    error_msg.push_str(", ");
+                }
+                error_msg.push_str(&format!("unexpected shards: {extra:?}"));
+            }
+
+            let error_info = ErrorInfo::new(
+                "SLIVER_MISMATCH".to_string(),
+                "storage-node.walrus/MultiPutError".to_string(),
+            );
+
+            return Err(Status::new(
+                StatusCode::InvalidArgument,
+                format!("Sliver pairs mismatch for blob {blob_id} at epoch {epoch}: {error_msg}"),
+                error_info,
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
     match status {
         ShardStatus::None => ApiShardStatus::Unknown,
@@ -2707,6 +2772,13 @@ impl ServiceState for StorageNode {
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send {
         self.inner.sync_shard(public_key, signed_request)
+    }
+
+    async fn cache_blob_slivers(
+        &self,
+        request: walrus_storage_node_client::api::MultiPutRequest,
+    ) -> Result<walrus_storage_node_client::api::MultiPutResponse, StoreSliverError> {
+        self.inner.cache_blob_slivers(request).await
     }
 }
 
@@ -3130,6 +3202,132 @@ impl ServiceState for StorageNodeInner {
         self.storage
             .handle_sync_shard_request(request, self.current_epoch())
             .await
+    }
+
+    async fn cache_blob_slivers(
+        &self,
+        request: walrus_storage_node_client::api::MultiPutRequest,
+    ) -> Result<walrus_storage_node_client::api::MultiPutResponse, StoreSliverError> {
+        use walrus_storage_node_client::api::{MultiPutBlobResult, MultiPutResponse};
+
+        let mut results = Vec::new();
+
+        let owned_shards = self.owned_shards_at_epoch(request.epoch).map_err(|e| {
+            StoreSliverError::Internal(anyhow::anyhow!(
+                "Failed to get owned shards for epoch {}: {}",
+                request.epoch,
+                e
+            ))
+        })?;
+
+        for bundle in request.bundles {
+            // Extract provided sliver pair indices
+            let provided_indices: Vec<SliverPairIndex> = bundle
+                .sliver_pairs
+                .iter()
+                .map(|pair| pair.index())
+                .collect();
+
+            // Validate that the bundle contains exactly the slivers for shards owned at this epoch
+            if let Err(status) = self.validate_sliver_indices_for_epoch(
+                &bundle.blob_id,
+                &provided_indices,
+                &owned_shards,
+                request.epoch,
+            ) {
+                results.push(MultiPutBlobResult {
+                    blob_id: bundle.blob_id,
+                    success: false,
+                    confirmation: None,
+                    error: Some(status),
+                });
+                continue;
+            }
+
+            // Cache the blob slivers
+            if let Err(e) = self.storage.cache_blob_slivers(
+                &bundle.blob_id,
+                bundle.sliver_pairs.clone(),
+                bundle.metadata.clone(),
+            ) {
+                use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
+
+                tracing::warn!(?e, blob_id = ?bundle.blob_id, "Failed to cache blob slivers");
+
+                let error_info = ErrorInfo::new(
+                    "CACHE_ERROR".to_string(),
+                    "storage-node.walrus/MultiPutError".to_string(),
+                );
+                let status = Status::new(
+                    StatusCode::Internal,
+                    format!("Failed to cache blob slivers for {}: {}", bundle.blob_id, e),
+                    error_info,
+                );
+
+                results.push(MultiPutBlobResult {
+                    blob_id: bundle.blob_id,
+                    success: false,
+                    confirmation: None,
+                    error: Some(status),
+                });
+                continue;
+            }
+
+            // Check if blob is registered
+            let blob_status = self.blob_status(&bundle.blob_id);
+
+            if let Ok(status) = &blob_status {
+                if status.is_registered() {
+                    // Start background task to process the cached data
+                    let blob_id = bundle.blob_id;
+                    tokio::spawn(async move {
+                        // TODO: Implement actual processing logic
+                        tracing::debug!(
+                            ?blob_id,
+                            "Background task to process cached blob (placeholder)"
+                        );
+                    });
+                }
+            }
+
+            // Compute confirmation for this blob
+            let confirmation_result = self
+                .compute_storage_confirmation(&bundle.blob_id, &bundle.blob_persistence_type)
+                .await;
+
+            let result = match confirmation_result {
+                Ok(StorageConfirmation::Signed(signed_confirmation)) => MultiPutBlobResult {
+                    blob_id: bundle.blob_id,
+                    success: true,
+                    confirmation: Some(signed_confirmation),
+                    error: None,
+                },
+                Err(e) => {
+                    use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
+
+                    let error_info = ErrorInfo::new(
+                        "STORAGE_ERROR".to_string(),
+                        "storage-node.walrus/MultiPutError".to_string(),
+                    );
+                    let status = Status::new(
+                        StatusCode::Internal,
+                        format!("Failed to compute storage confirmation: {e}"),
+                        error_info,
+                    );
+
+                    MultiPutBlobResult {
+                        blob_id: bundle.blob_id,
+                        success: false,
+                        confirmation: None,
+                        error: Some(status),
+                    }
+                }
+            };
+
+            results.push(result);
+        }
+
+        Ok(MultiPutResponse { results })
     }
 }
 

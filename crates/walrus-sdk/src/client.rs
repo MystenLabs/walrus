@@ -18,6 +18,7 @@ use anyhow::anyhow;
 use bimap::BiMap;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
+use communication::{NodeWriteCommunication, node::MultiPutBlobResponse};
 use futures::{
     Future,
     FutureExt,
@@ -1568,31 +1569,86 @@ impl<T> WalrusNodeClient<T> {
             multi_pb.add(pb)
         });
 
-        let mut requests = WeightedFutures::new(comms.iter().map({
-            let progress_bar = progress_bar.clone();
+        // Create requests based on API choice
+        let futures = if self.config.communication_config.use_multi_put_api {
+            // Use the new multi-put API
+            comms
+                .iter()
+                .map(|n| {
+                    let node_pairs = pairs_per_node
+                        .get(&n.node_index)
+                        .expect("there are shards for each node")
+                        .to_vec();
 
-            move |n| {
-                let fut = n.store_metadata_and_pairs(
-                    metadata,
-                    pairs_per_node
-                        .remove(&n.node_index)
-                        .expect("there are shards for each node"),
-                    blob_persistence_type,
-                );
+                    let blob_bundles = vec![(metadata, node_pairs, blob_persistence_type)];
+                    let fut = n.multi_put(blob_bundles);
 
-                let progress_bar = progress_bar.clone();
-                async move {
-                    let result = fut.await;
-                    if result.is_ok()
-                        && let Some(value) = progress_bar
-                        && !value.is_finished()
-                    {
-                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
+                    let progress_bar = progress_bar.clone();
+                    async move {
+                        let node_result = fut.await;
+                        let weight = node_result.weight;
+                        let node = node_result.node;
+                        let committee_epoch = node_result.committee_epoch;
+
+                        let result = match node_result.take_inner_result() {
+                            Ok(multi_put_results) => {
+                                // Extract the first (and only) blob result and get its confirmation
+                                let blob_result = multi_put_results
+                                    .into_iter()
+                                    .next()
+                                    .expect("Expected one blob result");
+                                blob_result.result.map_err(StoreError::Confirmation)
+                            }
+                            Err(node_error) => Err(StoreError::Confirmation(node_error)),
+                        };
+
+                        let final_result = NodeResult::new(committee_epoch, weight, node, result);
+                        if final_result.result.is_ok()
+                            && let Some(value) = progress_bar
+                            && !value.is_finished()
+                        {
+                            value.inc(
+                                final_result
+                                    .weight
+                                    .try_into()
+                                    .expect("the weight fits a usize"),
+                            )
+                        }
+                        final_result
                     }
-                    result
-                }
-            }
-        }));
+                    .boxed()
+                })
+                .collect::<Vec<_>>()
+        } else {
+            // Use the existing individual store approach
+            comms
+                .iter()
+                .map(|n| {
+                    let fut = n.store_metadata_and_pairs(
+                        metadata,
+                        pairs_per_node
+                            .remove(&n.node_index)
+                            .expect("there are shards for each node"),
+                        blob_persistence_type,
+                    );
+
+                    let progress_bar = progress_bar.clone();
+                    async move {
+                        let result = fut.await;
+                        if result.is_ok()
+                            && let Some(value) = progress_bar
+                            && !value.is_finished()
+                        {
+                            value.inc(result.weight.try_into().expect("the weight fits a usize"))
+                        }
+                        result
+                    }
+                    .boxed()
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let mut requests = WeightedFutures::new(futures.into_iter());
 
         let start = Instant::now();
 
@@ -1674,6 +1730,299 @@ impl<T> WalrusNodeClient<T> {
 
         self.confirmations_to_certificate(results, &committees)
             .await
+    }
+
+    /// Stores multiple blobs' metadata and sliver pairs batched by target node, collecting
+    /// certificates for each blob. This function groups all blobs' slivers by their target
+    /// storage nodes to reduce the number of HTTP requests and improve overall upload latency.
+    ///
+    /// Each blob must already be registered with an appropriate blob size.
+    ///
+    /// Returns a vector of results in the same order as the input blobs, where each result
+    /// contains either a confirmation certificate or an error.
+    #[tracing::instrument(skip_all)]
+    pub async fn send_multiple_blobs_batched_and_get_certificates<'a>(
+        &self,
+        blobs_with_data: Vec<(
+            &'a VerifiedBlobMetadataWithId,
+            &'a [SliverPair],
+            &'a BlobPersistenceType,
+        )>,
+        multi_pb: Option<&MultiProgress>,
+    ) -> ClientResult<Vec<Result<ConfirmationCertificate, ClientError>>> {
+        if blobs_with_data.is_empty() {
+            return Ok(vec![]);
+        }
+
+        tracing::info!(
+            blob_count = blobs_with_data.len(),
+            "starting batched upload for multiple blobs"
+        );
+
+        let committees = self.get_committees().await?;
+
+        // Group all blobs' slivers by target node to create batched requests
+        let mut bundles_by_node: std::collections::HashMap<
+            usize,
+            Vec<(
+                &VerifiedBlobMetadataWithId,
+                Vec<&SliverPair>,
+                &BlobPersistenceType,
+            )>,
+        > = std::collections::HashMap::new();
+
+        for (metadata, pairs, blob_persistence_type) in &blobs_with_data {
+            let pairs_per_node = self
+                .pairs_per_node(metadata.blob_id(), pairs, &committees)
+                .await;
+
+            for (node_index, node_pairs) in pairs_per_node {
+                let node_pairs_refs: Vec<&SliverPair> = node_pairs.iter().map(|p| *p).collect();
+                bundles_by_node.entry(node_index).or_default().push((
+                    metadata,
+                    node_pairs_refs,
+                    blob_persistence_type,
+                ));
+            }
+        }
+
+        // Use a reasonable limit for batched operations based on total blob count
+        let total_blob_size: u64 = blobs_with_data
+            .iter()
+            .map(|(metadata, _, _)| metadata.metadata().unencoded_length())
+            .sum();
+        let sliver_write_limit = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                total_blob_size,
+                &self.encoding_config,
+                blobs_with_data
+                    .first()
+                    .map_or(walrus_core::EncodingType::RS2, |(m, _, _)| {
+                        m.metadata().encoding_type()
+                    }),
+            );
+
+        tracing::debug!(
+            blob_count = blobs_with_data.len(),
+            node_count = bundles_by_node.len(),
+            communication_limits = sliver_write_limit,
+            "establishing batched node communications"
+        );
+
+        let comms = self
+            .communication_factory
+            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+
+        // Create progress tracking for the batched operation
+        let progress_bar = multi_pb.map(|multi_pb| {
+            let total_weight =
+                bft::min_n_correct(committees.n_shards()).get() as usize * blobs_with_data.len();
+            let pb = styled_progress_bar(total_weight as u64);
+            pb.set_message("sending batched slivers");
+            multi_pb.add(pb)
+        });
+
+        // Send batched requests to each node
+        let futures = comms.iter().map(|n| {
+            let node_bundles = bundles_by_node
+                .get(&n.node_index)
+                .map(|bundles| bundles.clone())
+                .unwrap_or_default();
+
+            let fut =
+                if self.config.communication_config.use_multi_put_api && !node_bundles.is_empty() {
+                    n.multi_put(node_bundles).boxed()
+                } else {
+                    // For now, just use empty results if multi-put is disabled or no bundles
+                    futures::future::ready(NodeResult::new(
+                        n.committee_epoch,
+                        1,
+                        n.node_index,
+                        Ok(vec![]),
+                    ))
+                    .boxed()
+                };
+
+            let progress_bar = progress_bar.clone();
+            async move {
+                let node_result = fut.await;
+
+                // Update progress for all blobs processed by this node
+                if let (Ok(multi_put_results), Some(pb)) = (&node_result.result, &progress_bar) {
+                    if !pb.is_finished() {
+                        let weight_increment = multi_put_results.len() * node_result.weight;
+                        pb.inc(weight_increment.try_into().unwrap_or(0));
+                    }
+                }
+
+                node_result
+            }
+            .boxed()
+        });
+
+        let mut requests = WeightedFutures::new(futures);
+        let start = Instant::now();
+
+        // Execute requests and collect results
+        let completed_reason = requests
+            .execute_weight(
+                &|weight| {
+                    // Check if we have enough confirmations for all blobs
+                    let weight_per_blob = weight / blobs_with_data.len().max(1);
+                    committees
+                        .write_committee()
+                        .is_at_least_min_n_correct(weight_per_blob)
+                },
+                committees.n_shards().get() as usize * blobs_with_data.len(),
+            )
+            .await;
+
+        if let CompletedReasonWeight::FuturesConsumed(_) = completed_reason {
+            tracing::warn!(
+                elapsed_time = ?start.elapsed(),
+                blob_count = blobs_with_data.len(),
+                "not enough successful responses for batched upload"
+            );
+        }
+
+        let node_results = requests.into_results();
+
+        progress_bar.inspect(|pb| pb.finish_with_message("batched slivers sent"));
+
+        // Process results and generate certificates for each blob
+        self.process_batched_results(blobs_with_data, node_results, &committees)
+            .await
+    }
+
+    /// Helper method to send individual requests for a node when batching is not available
+    async fn send_individual_requests_for_node(
+        &self,
+        node: &NodeWriteCommunication<'_>,
+        bundles: Vec<(
+            &VerifiedBlobMetadataWithId,
+            Vec<&SliverPair>,
+            &BlobPersistenceType,
+        )>,
+    ) -> NodeResult<Vec<MultiPutBlobResponse>, StoreError> {
+        let mut results = Vec::new();
+
+        for (metadata, pairs, blob_persistence_type) in bundles {
+            let result = node
+                .store_metadata_and_pairs(metadata, pairs, blob_persistence_type)
+                .await;
+
+            let blob_result = MultiPutBlobResponse {
+                blob_id: *metadata.blob_id(),
+                result: result.result.map_err(|e| {
+                    walrus_storage_node_client::NodeError::other(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Individual request fallback failed: {e}"),
+                    ))
+                }),
+            };
+            results.push(blob_result);
+        }
+
+        // Return a placeholder NodeResult - in practice this won't be used since we prefer
+        // multi_put
+        NodeResult::new(
+            node.committee_epoch,
+            1, // Placeholder weight
+            node.node_index,
+            Ok(results),
+        )
+    }
+
+    /// Processes batched node results and generates certificates for each blob
+    async fn process_batched_results(
+        &self,
+        blobs_with_data: Vec<(
+            &VerifiedBlobMetadataWithId,
+            &[SliverPair],
+            &BlobPersistenceType,
+        )>,
+        node_results: Vec<
+            NodeResult<Vec<MultiPutBlobResponse>, walrus_storage_node_client::NodeError>,
+        >,
+        committees: &ActiveCommittees,
+    ) -> ClientResult<Vec<Result<ConfirmationCertificate, ClientError>>> {
+        use std::collections::HashMap;
+
+        // Group confirmations by blob ID
+        let mut confirmations_by_blob: HashMap<
+            BlobId,
+            Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
+        > = HashMap::new();
+
+        for node_result in node_results {
+            match node_result.result {
+                Ok(blob_results) => {
+                    for blob_result in blob_results {
+                        let confirmation_result = match blob_result.result {
+                            Ok(confirmation) => Ok(confirmation),
+                            Err(node_error) => Err(StoreError::Confirmation(node_error)),
+                        };
+
+                        confirmations_by_blob
+                            .entry(blob_result.blob_id)
+                            .or_default()
+                            .push(NodeResult::new(
+                                node_result.committee_epoch,
+                                node_result.weight,
+                                node_result.node,
+                                confirmation_result,
+                            ));
+                    }
+                }
+                Err(node_error) => {
+                    // If a node completely failed, mark all expected blobs as failed for this node
+                    for (metadata, _, _) in &blobs_with_data {
+                        confirmations_by_blob
+                            .entry(*metadata.blob_id())
+                            .or_default()
+                            .push(NodeResult::new(
+                                node_result.committee_epoch,
+                                node_result.weight,
+                                node_result.node,
+                                Err(StoreError::Confirmation(
+                                    walrus_storage_node_client::NodeError::other(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            format!("Node failed: {node_error}"),
+                                        ),
+                                    ),
+                                )),
+                            ));
+                    }
+                }
+            }
+        }
+
+        // Generate certificates for each blob
+        let mut results = Vec::with_capacity(blobs_with_data.len());
+        for (metadata, _, _) in blobs_with_data {
+            let blob_id = *metadata.blob_id();
+
+            if let Some(confirmations) = confirmations_by_blob.remove(&blob_id) {
+                match self
+                    .confirmations_to_certificate(confirmations, committees)
+                    .await
+                {
+                    Ok(certificate) => results.push(Ok(certificate)),
+                    Err(error) => results.push(Err(error)),
+                }
+            } else {
+                // No confirmations received for this blob
+                results.push(Err(ClientErrorKind::NotEnoughConfirmations(
+                    0,
+                    committees.min_n_correct(),
+                )
+                .into()));
+            }
+        }
+
+        Ok(results)
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.

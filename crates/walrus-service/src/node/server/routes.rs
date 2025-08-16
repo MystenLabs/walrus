@@ -92,6 +92,8 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
+/// The path for multi-put batch operations.
+pub const MULTI_PUT_ENDPOINT: &str = "/v1/multi-put";
 
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
@@ -724,4 +726,31 @@ pub async fn sync_shard<S: SyncServiceState>(
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardServiceError>> {
     Ok(Bcs(state.service.sync_shard(public_key, signed_request).await?).into_response())
+}
+
+/// Handle multi-put batch operations for storing multiple blobs' slivers and metadata.
+#[tracing::instrument(skip_all)]
+#[utoipa::path(
+    post,
+    path = MULTI_PUT_ENDPOINT,
+    request_body(
+        content = walrus_storage_node_client::api::MultiPutRequest,
+        description = "Batch of blobs to store"
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Storage confirmations for each blob",
+            body = ApiSuccess<walrus_storage_node_client::api::MultiPutResponse>
+        ),
+        StoreSliverError,
+    ),
+    tag = openapi::GROUP_STORING_BLOBS
+)]
+pub async fn handle_multi_put<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    axum::Json(request): axum::Json<walrus_storage_node_client::api::MultiPutRequest>,
+) -> Result<ApiSuccess<walrus_storage_node_client::api::MultiPutResponse>, StoreSliverError> {
+    let response = state.service.cache_blob_slivers(request).await?;
+    Ok(ApiSuccess::ok(response))
 }

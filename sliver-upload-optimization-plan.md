@@ -59,6 +59,7 @@ pub struct CachedBlobSlivers {
 pub struct MultiPutRequest {
     /// Multiple blobs with their slivers for this node
     pub bundles: Vec<MultiPutBundle>,
+    pub target_epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize)]

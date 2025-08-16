@@ -62,6 +62,9 @@ pub struct ClientCommunicationConfig {
     #[serde(rename = "sui_client_request_timeout_millis")]
     #[serde_as(as = "Option<DurationMilliSeconds>")]
     pub sui_client_request_timeout: Option<Duration>,
+    /// Enable the multi-put batch API for improved sliver upload latency.
+    /// When enabled, slivers for single blobs are sent in batches to storage nodes.
+    pub use_multi_put_api: bool,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -86,6 +89,7 @@ impl Default for ClientCommunicationConfig {
                 Some(5),
             ),
             sui_client_request_timeout: None,
+            use_multi_put_api: false, // Default to false for backward compatibility
         }
     }
 }
