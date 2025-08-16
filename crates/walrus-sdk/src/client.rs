@@ -16,9 +16,15 @@ use std::{
 
 use anyhow::anyhow;
 use bimap::BiMap;
-pub use client_types::{EncodedBlob, UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
+pub use client_types::{
+    BlobWithStatus,
+    EncodedBlob,
+    UnencodedBlob,
+    WalrusStoreBlob,
+    WalrusStoreBlobApi,
+};
 pub use communication::NodeCommunicationFactory;
-use communication::{NodeWriteCommunication, node::MultiPutBlobResponse};
+use communication::node::MultiPutBlobResponse;
 use futures::{
     Future,
     FutureExt,
@@ -1732,31 +1738,34 @@ impl<T> WalrusNodeClient<T> {
             .await
     }
 
-    /// Stores metadata and slivers for multiple encoded blobs without waiting for registration.
+    /// Stores metadata and slivers for multiple blobs without waiting for registration.
     /// This function enables parallel registration and sliver upload by sending the encoded data
     /// to storage nodes immediately, which will cache the data and return confirmations even if
     /// the blobs are not yet registered.
+    ///
+    /// Takes references to BlobWithStatus to avoid consuming the blobs, as they will be needed
+    /// for subsequent operations after this pre-registration upload.
     ///
     /// The function groups all blobs' slivers by their target storage nodes to minimize the
     /// number of HTTP requests, significantly improving upload latency for multi-blob operations.
     ///
     /// Returns storage confirmations that can be used later for certification after registration.
     #[tracing::instrument(skip_all)]
-    pub async fn store_metadata_and_slivers_without_registration<'a>(
+    pub async fn store_metadata_and_slivers_without_registration(
         &self,
-        encoded_blobs: Vec<EncodedBlob<'a, T>>,
+        blobs_with_status: &[BlobWithStatus<'_, T>],
         _store_args: &StoreArgs,
     ) -> ClientResult<Vec<NodeResult<SignedStorageConfirmation, StoreError>>>
     where
         T: Debug + Clone + Send + Sync,
     {
-        if encoded_blobs.is_empty() {
+        if blobs_with_status.is_empty() {
             return Ok(vec![]);
         }
 
         tracing::info!(
-            blob_count = encoded_blobs.len(),
-            "starting parallel upload for multiple encoded blobs without registration"
+            blob_count = blobs_with_status.len(),
+            "starting parallel upload for multiple blobs without registration"
         );
 
         let committees = self.get_committees().await?;
@@ -1775,9 +1784,9 @@ impl<T> WalrusNodeClient<T> {
             )>,
         > = std::collections::HashMap::new();
 
-        for encoded_blob in &encoded_blobs {
-            let metadata = &encoded_blob.metadata;
-            let pairs = &encoded_blob.pairs;
+        for blob in blobs_with_status {
+            let metadata = &blob.metadata;
+            let pairs = &blob.pairs;
             let pairs_per_node = self
                 .pairs_per_node(metadata.blob_id(), pairs, &committees)
                 .await;
@@ -1793,7 +1802,7 @@ impl<T> WalrusNodeClient<T> {
         }
 
         // Use a reasonable limit for batched operations based on total blob count
-        let total_blob_size: u64 = encoded_blobs
+        let total_blob_size: u64 = blobs_with_status
             .iter()
             .map(|blob| blob.metadata.metadata().unencoded_length())
             .sum();
@@ -1802,7 +1811,7 @@ impl<T> WalrusNodeClient<T> {
             .max_concurrent_sliver_writes_for_blob_size(
                 total_blob_size,
                 &self.encoding_config,
-                encoded_blobs
+                blobs_with_status
                     .first()
                     .map_or(walrus_core::EncodingType::RS2, |blob| {
                         blob.metadata.metadata().encoding_type()
@@ -1810,7 +1819,7 @@ impl<T> WalrusNodeClient<T> {
             );
 
         tracing::debug!(
-            blob_count = encoded_blobs.len(),
+            blob_count = blobs_with_status.len(),
             node_count = bundles_by_node.len(),
             communication_limits = sliver_write_limit,
             "establishing batched node communications for pre-registration upload"
@@ -1881,7 +1890,7 @@ impl<T> WalrusNodeClient<T> {
                 }
                 Err(_e) => {
                     // Node failed - add error results for all blobs sent to this node
-                    for _ in &encoded_blobs {
+                    for _ in blobs_with_status {
                         all_confirmations.push(NodeResult::new(
                             node_result.committee_epoch,
                             node_result.weight,
@@ -1899,136 +1908,6 @@ impl<T> WalrusNodeClient<T> {
         }
 
         Ok(all_confirmations)
-    }
-
-    /// Helper method to send individual requests for a node when batching is not available
-    async fn send_individual_requests_for_node(
-        &self,
-        node: &NodeWriteCommunication<'_>,
-        bundles: Vec<(
-            &VerifiedBlobMetadataWithId,
-            Vec<&SliverPair>,
-            &BlobPersistenceType,
-        )>,
-    ) -> NodeResult<Vec<MultiPutBlobResponse>, StoreError> {
-        let mut results = Vec::new();
-
-        for (metadata, pairs, blob_persistence_type) in bundles {
-            let result = node
-                .store_metadata_and_pairs(metadata, pairs, blob_persistence_type)
-                .await;
-
-            let blob_result = MultiPutBlobResponse {
-                blob_id: *metadata.blob_id(),
-                result: result.result.map_err(|e| {
-                    walrus_storage_node_client::NodeError::other(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Individual request fallback failed: {e}"),
-                    ))
-                }),
-            };
-            results.push(blob_result);
-        }
-
-        // Return a placeholder NodeResult - in practice this won't be used since we prefer
-        // multi_put
-        NodeResult::new(
-            node.committee_epoch,
-            1, // Placeholder weight
-            node.node_index,
-            Ok(results),
-        )
-    }
-
-    /// Processes batched node results and generates certificates for each blob
-    async fn process_batched_results(
-        &self,
-        blobs_with_data: Vec<(
-            &VerifiedBlobMetadataWithId,
-            &[SliverPair],
-            &BlobPersistenceType,
-        )>,
-        node_results: Vec<
-            NodeResult<Vec<MultiPutBlobResponse>, walrus_storage_node_client::NodeError>,
-        >,
-        committees: &ActiveCommittees,
-    ) -> ClientResult<Vec<Result<ConfirmationCertificate, ClientError>>> {
-        use std::collections::HashMap;
-
-        // Group confirmations by blob ID
-        let mut confirmations_by_blob: HashMap<
-            BlobId,
-            Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
-        > = HashMap::new();
-
-        for node_result in node_results {
-            match node_result.result {
-                Ok(blob_results) => {
-                    for blob_result in blob_results {
-                        let confirmation_result = match blob_result.result {
-                            Ok(confirmation) => Ok(confirmation),
-                            Err(node_error) => Err(StoreError::Confirmation(node_error)),
-                        };
-
-                        confirmations_by_blob
-                            .entry(blob_result.blob_id)
-                            .or_default()
-                            .push(NodeResult::new(
-                                node_result.committee_epoch,
-                                node_result.weight,
-                                node_result.node,
-                                confirmation_result,
-                            ));
-                    }
-                }
-                Err(node_error) => {
-                    // If a node completely failed, mark all expected blobs as failed for this node
-                    for (metadata, _, _) in &blobs_with_data {
-                        confirmations_by_blob
-                            .entry(*metadata.blob_id())
-                            .or_default()
-                            .push(NodeResult::new(
-                                node_result.committee_epoch,
-                                node_result.weight,
-                                node_result.node,
-                                Err(StoreError::Confirmation(
-                                    walrus_storage_node_client::NodeError::other(
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            format!("Node failed: {node_error}"),
-                                        ),
-                                    ),
-                                )),
-                            ));
-                    }
-                }
-            }
-        }
-
-        // Generate certificates for each blob
-        let mut results = Vec::with_capacity(blobs_with_data.len());
-        for (metadata, _, _) in blobs_with_data {
-            let blob_id = *metadata.blob_id();
-
-            if let Some(confirmations) = confirmations_by_blob.remove(&blob_id) {
-                match self
-                    .confirmations_to_certificate(confirmations, committees)
-                    .await
-                {
-                    Ok(certificate) => results.push(Ok(certificate)),
-                    Err(error) => results.push(Err(error)),
-                }
-            } else {
-                // No confirmations received for this blob
-                results.push(Err(ClientErrorKind::NotEnoughConfirmations(
-                    0,
-                    committees.min_n_correct(),
-                )
-                .into()));
-            }
-        }
-
-        Ok(results)
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
