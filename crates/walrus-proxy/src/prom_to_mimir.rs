@@ -21,7 +21,7 @@ impl From<&Metric> for Mimir<RepeatedField<remote_write::Label>> {
         sorted.sort_by(|a, b| {
             (a.get_name(), a.get_value())
                 .partial_cmp(&(b.get_name(), b.get_value()))
-                .unwrap()
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         let mut r = RepeatedField::<remote_write::Label>::default();
         for label in sorted {

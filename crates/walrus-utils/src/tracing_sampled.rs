@@ -40,7 +40,7 @@ pub use once_cell::sync::Lazy;
 macro_rules! log {
     ($interval:literal, $level:ident, $($fields_and_message:tt)*) => {
         $crate::tracing_sampled::log!(
-            $crate::tracing_sampled::parse_duration($interval).unwrap(),
+            $crate::tracing_sampled::parse_duration($interval).expect("interval must be a valid duration"),
             $level,
             $($fields_and_message)*
         )

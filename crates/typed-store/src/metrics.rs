@@ -154,91 +154,91 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_total_blob_files_size: register_int_gauge_vec_with_registry!(
                 "rocksdb_total_blob_files_size",
                 "The storage size occupied by the blob files in the column family",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_total_num_files: register_int_gauge_vec_with_registry!(
                 "rocksdb_total_num_files",
                 "Total number of files used in the column family",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_num_level0_files: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_level0_files",
                 "Number of level 0 files in the column family",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_current_size_active_mem_tables: register_int_gauge_vec_with_registry!(
                 "rocksdb_current_size_active_mem_tables",
                 "The current approximate size of active memtable (bytes).",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_size_all_mem_tables: register_int_gauge_vec_with_registry!(
                 "rocksdb_size_all_mem_tables",
                 "The memory size occupied by the column family's in-memory buffer",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_num_snapshots: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_snapshots",
                 "Number of snapshots held for the column family",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_oldest_snapshot_time: register_int_gauge_vec_with_registry!(
                 "rocksdb_oldest_snapshot_time",
                 "Unit timestamp of the oldest unreleased snapshot",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_actual_delayed_write_rate: register_int_gauge_vec_with_registry!(
                 "rocksdb_actual_delayed_write_rate",
                 "The current actual delayed write rate. 0 means no delay",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_is_write_stopped: register_int_gauge_vec_with_registry!(
                 "rocksdb_is_write_stopped",
                 "Flag indicating if writes are stopped (1) or not (0) for this column family",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_block_cache_capacity: register_int_gauge_vec_with_registry!(
                 "rocksdb_block_cache_capacity",
                 "The block cache capacity of the column family.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_block_cache_capacity metric"),
             rocksdb_block_cache_usage: register_int_gauge_vec_with_registry!(
                 "rocksdb_block_cache_usage",
                 "The memory size used by the column family in the block cache.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_block_cache_usage metric"),
             rocksdb_block_cache_pinned_usage: register_int_gauge_vec_with_registry!(
                 "rocksdb_block_cache_pinned_usage",
                 "Memory size used by pinned entries in block cache",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_block_cache_pinned_usage metric"),
             rocksdb_estimate_table_readers_mem: register_int_gauge_vec_with_registry!(
                 "rocksdb_estimate_table_readers_mem",
                 "The estimated memory size used for reading SST tables in this column
@@ -247,14 +247,14 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_estimate_table_readers_mem metric"),
             rocksdb_num_immutable_mem_tables: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_immutable_mem_tables",
                 "The number of immutable memtables that have not yet been flushed.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_num_immutable_mem_tables metric"),
             rocksdb_mem_table_flush_pending: register_int_gauge_vec_with_registry!(
                 "rocksdb_mem_table_flush_pending",
                 "A 1 or 0 flag indicating whether a memtable flush is pending.
@@ -263,7 +263,7 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_mem_table_flush_pending metric"),
             rocksdb_compaction_pending: register_int_gauge_vec_with_registry!(
                 "rocksdb_compaction_pending",
                 "A 1 or 0 flag indicating whether a compaction job is pending.
@@ -275,7 +275,7 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_compaction_pending metric"),
             rocksdb_estimate_pending_compaction_bytes: register_int_gauge_vec_with_registry!(
                 "rocksdb_estimate_pending_compaction_bytes",
                 "Estimated total number of bytes compaction needs to rewrite to get all levels down
@@ -283,21 +283,21 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_estimate_pending_compaction_bytes metric"),
             rocksdb_num_running_compactions: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_running_compactions",
                 "The number of compactions that are currently running for the column family.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_num_running_compactions metric"),
             rocksdb_num_running_flushes: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_running_flushes",
                 "The number of flushes that are currently running for the column family.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("Failed to register rocksdb_num_running_flushes metric"),
             rocksdb_estimate_oldest_key_time: register_int_gauge_vec_with_registry!(
                 "rocksdb_estimate_oldest_key_time",
                 "Estimation of the oldest key timestamp in the DB. Only available
@@ -305,28 +305,28 @@ impl ColumnFamilyMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_estimated_num_keys: register_int_gauge_vec_with_registry!(
                 "rocksdb_estimated_num_keys",
                 "The estimated number of keys in the table",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_background_errors: register_int_gauge_vec_with_registry!(
                 "rocksdb_background_errors",
                 "The accumulated number of RocksDB background errors.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_base_level: register_int_gauge_vec_with_registry!(
                 "rocksdb_base_level",
                 "The number of level to which L0 data will be compacted.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
         }
     }
 }
@@ -393,7 +393,7 @@ pub struct OperationMetrics {
 impl OperationMetrics {
     pub(crate) fn new(registry: &Registry) -> Self {
         let bucket_vec = prometheus::exponential_buckets(1.0, 4.0, 15)
-            .unwrap()
+            .expect("should be able to create exponential buckets")
             .to_vec();
 
         OperationMetrics {
@@ -404,7 +404,7 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_iter_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_iter_bytes",
                 "Rocksdb iter size in bytes",
@@ -412,14 +412,14 @@ impl OperationMetrics {
                 bucket_vec.clone(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_iter_keys: register_histogram_vec_with_registry!(
                 "rocksdb_iter_keys",
                 "Rocksdb iter num keys",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_get_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_get_latency_seconds",
                 "Rocksdb get latency in seconds",
@@ -427,7 +427,7 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_get_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_get_bytes",
                 "Rocksdb get call returned data size in bytes",
@@ -435,7 +435,7 @@ impl OperationMetrics {
                 bucket_vec.clone(),
                 registry
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_multiget_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_multiget_latency_seconds",
                 "Rocksdb multiget latency in seconds",
@@ -443,7 +443,7 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_multiget_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_multiget_bytes",
                 "Rocksdb multiget call returned data size in bytes",
@@ -451,7 +451,7 @@ impl OperationMetrics {
                 bucket_vec.clone(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_put_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_put_latency_seconds",
                 "Rocksdb put latency in seconds",
@@ -459,7 +459,7 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_put_bytes",
                 "Rocksdb put call puts data size in bytes",
@@ -467,7 +467,7 @@ impl OperationMetrics {
                 bucket_vec.clone(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_batch_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_put_bytes",
                 "Rocksdb batch put call puts data size in bytes",
@@ -475,7 +475,7 @@ impl OperationMetrics {
                 bucket_vec.clone(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_delete_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_delete_latency_seconds",
                 "Rocksdb delete latency in seconds",
@@ -483,14 +483,14 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_deletes: register_int_counter_vec_with_registry!(
                 "rocksdb_deletes",
                 "Rocksdb delete calls",
                 &["cf_name"],
                 registry
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_batch_commit_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_write_batch_commit_latency_seconds",
                 "Rocksdb schema batch commit latency in seconds",
@@ -498,7 +498,7 @@ impl OperationMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_batch_commit_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_commit_bytes",
                 "Rocksdb schema batch commit size in bytes",
@@ -506,84 +506,84 @@ impl OperationMetrics {
                 bucket_vec,
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_num_active_db_handles: register_int_gauge_vec_with_registry!(
                 "rocksdb_num_active_db_handles",
                 "Number of active db handles",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_very_slow_batch_writes_count: register_int_counter_vec_with_registry!(
                 "rocksdb_num_very_slow_batch_writes",
                 "Number of batch writes that took more than 1 second",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_very_slow_batch_writes_duration_ms: register_int_counter_vec_with_registry!(
                 "rocksdb_very_slow_batch_writes_duration",
                 "Total duration of batch writes that took more than 1 second",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_very_slow_puts_count: register_int_counter_vec_with_registry!(
                 "rocksdb_num_very_slow_puts",
                 "Number of puts that took more than 1 second",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_very_slow_puts_duration_ms: register_int_counter_vec_with_registry!(
                 "rocksdb_very_slow_puts_duration",
                 "Total duration of puts that took more than 1 second",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_useful_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_useful_total",
                 "Number of times bloom filter has avoided file reads (negatives)",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_full_positive_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_full_positive_total",
                 "Number of times bloom FullFilter has not avoided the reads",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_full_true_positive_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_full_true_positive_total",
                 "Number of times bloom FullFilter hasn't avoided reads and data actually exist",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_prefix_checked_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_prefix_checked_total",
                 "Number of times prefix filter was queried",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_prefix_useful_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_prefix_useful_total",
                 "Number of times prefix filter returned false to prevent data+index block",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             rocksdb_bloom_filter_prefix_true_positive_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_prefix_true_positive_total",
                 "Number of times prefix filter found a key matching the point query",
                 &["db_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
         }
     }
 }
@@ -683,210 +683,210 @@ impl ReadPerfContextMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_cache_hit_count: register_int_counter_vec_with_registry!(
                 "block_cache_hit_count",
                 "Number of block cache hits",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_read_count: register_int_counter_vec_with_registry!(
                 "block_read_count",
                 "Number of blocks read from filesystem (cache miss or disabled)",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_read_byte: register_int_counter_vec_with_registry!(
                 "block_read_byte",
                 "Total bytes read from filesystem, including index and bloom filter blocks",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_read_nanos: register_int_counter_vec_with_registry!(
                 "block_read_nanos",
                 "Total nanos spent on block reads",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_checksum_nanos: register_int_counter_vec_with_registry!(
                 "block_checksum_nanos",
                 "Total nanos spent on verifying block checksum",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_decompress_nanos: register_int_counter_vec_with_registry!(
                 "block_decompress_nanos",
                 "Total nanos spent on decompressing a block",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_read_bytes: register_int_counter_vec_with_registry!(
                 "get_read_bytes",
                 "Total bytes for values returned by Get",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             multiget_read_bytes: register_int_counter_vec_with_registry!(
                 "multiget_read_bytes",
                 "Total bytes for values returned by MultiGet.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_snapshot_nanos: register_int_counter_vec_with_registry!(
                 "get_snapshot_nanos",
                 "Time spent in getting snapshot.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_from_memtable_nanos: register_int_counter_vec_with_registry!(
                 "get_from_memtable_nanos",
                 "Time spent on reading data from memtable.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_from_memtable_count: register_int_counter_vec_with_registry!(
                 "get_from_memtable_count",
                 "Number of memtables queried",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_post_process_nanos: register_int_counter_vec_with_registry!(
                 "get_post_process_nanos",
                 "Total nanos spent after Get() finds a key",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             get_from_output_files_nanos: register_int_counter_vec_with_registry!(
                 "get_from_output_files_nanos",
                 "Total nanos reading from output files",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             db_mutex_lock_nanos: register_int_counter_vec_with_registry!(
                 "db_mutex_lock_nanos",
                 "Time spent on acquiring db mutex",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             db_condition_wait_nanos: register_int_counter_vec_with_registry!(
                 "db_condition_wait_nanos",
                 "Time spent waiting with a condition variable created with DB Mutex.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             merge_operator_nanos: register_int_counter_vec_with_registry!(
                 "merge_operator_nanos",
                 "Time spent on merge operator.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             read_index_block_nanos: register_int_counter_vec_with_registry!(
                 "read_index_block_nanos",
                 "Time spent on reading index block from block cache or SST file",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             read_filter_block_nanos: register_int_counter_vec_with_registry!(
                 "read_filter_block_nanos",
                 "Time spent on reading filter block from block cache or SST file",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             new_table_block_iter_nanos: register_int_counter_vec_with_registry!(
                 "new_table_block_iter_nanos",
                 "Time spent on creating data block iterator",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             block_seek_nanos: register_int_counter_vec_with_registry!(
                 "block_seek_nanos",
                 "Time spent on seeking a key in data/index blocks",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             find_table_nanos: register_int_counter_vec_with_registry!(
                 "find_table_nanos",
                 "Time spent on finding or creating a table reader",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             bloom_memtable_hit_count: register_int_counter_vec_with_registry!(
                 "bloom_memtable_hit_count",
                 "Total number of mem table bloom hits",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             bloom_memtable_miss_count: register_int_counter_vec_with_registry!(
                 "bloom_memtable_miss_count",
                 "Total number of mem table bloom misses",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             bloom_sst_hit_count: register_int_counter_vec_with_registry!(
                 "bloom_sst_hit_count",
                 "Total number of SST table bloom hits",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             bloom_sst_miss_count: register_int_counter_vec_with_registry!(
                 "bloom_sst_miss_count",
                 "Total number of SST table bloom misses",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             key_lock_wait_time: register_int_counter_vec_with_registry!(
                 "key_lock_wait_time",
                 "Time spent waiting on key locks in transaction lock manager",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             key_lock_wait_count: register_int_counter_vec_with_registry!(
                 "key_lock_wait_count",
                 "Number of times acquiring a lock was blocked by another transaction",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             internal_delete_skipped_count: register_int_counter_vec_with_registry!(
                 "internal_delete_skipped_count",
                 "Total number of deleted keys skipped during iteration",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             internal_skipped_count: register_int_counter_vec_with_registry!(
                 "internal_skipped_count",
                 "Total number of internal keys skipped during iteration",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
         }
     }
 
@@ -1019,56 +1019,56 @@ impl WritePerfContextMetrics {
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_memtable_nanos: register_int_counter_vec_with_registry!(
                 "write_memtable_nanos",
                 "Total nanos spent on writing to memtable",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_delay_nanos: register_int_counter_vec_with_registry!(
                 "write_delay_nanos",
                 "Total nanos spent on delaying or throttling write",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_pre_and_post_process_nanos: register_int_counter_vec_with_registry!(
                 "write_pre_and_post_process_nanos",
                 "Total nanos spent on writing a record, excluding the above four things",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_db_mutex_lock_nanos: register_int_counter_vec_with_registry!(
                 "write_db_mutex_lock_nanos",
                 "Time spent on acquiring db mutex",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_db_condition_wait_nanos: register_int_counter_vec_with_registry!(
                 "write_db_condition_wait_nanos",
                 "Time spent waiting with a condition variable created with DB Mutex.",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_key_lock_wait_nanos: register_int_counter_vec_with_registry!(
                 "write_key_lock_wait_time",
                 "Time spent waiting on key locks in transaction lock manager",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
             write_key_lock_wait_count: register_int_counter_vec_with_registry!(
                 "write_key_lock_wait_count",
                 "Number of times acquiring a lock was blocked by another transaction",
                 &["cf_name"],
                 registry,
             )
-            .unwrap(),
+            .expect("metric registration cannot fail with valid parameters"),
         }
     }
     /// Report the metrics for the write performance
@@ -1141,7 +1141,7 @@ impl DBMetrics {
             .set(Arc::new(DBMetrics::new(registry)))
             // this happens many times during tests
             .tap_err(|_| tracing::warn!("DBMetrics registry overwritten"));
-        ONCE.get().unwrap()
+        ONCE.get().expect("DBMetrics should be initialized")
     }
     /// Increment the number of active databases
     pub fn increment_num_active_dbs(&self, db_name: &str) {

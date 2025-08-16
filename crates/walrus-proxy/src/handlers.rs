@@ -21,7 +21,7 @@ static HANDLER_HITS: Lazy<CounterVec> = Lazy::new(|| {
             Opts::new("http_handler_hits", "Number of HTTP requests made.",),
             &["handler", "remote"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 
@@ -38,7 +38,7 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             ]),
             &["handler", "remote"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 
