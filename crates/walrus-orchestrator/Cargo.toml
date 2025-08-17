@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 aws-config = "1.5.18"
-aws-runtime = "1.5.9"
+aws-runtime = "1.5.10"
 aws-sdk-ec2 = "1.116.0"
 clap.workspace = true
 color-eyre = "0.6.5"
