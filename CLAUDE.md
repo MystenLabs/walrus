@@ -73,6 +73,10 @@ secondary encoding provides additional redundancy.
 
 4. **Client SDK** (`crates/walrus-sdk/`): High-level API for blob storage/retrieval, committee management, and resource allocation.
 
+### core concepts
+1. Blob ID is determined by the blob data, the same data result in the same ID, as well as the
+same sliver pairs.
+
 ### Key Data Flow
 
 **Write Path**:
@@ -122,7 +126,14 @@ secondary encoding provides additional redundancy.
 - The system assumes AVX2/SSSE3 on x86 and Neon on ARM for efficient encoding
 
 
-## Node format
+## Code format
 - Each line should be less than 100 characters, for *.rs files, note that explicit line break
   should be used.
 - Each comment should end with a period.
+- Avoid fully qualified type names (e.g., `walrus_storage_node_client::api::MultiPutBundle`).
+  Instead, import the types first and use simple names (e.g., `use ... ::api::MultiPutBundle;`
+  then just `MultiPutBundle`).
+
+
+## Manual confirmation
+- Ask me everytime before making changes to the code for manual review.

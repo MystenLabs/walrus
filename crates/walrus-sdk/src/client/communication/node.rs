@@ -22,7 +22,7 @@ use walrus_core::{
 use walrus_storage_node_client::{
     NodeError,
     StorageNodeClient,
-    api::{BlobStatus, StoredOnNodeStatus},
+    api::{BlobStatus, MultiPutBundle, MultiPutRequest, StoredOnNodeStatus},
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -95,7 +95,7 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
 #[allow(dead_code)]
 pub struct MultiPutBlobResponse {
     pub blob_id: BlobId,
-    pub result: Result<SignedStorageConfirmation, walrus_storage_node_client::NodeError>,
+    pub result: Result<SignedStorageConfirmation, NodeError>,
 }
 
 pub(crate) struct NodeCommunication<'a, W = ()> {
@@ -557,25 +557,9 @@ impl NodeWriteCommunication<'_> {
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn multi_put(
         &self,
-        blob_bundles: Vec<(
-            &VerifiedBlobMetadataWithId,
-            Vec<&SliverPair>,
-            &BlobPersistenceType,
-        )>,
-    ) -> NodeResult<Vec<MultiPutBlobResponse>, walrus_storage_node_client::NodeError> {
-        use walrus_storage_node_client::api::{MultiPutBundle, MultiPutRequest};
-
-        tracing::debug!("storing {} blobs via multi-put", blob_bundles.len());
-
-        let bundles: Vec<MultiPutBundle> = blob_bundles
-            .into_iter()
-            .map(|(metadata, pairs, blob_type)| MultiPutBundle {
-                blob_id: *metadata.blob_id(),
-                metadata: Some(metadata.clone()),
-                sliver_pairs: pairs.into_iter().cloned().collect(),
-                blob_persistence_type: *blob_type,
-            })
-            .collect();
+        bundles: Vec<MultiPutBundle>,
+    ) -> NodeResult<Vec<MultiPutBlobResponse>, NodeError> {
+        tracing::debug!("storing {} blobs via multi-put", bundles.len());
 
         let request = MultiPutRequest {
             epoch: self.committee_epoch,
@@ -585,7 +569,7 @@ impl NodeWriteCommunication<'_> {
         let total_shards = request
             .bundles
             .iter()
-            .map(|bundle| bundle.sliver_pairs.len() * 2) // each pair has 2 slivers
+            .map(|bundle| bundle.sliver_pairs.len() * 2) // Each pair has 2 slivers.
             .sum::<usize>();
 
         let result = self
@@ -601,7 +585,7 @@ impl NodeWriteCommunication<'_> {
                         let confirmation_result = if blob_result.success {
                             blob_result.confirmation.ok_or_else(|| {
                                 use std::io::Error;
-                                walrus_storage_node_client::NodeError::other(Error::new(
+                                NodeError::other(Error::new(
                                     std::io::ErrorKind::InvalidData,
                                     "Success response missing confirmation",
                                 ))
@@ -611,13 +595,13 @@ impl NodeWriteCommunication<'_> {
                                 .error
                                 .map(|status| {
                                     use std::io::Error;
-                                    walrus_storage_node_client::NodeError::other(Error::other(
-                                        format!("Storage error: {status}"),
-                                    ))
+                                    NodeError::other(Error::other(format!(
+                                        "Storage error: {status}"
+                                    )))
                                 })
                                 .unwrap_or_else(|| {
                                     use std::io::Error;
-                                    walrus_storage_node_client::NodeError::other(Error::new(
+                                    NodeError::other(Error::new(
                                         std::io::ErrorKind::InvalidData,
                                         "Failed response missing error",
                                     ))
