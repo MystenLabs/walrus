@@ -11783,7 +11783,6 @@ checksum = "7f960dc1df82e5a0cff5a77e986a10ec7bfabf23ff2377922e012af742878e12"
 dependencies = [
  "futures-util",
  "pin-project-lite",
- "tokio",
  "tokio-stream",
 ]
 

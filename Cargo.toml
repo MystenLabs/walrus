@@ -130,6 +130,7 @@ tempfile = "3.20.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
 thiserror = "2.0.15"
 tokio = { version = "=1.46.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-metrics = { version = "0.4.2", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
 tonic = { version = "0.13.1", default-features = false }
