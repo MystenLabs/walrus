@@ -1499,15 +1499,6 @@ impl StorageNode {
     }
 
     #[tracing::instrument(skip_all)]
-    fn next_event_index(&self) -> anyhow::Result<u64> {
-        Ok(self
-            .inner
-            .storage
-            .get_event_cursor_and_next_index()?
-            .map_or(0, |e| e.next_event_index()))
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn process_epoch_change_start_event(
         &self,
         event_handle: EventHandle,
@@ -2122,6 +2113,7 @@ impl StorageNode {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
         &self.inner
     }

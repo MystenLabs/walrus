@@ -94,7 +94,7 @@ pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
 /// Convenience trait to apply bounds on the ServiceState.
-trait SyncServiceState: ServiceState + Send + Sync + 'static {}
+pub(crate) trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 
 /// Get blob metadata.

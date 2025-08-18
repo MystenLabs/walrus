@@ -395,14 +395,21 @@ pub enum SyncNodeConfigError {
     #[error("Node needs reboot")]
     NodeNeedsReboot,
     /// A SuiClientError occurred.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
-    SuiClientError(#[from] SuiClientError),
+    SuiClientError(#[from] Box<SuiClientError>),
     /// The node configuration is inconsistent with the on-chain configuration.
     #[error("Node config is inconsistent: {0}")]
     NodeConfigInconsistent(String),
     /// An unexpected error occurred.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl From<SuiClientError> for SyncNodeConfigError {
+    fn from(value: SuiClientError) -> Self {
+        Self::SuiClientError(Box::new(value))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

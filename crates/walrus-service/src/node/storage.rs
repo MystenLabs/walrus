@@ -531,7 +531,10 @@ impl Storage {
 
     /// Returns the blob info for `blob_id`.
     #[tracing::instrument(skip_all)]
-    pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
+    pub(crate) fn get_blob_info(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
     }
 

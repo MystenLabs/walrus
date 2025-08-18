@@ -478,7 +478,7 @@ pub(super) trait ToBytes: Serialize + Sized {
         bcs::to_bytes(self).expect("value must be BCS-serializable")
     }
 }
-pub(super) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
+trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
     type MergeOperand: Debug + DeserializeOwned + ToBytes;
 
     /// Updates the existing blob info with the provided merge operand and returns the result.
@@ -1653,7 +1653,7 @@ where
     skip(existing_val, operands),
     fields(existing_val = existing_val.is_some())
 )]
-pub(crate) fn merge_mergeable<T: Mergeable>(
+fn merge_mergeable<T: Mergeable>(
     key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,

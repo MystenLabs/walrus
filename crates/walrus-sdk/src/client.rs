@@ -671,9 +671,9 @@ impl<T: ReadClient> WalrusNodeClient<T> {
 
     /// Retrieves specific slivers from storage nodes based on their indices.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn retrieve_slivers<'a, E: EncodingAxis>(
+    async fn retrieve_slivers<E: EncodingAxis>(
         &self,
-        metadata: &'a VerifiedBlobMetadataWithId,
+        metadata: &VerifiedBlobMetadataWithId,
         sliver_selector: &SliverSelector<E>,
         certified_epoch: Epoch,
         timeout_duration: Duration,
