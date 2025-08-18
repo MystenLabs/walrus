@@ -31,7 +31,7 @@
       },
       "https://aggregator.walrus.mainnet.mozcomputing.dev": {
         "operator": "MozComputing",
-        "cache": true
+        "functional": false
       },
       "https://aggregator.walrus.silentvalidator.com": {
         "operator": "Silent",
@@ -259,7 +259,7 @@
       },
       "https://aggregator.testnet.walrus.mirai.cloud": {
         "operator": "Studio Mirai",
-        "cache": true
+        "cache": false
       },
       "https://aggregator.walrus-01.tududes.com": {
         "operator": "TuDudes",
@@ -295,7 +295,7 @@
       },
       "https://testnet-aggregator.walrus.graphyte.dev": {
         "operator": "Graphyte Labs",
-        "cache": true
+        "cache": false
       },
       "https://testnet-walrus.globalstake.io": {
         "operator": "GlobalSTake",
@@ -335,7 +335,7 @@
       },
       "https://walrus-aggregator-testnet.staking4all.org": {
         "operator": "Staking4All",
-        "cache": true
+        "cache": false
       },
       "https://walrus-aggregator-testnet.suisec.tech": {
         "operator": "SuiSec",
@@ -343,7 +343,7 @@
       },
       "https://walrus-aggregator.thcloud.dev": {
         "operator": "THCloudAI",
-        "cache": true
+        "cache": false
       },
       "https://walrus-test-aggregator.thepassivetrust.com": {
         "operator": "TPT",
@@ -359,11 +359,11 @@
       },
       "https://walrus-testnet-aggregator.chainbase.online": {
         "operator": "Chainbase Staking",
-        "cache": false
+        "cache": true
       },
       "https://walrus-testnet-aggregator.chainflow.io": {
         "operator": "Chainflow",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.crouton.digital": {
         "operator": "CroutonDigital",
@@ -391,7 +391,7 @@
       },
       "https://walrus-testnet-aggregator.nodes.guru": {
         "operator": "Nodes.Guru",
-        "cache": true
+        "cache": false
       },
       "https://walrus-testnet-aggregator.redundex.com": {
         "operator": "Redundex",
@@ -463,7 +463,7 @@
       },
       "https://walrus.testnet.aggregator.stakepool.dev.br": {
         "operator": "StakePool",
-        "cache": false
+        "cache": true
       },
       "https://walrusagg.testnet.pops.one": {
         "operator": "P-OPS Team",
