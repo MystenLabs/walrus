@@ -40,8 +40,11 @@ paths:
       - name: deletable
         in: query
         description: |-
-          If true, the publisher creates a deletable blob instead of a permanent one. *This will
-          become the default behavior starting with v1.33.*
+          If true, the publisher creates a deletable blob.
+
+          This flag is currently optional as new blobs are created as deletable by default since
+          v1.33; however, it is still recommended to explicitly use the flag when storing new
+          deletable blobs.
         required: false
         schema:
           type: boolean
@@ -49,8 +52,9 @@ paths:
       - name: permanent
         in: query
         description: |-
-          If true, the publisher creates a permanent blob. This is currently the default behavior;
-          but *blobs will be deletable by default starting with v1.33*.
+          If true, the publisher creates a permanent blob instead of a deletable one.
+
+          This was the default behavior before v1.33, but *blobs are now deletable by default*.
         required: false
         schema:
           type: boolean
@@ -379,8 +383,11 @@ paths:
       - name: deletable
         in: query
         description: |-
-          If true, the publisher creates a deletable blob instead of a permanent one. *This will
-          become the default behavior starting with v1.33.*
+          If true, the publisher creates a deletable blob.
+
+          This flag is currently optional as new blobs are created as deletable by default since
+          v1.33; however, it is still recommended to explicitly use the flag when storing new
+          deletable blobs.
         required: false
         schema:
           type: boolean
@@ -388,8 +395,9 @@ paths:
       - name: permanent
         in: query
         description: |-
-          If true, the publisher creates a permanent blob. This is currently the default behavior;
-          but *blobs will be deletable by default starting with v1.33*.
+          If true, the publisher creates a permanent blob instead of a deletable one.
+
+          This was the default behavior before v1.33, but *blobs are now deletable by default*.
         required: false
         schema:
           type: boolean

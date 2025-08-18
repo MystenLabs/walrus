@@ -65,8 +65,7 @@ impl StoreArgs {
             encoding_type: DEFAULT_ENCODING,
             epochs_ahead: 1,
             store_optimizations: StoreOptimizations::all(),
-            // TODO(WAL-911): Ensure this is changed to `Deletable`, once we switch the defaults.
-            persistence: BlobPersistence::Permanent,
+            persistence: BlobPersistence::Deletable,
             post_store: PostStoreAction::Keep,
             metrics: None,
             upload_relay_client: None,
