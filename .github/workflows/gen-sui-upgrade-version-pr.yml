@@ -65,9 +65,15 @@ jobs:
 
               # Use extended regex, in-place
               sed -E -i \
-                -e 's|^([[:space:]]*Sui[[:space:]]*=[[:space:]]*\{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui\.git"[^}]*subdir[[:space:]]*=[[:space:]]*"crates/sui-framework/packages/sui-framework"[^}]*rev[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
-                -e 's|^([[:space:]]*[A-Za-z0-9_\-]+[[:space:]]*=[[:space:]]*\{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui(\.git)?"[^}]*,?[[:space:]]*tag[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
-                -e 's|^([[:space:]]*[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*")testnet-v[0-9]+\.[0-9]+\.[0-9]+(")|\1'"$NEW_TAG"'\2|' \
+                -e 's|^([[:space:]]*Sui[[:space:]]*=[[:space:]]*\{[^}]*\
+                  git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui\.git"[^}]*\
+                  subdir[[:space:]]*=[[:space:]]*"crates/sui-framework/packages/sui-framework"\
+                  [^}]*rev[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
+                -e 's|^([[:space:]]*[A-Za-z0-9_\-]+[[:space:]]*=[[:space:]]*\
+                  \{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui(\.git)?"\
+                  [^}]*,?[[:space:]]*tag[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
+                -e 's|^([[:space:]]*[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*")\
+                  testnet-v[0-9]+\.[0-9]+\.[0-9]+(")|\1'"$NEW_TAG"'\2|' \
                 "$f"
 
               after="$(sha1sum "$f" | awk '{print $1}')"
@@ -99,4 +105,7 @@ jobs:
             --head "$BRANCH" \
             --title "chore: bump Sui to ${NEW_TAG}" \
             --reviewer "ebmifa,mlender" \
-            --body $'Automated Sui bump with single-pass updater:\n\n1) Move.toml Sui framework rev (repo+subdir strict)\n2) Cargo.toml Sui git deps tag (repo URL strict)\n3) docker/**/sui_version.toml\n\n`cargo build` run to refresh lockfiles.'
+            --body $'Automated Sui bump with single-pass updater:\n\n\
+                1) Move.toml Sui framework rev (repo+subdir strict)\n\
+                2) Cargo.toml Sui git deps tag (repo URL strict)\n\
+                3) docker/**/sui_version.toml\n\n`cargo build` run to refresh lockfiles.'
