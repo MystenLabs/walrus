@@ -1,0 +1,102 @@
+name: Generate Sui Version Upgrade PR
+run-name: Generate Sui Version Upgrade PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_tag:
+        description: "New Sui tag (e.g., testnet-v1.55.0)"
+        required: true
+        type: string
+
+concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for gh pr create
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+
+      - name: Update Sui refs (single loop), build, commit, push, PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          NEW_TAG="${{ inputs.new_tag }}"
+          BASE="main"   # <-- always use main as the base branch
+
+          # One list with all relevant TOML locations (globs ok)
+          FILES=(
+            "Move.toml"
+            "crates/**/Move.toml"
+            "contracts/**/Move.toml"
+            "apps/**/Move.toml"
+            "Cargo.toml"
+            "crates/**/Cargo.toml"
+            "apps/**/Cargo.toml"
+            "docker/**/sui_version.toml"
+          )
+
+          STAMP="$(date +%Y%m%d%H%M%S)"
+          BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
+          git checkout -b "$BRANCH"
+
+          shopt -s nullglob globstar
+          changed=0
+
+          # A single sed script with three *independent* substitutions:
+          # 1) Move.toml Sui framework rev (strict: repo + subdir must match)
+          # 2) Cargo.toml Sui git deps tag (strict: same inline table contains the Sui repo URL)
+          # 3) docker/*/sui_version.toml simple key="testnet-vX.Y.Z"
+          for pat in "${FILES[@]}"; do
+            for f in $pat; do
+              [[ -f "$f" ]] || continue
+              before="$(sha1sum "$f" | awk '{print $1}')"
+
+              # Use extended regex, in-place
+              sed -E -i \
+                -e 's|^([[:space:]]*Sui[[:space:]]*=[[:space:]]*\{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui\.git"[^}]*subdir[[:space:]]*=[[:space:]]*"crates/sui-framework/packages/sui-framework"[^}]*rev[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
+                -e 's|^([[:space:]]*[A-Za-z0-9_\-]+[[:space:]]*=[[:space:]]*\{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui(\.git)?"[^}]*,?[[:space:]]*tag[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
+                -e 's|^([[:space:]]*[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*")testnet-v[0-9]+\.[0-9]+\.[0-9]+(")|\1'"$NEW_TAG"'\2|' \
+                "$f"
+
+              after="$(sha1sum "$f" | awk '{print $1}')"
+              if [[ "$before" != "$after" ]]; then
+                echo "updated: $f"
+                git add "$f"
+                changed=1
+              fi
+            done
+          done
+
+          if [[ "$changed" -ne 1 ]]; then
+            echo "No matching lines changed; nothing to do."
+            exit 0
+          fi
+
+          # Build & lockfiles
+          cargo build --locked || cargo build
+          git add Cargo.lock **/Cargo.lock 2>/dev/null || true
+
+          # Commit, push, PR
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: bump Sui to ${NEW_TAG}"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "chore: bump Sui to ${NEW_TAG}" \
+            --reviewer "ebmifa,mlender" \
+            --body $'Automated Sui bump with single-pass updater:\n\n1) Move.toml Sui framework rev (repo+subdir strict)\n2) Cargo.toml Sui git deps tag (repo URL strict)\n3) docker/**/sui_version.toml\n\n`cargo build` run to refresh lockfiles.'
