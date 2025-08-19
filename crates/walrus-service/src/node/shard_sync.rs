@@ -607,7 +607,7 @@ impl ShardSyncHandler {
     #[cfg(all(msim, test, feature = "test-utils"))]
     pub async fn no_pending_recover_metadata(&self) -> bool {
         let task_handle = self.task_handle.lock().await;
-        task_handle.is_none() || task_handle.as_ref().expect("task_handle should be Some when not None").is_finished()
+        task_handle.is_none() || task_handle.as_ref().unwrap().is_finished()
     }
 
     #[cfg(all(msim, test, feature = "test-utils"))]

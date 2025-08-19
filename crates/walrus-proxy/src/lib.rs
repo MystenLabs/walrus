@@ -80,10 +80,7 @@ macro_rules! var {
     };
     ($key:expr, $default:expr) => {
         match std::env::var($key) {
-            Ok(val) => val.parse::<_>().unwrap_or_else(|_| {
-                tracing::warn!("cannot fail when parsing environment variable {} because fallback to default value", stringify!($key));
-                $default
-            }),
+            Ok(val) => val.parse::<_>().expect("cannot fail when parsing environment variable"),
             Err(_) => $default,
         }
     };

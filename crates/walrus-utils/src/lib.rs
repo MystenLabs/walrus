@@ -76,7 +76,7 @@ macro_rules! crumb {
             file!(),
             line!(),
             std::thread::current().id(),
-            name.strip_suffix("::f").unwrap_or(name),
+            name.strip_suffix("::f").expect("type name should end with ::f"),
             format!($($arg)+),
         );
     }};

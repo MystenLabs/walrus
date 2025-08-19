@@ -8,7 +8,8 @@
 // TODO(WAL-869): Remove this attribute and fix corresponding warnings.
 #![allow(
     clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    clippy::unwrap_used
 )]
 #![warn(rust_2018_idioms)]
 
