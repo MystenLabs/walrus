@@ -560,9 +560,11 @@ pub async fn get_client_with_config(
     tracing::debug!(?client_config, "loaded client config");
 
     if client_config.rpc_urls.is_empty() {
-        tracing::error!("No RPC URLs provided in the client configuration. Upload relay requires \
-            at least one RPC URL specified within your client config. (Run with RUST_LOG=debug for \
-            more information.)");
+        tracing::error!(
+            "No RPC URLs provided in the client configuration. Upload relay requires at least one \
+            RPC URL specified within your client config. (Run with RUST_LOG=debug for more \
+            information.)"
+        );
         std::process::exit(1);
     }
 
