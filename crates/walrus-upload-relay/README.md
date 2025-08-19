@@ -151,6 +151,7 @@ For the sake of the example below, we're assuming that:
   the `walrus-upload-relay` configuration, as described [here](about:blank).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
   configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
+- You *must* specify one or more `rpc_urls` within the active context of your `client_config.yaml`.
 - Port 3000 is available for the relay to bind to (change this to whichever port you'd like to
   expose from your host.)
 

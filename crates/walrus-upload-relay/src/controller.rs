@@ -35,7 +35,7 @@ use utoipa_redoc::{Redoc, Servable};
 use walrus_sdk::{
     SuiReadClient,
     client::WalrusNodeClient,
-    config::ClientConfig,
+    config::{ClientConfig, load_configuration},
     core::{
         BlobId,
         EncodingType,
@@ -549,11 +549,7 @@ pub async fn get_client(
     walrus_config: &Path,
     registry: &Registry,
 ) -> Result<WalrusNodeClient<SuiReadClient>> {
-    get_client_with_config(
-        walrus_sdk::config::load_configuration(Some(walrus_config), context)?,
-        registry,
-    )
-    .await
+    get_client_with_config(load_configuration(Some(walrus_config), context)?, registry).await
 }
 
 /// Returns a Walrus read client with the specified configuration.
@@ -562,6 +558,13 @@ pub async fn get_client_with_config(
     registry: &Registry,
 ) -> Result<WalrusNodeClient<SuiReadClient>> {
     tracing::debug!(?client_config, "loaded client config");
+
+    if client_config.rpc_urls.is_empty() {
+        tracing::error!("No RPC URLs provided in the client configuration. Upload relay requires \
+            at least one RPC URL specified within your client config. (Run with RUST_LOG=debug for \
+            more information.)");
+        std::process::exit(1);
+    }
 
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
         &client_config.rpc_urls,
