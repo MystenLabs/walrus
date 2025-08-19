@@ -87,7 +87,9 @@ db_config:
   committee_store: null
   event_store: null
   init_state: null
-  shared_block_cache_config: null
+  storage_shared_block_cache_config: null
+  event_processor_shared_block_cache_config: null
+  event_blob_writer_shared_block_cache_config: null
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null

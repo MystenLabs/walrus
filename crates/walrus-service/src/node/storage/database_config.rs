@@ -346,9 +346,12 @@ pub struct DatabaseConfig {
     /// Init state store database options.
     pub(super) init_state: Option<DatabaseTableOptions>,
 
-    /// Shared block cache configuration. When present, all column families share a single block
-    /// cache. When None (default), each column family has its own block cache.
-    pub(super) shared_block_cache_config: Option<SharedBlockCacheConfig>,
+    /// Shared block cache configuration for column families in storage node DB.
+    pub storage_shared_block_cache_config: Option<SharedBlockCacheConfig>,
+    /// Shared block cache configuration for column families in event processor DB.
+    pub event_processor_shared_block_cache_config: Option<SharedBlockCacheConfig>,
+    /// Shared block cache configuration for column families in event blob writer DB.
+    pub event_blob_writer_shared_block_cache_config: Option<SharedBlockCacheConfig>,
 }
 
 impl DatabaseConfig {
@@ -478,11 +481,6 @@ impl DatabaseConfig {
     pub fn init_state(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.init_state, self.standard())
     }
-
-    /// Returns true if shared block cache mode is enabled.
-    pub fn use_shared_block_cache(&self) -> bool {
-        self.shared_block_cache_config.is_some()
-    }
 }
 
 impl Default for DatabaseConfig {
@@ -510,7 +508,9 @@ impl Default for DatabaseConfig {
             committee_store: None,
             event_store: None,
             init_state: None,
-            shared_block_cache_config: None,
+            storage_shared_block_cache_config: None,
+            event_processor_shared_block_cache_config: None,
+            event_blob_writer_shared_block_cache_config: None,
         }
     }
 }
@@ -527,14 +527,12 @@ pub struct DatabaseTableOptionsFactory {
 
 impl DatabaseTableOptionsFactory {
     /// Creates a new DatabaseTableOptionsFactory with a shared block cache.
-    pub fn new(config: DatabaseConfig) -> Self {
-        let block_cache =
-            config
-                .shared_block_cache_config
-                .as_ref()
-                .map(|shared_block_cache_config| {
-                    Cache::new_lru_cache(shared_block_cache_config.cache_size)
-                });
+    pub fn new(config: DatabaseConfig, block_cache_config: Option<SharedBlockCacheConfig>) -> Self {
+        let block_cache = block_cache_config
+            .as_ref()
+            .map(|shared_block_cache_config| {
+                Cache::new_lru_cache(shared_block_cache_config.cache_size)
+            });
 
         Self {
             block_cache,
