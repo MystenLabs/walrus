@@ -120,11 +120,24 @@ You can store a single file or multiple files, separated by spaces. Notably, thi
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
 in the current directory.
 
-By default, the command will store the blob as a *permanent* blob, although this is going to change
-in the near future. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs) for more
-details on deletable blobs. Also, by default an owned `Blob` object is created. It is possible to
-wrap this into a shared object, which can be funded and extended by anyone, see the [shared blobs
-section](#shared-blobs).
+You can specify whether a newly stored blob is *deletable* or *permanent* through the `--deletable`
+and `--permanent` option, respectively:
+
+- A permanent blob remains available until its expiry epoch. Not even the uploader may delete it
+  beforehand.
+- In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the
+  corresponding Sui object. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs)
+  for more details.
+
+```admonish warning title="Change of default blob persistence"
+Up to (including) version 1.32, the CLI and [publisher](./web-api.md) store blobs as *permanent* by
+default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make
+sure to use the appropriate flag.
+```
+
+By default an owned `Blob` object is created. It is possible to wrap this into a shared object,
+which can be funded and extended by anyone, see the [shared blobs section](#shared-blobs).
 
 When storing a blob, the client performs a number of automatic optimizations, including the
 following:
@@ -137,7 +150,7 @@ following:
   of buying a new one.
 - If the blob is already certified on Walrus but as a *deletable* blob or not for a sufficient
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
-  collects the availability certificate
+  collects the availability certificate.
 
 ```admonish tip title="Costs"
 We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
@@ -216,11 +229,9 @@ See `walrus extend --help` for more information on blob extension.
 
 ## Reclaiming space via deletable blobs
 
-By default `walrus store` uploads a permanent blob available until after its expiry
-epoch. Not even the uploader may delete it beforehand. However, optionally, the store command
-may be invoked with the `--deletable` flag, to indicate the blob may be deleted before its expiry
-by the owner of the Sui blob object representing the blob. Deletable blobs are indicated as such
-in the Sui events that certify them, and should not be relied upon for availability by others.
+A blob that was created as *deletable* may be deleted before its expiry by the owner of the Sui blob
+object representing the blob. Deletable blobs are indicated as such in the Sui events that certify
+them, and should not be relied upon for availability by others.
 
 A deletable blob may be deleted with the command:
 
@@ -248,7 +259,7 @@ public blob may be cached or downloaded by users, and these copies are not delet
 
 ```admonish danger title="Delete reclaims space only"
 **All blobs stored in Walrus are public and discoverable by all.** The `delete` command will
-not delete slivers if other copies of the blob are stored on Walrus possibly by other users.
+not delete slivers if other copies of the blob are stored on Walrus, possibly by other users.
 It does not delete blobs from caches, slivers from past storage nodes, or copies
 that could have been made by users before the blob was deleted.
 ```

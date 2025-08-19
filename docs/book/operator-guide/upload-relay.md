@@ -98,7 +98,7 @@ default, but each relay can independently configure this).
 
 See the full OpenAPI spec for the upload relay for the full details
 ([yaml](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.yaml),
-[html](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html))
+[html](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html)).
 
 Essentially, the client sends a POST request to the `/v1/blob-upload-relay` API endpoint on the relay,
 containing the bytes of the blob to be stored in the body.
