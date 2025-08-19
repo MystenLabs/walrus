@@ -1410,7 +1410,8 @@ impl StorageNode {
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
 
-        match epoch_change_event {
+        // Log the event reception with appropriate level
+        match &epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
                     ?epoch_change_event,
@@ -1426,17 +1427,13 @@ impl StorageNode {
                 );
             }
         }
+
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
-                self.epoch_change_driver
-                    .cancel_scheduled_voting_end(event.next_epoch);
-                self.epoch_change_driver.schedule_initiate_epoch_change(
-                    NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
-                );
-                self.epoch_change_driver.schedule_process_subsidies();
+                self.handle_epoch_parameters_selected(event);
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
@@ -1468,6 +1465,23 @@ impl StorageNode {
             }
         }
         Ok(())
+    }
+
+    /// Handles the epoch parameters selected event.
+    ///
+    /// This function cancels the scheduled voting end and initiates the epoch change.
+    /// It also schedules the process subsidies and marks the event as complete.
+    #[tracing::instrument(skip_all)]
+    fn handle_epoch_parameters_selected(
+        &self,
+        event: walrus_sdk::sui::types::EpochParametersSelected,
+    ) {
+        self.epoch_change_driver
+            .cancel_scheduled_voting_end(event.next_epoch);
+        self.epoch_change_driver.schedule_initiate_epoch_change(
+            NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
+        );
+        self.epoch_change_driver.schedule_process_subsidies();
     }
 
     #[tracing::instrument(skip_all)]
@@ -2562,6 +2576,21 @@ impl StorageNodeInner {
 
         worker.call(request).map_err(convert_error).await
     }
+
+    /// Common validation for blob operations
+    fn validate_blob_access<E>(
+        &self,
+        blob_id: &BlobId,
+        forbidden_error: E,
+        unavailable_error: E,
+    ) -> Result<(), E>
+    where
+        E: From<anyhow::Error>,
+    {
+        ensure!(!self.is_blocked(blob_id), forbidden_error);
+        ensure!(self.is_blob_registered(blob_id)?, unavailable_error,);
+        Ok(())
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -2724,12 +2753,11 @@ impl ServiceState for StorageNodeInner {
             }
         }
 
-        ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
-
-        ensure!(
-            self.is_blob_registered(blob_id)?,
+        self.validate_blob_access(
+            blob_id,
+            RetrieveMetadataError::Forbidden,
             RetrieveMetadataError::Unavailable,
-        );
+        )?;
 
         self.storage
             .get_metadata(blob_id)
@@ -2809,12 +2837,11 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<Sliver, RetrieveSliverError> {
         self.check_index(sliver_pair_index)?;
 
-        ensure!(!self.is_blocked(blob_id), RetrieveSliverError::Forbidden);
-
-        ensure!(
-            self.is_blob_registered(blob_id)?,
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
             RetrieveSliverError::Unavailable,
-        );
+        )?;
 
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
