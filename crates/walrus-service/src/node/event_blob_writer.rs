@@ -363,7 +363,12 @@ impl EventBlobWriterFactory {
         fs::create_dir_all(db_path.as_path())?;
 
         let mut db_opts = Options::from(&db_config.global());
-        let db_table_opts_factory = DatabaseTableOptionsFactory::new(db_config.clone());
+        let db_table_opts_factory = DatabaseTableOptionsFactory::new(
+            db_config.clone(),
+            db_config
+                .event_blob_writer_shared_block_cache_config
+                .clone(),
+        );
         let metric_conf = MetricConf::new("event_blob_writer");
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);

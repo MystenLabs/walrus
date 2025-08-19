@@ -2338,6 +2338,7 @@ pub fn default_db_options() -> DBOptions {
     // https://github.com/EighteenZi/rocksdb_wiki/blob/master/.
     // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks
     opt.set_block_based_table_factory(&get_block_options(
+        // Use a dedicated 128MB block cache for the default column family.
         &Cache::new_lru_cache(128 << 20),
         Some(16 << 10),
         Some(true),
@@ -2353,6 +2354,9 @@ pub fn default_db_options() -> DBOptions {
 }
 
 /// Get the block options.
+///
+/// Note that this function requires the caller to provide a block cache. If each column family
+/// uses different block cache, the caller should create a block cache for each column family.
 pub fn get_block_options(
     block_cache: &Cache,
     block_size_bytes: Option<usize>,
