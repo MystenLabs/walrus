@@ -79,7 +79,6 @@ axum = { workspace = true, features = [
   "tracing",
 ] }
 axum-extra = { workspace = true, features = ["multipart", "query", "typed-header"] }
-
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 bincode = { workspace = true, optional = true }
