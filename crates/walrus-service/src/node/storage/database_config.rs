@@ -1107,4 +1107,31 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_factory_uses_storage_shared_cache_config() -> TestResult {
+        let yaml = indoc! {"
+            storage_shared_block_cache_config:
+                cache_size: 4294967296  # 4 GB
+            event_processor_shared_block_cache_config:
+                cache_size: 1073741824  # 1 GB
+            event_blob_writer_shared_block_cache_config:
+                cache_size: 536870912  # 512 MB
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        assert!(config.storage_shared_block_cache_config.is_some());
+        assert!(config.event_processor_shared_block_cache_config.is_some());
+        assert!(config.event_blob_writer_shared_block_cache_config.is_some());
+
+        let factory = DatabaseTableOptionsFactory::new(
+            config.clone(),
+            config.storage_shared_block_cache_config.clone(),
+        );
+
+        // Factory should have created a shared cache from the config
+        assert!(factory.block_cache.is_some());
+
+        Ok(())
+    }
 }
