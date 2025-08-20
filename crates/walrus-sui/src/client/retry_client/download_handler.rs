@@ -105,6 +105,10 @@ impl CheckpointDownloadHandler {
             .lock()
             .expect("mutex should not be poisoned");
         failures.remove(&sequence_number);
+
+        if let Some(metrics) = &self.metrics {
+            metrics.record_checkpoint_download_success_source("primary");
+        }
     }
 
     /// Called on fallback success for a specific sequence_number.
@@ -115,6 +119,10 @@ impl CheckpointDownloadHandler {
             .lock()
             .expect("mutex should not be poisoned");
         failures.remove(&sequence_number);
+
+        if let Some(metrics) = &self.metrics {
+            metrics.record_checkpoint_download_success_source("fallback");
+        }
     }
 
     /// Determines the initial action for fetching a checkpoint.
