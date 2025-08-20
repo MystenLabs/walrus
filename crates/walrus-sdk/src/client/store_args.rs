@@ -134,6 +134,11 @@ impl StoreArgs {
         self.with_persistence(BlobPersistence::Deletable)
     }
 
+    /// Convenience method for `with_persistence(BlobPersistence::Permanent)`.
+    pub fn permanent(self) -> Self {
+        self.with_persistence(BlobPersistence::Permanent)
+    }
+
     /// Observe the encoding latency, if metrics are present.
     pub fn maybe_observe_encoding_latency(&self, duration: Duration) {
         if let Some(metrics) = self.metrics_ref() {

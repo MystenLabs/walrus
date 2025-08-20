@@ -422,21 +422,47 @@ async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     test_store_with_existing_blob_resource -> TestResult : [
-        reuse_resource: (1, 1, true),
-        reuse_resource_two: (2, 1, true),
-        reuse_and_extend: (1, 2, true),
+        reuse_resource_permanent_1: (
+            1, BlobPersistence::Permanent, 1, BlobPersistence::Permanent, true
+        ),
+        reuse_resource_permanent_2: (
+            2, BlobPersistence::Permanent, 1, BlobPersistence::Permanent, true
+        ),
+        reuse_and_extend_permanent: (
+            1, BlobPersistence::Permanent, 2, BlobPersistence::Permanent, true
+        ),
+        reuse_resource_deletable_1: (
+            1, BlobPersistence::Deletable, 1, BlobPersistence::Deletable, true
+        ),
+        reuse_resource_deletable_2: (
+            2, BlobPersistence::Deletable, 1, BlobPersistence::Deletable, true
+        ),
+        reuse_and_extend_deletable: (
+            1, BlobPersistence::Deletable, 2, BlobPersistence::Deletable, true
+        ),
+        persistence_mismatch_1: (
+            1, BlobPersistence::Permanent, 1, BlobPersistence::Deletable, false
+        ),
+        persistence_mismatch_2: (
+            1, BlobPersistence::Deletable, 1, BlobPersistence::Permanent, false
+        ),
     ]
 }
 /// Tests that the client reuses existing (uncertified) blob registrations to store blobs.
 ///
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing blob object.
+/// The `persistence_registered` is the persistence of the already-existing blob object.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
+/// registering anew.
+/// The `persistence_required` is the persistence that is requested to the client when
 /// registering anew.
 /// `should_match` is a boolean that indicates if the blob object used in the final upload
 /// should be the same as the first one registered.
 async fn test_store_with_existing_blob_resource(
     epochs_ahead_registered: EpochCount,
+    persistence_registered: BlobPersistence,
     epochs_ahead_required: EpochCount,
+    persistence_required: BlobPersistence,
     should_match: bool,
 ) -> TestResult {
     telemetry_subscribers::init_for_testing();
@@ -447,7 +473,7 @@ async fn test_store_with_existing_blob_resource(
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let encoding_type = DEFAULT_ENCODING;
-    let metatdatum = blobs
+    let metadata = blobs
         .iter()
         .map(|blob| {
             let (_, metadata) = client
@@ -474,9 +500,9 @@ async fn test_store_with_existing_blob_resource(
         .resource_manager(&committees)
         .await
         .get_existing_or_register(
-            &metatdatum.iter().collect::<Vec<_>>(),
+            &metadata.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
-            BlobPersistence::Permanent,
+            persistence_registered,
             StoreOptimizations::all(),
         )
         .await?
@@ -485,8 +511,9 @@ async fn test_store_with_existing_blob_resource(
         .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
-    let store_args =
-        StoreArgs::default_with_epochs(epochs_ahead_required).with_encoding_type(encoding_type);
+    let store_args = StoreArgs::default_with_epochs(epochs_ahead_required)
+        .with_encoding_type(encoding_type)
+        .with_persistence(persistence_required);
     let blob_stores = client
         .inner
         .reserve_and_store_blobs(&blobs, &store_args)
@@ -831,7 +858,8 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     // Add a blob that is not deletable.
     let store_args = StoreArgs::default_with_epochs(1)
         .with_encoding_type(encoding_type)
-        .no_store_optimizations();
+        .no_store_optimizations()
+        .permanent();
     let result = client
         .as_ref()
         .reserve_and_store_blobs(&blobs, &store_args)
