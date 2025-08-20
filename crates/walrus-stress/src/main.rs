@@ -128,6 +128,7 @@ struct StressArgs {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _ = tracing_subscriber::fmt::try_init();
+    tracing::info!("Starting walrus-stress with args: {:?}", args);
     let mut client_config: ClientConfig =
         load_from_yaml(args.config_path).context("Failed to load client config")?;
 
@@ -149,6 +150,8 @@ async fn main() -> anyhow::Result<()> {
         );
         client_config.wallet_config = Some(WalletConfig::from_path(wallet_path));
     }
+
+    
 
     match args.command {
         Commands::Stress(stress_args) => {
