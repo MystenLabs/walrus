@@ -253,7 +253,9 @@ PUBLISHER=https://publisher.walrus-testnet.walrus.space
 </div>
 <div>
 <p>Walrus aggregators and publishers expose their API specifications at the path <code>/v1/api</code>. You can
-view this in the browser, for example, at <a href="https://aggregator.walrus-testnet.walrus.space/v1/api">https://aggregator.walrus-testnet.walrus.space/v1/api</a>.</p>
+view this in the browser, for example, at <a href="https://aggregator.walrus-testnet.walrus.space/v1/api">https://aggregator.walrus-testnet.walrus.space/v1/api</a>.
+The latest version of these specifications are also available <a href="https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service">on GitHub</a>
+in HTML and YAML format.</p>
 </div>
 </div>
 <h3 id="store"><a class="header" href="#store">Store</a></h3>
@@ -261,13 +263,51 @@ view this in the browser, for example, at <a href="https://aggregator.walrus-tes
 <a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
 <pre><code class="language-sh"># store the string `some string` for 1 storage epoch
 curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
-# store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
-# store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
-# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 </code></pre>
+<p>You can control how the new blob should be created through several query parameters, which can be
+combined and are all documented in the <a href="#http-api-usage">OpenAPI specification mentioned above</a>:</p>
+<ul>
+<li>
+<p>The lifetime of the blob can be specified through the <code>epochs</code> parameter. If the parameter is
+omitted, blobs are stored for one epoch.</p>
+<pre><code class="language-sh"># store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+</code></pre>
+</li>
+<li>
+<p>Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
+permanent or deletable through a query parameter <code>permanent=true</code> or <code>deletable=true</code>,
+respectively:</p>
+<pre><code class="language-sh"># store file `some/file` as a deletable blob
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
+# store file `some/file` as a permanent blob
+curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+</code></pre>
+<div id="admonition-change-of-default-blob-persistence" class="admonition admonish-warning" role="note" aria-labelledby="admonition-change-of-default-blob-persistence-title">
+<div class="admonition-title">
+<div id="admonition-change-of-default-blob-persistence-title">
+<p>Change of default blob persistence</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-change-of-default-blob-persistence"></a>
+</div>
+<div>
+<p>Up to (including) version 1.32, the CLI and <a href="./web-api.html">publisher</a> store blobs as <em>permanent</em>
+by default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are <em>deletable</em> by default. If you care about the blob persistence, make
+sure to use the appropriate flag.</p>
+</div>
+</div>
+</li>
+<li>
+<p>You can specify an address to which the resulting <code>Blob</code> object should be sent through the
+<code>send-object-to</code> parameter:</p>
+<pre><code class="language-sh"># store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+</code></pre>
+</li>
+</ul>
 <p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a <code>newlyCreated</code> field contains information about the
 new blob:</p>

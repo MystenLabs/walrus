@@ -1463,11 +1463,31 @@ they have not expired.</p>
 <p>You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, <code>walrus store *.png --epochs &lt;EPOCHS&gt;</code> will store all PNG files
 in the current directory.</p>
-<p>By default, the command will store the blob as a <em>permanent</em> blob, although this is going to change
-in the near future. See the <a href="usage/client-cli.html#reclaiming-space-via-deletable-blobs">section on deletable blobs</a> for more
-details on deletable blobs. Also, by default an owned <code>Blob</code> object is created. It is possible to
-wrap this into a shared object, which can be funded and extended by anyone, see the <a href="usage/client-cli.html#shared-blobs">shared blobs
-section</a>.</p>
+<p>You can specify whether a newly stored blob is <em>deletable</em> or <em>permanent</em> through the <code>--deletable</code>
+and <code>--permanent</code> option, respectively:</p>
+<ul>
+<li>A permanent blob remains available until its expiry epoch. Not even the uploader may delete it
+beforehand.</li>
+<li>In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the
+corresponding Sui object. See the <a href="usage/client-cli.html#reclaiming-space-via-deletable-blobs">section on deletable blobs</a>
+for more details.</li>
+</ul>
+<div id="admonition-change-of-default-blob-persistence" class="admonition admonish-warning" role="note" aria-labelledby="admonition-change-of-default-blob-persistence-title">
+<div class="admonition-title">
+<div id="admonition-change-of-default-blob-persistence-title">
+<p>Change of default blob persistence</p>
+</div>
+<a class="admonition-anchor-link" href="usage/client-cli.html#admonition-change-of-default-blob-persistence"></a>
+</div>
+<div>
+<p>Up to (including) version 1.32, the CLI and <a href="usage/./web-api.html">publisher</a> store blobs as <em>permanent</em> by
+default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are <em>deletable</em> by default. If you care about the blob persistence, make
+sure to use the appropriate flag.</p>
+</div>
+</div>
+<p>By default an owned <code>Blob</code> object is created. It is possible to wrap this into a shared object,
+which can be funded and extended by anyone, see the <a href="usage/client-cli.html#shared-blobs">shared blobs section</a>.</p>
 <p>When storing a blob, the client performs a number of automatic optimizations, including the
 following:</p>
 <ul>
@@ -1479,7 +1499,7 @@ wallet address.</li>
 of buying a new one.</li>
 <li>If the blob is already certified on Walrus but as a <em>deletable</em> blob or not for a sufficient
 number of epochs, the command skips sending encoded blob data to the storage nodes and just
-collects the availability certificate</li>
+collects the availability certificate.</li>
 </ul>
 <div id="admonition-costs" class="admonition admonish-tip" role="note" aria-labelledby="admonition-costs-title">
 <div class="admonition-title">
@@ -1558,11 +1578,9 @@ blobs may only be extended by their owner. When extending a shared blob, you wil
 <p>Note that the blob's <em>object ID</em> will be needed in order to extend it, the blob ID is not needed.
 See <code>walrus extend --help</code> for more information on blob extension.</p>
 <h2 id="reclaiming-space-via-deletable-blobs"><a class="header" href="#reclaiming-space-via-deletable-blobs">Reclaiming space via deletable blobs</a></h2>
-<p>By default <code>walrus store</code> uploads a permanent blob available until after its expiry
-epoch. Not even the uploader may delete it beforehand. However, optionally, the store command
-may be invoked with the <code>--deletable</code> flag, to indicate the blob may be deleted before its expiry
-by the owner of the Sui blob object representing the blob. Deletable blobs are indicated as such
-in the Sui events that certify them, and should not be relied upon for availability by others.</p>
+<p>A blob that was created as <em>deletable</em> may be deleted before its expiry by the owner of the Sui blob
+object representing the blob. Deletable blobs are indicated as such in the Sui events that certify
+them, and should not be relied upon for availability by others.</p>
 <p>A deletable blob may be deleted with the command:</p>
 <pre><code class="language-sh">walrus delete --blob-id &lt;BLOB_ID&gt;
 </code></pre>
@@ -1589,7 +1607,7 @@ public blob may be cached or downloaded by users, and these copies are not delet
 </div>
 <div>
 <p><strong>All blobs stored in Walrus are public and discoverable by all.</strong> The <code>delete</code> command will
-not delete slivers if other copies of the blob are stored on Walrus possibly by other users.
+not delete slivers if other copies of the blob are stored on Walrus, possibly by other users.
 It does not delete blobs from caches, slivers from past storage nodes, or copies
 that could have been made by users before the blob was deleted.</p>
 </div>
@@ -1791,7 +1809,9 @@ PUBLISHER=https://publisher.walrus-testnet.walrus.space
 </div>
 <div>
 <p>Walrus aggregators and publishers expose their API specifications at the path <code>/v1/api</code>. You can
-view this in the browser, for example, at <a href="https://aggregator.walrus-testnet.walrus.space/v1/api">https://aggregator.walrus-testnet.walrus.space/v1/api</a>.</p>
+view this in the browser, for example, at <a href="https://aggregator.walrus-testnet.walrus.space/v1/api">https://aggregator.walrus-testnet.walrus.space/v1/api</a>.
+The latest version of these specifications are also available <a href="https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service">on GitHub</a>
+in HTML and YAML format.</p>
 </div>
 </div>
 <h3 id="store"><a class="header" href="#store">Store</a></h3>
@@ -1799,13 +1819,51 @@ view this in the browser, for example, at <a href="https://aggregator.walrus-tes
 <a href="https://curl.se">cURL</a>, you can store blobs using a publisher or daemon as follows:</p>
 <pre><code class="language-sh"># store the string `some string` for 1 storage epoch
 curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
-# store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
-# store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
-# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&amp;send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 </code></pre>
+<p>You can control how the new blob should be created through several query parameters, which can be
+combined and are all documented in the <a href="usage/web-api.html#http-api-usage">OpenAPI specification mentioned above</a>:</p>
+<ul>
+<li>
+<p>The lifetime of the blob can be specified through the <code>epochs</code> parameter. If the parameter is
+omitted, blobs are stored for one epoch.</p>
+<pre><code class="language-sh"># store file `some/file` for 5 storage epochs
+curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+</code></pre>
+</li>
+<li>
+<p>Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
+permanent or deletable through a query parameter <code>permanent=true</code> or <code>deletable=true</code>,
+respectively:</p>
+<pre><code class="language-sh"># store file `some/file` as a deletable blob
+curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
+# store file `some/file` as a permanent blob
+curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+</code></pre>
+<div id="admonition-change-of-default-blob-persistence" class="admonition admonish-warning" role="note" aria-labelledby="admonition-change-of-default-blob-persistence-title">
+<div class="admonition-title">
+<div id="admonition-change-of-default-blob-persistence-title">
+<p>Change of default blob persistence</p>
+</div>
+<a class="admonition-anchor-link" href="usage/web-api.html#admonition-change-of-default-blob-persistence"></a>
+</div>
+<div>
+<p>Up to (including) version 1.32, the CLI and <a href="usage/./web-api.html">publisher</a> store blobs as <em>permanent</em>
+by default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are <em>deletable</em> by default. If you care about the blob persistence, make
+sure to use the appropriate flag.</p>
+</div>
+</div>
+</li>
+<li>
+<p>You can specify an address to which the resulting <code>Blob</code> object should be sent through the
+<code>send-object-to</code> parameter:</p>
+<pre><code class="language-sh"># store file `some/file` and send the blob object to $ADDRESS
+curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+</code></pre>
+</li>
+</ul>
 <p>The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a <code>newlyCreated</code> field contains information about the
 new blob:</p>
@@ -3518,7 +3576,7 @@ default, but each relay can independently configure this).</p>
 <h3 id="sending-data-to-the-upload-relay"><a class="header" href="#sending-data-to-the-upload-relay">Sending data to the upload relay</a></h3>
 <p>See the full OpenAPI spec for the upload relay for the full details
 (<a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.yaml">yaml</a>,
-<a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html">html</a>)</p>
+<a href="https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html">html</a>).</p>
 <p>Essentially, the client sends a POST request to the <code>/v1/blob-upload-relay</code> API endpoint on the relay,
 containing the bytes of the blob to be stored in the body.</p>
 <p>These additional parameters have to be specified in the URL’s query string:</p>

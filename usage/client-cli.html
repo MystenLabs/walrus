@@ -368,11 +368,31 @@ they have not expired.</p>
 <p>You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, <code>walrus store *.png --epochs &lt;EPOCHS&gt;</code> will store all PNG files
 in the current directory.</p>
-<p>By default, the command will store the blob as a <em>permanent</em> blob, although this is going to change
-in the near future. See the <a href="#reclaiming-space-via-deletable-blobs">section on deletable blobs</a> for more
-details on deletable blobs. Also, by default an owned <code>Blob</code> object is created. It is possible to
-wrap this into a shared object, which can be funded and extended by anyone, see the <a href="#shared-blobs">shared blobs
-section</a>.</p>
+<p>You can specify whether a newly stored blob is <em>deletable</em> or <em>permanent</em> through the <code>--deletable</code>
+and <code>--permanent</code> option, respectively:</p>
+<ul>
+<li>A permanent blob remains available until its expiry epoch. Not even the uploader may delete it
+beforehand.</li>
+<li>In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the
+corresponding Sui object. See the <a href="#reclaiming-space-via-deletable-blobs">section on deletable blobs</a>
+for more details.</li>
+</ul>
+<div id="admonition-change-of-default-blob-persistence" class="admonition admonish-warning" role="note" aria-labelledby="admonition-change-of-default-blob-persistence-title">
+<div class="admonition-title">
+<div id="admonition-change-of-default-blob-persistence-title">
+<p>Change of default blob persistence</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-change-of-default-blob-persistence"></a>
+</div>
+<div>
+<p>Up to (including) version 1.32, the CLI and <a href="./web-api.html">publisher</a> store blobs as <em>permanent</em> by
+default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are <em>deletable</em> by default. If you care about the blob persistence, make
+sure to use the appropriate flag.</p>
+</div>
+</div>
+<p>By default an owned <code>Blob</code> object is created. It is possible to wrap this into a shared object,
+which can be funded and extended by anyone, see the <a href="#shared-blobs">shared blobs section</a>.</p>
 <p>When storing a blob, the client performs a number of automatic optimizations, including the
 following:</p>
 <ul>
@@ -384,7 +404,7 @@ wallet address.</li>
 of buying a new one.</li>
 <li>If the blob is already certified on Walrus but as a <em>deletable</em> blob or not for a sufficient
 number of epochs, the command skips sending encoded blob data to the storage nodes and just
-collects the availability certificate</li>
+collects the availability certificate.</li>
 </ul>
 <div id="admonition-costs" class="admonition admonish-tip" role="note" aria-labelledby="admonition-costs-title">
 <div class="admonition-title">
@@ -463,11 +483,9 @@ blobs may only be extended by their owner. When extending a shared blob, you wil
 <p>Note that the blob's <em>object ID</em> will be needed in order to extend it, the blob ID is not needed.
 See <code>walrus extend --help</code> for more information on blob extension.</p>
 <h2 id="reclaiming-space-via-deletable-blobs"><a class="header" href="#reclaiming-space-via-deletable-blobs">Reclaiming space via deletable blobs</a></h2>
-<p>By default <code>walrus store</code> uploads a permanent blob available until after its expiry
-epoch. Not even the uploader may delete it beforehand. However, optionally, the store command
-may be invoked with the <code>--deletable</code> flag, to indicate the blob may be deleted before its expiry
-by the owner of the Sui blob object representing the blob. Deletable blobs are indicated as such
-in the Sui events that certify them, and should not be relied upon for availability by others.</p>
+<p>A blob that was created as <em>deletable</em> may be deleted before its expiry by the owner of the Sui blob
+object representing the blob. Deletable blobs are indicated as such in the Sui events that certify
+them, and should not be relied upon for availability by others.</p>
 <p>A deletable blob may be deleted with the command:</p>
 <pre><code class="language-sh">walrus delete --blob-id &lt;BLOB_ID&gt;
 </code></pre>
@@ -494,7 +512,7 @@ public blob may be cached or downloaded by users, and these copies are not delet
 </div>
 <div>
 <p><strong>All blobs stored in Walrus are public and discoverable by all.</strong> The <code>delete</code> command will
-not delete slivers if other copies of the blob are stored on Walrus possibly by other users.
+not delete slivers if other copies of the blob are stored on Walrus, possibly by other users.
 It does not delete blobs from caches, slivers from past storage nodes, or copies
 that could have been made by users before the blob was deleted.</p>
 </div>
