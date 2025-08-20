@@ -62,13 +62,13 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(config.listen_address)
         .await
-        .map_err(|e| anyhow::anyhow!("cannot fail to bind address because port should be available: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("failed to bind address: {}", e))?;
     let histogram_listener =
         std::net::TcpListener::bind(config.histogram_address).map_err(|e| {
-            anyhow::anyhow!("cannot fail to bind histogram port because it should be available: {}", e)
+            anyhow::anyhow!("failed to bind histogram port: {}", e)
         })?;
     let metrics_listener = std::net::TcpListener::bind(config.metrics_address)
-        .map_err(|e| anyhow::anyhow!("cannot fail to bind metrics port because it should be available: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("failed to bind metrics port: {}", e))?;
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
     let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);

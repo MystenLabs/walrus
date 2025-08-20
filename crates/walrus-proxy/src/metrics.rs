@@ -109,9 +109,8 @@ pub fn start_prometheus_server(listener: TcpListener) {
             .expect("listener is valid and supports non-blocking mode");
         let listener = tokio::net::TcpListener::from_std(listener)
             .expect("valid std listener can always be converted to tokio listener");
-        if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!("Metrics server error: {}", e);
-        }
+        axum::serve(listener, app).await
+            .expect("failed to start metrics server");
     });
 }
 
