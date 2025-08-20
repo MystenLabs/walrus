@@ -321,6 +321,17 @@ pub enum BlobPersistence {
     Deletable,
 }
 
+impl From<walrus_core::messages::BlobPersistenceType> for BlobPersistence {
+    fn from(value: walrus_core::messages::BlobPersistenceType) -> Self {
+        match value {
+            walrus_core::messages::BlobPersistenceType::Permanent => BlobPersistence::Permanent,
+            walrus_core::messages::BlobPersistenceType::Deletable { .. } => {
+                BlobPersistence::Deletable
+            }
+        }
+    }
+}
+
 /// Represents the selection of blob and storage objects in relation to their expiry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpirySelectionPolicy {

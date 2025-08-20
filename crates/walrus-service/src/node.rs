@@ -3279,7 +3279,7 @@ impl ServiceState for StorageNodeInner {
                 blob_id: bundle.blob_id,
                 sliver_pairs: bundle.sliver_pairs,
                 metadata: bundle.metadata,
-                blob_persistence_type: bundle.blob_persistence_type,
+                blob_persistence: bundle.blob_persistence,
             };
 
             // Use CachedBlobManager to handle the blob data

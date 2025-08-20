@@ -288,7 +288,7 @@ impl BlobEventProcessor {
             // Notify CachedBlobManager about the registration
             // This will trigger processing if data has already arrived
             if let Some(cached_manager) = self.node.cached_blob_manager().await {
-                cached_manager.register(event.blob_id).await;
+                cached_manager.register(&blob_event).await;
                 tracing::debug!(
                     blob_id = %event.blob_id,
                     "Notified CachedBlobManager about registration"

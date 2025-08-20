@@ -15,6 +15,40 @@ use crate::{
     upload_relay::tip_config::TipConfig,
 };
 
+/// Defines which upload method to use for blob storage.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum UploadMethod {
+    /// Use the new parallel multi-put upload (batches multiple blobs per node).
+    #[default]
+    Parallel,
+    /// Use the sequential upload (one blob at a time, previous behavior).
+    Sequential,
+}
+
+impl std::str::FromStr for UploadMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "parallel" => Ok(UploadMethod::Parallel),
+            "sequential" => Ok(UploadMethod::Sequential),
+            _ => Err(format!(
+                "Invalid upload method: {}. Valid options: parallel, sequential",
+                s
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for UploadMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UploadMethod::Parallel => write!(f, "parallel"),
+            UploadMethod::Sequential => write!(f, "sequential"),
+        }
+    }
+}
+
 /// Arguments for store operations that are frequently passed together.
 // NOTE: In the future, if the struct grows larger, we may need to consider using a builder.
 #[derive(Debug, Clone)]
@@ -33,6 +67,8 @@ pub struct StoreArgs {
     pub metrics: Option<Arc<ClientMetrics>>,
     /// The optional upload relay client, that allows to store the blob via the relay.
     pub upload_relay_client: Option<UploadRelayClient>,
+    /// The upload method to use for blob storage.
+    pub upload_method: UploadMethod,
 }
 
 impl StoreArgs {
@@ -52,6 +88,7 @@ impl StoreArgs {
             post_store,
             metrics: None,
             upload_relay_client: None,
+            upload_method: UploadMethod::default(),
         }
     }
 
@@ -70,6 +107,7 @@ impl StoreArgs {
             post_store: PostStoreAction::Keep,
             metrics: None,
             upload_relay_client: None,
+            upload_method: UploadMethod::default(),
         }
     }
 
@@ -133,6 +171,17 @@ impl StoreArgs {
     /// Convenience method for `with_persistence(BlobPersistence::Deletable)`.
     pub fn deletable(self) -> Self {
         self.with_persistence(BlobPersistence::Deletable)
+    }
+
+    /// Sets the upload method.
+    pub fn with_upload_method(mut self, upload_method: UploadMethod) -> Self {
+        self.upload_method = upload_method;
+        self
+    }
+
+    /// Convenience method for `with_upload_method(UploadMethod::Sequential)`.
+    pub fn sequential_upload(self) -> Self {
+        self.with_upload_method(UploadMethod::Sequential)
     }
 
     /// Observe the encoding latency, if metrics are present.

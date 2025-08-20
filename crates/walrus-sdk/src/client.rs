@@ -33,7 +33,7 @@ use futures::{
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
-pub use store_args::StoreArgs;
+pub use store_args::{StoreArgs, UploadMethod};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
@@ -882,9 +882,20 @@ impl WalrusNodeClient<SuiContractClient> {
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let mut results = self
-            .retry_if_error_epoch_change(|| {
-                // self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
-                self.reserve_and_store_encoded_blobs_parallel(encoded_blobs.clone(), store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
             })
             .await?;
 
@@ -919,8 +930,20 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut completed_blobs = self
-            .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs_parallel(encoded_blobs.clone(), store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
             })
             .await?;
 
@@ -961,7 +984,21 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut results = self
-            .reserve_and_store_encoded_blobs_parallel(encoded_blobs, store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
+            })
             .await?;
 
         debug_assert_eq!(results.len(), blobs.len());
@@ -1432,11 +1469,12 @@ impl WalrusNodeClient<SuiContractClient> {
                                 blob_id = %blob_id,
                                 "Pre-registration failed: no certificate found for blob {blob_id}"
                             );
-                            let error_blob = registered_blob
-                                .with_error(ClientError::store_blob_internal(format!(
+                            let error_blob = registered_blob.with_error(
+                                ClientError::store_blob_internal(format!(
                                     "Pre-registration failed: no certificate found for blob \
                                      {blob_id}"
-                                )))?;
+                                )),
+                            )?;
                             final_result.push(error_blob);
                         }
                     }
@@ -2008,7 +2046,7 @@ impl<T> WalrusNodeClient<T> {
                     blob_id,
                     metadata: Some(metadata.as_ref().clone()),
                     sliver_pairs: node_pairs.into_iter().cloned().collect(),
-                    blob_persistence_type,
+                    blob_persistence: blob_persistence_type.into(),
                 };
                 bundles_by_node.entry(node_index).or_default().push(bundle);
             }

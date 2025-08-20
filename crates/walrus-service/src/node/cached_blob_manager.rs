@@ -31,6 +31,7 @@ use walrus_core::{
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::MultiPutBundle;
+use walrus_sui::{client::BlobPersistence, types::BlobEvent};
 
 use crate::node::{ServiceState, StorageNodeInner};
 
@@ -45,7 +46,10 @@ enum CachedBlobState {
         result_sender: oneshot::Sender<anyhow::Result<SignedMessage<Confirmation>>>,
     },
     /// Only registration has arrived, waiting for data.
-    RegisteredOnly { registered_at: Instant },
+    RegisteredOnly {
+        registered_at: Instant,
+        persistence: BlobPersistenceType,
+    },
     /// Both data and registration have arrived, currently processing.
     Processing,
     /// Processing completed successfully, confirmation cached for reuse.
@@ -60,7 +64,7 @@ enum CachedBlobState {
 struct CachedBlobData {
     pairs: Vec<SliverPair>,
     metadata: Arc<VerifiedBlobMetadataWithId>,
-    persistence_type: BlobPersistenceType,
+    persistence: BlobPersistence,
 }
 
 /// Manages cached blob data and coordinates with registration events.
@@ -115,9 +119,7 @@ impl CachedBlobManager {
         blob_id: BlobId,
         bundle: MultiPutBundle,
     ) -> anyhow::Result<
-        impl std::future::Future<Output = anyhow::Result<SignedMessage<Confirmation>>>
-            + Send
-            + 'static,
+        impl std::future::Future<Output = anyhow::Result<SignedMessage<Confirmation>>> + Send + 'static,
     > {
         info!(
             blob_id = %blob_id,
@@ -144,7 +146,7 @@ impl CachedBlobManager {
         let data = CachedBlobData {
             pairs: bundle.sliver_pairs,
             metadata: Arc::new(metadata),
-            persistence_type: bundle.blob_persistence_type,
+            persistence: bundle.blob_persistence,
         };
 
         let (result_sender, result_receiver) = oneshot::channel();
@@ -261,16 +263,16 @@ impl CachedBlobManager {
 
     /// Marks a blob as registered from the event processor.
     /// If data has already arrived, triggers processing.
-    pub async fn register(&self, blob_id: BlobId) {
+    pub async fn register(&self, event: &BlobEvent) {
         info!(
-            blob_id = %blob_id,
+            blob_id = %event.blob_id(),
             "CachedBlobManager::register called - blob registration event received"
         );
 
         // Check if we're shutting down
         if self.shutdown_token.is_cancelled() {
             info!(
-                blob_id = %blob_id,
+                blob_id = %event.blob_id(),
                 "Ignoring registration during shutdown"
             );
             return;
@@ -278,15 +280,26 @@ impl CachedBlobManager {
         let mut should_process = false;
         let mut data_to_process = None;
         let mut sender_to_use = None;
+        let BlobEvent::Registered(event) = event else {
+            warn!(
+                blob_id = %event.blob_id(),
+                "Ignoring registration during shutdown"
+            );
+            return;
+        };
 
         // Use entry API for atomic operation
         self.cache
-            .entry(blob_id)
+            .entry(event.blob_id)
             .and_modify(|state| {
                 match state {
-                    CachedBlobState::DataOnly { data, result_sender, .. } => {
+                    CachedBlobState::DataOnly {
+                        data,
+                        result_sender,
+                        ..
+                    } => {
                         info!(
-                            blob_id = %blob_id,
+                            blob_id = %event.blob_id,
                             "Blob data already cached - triggering processing \
                              (registration arrived second)"
                         );
@@ -303,19 +316,19 @@ impl CachedBlobManager {
                     }
                     CachedBlobState::RegisteredOnly { .. } => {
                         warn!(
-                            blob_id = %blob_id,
+                            blob_id = %event.blob_id,
                             "Duplicate registration call - registration already received"
                         );
                     }
                     CachedBlobState::Processing => {
                         info!(
-                            blob_id = %blob_id,
+                            blob_id = %event.blob_id,
                             "Registration received while blob is already processing"
                         );
                     }
                     CachedBlobState::Completed { .. } => {
                         info!(
-                            blob_id = %blob_id,
+                            blob_id = %event.blob_id,
                             "Registration received for already completed blob - no action needed"
                         );
                     }
@@ -323,13 +336,21 @@ impl CachedBlobManager {
             })
             .or_insert_with(|| {
                 info!(
-                    blob_id = %blob_id,
+                    blob_id = %event.blob_id,
                     "First to arrive - marking blob as registered and waiting for data"
                 );
+
+                let persistence = event
+                    .deletable
+                    .then(|| BlobPersistenceType::Deletable {
+                        object_id: event.object_id.into(),
+                    })
+                    .unwrap_or(BlobPersistenceType::Permanent);
 
                 // First to arrive, mark as registered
                 CachedBlobState::RegisteredOnly {
                     registered_at: Instant::now(),
+                    persistence,
                 }
             });
 
@@ -337,12 +358,13 @@ impl CachedBlobManager {
         if should_process {
             if let (Some(data), Some(sender)) = (data_to_process, sender_to_use) {
                 info!(
-                    blob_id = %blob_id,
+                    blob_id = %event.blob_id,
                     "Both data and registration available - spawning background processing task"
                 );
 
                 let node = self.node.clone();
                 let cache = self.cache.clone();
+                let blob_id = event.blob_id;
 
                 // Spawn processing task
                 let shutdown_token = self.shutdown_token.clone();
@@ -394,7 +416,7 @@ impl CachedBlobManager {
                 });
             } else {
                 warn!(
-                    blob_id = %blob_id,
+                    blob_id = %event.blob_id,
                     "Processing triggered but missing data or sender - internal error"
                 );
             }
@@ -495,8 +517,22 @@ impl CachedBlobManager {
             "Step 3: Computing storage confirmation certificate"
         );
 
+        // Convert BlobPersistence to BlobPersistenceType for compute_storage_confirmation.
+        // For deletable blobs in the cache, we use a zero object_id as placeholder
+        // since the actual object_id isn't available yet (will be set during registration).
+        let persistence_type = match data.persistence {
+            BlobPersistence::Permanent => BlobPersistenceType::Permanent,
+            BlobPersistence::Deletable => {
+                // Use a placeholder object_id for cached deletable blobs.
+                // The actual object_id will be determined during the registration event.
+                BlobPersistenceType::Deletable {
+                    object_id: walrus_core::SuiObjectId([0u8; 32]),
+                }
+            }
+        };
+
         let confirmation = node
-            .compute_storage_confirmation(&blob_id, &data.persistence_type)
+            .compute_storage_confirmation(&blob_id, &persistence_type)
             .await
             .map_err(|e| {
                 warn!(

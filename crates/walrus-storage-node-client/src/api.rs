@@ -10,6 +10,7 @@ use sui_types::event::EventID;
 use tokio::time::Duration;
 use utoipa::openapi::Ref;
 use walrus_core::{Epoch, PublicKey, ShardIndex};
+use walrus_sui::client::BlobPersistence;
 
 use self::errors::Status;
 
@@ -343,9 +344,8 @@ pub struct MultiPutBundle {
     /// The sliver pairs for this blob that this node should store.
     #[schema(value_type = Vec<Object>)]
     pub sliver_pairs: Vec<walrus_core::encoding::SliverPair>,
-    /// The blob persistence type for certificate generation.
-    #[schema(value_type = Object)]
-    pub blob_persistence_type: walrus_core::messages::BlobPersistenceType,
+    /// The blob persistence for certificate generation.
+    pub blob_persistence: BlobPersistence,
 }
 
 /// Request structure for batched multi-put operation.

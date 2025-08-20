@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
-use walrus_sdk::client::{WalrusNodeClient, metrics::ClientMetrics};
+use walrus_sdk::client::{UploadMethod, WalrusNodeClient, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_stress::single_client_workload::{
     SingleClientWorkload,
@@ -119,6 +119,9 @@ struct StressArgs {
     /// The fraction of writes that write inconsistent blobs.
     #[arg(long, default_value_t = 0.0)]
     inconsistent_blob_rate: f64,
+    /// Upload method to use: parallel (default) or sequential
+    #[arg(long, default_value = "parallel")]
+    upload_method: UploadMethod,
 }
 
 #[tokio::main]
@@ -380,6 +383,7 @@ async fn run_single_client_workload(
         store_length_config,
         request_type_distribution,
         metrics,
+        args.upload_method,
     );
 
     single_client_workload.run().await?;

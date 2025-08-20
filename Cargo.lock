@@ -13142,6 +13142,7 @@ dependencies = [
  "tracing-opentelemetry",
  "utoipa",
  "walrus-core",
+ "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
  "x509-cert",

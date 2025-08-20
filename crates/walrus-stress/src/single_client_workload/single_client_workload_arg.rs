@@ -4,6 +4,7 @@
 //! Command line arguments for the single client workload.
 
 use clap::Parser;
+use walrus_sdk::client::UploadMethod;
 
 use super::single_client_workload_config::{
     RequestTypeDistributionConfig,
@@ -31,6 +32,9 @@ pub struct SingleClientWorkloadArgs {
     /// Define the workload configuration including size and store length distributions
     #[command(subcommand)]
     pub workload_config: WorkloadConfig,
+    /// Upload method to use: parallel (default) or sequential
+    #[arg(long, default_value = "parallel")]
+    pub upload_method: UploadMethod,
 }
 
 /// Arguments for the request type distribution.

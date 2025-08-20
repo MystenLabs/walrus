@@ -35,6 +35,7 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 utoipa.workspace = true
 walrus-core = { workspace = true, features = ["sui-types"] }
+walrus-sui = { workspace = true }
 walrus-utils = { workspace = true, features = ["http", "metrics"] }
 x509-cert.workspace = true
 

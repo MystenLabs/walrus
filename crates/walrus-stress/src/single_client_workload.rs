@@ -25,6 +25,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{
         StoreArgs,
+        UploadMethod,
         WalrusNodeClient,
         metrics::{self, ClientMetrics},
         responses::BlobStoreResult,
@@ -66,6 +67,8 @@ pub struct SingleClientWorkload {
     request_type_distribution: RequestTypeDistributionConfig,
     /// Metrics tracks workload.
     metrics: Arc<ClientMetrics>,
+    /// The upload method to use.
+    upload_method: UploadMethod,
 }
 
 impl SingleClientWorkload {
@@ -80,6 +83,7 @@ impl SingleClientWorkload {
         store_length_distribution_config: StoreLengthDistributionConfig,
         request_type_distribution: RequestTypeDistributionConfig,
         metrics: Arc<ClientMetrics>,
+        upload_method: UploadMethod,
     ) -> Self {
         Self {
             client,
@@ -90,6 +94,7 @@ impl SingleClientWorkload {
             store_length_distribution_config,
             request_type_distribution,
             metrics,
+            upload_method,
         }
     }
 
@@ -166,7 +171,9 @@ impl SingleClientWorkload {
                     // TODO(WAL-954): test more PostStoreAction.
                     PostStoreAction::Keep,
                 );
-                store_args = store_args.with_metrics(self.metrics.clone());
+                store_args = store_args
+                    .with_metrics(self.metrics.clone())
+                    .with_upload_method(self.upload_method);
                 let store_result = self
                     .client
                     .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
