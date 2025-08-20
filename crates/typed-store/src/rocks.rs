@@ -1412,14 +1412,32 @@ where
         // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
         // but no false negatives. We use it to short-circuit the absent case
         let readopts = self.opts.readopts();
-        let found = self
+        let may_exist = self
             .rocksdb
-            .key_may_exist_cf(&self.cf()?, &key_buf, &readopts)
-            && self
+            .key_may_exist_cf(&self.cf()?, &key_buf, &readopts);
+        if may_exist {
+            self.db_metrics
+                .op_metrics
+                .rocksdb_bloom_filter_may_exist_true_total
+                .with_label_values(&[&self.cf])
+                .inc();
+        }
+        let found = if may_exist {
+            let pinned = self
                 .rocksdb
                 .get_pinned_cf_opt(&self.cf()?, &key_buf, &readopts)
-                .map_err(typed_store_err_from_rocks_err)?
-                .is_some();
+                .map_err(typed_store_err_from_rocks_err)?;
+            if pinned.is_none() {
+                self.db_metrics
+                    .op_metrics
+                    .rocksdb_bloom_filter_false_positive_total
+                    .with_label_values(&[&self.cf])
+                    .inc();
+            }
+            pinned.is_some()
+        } else {
+            false
+        };
         self.db_metrics
             .op_metrics
             .rocksdb_contains_key_latency_seconds

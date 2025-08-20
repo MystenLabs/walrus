@@ -354,6 +354,11 @@ pub struct OperationMetrics {
     pub rocksdb_get_value_bytes: HistogramVec,
     /// Rocksdb contains_key latency in seconds
     pub rocksdb_contains_key_latency_seconds: HistogramVec,
+    /// Number of times key_may_exist_cf returned true per CF (potential positives)
+    pub rocksdb_bloom_filter_may_exist_true_total: IntCounterVec,
+    /// Number of times key_may_exist_cf returned true but get
+    /// found nothing (false positives) per CF
+    pub rocksdb_bloom_filter_false_positive_total: IntCounterVec,
     /// Rocksdb multiget latency in seconds
     pub rocksdb_multiget_latency_seconds: HistogramVec,
     /// Rocksdb multiget bytes
@@ -491,6 +496,21 @@ impl OperationMetrics {
                 "Rocksdb contains_key latency in seconds. `found` label is true if key was found",
                 &["cf_name", "found"],
                 LATENCY_SEC_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_may_exist_true_total: register_int_counter_vec_with_registry!(
+                "rocksdb_bloom_filter_may_exist_true_total",
+                "Number of times key_may_exist_cf returned true (potential positives)",
+                &["cf_name"],
+                registry
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_false_positive_total: register_int_counter_vec_with_registry!(
+                "rocksdb_bloom_filter_false_positive_total",
+                "Number of false positives where key_may_exist_cf \
+                returned true but get found nothing",
+                &["cf_name"],
                 registry
             )
             .unwrap(),
