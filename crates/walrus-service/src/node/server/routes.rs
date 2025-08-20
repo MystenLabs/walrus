@@ -749,7 +749,7 @@ pub async fn sync_shard<S: SyncServiceState>(
 )]
 pub async fn handle_multi_put<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
-    axum::Json(request): axum::Json<walrus_storage_node_client::api::MultiPutRequest>,
+    Bcs(request): Bcs<walrus_storage_node_client::api::MultiPutRequest>,
 ) -> Result<ApiSuccess<walrus_storage_node_client::api::MultiPutResponse>, StoreSliverError> {
     let response = state.service.cache_blob_slivers(request).await?;
     Ok(ApiSuccess::ok(response))

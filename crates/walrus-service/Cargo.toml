@@ -91,6 +91,7 @@ chrono.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 colored = { workspace = true, optional = true }
+dashmap.workspace = true
 diesel = { workspace = true, optional = true }
 diesel-async = { workspace = true, optional = true }
 diesel_migrations = { workspace = true, optional = true }

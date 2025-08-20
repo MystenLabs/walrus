@@ -16,6 +16,7 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use blob_event_processor::BlobEventProcessor;
 use blob_retirement_notifier::BlobRetirementNotifier;
+use cached_blob_manager::CachedBlobManager;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
@@ -41,7 +42,11 @@ use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS, EventHandle};
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
-use tokio::{select, sync::watch, time::Instant};
+use tokio::{
+    select,
+    sync::{RwLock, watch},
+    time::Instant,
+};
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
@@ -186,6 +191,7 @@ pub(crate) mod metrics;
 mod blob_event_processor;
 mod blob_retirement_notifier;
 mod blob_sync;
+mod cached_blob_manager;
 mod epoch_change_driver;
 mod node_recovery;
 mod recovery_symbol_service;
@@ -553,6 +559,7 @@ pub struct StorageNodeInner {
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
+    cached_blob_manager: Arc<RwLock<Option<Arc<CachedBlobManager>>>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -697,7 +704,12 @@ impl StorageNode {
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
+            cached_blob_manager: Arc::new(RwLock::new(None)),
         });
+
+        // Now properly initialize the cached_blob_manager with the real inner reference
+        let cached_blob_manager = Arc::new(CachedBlobManager::new(inner.clone()));
+        *inner.cached_blob_manager.write().await = Some(cached_blob_manager);
 
         blocklist.start_refresh_task();
 
@@ -2155,6 +2167,11 @@ impl StorageNodeInner {
         self.node_capability
     }
 
+    /// Returns the cached blob manager if initialized.
+    pub(crate) async fn cached_blob_manager(&self) -> Option<Arc<CachedBlobManager>> {
+        self.cached_blob_manager.read().await.clone()
+    }
+
     /// Returns the shards that are owned by the node at the latest epoch in the committee info
     /// fetched from the chain.
     pub(crate) fn owned_shards_at_latest_epoch(&self) -> Vec<ShardIndex> {
@@ -2526,7 +2543,19 @@ impl StorageNodeInner {
     }
 
     fn shut_down(&self) {
-        self.is_shutting_down.store(true, Ordering::SeqCst)
+        self.is_shutting_down.store(true, Ordering::SeqCst);
+
+        // Shutdown CachedBlobManager if it exists
+        if let Some(cached_manager) = self
+            .cached_blob_manager
+            .try_read()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned())
+        {
+            tokio::spawn(async move {
+                cached_manager.shutdown().await;
+            });
+        }
     }
 
     fn is_shutting_down(&self) -> bool {
@@ -3212,13 +3241,14 @@ impl ServiceState for StorageNodeInner {
 
         let mut results = Vec::new();
 
-        let owned_shards = self.owned_shards_at_epoch(request.epoch).map_err(|e| {
-            StoreSliverError::Internal(anyhow::anyhow!(
-                "Failed to get owned shards for epoch {}: {}",
-                request.epoch,
-                e
-            ))
-        })?;
+        // Get the cached blob manager
+        let Some(cached_manager) = self.cached_blob_manager().await else {
+            return Err(StoreSliverError::Internal(anyhow::anyhow!(
+                "CachedBlobManager not initialized"
+            )));
+        };
+
+        let owned_shards = self.owned_shards_at_latest_epoch();
 
         for bundle in request.bundles {
             // Extract provided sliver pair indices
@@ -3244,64 +3274,56 @@ impl ServiceState for StorageNodeInner {
                 continue;
             }
 
-            // Cache the blob slivers
-            if let Err(e) = self.storage.cache_blob_slivers(
-                &bundle.blob_id,
-                bundle.sliver_pairs.clone(),
-                bundle.metadata.clone(),
-            ) {
-                use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
+            // Convert to MultiPutBundle for CachedBlobManager
+            let core_bundle = walrus_storage_node_client::api::MultiPutBundle {
+                blob_id: bundle.blob_id,
+                sliver_pairs: bundle.sliver_pairs,
+                metadata: bundle.metadata,
+                blob_persistence_type: bundle.blob_persistence_type,
+            };
 
-                tracing::warn!(?e, blob_id = ?bundle.blob_id, "Failed to cache blob slivers");
+            // Use CachedBlobManager to handle the blob data
+            // This returns a future that will resolve to the confirmation
+            // either immediately (if registration already arrived) or later
+            let confirmation_future = match cached_manager
+                .add_blob_data(bundle.blob_id, core_bundle)
+                .await
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
 
-                let error_info = ErrorInfo::new(
-                    "CACHE_ERROR".to_string(),
-                    "storage-node.walrus/MultiPutError".to_string(),
-                );
-                let status = Status::new(
-                    StatusCode::Internal,
-                    format!("Failed to cache blob slivers for {}: {}", bundle.blob_id, e),
-                    error_info,
-                );
+                    let error_info = ErrorInfo::new(
+                        "METADATA_ERROR".to_string(),
+                        "storage-node.walrus/MetadataError".to_string(),
+                    );
+                    let status = Status::new(
+                        StatusCode::InvalidArgument,
+                        format!("Invalid metadata: {e}"),
+                        error_info,
+                    );
 
-                results.push(MultiPutBlobResult {
-                    blob_id: bundle.blob_id,
-                    success: false,
-                    confirmation: None,
-                    error: Some(status),
-                });
-                continue;
-            }
-
-            // Check if blob is registered
-            let blob_status = self.blob_status(&bundle.blob_id);
-
-            if let Ok(status) = &blob_status {
-                if status.is_registered() {
-                    // Start background task to process the cached data
-                    let blob_id = bundle.blob_id;
-                    tokio::spawn(async move {
-                        // TODO: Implement actual processing logic
-                        tracing::debug!(
-                            ?blob_id,
-                            "Background task to process cached blob (placeholder)"
-                        );
+                    results.push(MultiPutBlobResult {
+                        blob_id: bundle.blob_id,
+                        success: false,
+                        confirmation: None,
+                        error: Some(status),
                     });
+                    continue;
                 }
-            }
+            };
 
-            // Compute confirmation for this blob
-            let confirmation_result = self
-                .compute_storage_confirmation(&bundle.blob_id, &bundle.blob_persistence_type)
-                .await;
-
-            let result = match confirmation_result {
-                Ok(StorageConfirmation::Signed(signed_confirmation)) => MultiPutBlobResult {
-                    blob_id: bundle.blob_id,
-                    success: true,
-                    confirmation: Some(signed_confirmation),
-                    error: None,
-                },
+            // Wait for the confirmation
+            let result = match confirmation_future.await {
+                Ok(signed_confirmation) => {
+                    // Successfully processed
+                    MultiPutBlobResult {
+                        blob_id: bundle.blob_id,
+                        success: true,
+                        confirmation: Some(signed_confirmation),
+                        error: None,
+                    }
+                }
                 Err(e) => {
                     use walrus_storage_node_client::api::errors::{ErrorInfo, Status, StatusCode};
 

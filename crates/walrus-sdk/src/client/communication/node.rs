@@ -559,75 +559,85 @@ impl NodeWriteCommunication<'_> {
         &self,
         bundles: Vec<MultiPutBundle>,
     ) -> NodeResult<Vec<MultiPutBlobResponse>, NodeError> {
-        tracing::debug!("storing {} blobs via multi-put", bundles.len());
+        tracing::info!(
+            "Node {}: storing {} blobs via multi-put",
+            self.node_index,
+            bundles.len()
+        );
 
         let request = MultiPutRequest {
             epoch: self.committee_epoch,
             bundles,
         };
 
-        let total_shards = request
+        let _total_shards = request
             .bundles
             .iter()
             .map(|bundle| bundle.sliver_pairs.len() * 2) // Each pair has 2 slivers.
             .sum::<usize>();
 
+        tracing::info!(
+            "Node {}: sending multi_put request with {} bundles to client",
+            self.node_index,
+            request.bundles.len()
+        );
+
         let result = self
-            .retry_with_limits_and_backoff(|| self.client.multi_put(&request))
+            .retry_with_limits_and_backoff(|| {
+                tracing::trace!("Node {}: calling client.multi_put", self.node_index);
+                self.client.multi_put(&request)
+            })
             .await;
 
-        match result {
-            Ok(response) => {
-                let blob_results: Vec<MultiPutBlobResponse> = response
-                    .results
-                    .into_iter()
-                    .map(|blob_result| {
-                        let confirmation_result = if blob_result.success {
-                            blob_result.confirmation.ok_or_else(|| {
+        tracing::info!(
+            "Node {}: multi_put request completed: {:?}, node_weight={}",
+            self.node_index,
+            result
+                .as_ref()
+                .map(|r| format!("{} results", r.results.len()))
+                .unwrap_or_else(|e| format!("Error: {e}")),
+            self.n_owned_shards().get()
+        );
+
+        let processed_result = result.map(|response| {
+            let blob_results: Vec<MultiPutBlobResponse> = response
+                .results
+                .into_iter()
+                .map(|blob_result| {
+                    let confirmation_result = if blob_result.success {
+                        blob_result.confirmation.ok_or_else(|| {
+                            use std::io::Error;
+                            NodeError::other(Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Success response missing confirmation",
+                            ))
+                        })
+                    } else {
+                        Err(blob_result
+                            .error
+                            .map(|status| {
+                                use std::io::Error;
+                                NodeError::other(Error::other(format!("Storage error: {status}")))
+                            })
+                            .unwrap_or_else(|| {
                                 use std::io::Error;
                                 NodeError::other(Error::new(
                                     std::io::ErrorKind::InvalidData,
-                                    "Success response missing confirmation",
+                                    "Failed response missing error",
                                 ))
-                            })
-                        } else {
-                            Err(blob_result
-                                .error
-                                .map(|status| {
-                                    use std::io::Error;
-                                    NodeError::other(Error::other(format!(
-                                        "Storage error: {status}"
-                                    )))
-                                })
-                                .unwrap_or_else(|| {
-                                    use std::io::Error;
-                                    NodeError::other(Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Failed response missing error",
-                                    ))
-                                }))
-                        };
-                        MultiPutBlobResponse {
-                            blob_id: blob_result.blob_id,
-                            result: confirmation_result,
-                        }
-                    })
-                    .collect();
+                            }))
+                    };
+                    MultiPutBlobResponse {
+                        blob_id: blob_result.blob_id,
+                        result: confirmation_result,
+                    }
+                })
+                .collect();
 
-                NodeResult::new(
-                    self.committee_epoch,
-                    total_shards,
-                    self.node_index,
-                    Ok(blob_results),
-                )
-            }
-            Err(error) => NodeResult::new(
-                self.committee_epoch,
-                total_shards,
-                self.node_index,
-                Err(error),
-            ),
-        }
+            blob_results
+        });
+
+        self.to_node_result_with_n_shards(processed_result)
     }
 
     async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>

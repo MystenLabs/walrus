@@ -883,7 +883,8 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let mut results = self
             .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                // self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                self.reserve_and_store_encoded_blobs_parallel(encoded_blobs.clone(), store_args)
             })
             .await?;
 
@@ -919,7 +920,7 @@ impl WalrusNodeClient<SuiContractClient> {
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                self.reserve_and_store_encoded_blobs_parallel(encoded_blobs.clone(), store_args)
             })
             .await?;
 
@@ -960,7 +961,7 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut results = self
-            .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
+            .reserve_and_store_encoded_blobs_parallel(encoded_blobs, store_args)
             .await?;
 
         debug_assert_eq!(results.len(), blobs.len());
@@ -1399,23 +1400,45 @@ impl WalrusNodeClient<SuiContractClient> {
             } else if registered_blob.ready_to_store_to_nodes() {
                 // Check if we have a certificate from pre-registration
                 if let Some(blob_id) = registered_blob.get_blob_id() {
-                    if let Some(cert_result) = cert_map.remove(&blob_id) {
-                        // Transform to WithCertificate variant using the result directly
-                        let blob_with_cert =
-                            registered_blob.with_get_certificate_result(cert_result)?;
-                        blobs_with_certificates.push(blob_with_cert);
-                    } else {
-                        // Fail the blob if no certificate found in pre-registration
-                        tracing::warn!(
-                            blob_id = %blob_id,
-                            "Pre-registration failed: no certificate found for blob"
-                        );
-                        let failed_blob = registered_blob.with_error(
-                            ClientError::store_blob_internal(format!(
+                    match cert_map.get(&blob_id) {
+                        Some(Ok(certificate)) => {
+                            // Success case: clone the certificate, keep it in the map for reuse
+                            let cert_result_for_use = Ok(certificate.clone());
+
+                            // Transform to WithCertificate variant using the cloned result
+                            let blob_with_cert =
+                                registered_blob.with_get_certificate_result(cert_result_for_use)?;
+                            blobs_with_certificates.push(blob_with_cert);
+                        }
+                        Some(Err(_)) => {
+                            // Error case: remove from map so it's not reused, then take ownership
+                            if let Some(cert_result) = cert_map.remove(&blob_id) {
+                                let blob_with_cert =
+                                    registered_blob.with_get_certificate_result(cert_result)?;
+                                blobs_with_certificates.push(blob_with_cert);
+                            } else {
+                                // This should not happen, but handle it gracefully
+                                let error_blob = registered_blob
+                                    .with_error(ClientError::store_blob_internal(
+                                        "Pre-registration failed: certificate error removed concurrently"
+                                            .to_string()
+                                    ))?;
+                                final_result.push(error_blob);
+                            }
+                        }
+                        None => {
+                            // Fail the blob if no certificate found in pre-registration
+                            tracing::warn!(
+                                blob_id = %blob_id,
                                 "Pre-registration failed: no certificate found for blob {blob_id}"
-                            )),
-                        )?;
-                        final_result.push(failed_blob);
+                            );
+                            let error_blob = registered_blob
+                                .with_error(ClientError::store_blob_internal(format!(
+                                    "Pre-registration failed: no certificate found for blob \
+                                     {blob_id}"
+                                )))?;
+                            final_result.push(error_blob);
+                        }
                     }
                 } else {
                     return Err(ClientError::store_blob_internal(format!(
@@ -2028,7 +2051,7 @@ impl<T> WalrusNodeClient<T> {
         // will be set during the actual registration process.
         let blob_persistence_type = walrus_core::messages::BlobPersistenceType::Permanent;
 
-        let mut bundles_by_node = self
+        let bundles_by_node = self
             .assemble_bundles_by_node(&blob_data_list, blob_persistence_type, &committees)
             .await?;
 
@@ -2046,35 +2069,54 @@ impl<T> WalrusNodeClient<T> {
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
-        // Send batched requests to each node (these will be cached if not registered)
-        let futures: Vec<_> = comms
-            .iter()
-            .map(|n| {
-                let node_bundles = bundles_by_node.remove(&n.node_index).unwrap_or_default();
+        // Create weighted futures for quorum-based multi_put requests
+        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+            let node_bundles = bundles_by_node
+                .get(&n.node_index)
+                .cloned()
+                .unwrap_or_default();
 
-                // Always use multi_put for pre-registration uploads to enable caching
-                let fut = if !node_bundles.is_empty() {
-                    n.multi_put(node_bundles).boxed()
-                } else {
-                    futures::future::ready(NodeResult::new(
-                        n.committee_epoch,
-                        1,
-                        n.node_index,
-                        Ok(vec![]),
-                    ))
-                    .boxed()
-                };
+            // Always use multi_put for pre-registration uploads to enable caching
+            if !node_bundles.is_empty() {
+                n.multi_put(node_bundles).boxed()
+            } else {
+                futures::future::ready(NodeResult::new(
+                    n.committee_epoch,
+                    1, // Use weight 1 for empty requests
+                    n.node_index,
+                    Ok(vec![]),
+                ))
+                .boxed()
+            }
+        }));
 
-                fut.boxed()
-            })
-            .collect();
+        // Execute requests and wait for quorum (like send_blob_data_and_get_certificate)
+        tracing::info!(
+            "Starting pre-registration multi_put requests to {} nodes",
+            comms.len()
+        );
+        requests
+            .execute_weight(
+                &|weight| {
+                    let is_enough = committees
+                        .write_committee()
+                        .is_at_least_min_n_correct(weight);
+                    tracing::debug!(
+                        "Pre-registration weight check: weight={}, min_n_correct={}, is_enough={}",
+                        weight,
+                        committees.min_n_correct(),
+                        is_enough
+                    );
+                    is_enough
+                },
+                committees.n_shards().get().into(),
+            )
+            .await;
 
-        // Execute all requests in parallel - we don't need to wait for quorum
-        // since these are pre-registration uploads that will be cached.
-        let results = futures::future::join_all(futures).await;
+        let results = requests.into_results();
 
-        tracing::debug!(
-            "completed pre-registration upload to {} nodes",
+        tracing::info!(
+            "Completed pre-registration upload to {} nodes",
             results.len()
         );
 
@@ -2084,32 +2126,78 @@ impl<T> WalrusNodeClient<T> {
             Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
         > = HashMap::new();
 
+        // Process results from successful nodes and aggregate confirmations by blob_id
+        let mut successful_nodes = 0;
+        let mut failed_nodes = 0;
+
         for node_result in results {
             match node_result.result {
                 Ok(blob_responses) => {
+                    successful_nodes += 1;
+                    tracing::info!(
+                        "Node {} succeeded with {} blob responses, weight={}",
+                        node_result.node,
+                        blob_responses.len(),
+                        node_result.weight
+                    );
+
                     for response in blob_responses {
-                        let confirmation_result = match response.result {
-                            Ok(confirmation) => Ok(confirmation),
-                            Err(e) => Err(StoreError::Confirmation(e)),
-                        };
-                        confirmations_by_blob
-                            .entry(response.blob_id)
-                            .or_default()
-                            .push(NodeResult::new(
-                                node_result.committee_epoch,
-                                node_result.weight,
-                                node_result.node,
-                                confirmation_result,
-                            ));
+                        match response.result {
+                            Ok(confirmation) => {
+                                tracing::debug!(
+                                    "Got confirmation for blob {} from node {}",
+                                    response.blob_id,
+                                    node_result.node
+                                );
+                                confirmations_by_blob
+                                    .entry(response.blob_id)
+                                    .or_default()
+                                    .push(NodeResult::new(
+                                        node_result.committee_epoch,
+                                        node_result.weight,
+                                        node_result.node,
+                                        Ok(confirmation),
+                                    ));
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Confirmation error for blob {} from node {}: {:?}",
+                                    response.blob_id,
+                                    node_result.node,
+                                    e
+                                );
+                                confirmations_by_blob
+                                    .entry(response.blob_id)
+                                    .or_default()
+                                    .push(NodeResult::new(
+                                        node_result.committee_epoch,
+                                        node_result.weight,
+                                        node_result.node,
+                                        Err(StoreError::Confirmation(e)),
+                                    ));
+                            }
+                        }
                     }
                 }
                 Err(e) => {
-                    // Node failed - need to handle this for all blobs sent to this node.
-                    // We need to track which blobs were sent to this node.
-                    tracing::warn!("Node {} failed: {:?}", node_result.node, e);
+                    failed_nodes += 1;
+                    // Log node failure but don't create fake entries - the quorum handling
+                    // will collect confirmations from working nodes
+                    tracing::warn!(
+                        "Node {} failed during pre-registration upload (weight={}): {:?}",
+                        node_result.node,
+                        node_result.weight,
+                        e
+                    );
                 }
             }
         }
+
+        tracing::info!(
+            "Pre-registration results: {} successful nodes, {} failed nodes",
+            successful_nodes,
+            failed_nodes
+        );
 
         // Generate certificates for each unique blob_id.
         let mut certificates: CertificateConfirmationResult = HashMap::new();

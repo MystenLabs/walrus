@@ -275,7 +275,7 @@ impl BlobEventProcessor {
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
 
-        if let BlobEvent::Registered(_) = &blob_event {
+        if let BlobEvent::Registered(event) = &blob_event {
             // Registered event is marked as complete immediately. We need to process registered
             // events as fast as possible to catch up to the latest event in order to not miss
             // blob sliver uploads.
@@ -284,6 +284,17 @@ impl BlobEventProcessor {
             // certified event processing, as certified events take longer and can block following
             // registered events.
             let _scope = monitored_scope::monitored_scope("ProcessEvent::BlobEvent::Registered");
+
+            // Notify CachedBlobManager about the registration
+            // This will trigger processing if data has already arrived
+            if let Some(cached_manager) = self.node.cached_blob_manager().await {
+                cached_manager.register(event.blob_id).await;
+                tracing::debug!(
+                    blob_id = %event.blob_id,
+                    "Notified CachedBlobManager about registration"
+                );
+            }
+
             event_handle.mark_as_complete();
             return Ok(());
         }
