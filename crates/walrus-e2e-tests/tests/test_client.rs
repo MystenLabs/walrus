@@ -513,6 +513,7 @@ async fn register_blob(
     blob: &[u8],
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
+    persistence: BlobPersistence,
 ) -> TestResult<BlobId> {
     // Encode blob and get metadata
     let (_, metadata) = client
@@ -538,7 +539,7 @@ async fn register_blob(
         .get_existing_or_register(
             &[&metadata],
             epochs_ahead,
-            BlobPersistence::Permanent,
+            persistence,
             StoreOptimizations::all(),
         )
         .await?
@@ -556,8 +557,11 @@ async fn store_blob(
     blob: &[u8],
     encoding_type: EncodingType,
     epochs_ahead: EpochCount,
+    persistence: BlobPersistence,
 ) -> TestResult<BlobId> {
-    let store_args = StoreArgs::default_with_epochs(epochs_ahead).with_encoding_type(encoding_type);
+    let store_args = StoreArgs::default_with_epochs(epochs_ahead)
+        .with_encoding_type(encoding_type)
+        .with_persistence(persistence);
     let result = client
         .inner
         .reserve_and_store_blobs(&[blob], &store_args)
@@ -628,10 +632,16 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     Ok(())
 }
 
+async_param_test! {
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    test_store_with_existing_blobs -> TestResult : [
+        deletable: (BlobPersistence::Deletable),
+        permanent: (BlobPersistence::Permanent),
+    ]
+}
 /// Tests that blobs can be extended when possible.
-#[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
-async fn test_store_with_existing_blobs() -> TestResult {
+async fn test_store_with_existing_blobs(persistence: BlobPersistence) -> TestResult {
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client, _) =
@@ -643,33 +653,37 @@ async fn test_store_with_existing_blobs() -> TestResult {
     // Initial setup, with blobs in different states, the names indicate the later outcome
     // of a following store operation.
     let encoding_type = DEFAULT_ENCODING;
-    let reuse_blob = register_blob(&client, blobs[0], encoding_type, 40).await?;
-    let certify_and_extend_blob = register_blob(&client, blobs[1], encoding_type, 10).await?;
-    let already_certified_blob = store_blob(&client, blobs[2], encoding_type, 50).await?;
-    let extended_blob = store_blob(&client, blobs[3], encoding_type, 20).await?;
+    let reuse_blob = register_blob(&client, blobs[0], encoding_type, 40, persistence).await?;
+    let certify_and_extend_blob =
+        register_blob(&client, blobs[1], encoding_type, 10, persistence).await?;
+    let already_certified_blob =
+        store_blob(&client, blobs[2], encoding_type, 50, persistence).await?;
+    let extended_blob = store_blob(&client, blobs[3], encoding_type, 20, persistence).await?;
 
     let epoch = client.as_ref().sui_client().current_epoch().await?;
     let epochs_ahead = 30;
-    let store_args = StoreArgs::default_with_epochs(epochs_ahead).with_encoding_type(encoding_type);
-    let store_results: Vec<BlobStoreResult> = client
+    let store_args = StoreArgs::default_with_epochs(epochs_ahead)
+        .with_encoding_type(encoding_type)
+        .with_persistence(persistence);
+    let store_results = client
         .inner
         .reserve_and_store_blobs(&blobs, &store_args)
         .await?;
-    for result in store_results {
+    for (blob_index, result) in store_results.into_iter().enumerate() {
+        let Some(end_epoch) = result.end_epoch() else {
+            panic!("end_epoch should be present for blob {blob_index}");
+        };
+        assert!(
+            end_epoch >= epoch + epochs_ahead,
+            "blob {blob_index}: end_epoch ({end_epoch}) should be at least epoch ({epoch}) + \
+            epochs_ahead ({epochs_ahead})"
+        );
+
         if result.blob_id() == Some(reuse_blob) {
             assert!(matches!(
                 &result,
                 BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
                 } if resource_operation.is_reuse_registration()));
-            assert!(
-                result
-                    .end_epoch()
-                    .is_some_and(|end| end >= epoch + epochs_ahead),
-                "end_epoch should exist and be at least epoch + epochs_ahead {}, {} {}",
-                epoch,
-                epochs_ahead,
-                result.end_epoch().unwrap_or(0)
-            );
         } else if result.blob_id() == Some(certify_and_extend_blob) {
             assert!(matches!(
                 &result,
@@ -678,20 +692,8 @@ async fn test_store_with_existing_blobs() -> TestResult {
                     ..
                 } if resource_operation.is_certify_and_extend()
             ));
-            assert!(
-                result
-                    .end_epoch()
-                    .is_some_and(|end| end == epoch + epochs_ahead),
-                "end_epoch should exist and be equal to epoch + epochs_ahead"
-            );
         } else if result.blob_id() == Some(already_certified_blob) {
             assert!(matches!(&result, BlobStoreResult::AlreadyCertified { .. }));
-            assert!(
-                result
-                    .end_epoch()
-                    .is_some_and(|end| end >= epoch + epochs_ahead),
-                "end_epoch should exist and be at least epoch + epochs_ahead"
-            );
         } else if result.blob_id() == Some(extended_blob) {
             assert!(matches!(
                 &result,
@@ -700,12 +702,6 @@ async fn test_store_with_existing_blobs() -> TestResult {
                 ..
             } if resource_operation.is_extend()
             ));
-            assert!(
-                result
-                    .end_epoch()
-                    .is_some_and(|end| end == epoch + epochs_ahead),
-                "end_epoch should exist and be equal to epoch + epochs_ahead"
-            );
         } else {
             assert!(matches!(
                 &result,
@@ -714,12 +710,6 @@ async fn test_store_with_existing_blobs() -> TestResult {
                     ..
                 } if resource_operation.is_registration()
             ));
-            assert!(
-                result
-                    .end_epoch()
-                    .is_some_and(|end| end == epoch + epochs_ahead),
-                "end_epoch should exist and be equal to epoch + epochs_ahead"
-            );
         }
     }
 
