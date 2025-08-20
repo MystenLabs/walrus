@@ -67,7 +67,8 @@ fn uptime_metric(registry: &Registry) {
         .expect("uptime counter creation cannot fail with valid options");
 
     // Register the counter with the registry
-    registry.register(Box::new(uptime_counter.clone()))
+    registry
+        .register(Box::new(uptime_counter.clone()))
         .expect("uptime counter registration cannot fail");
 
     // Spawn a background task to increment the uptime counter every second
@@ -105,11 +106,13 @@ pub fn start_prometheus_server(listener: TcpListener) {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true)
+        listener
+            .set_nonblocking(true)
             .expect("listener is valid and supports non-blocking mode");
         let listener = tokio::net::TcpListener::from_std(listener)
             .expect("valid std listener can always be converted to tokio listener");
-        axum::serve(listener, app).await
+        axum::serve(listener, app)
+            .await
             .expect("failed to start metrics server");
     });
 }

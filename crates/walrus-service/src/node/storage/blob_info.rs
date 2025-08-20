@@ -1378,7 +1378,8 @@ impl BlobInfo {
     ) -> Self {
         let blob_info = match status {
             BlobCertificationStatus::Invalid => BlobInfoV1::Invalid {
-                epoch: invalidated_epoch.expect("invalidated_epoch must be provided for Invalid status"),
+                epoch: invalidated_epoch
+                    .expect("invalidated_epoch must be provided for Invalid status"),
                 event: current_status_event,
             },
 

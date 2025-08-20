@@ -63,10 +63,8 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(config.listen_address)
         .await
         .map_err(|e| anyhow::anyhow!("failed to bind address: {}", e))?;
-    let histogram_listener =
-        std::net::TcpListener::bind(config.histogram_address).map_err(|e| {
-            anyhow::anyhow!("failed to bind histogram port: {}", e)
-        })?;
+    let histogram_listener = std::net::TcpListener::bind(config.histogram_address)
+        .map_err(|e| anyhow::anyhow!("failed to bind histogram port: {}", e))?;
     let metrics_listener = std::net::TcpListener::bind(config.metrics_address)
         .map_err(|e| anyhow::anyhow!("failed to bind metrics port: {}", e))?;
 

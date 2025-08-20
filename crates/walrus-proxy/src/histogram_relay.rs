@@ -78,11 +78,13 @@ pub fn start_prometheus_server(listener: TcpListener) -> HistogramRelay {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true)
+        listener
+            .set_nonblocking(true)
             .expect("listener is valid and supports non-blocking mode");
         let listener = tokio::net::TcpListener::from_std(listener)
             .expect("valid std listener can always be converted to tokio listener");
-        axum::serve(listener, app).await
+        axum::serve(listener, app)
+            .await
             .expect("axum server should run without error");
     });
     relay

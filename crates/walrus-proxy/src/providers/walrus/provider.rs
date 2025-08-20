@@ -158,7 +158,9 @@ impl WalrusNodeProvider {
                 );
             }
         });
-        let mut allow = self.nodes.write()
+        let mut allow = self
+            .nodes
+            .write()
             .expect("write lock acquisition cannot fail as no thread panics while holding lock");
         allow.clear();
         allow.extend(nodes);
@@ -172,9 +174,12 @@ impl WalrusNodeProvider {
         let encoded_pub_key = key.encode_base64();
         let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
         tracing::debug!("look for {} {}", &encoded_pub_key, &cache_key);
-        if let Some(v) = self.nodes.read()
+        if let Some(v) = self
+            .nodes
+            .read()
             .expect("read lock acquisition cannot fail as no thread panics while holding lock")
-            .get(&cache_key) {
+            .get(&cache_key)
+        {
             return Some(v.to_owned());
         }
         tracing::debug!("not found {} {}", &encoded_pub_key, &cache_key);

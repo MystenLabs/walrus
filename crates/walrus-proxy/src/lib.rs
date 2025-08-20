@@ -80,7 +80,9 @@ macro_rules! var {
     };
     ($key:expr, $default:expr) => {
         match std::env::var($key) {
-            Ok(val) => val.parse::<_>().expect("cannot fail when parsing environment variable"),
+            Ok(val) => val
+                .parse::<_>()
+                .expect("cannot fail when parsing environment variable"),
             Err(_) => $default,
         }
     };
