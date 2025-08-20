@@ -15,7 +15,11 @@ use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint
 use tokio::{sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, rocks::DBMap};
-use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
+use walrus_sui::client::retry_client::{
+    RetriableClientError,
+    RetriableRpcClient,
+    retriable_rpc_client::FallbackError,
+};
 use walrus_utils::{
     backoff::ExponentialBackoff,
     metrics::{Registry, monitored_scope},
@@ -558,6 +562,21 @@ fn handle_checkpoint_error(err: &RetriableClientError, next_checkpoint: u64) {
             "failed to read next checkpoint, probably not produced yet",
         );
     }
+
+    if let RetriableClientError::FallbackError(fallback_error) = err
+        && let FallbackError::RequestFailed(error) = fallback_error
+        && error
+            .status()
+            .map(|status| status == axum::http::StatusCode::NOT_FOUND)
+            .unwrap_or(false)
+    {
+        return tracing::debug!(
+            next_checkpoint,
+            ?err,
+            "checkpoint not found in archive, probably not produced yet"
+        );
+    }
+
     tracing::warn!(next_checkpoint, ?err, "failed to read next checkpoint");
 }
 

@@ -1847,6 +1847,7 @@ version = "1.32.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "axum 0.8.4",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
