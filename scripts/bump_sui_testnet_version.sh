@@ -20,9 +20,9 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
 fi
 
-# STAMP="$(date +%Y%m%d%H%M%S)"
-# BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
-# git checkout -b "$BRANCH"
+STAMP="$(date +%Y%m%d%H%M%S)"
+BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
+git checkout -b "$BRANCH"
 
 # Allow recursive globs.
 shopt -s globstar nullglob
@@ -59,7 +59,7 @@ fi
 echo "Running cargo build --release ..."
 cargo build --release
 
-# Find all directories that contain a Move.toml and rebuild them
+# Find all directories that contain a Move.toml and rebuild them.
 echo "Regenerating Move.lock files..."
 for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
   if [[ -f "$toml" ]]; then
@@ -69,26 +69,27 @@ for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
   fi
 done
 
-# echo "Staging all changed files..."
-# git add -u
+echo "Staging all changed files..."
+git add -u
 
-# # Commit, push, PR
-# git config user.name "github-actions[bot]"
-# git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-# git commit -m "chore: bump Sui to ${NEW_TAG}"
-# git push -u origin "$BRANCH"
+# Commit, push, and create PR.
+git config user.name "github-actions[bot]"
+git config user.email \
+  "41898282+github-actions[bot]@users.noreply.github.com"
 
+git commit -m "chore: bump Sui to ${NEW_TAG}"
+git push -u origin "$BRANCH"
 
-# BODY=$(cat <<EOF
-# Automated Sui bump with single-pass updater.
+BODY=$(cat <<EOF
+Automated Sui bump with single-pass updater.
 
-# This PR bumps Sui testnet tag to ${NEW_TAG}.
-# EOF
-# )
+This PR bumps Sui testnet tag to ${NEW_TAG}.
+EOF
+)
 
-# gh pr create \
-#   --base "$BASE" \
-#   --head "$BRANCH" \
-#   --title "chore: bump Sui to ${NEW_TAG}" \
-#   --reviewer "ebmifa,mlegner,wbbradley" \
-#   --body "$BODY"
+gh pr create \
+  --base "$BASE" \
+  --head "$BRANCH" \
+  --title "chore: bump Sui to ${NEW_TAG}" \
+  --reviewer "ebmifa,mlegner,wbbradley" \
+  --body "$BODY"
