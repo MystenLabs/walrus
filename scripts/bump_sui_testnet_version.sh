@@ -25,7 +25,7 @@ if [[ -z "${GITHUB_ACTOR:-}" ]]; then
 fi
 
 STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="$GITHUB_ACTOR/bump-sui-${NEW_TAG}-${STAMP}"
+BRANCH="${GITHUB_ACTOR}/bump-sui-${NEW_TAG}-${STAMP}"
 git checkout -b "$BRANCH"
 
 # Allow recursive globs.
