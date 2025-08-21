@@ -92,7 +92,7 @@ PR_URL=$(gh pr create \
   --head "$BRANCH" \
   --title "chore: bump Sui to ${NEW_TAG}" \
   --reviewer "ebmifa,mlegner,wbbradley" \
-  --body "Automated Sui bump with single-pass updater." \
+  --body "$BODY" \
   --json url -q .url)
 
 echo "Pull request created: $PR_URL"
