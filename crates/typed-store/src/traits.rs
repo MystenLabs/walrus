@@ -46,8 +46,12 @@ where
     /// Removes every key-value pair from the map.
     fn unsafe_clear(&self) -> Result<(), Self::Error>;
 
-    /// Uses delete range on the entire key range
+    /// Uses delete range on the entire key range when supported; otherwise
+    /// deletes all entries individually as a fallback.
     fn schedule_delete_all(&self) -> Result<(), TypedStoreError>;
+
+    /// Removes every key-value pair from the map individually
+    fn delete_all_individually(&self) -> Result<(), TypedStoreError>;
 
     /// Returns true if the map is empty, otherwise false.
     fn is_empty(&self) -> bool;

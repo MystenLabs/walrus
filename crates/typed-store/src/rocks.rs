@@ -1,10 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-/// Error types and utilities for RocksDB operations
+/// Error types and utilities for RocksDB operations.
 pub mod errors;
 
-/// Safe iterator utilities for RocksDB
+/// Safe iterator utilities for RocksDB.
 pub(crate) mod safe_iter;
 
 use std::{
@@ -34,9 +34,14 @@ use rocksdb::{
     Error,
     LiveFile,
     MultiThreaded,
+    OptimisticTransactionDB,
+    OptimisticTransactionOptions,
     ReadOptions,
+    Transaction,
     WriteBatch,
+    WriteBatchWithTransaction,
     WriteOptions,
+    backup::BackupEngine,
     checkpoint::Checkpoint,
     properties::{self, num_files_at_level},
     statistics::Ticker,
@@ -78,34 +83,120 @@ const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
 #[cfg(test)]
 mod tests;
 
-/// The rocksdb database
-pub struct RocksDB {
-    /// The underlying rocksdb database
-    pub underlying: rocksdb::DBWithThreadMode<MultiThreaded>,
-    /// The metric configuration
-    pub metric_conf: MetricConf,
-    /// The path of the database
-    pub db_path: PathBuf,
-    /// The database options
-    pub db_options: rocksdb::Options,
+/// Repeatedly attempt an Optimistic Transaction until it succeeds.
+/// This will loop forever until the transaction succeeds.
+#[macro_export]
+macro_rules! retry_transaction {
+    ($transaction:expr) => {
+        retry_transaction!($transaction, Some(20))
+    };
+
+    (
+        $transaction:expr,
+        $max_retries:expr
+        $(,)?
+
+    ) => {{
+        use rand::{
+            distributions::{Distribution, Uniform},
+            rngs::ThreadRng,
+        };
+        use tokio::time::{Duration, sleep};
+
+        let mut retries = 0;
+        let max_retries = $max_retries;
+        loop {
+            let status = $transaction;
+            match status {
+                Err(TypedStoreError::RetryableTransactionError) => {
+                    retries += 1;
+                    // Randomized delay to help racing transactions get out of each other's way.
+                    let delay = {
+                        let mut rng = ThreadRng::default();
+                        Duration::from_millis(Uniform::new(0, 50).sample(&mut rng))
+                    };
+                    if let Some(max_retries) = max_retries {
+                        if retries > max_retries {
+                            tracing::error!(?max_retries, "max retries exceeded");
+                            break status;
+                        }
+                    }
+                    if retries > 10 {
+                        // TODO: monitoring needed?
+                        tracing::error!(?delay, ?retries, "excessive transaction retries...");
+                    } else {
+                        tracing::info!(
+                            ?delay,
+                            ?retries,
+                            "transaction write conflict detected, sleeping"
+                        );
+                    }
+                    sleep(delay).await;
+                }
+                _ => break status,
+            }
+        }
+    }};
 }
 
-impl fmt::Debug for RocksDB {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RocksDB {{ db_path: {:?} }}", self.db_path)
+/// Retry a transaction forever.
+#[macro_export]
+macro_rules! retry_transaction_forever {
+    ($transaction:expr) => {
+        $crate::retry_transaction!($transaction, None)
+    };
+}
+
+/// Engine-specific behavior for RocksDB wrappers.
+pub trait DbBehavior {
+    /// Human-readable engine label used in Debug output.
+    const ENGINE_LABEL: &'static str;
+    /// Optional cancellation of background work on drop.
+    fn cancel_on_drop(db: &Self);
+}
+
+impl DbBehavior for rocksdb::DBWithThreadMode<MultiThreaded> {
+    const ENGINE_LABEL: &'static str = "RocksDB";
+    fn cancel_on_drop(db: &Self) {
+        db.cancel_all_background_work(/* wait */ true);
     }
 }
 
-impl Drop for RocksDB {
+impl DbBehavior for rocksdb::OptimisticTransactionDB<MultiThreaded> {
+    const ENGINE_LABEL: &'static str = "OptimisticTransactionDB";
+    fn cancel_on_drop(db: &Self) {
+        db.cancel_all_background_work(/* wait */ true);
+    }
+}
+
+/// A generic wrapper around RocksDB engines with common metadata and behavior.
+pub struct DBWrapper<T: DbBehavior> {
+    /// The underlying rocksdb database.
+    pub underlying: T,
+    /// The metric configuration.
+    pub metric_conf: MetricConf,
+    /// The path of the database.
+    pub db_path: PathBuf,
+    /// The database options.
+    pub db_options: rocksdb::Options,
+}
+
+impl<T: DbBehavior> fmt::Debug for DBWrapper<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {{ db_path: {:?} }}", T::ENGINE_LABEL, self.db_path)
+    }
+}
+
+impl<T: DbBehavior> Drop for DBWrapper<T> {
     fn drop(&mut self) {
-        self.underlying.cancel_all_background_work(/* wait */ true);
+        T::cancel_on_drop(&self.underlying);
         DBMetrics::get().decrement_num_active_dbs(&self.metric_conf.db_name);
     }
 }
 
-impl RocksDB {
+impl<T: DbBehavior> DBWrapper<T> {
     fn new(
-        underlying: rocksdb::DBWithThreadMode<MultiThreaded>,
+        underlying: T,
         metric_conf: MetricConf,
         db_path: PathBuf,
         db_options: rocksdb::Options,
@@ -120,13 +211,124 @@ impl RocksDB {
     }
 }
 
-impl RocksDB {
-    /// Get a value from the database
-    pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, rocksdb::Error> {
-        self.underlying.get(key)
+/// Backwards-compatible alias for the standard `rocksdb::DB` wrapper.
+pub type DBWithThreadModeWrapper = DBWrapper<rocksdb::DBWithThreadMode<MultiThreaded>>;
+/// Backwards-compatible alias for the `rocksdb::OptimisticTransactionDB` wrapper.
+pub type OptimisticTransactionDBWrapper =
+    DBWrapper<rocksdb::OptimisticTransactionDB<MultiThreaded>>;
+
+#[derive(Debug)]
+/// Wrapper around RocksDB engines used by Walrus.
+pub enum RocksDB {
+    /// Standard RocksDB engine.
+    DB(DBWithThreadModeWrapper),
+    /// RocksDB optimistic transaction engine.
+    OptimisticTransactionDB(OptimisticTransactionDBWrapper),
+}
+
+/// A deliberate handle for optimistic-transaction-only APIs.
+#[derive(Debug, Copy, Clone)]
+pub struct OptimisticHandle<'a> {
+    pub(crate) inner: &'a OptimisticTransactionDBWrapper,
+}
+
+impl<'a> OptimisticHandle<'a> {
+    /// Create a new transaction without a snapshot.
+    /// Consistency: No snapshot; guarantees keys haven't changed since first write/get_for_update.
+    pub fn transaction_without_snapshot(
+        &self,
+    ) -> Transaction<'a, rocksdb::OptimisticTransactionDB> {
+        self.inner.underlying.transaction()
     }
 
-    /// Get multiple values from the database
+    /// Create a new transaction with a snapshot for repeatable reads.
+    pub fn transaction(&self) -> Transaction<'a, rocksdb::OptimisticTransactionDB> {
+        let mut tx_opts = OptimisticTransactionOptions::new();
+        tx_opts.set_snapshot(true);
+        self.inner
+            .underlying
+            .transaction_opt(&WriteOptions::default(), &tx_opts)
+    }
+}
+
+/// Handle for range-delete operations only valid for standard RocksDB engine.
+#[derive(Debug, Copy, Clone)]
+pub struct RangeDeleteHandle<'a> {
+    pub(crate) inner: &'a DBWithThreadModeWrapper,
+}
+
+impl<'a> RangeDeleteHandle<'a> {
+    /// Schedule a range delete tombstone from `from` (inclusive) to `to` (exclusive).
+    pub fn delete_range_cf<K: AsRef<[u8]>>(
+        &self,
+        cf: &impl AsColumnFamilyRef,
+        from: K,
+        to: K,
+    ) -> Result<(), rocksdb::Error> {
+        self.inner.underlying.delete_range_cf(cf, from, to)
+    }
+}
+
+macro_rules! delegate_call {
+    ($self:ident.$method:ident($($args:ident),*)) => {
+        match $self {
+            Self::DB(d) => d.underlying.$method($($args),*),
+            Self::OptimisticTransactionDB(d) => d.underlying.$method($($args),*),
+        }
+    };
+    ($self:ident.$field:ident) => {
+        match $self {
+            Self::DB(d) => &d.$field,
+            Self::OptimisticTransactionDB(d) => &d.$field,
+        }
+    }
+
+}
+
+macro_rules! delegate_pair {
+    ($self:ident, $batch:ident, |$d:ident, $b:ident| $db_expr:expr,
+        |$td:ident, $tb:ident| $txn_expr:expr) => {
+        match ($self, $batch) {
+            (RocksDB::DB($d), RocksDBBatch::DB($b)) => $db_expr,
+            (RocksDB::OptimisticTransactionDB($td), RocksDBBatch::OptimisticTransactionDB($tb)) => {
+                $txn_expr
+            }
+            _ => Err(TypedStoreError::RocksDBError(
+                "using invalid batch type for the database".into(),
+            )),
+        }
+    };
+}
+
+impl RocksDB {
+    /// Returns an optimistic-transaction handle if the DB is using the optimistic engine.
+    /// This allows invoking transaction APIs only when supported.
+    pub fn as_optimistic(&self) -> Option<OptimisticHandle<'_>> {
+        match self {
+            RocksDB::OptimisticTransactionDB(db) => Some(OptimisticHandle { inner: db }),
+            RocksDB::DB(_) => None,
+        }
+    }
+
+    /// Returns a handle that allows range-delete operations (only for standard RocksDB engine).
+    pub fn as_range_delete(&self) -> Option<RangeDeleteHandle<'_>> {
+        match self {
+            RocksDB::DB(db) => Some(RangeDeleteHandle { inner: db }),
+            RocksDB::OptimisticTransactionDB(_) => None,
+        }
+    }
+
+    /// Returns the configured `rocksdb::Options` for this database instance.
+    pub fn db_options(&self) -> &rocksdb::Options {
+        delegate_call!(self.db_options)
+    }
+
+    /// Get a value from the database.
+    pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, rocksdb::Error> {
+        delegate_call!(self.get(key))
+    }
+
+    /// Get multiple values from the database.
     pub fn multi_get_cf<'a, 'b: 'a, K, I, W>(
         &'a self,
         keys: I,
@@ -137,10 +339,10 @@ impl RocksDB {
         I: IntoIterator<Item = (&'b W, K)>,
         W: 'b + AsColumnFamilyRef,
     {
-        self.underlying.multi_get_cf_opt(keys, readopts)
+        delegate_call!(self.multi_get_cf_opt(keys, readopts))
     }
 
-    /// Get multiple values from a specific column family
+    /// Get multiple values from a specific column family.
     pub fn batched_multi_get_cf_opt<'a, K, I>(
         &self,
         cf: &impl AsColumnFamilyRef,
@@ -152,59 +354,59 @@ impl RocksDB {
         K: AsRef<[u8]> + 'a + ?Sized,
         I: IntoIterator<Item = &'a K>,
     {
-        self.underlying
-            .batched_multi_get_cf_opt(cf, keys, sorted_input, readopts)
+        delegate_call!(self.batched_multi_get_cf_opt(cf, keys, sorted_input, readopts))
     }
 
-    /// Get a property value from a specific column family
+    /// Get a property value from a specific column family.
     pub fn property_int_value_cf(
         &self,
         cf: &impl AsColumnFamilyRef,
         name: impl CStrLike,
     ) -> Result<Option<u64>, rocksdb::Error> {
-        self.underlying.property_int_value_cf(cf, name)
+        delegate_call!(self.property_int_value_cf(cf, name))
     }
 
-    /// Get a pinned value from a specific column family
+    /// Get a pinned value from a specific column family.
     pub fn get_pinned_cf_opt<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
         key: K,
         readopts: &ReadOptions,
     ) -> Result<Option<DBPinnableSlice<'_>>, rocksdb::Error> {
-        self.underlying.get_pinned_cf_opt(cf, key, readopts)
+        delegate_call!(self.get_pinned_cf_opt(cf, key, readopts))
     }
 
-    /// Get a column family handle by name
+    /// Get a column family handle by name.
     pub fn cf_handle(&self, name: &str) -> Option<Arc<rocksdb::BoundColumnFamily<'_>>> {
-        self.underlying.cf_handle(name)
+        delegate_call!(self.cf_handle(name))
     }
 
-    /// Create a new column family
+    /// Create a new column family.
     pub fn create_cf<N: AsRef<str>>(
         &self,
         name: N,
         opts: &rocksdb::Options,
     ) -> Result<(), rocksdb::Error> {
-        self.underlying.create_cf(name, opts)
+        delegate_call!(self.create_cf(name, opts))
     }
 
-    /// Drop a column family
+    /// Drop a column family.
     pub fn drop_cf(&self, name: &str) -> Result<(), rocksdb::Error> {
-        self.underlying.drop_cf(name)
+        delegate_call!(self.drop_cf(name))
     }
 
-    /// Delete files in a range
+    /// Delete files in a range.
+    #[allow(dead_code)]
     pub fn delete_file_in_range<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
         from: K,
         to: K,
     ) -> Result<(), rocksdb::Error> {
-        self.underlying.delete_file_in_range_cf(cf, from, to)
+        delegate_call!(self.delete_file_in_range_cf(cf, from, to))
     }
 
-    /// Delete a value from a specific column family
+    /// Delete a value from a specific column family.
     pub fn delete_cf<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
@@ -212,18 +414,18 @@ impl RocksDB {
         writeopts: &WriteOptions,
     ) -> Result<(), rocksdb::Error> {
         sui_macros::fail_point!("delete-cf-before");
-        let ret = self.underlying.delete_cf_opt(cf, key, writeopts);
+        let ret = delegate_call!(self.delete_cf_opt(cf, key, writeopts));
         sui_macros::fail_point!("delete-cf-after");
         #[allow(clippy::let_and_return)]
         ret
     }
 
-    /// Get the path of the database
+    /// Get the path of the database.
     pub fn path(&self) -> &Path {
-        self.underlying.path()
+        delegate_call!(self.path())
     }
 
-    /// Put a value into a specific column family
+    /// Put a value into a specific column family.
     pub fn put_cf<K, V>(
         &self,
         cf: &impl AsColumnFamilyRef,
@@ -236,63 +438,78 @@ impl RocksDB {
         V: AsRef<[u8]>,
     {
         sui_macros::fail_point!("put-cf-before");
-        let ret = self.underlying.put_cf_opt(cf, key, value, writeopts);
+        let ret = delegate_call!(self.put_cf_opt(cf, key, value, writeopts));
         sui_macros::fail_point!("put-cf-after");
         #[allow(clippy::let_and_return)]
         ret
     }
 
-    /// Check if a key may exist in a specific column family
+    /// Check if a key may exist in a specific column family.
     pub fn key_may_exist_cf<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
         key: K,
         readopts: &ReadOptions,
     ) -> bool {
-        self.underlying.key_may_exist_cf_opt(cf, key, readopts)
+        delegate_call!(self.key_may_exist_cf_opt(cf, key, readopts))
     }
 
-    /// Try to catch up with the primary
+    /// Try to catch up with the primary.
     pub fn try_catch_up_with_primary(&self) -> Result<(), rocksdb::Error> {
-        self.underlying.try_catch_up_with_primary()
+        delegate_call!(self.try_catch_up_with_primary())
     }
 
-    /// Write a batch of operations to the database
+    /// Write a batch of operations to the database.
     pub fn write(
         &self,
-        batch: rocksdb::WriteBatch,
+        batch: RocksDBBatch,
         writeopts: &WriteOptions,
     ) -> Result<(), TypedStoreError> {
         sui_macros::fail_point!("batch-write-before");
-        self.underlying
-            .write_opt(batch, writeopts)
-            .map_err(typed_store_err_from_rocks_err)?;
-        sui_macros::fail_point!("batch-write-after");
-        #[allow(clippy::let_and_return)]
-        Ok(())
+        delegate_pair!(
+            self,
+            batch,
+            |d, b| {
+                d.underlying
+                    .write_opt(b, writeopts)
+                    .map_err(typed_store_err_from_rocks_err)
+            },
+            |d, b| {
+                d.underlying
+                    .write_opt(b, writeopts)
+                    .map_err(typed_store_err_from_rocks_err)
+            }
+        )
     }
 
-    /// Get a raw iterator for a specific column family
+    /// Get a raw iterator for a specific column family.
     pub fn raw_iterator_cf<'a: 'b, 'b>(
         &'a self,
         cf_handle: &impl AsColumnFamilyRef,
         readopts: ReadOptions,
     ) -> RocksDBRawIter<'b> {
-        self.underlying.raw_iterator_cf_opt(cf_handle, readopts)
+        match self {
+            Self::DB(d) => {
+                RocksDBRawIter::DB(d.underlying.raw_iterator_cf_opt(cf_handle, readopts))
+            }
+            Self::OptimisticTransactionDB(d) => RocksDBRawIter::OptimisticTransactionDB(
+                d.underlying.raw_iterator_cf_opt(cf_handle, readopts),
+            ),
+        }
     }
 
-    /// Compact a range of values in a specific column family
+    /// Compact a range of values in a specific column family.
     pub fn compact_range_cf<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
         start: Option<K>,
         end: Option<K>,
     ) {
-        self.underlying.compact_range_cf(cf, start, end)
+        delegate_call!(self.compact_range_cf(cf, start, end))
     }
 
-    /// Compact a range of values in a specific column family to the bottom
-    /// of the LSM tree
+    /// Compact a range of values in a specific column family to the bottom.
+    /// of the LSM tree.
     pub fn compact_range_to_bottom<K: AsRef<[u8]>>(
         &self,
         cf: &impl AsColumnFamilyRef,
@@ -301,63 +518,85 @@ impl RocksDB {
     ) {
         let opt = &mut CompactOptions::default();
         opt.set_bottommost_level_compaction(BottommostLevelCompaction::ForceOptimized);
-        self.underlying.compact_range_cf_opt(cf, start, end, opt)
+        delegate_call!(self.compact_range_cf_opt(cf, start, end, opt))
     }
 
-    /// Flush the database
+    /// Flush the database.
+    #[allow(dead_code)]
     pub fn flush(&self) -> Result<(), TypedStoreError> {
-        self.underlying
-            .flush()
-            .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
+        delegate_call!(self.flush()).map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
     }
 
-    /// Create a checkpoint of the database
+    /// Create a checkpoint of the database.
     pub fn checkpoint(&self, path: &Path) -> Result<(), TypedStoreError> {
-        let checkpoint =
-            Checkpoint::new(&self.underlying).map_err(typed_store_err_from_rocks_err)?;
+        let checkpoint = self.new_checkpoint()?;
         checkpoint
             .create_checkpoint(path)
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-        Ok(())
+            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
     }
 
-    /// Flush a specific column family
+    /// Create a new backup of the database.
+    pub fn create_new_backup_flush(
+        &self,
+        engine: &mut BackupEngine,
+        flush_before_backup: bool,
+    ) -> Result<(), TypedStoreError> {
+        match self {
+            Self::DB(d) => engine
+                .create_new_backup_flush(&d.underlying, flush_before_backup)
+                .map_err(typed_store_err_from_rocks_err),
+            Self::OptimisticTransactionDB(d) => engine
+                .create_new_backup_flush(&d.underlying, flush_before_backup)
+                .map_err(typed_store_err_from_rocks_err),
+        }
+    }
+
+    /// Flush a specific column family.
     pub fn flush_cf(&self, cf: &impl AsColumnFamilyRef) -> Result<(), rocksdb::Error> {
-        self.underlying.flush_cf(cf)
+        delegate_call!(self.flush_cf(cf))
     }
 
-    /// Set options for a specific column family
+    /// Set options for a specific column family.
+    #[allow(dead_code)]
     pub fn set_options_cf(
         &self,
         cf: &impl AsColumnFamilyRef,
         opts: &[(&str, &str)],
     ) -> Result<(), rocksdb::Error> {
-        self.underlying.set_options_cf(cf, opts)
+        delegate_call!(self.set_options_cf(cf, opts))
     }
 
-    /// Get the sampling interval for the database
+    /// Get the sampling interval for the database.
     pub fn get_sampling_interval(&self) -> SamplingInterval {
-        self.metric_conf.read_sample_interval.new_from_self()
+        delegate_call!(self.metric_conf)
+            .read_sample_interval
+            .new_from_self()
     }
 
-    /// Get the sampling interval for multi-get operations
+    /// Get the sampling interval for multi-get operations.
     pub fn multiget_sampling_interval(&self) -> SamplingInterval {
-        self.metric_conf.read_sample_interval.new_from_self()
+        delegate_call!(self.metric_conf)
+            .read_sample_interval
+            .new_from_self()
     }
 
-    /// Get the sampling interval for write operations
+    /// Get the sampling interval for write operations.
     pub fn write_sampling_interval(&self) -> SamplingInterval {
-        self.metric_conf.write_sample_interval.new_from_self()
+        delegate_call!(self.metric_conf)
+            .write_sample_interval
+            .new_from_self()
     }
 
-    /// Get the sampling interval for iterator operations
+    /// Get the sampling interval for iterator operations.
     pub fn iter_sampling_interval(&self) -> SamplingInterval {
-        self.metric_conf.iter_sample_interval.new_from_self()
+        delegate_call!(self.metric_conf)
+            .iter_sample_interval
+            .new_from_self()
     }
 
-    /// Get the name of the database
+    /// Get the name of the database.
     pub fn db_name(&self) -> String {
-        let name = &self.metric_conf.db_name;
+        let name = delegate_call!(self.metric_conf).db_name.clone();
         if name.is_empty() {
             self.default_db_name()
         } else {
@@ -365,7 +604,7 @@ impl RocksDB {
         }
     }
 
-    /// Get the default name of the database
+    /// Get the default name of the database.
     fn default_db_name(&self) -> String {
         self.path()
             .file_name()
@@ -374,28 +613,127 @@ impl RocksDB {
             .to_string()
     }
 
-    /// Get the live files in the database
+    /// Get the live files in the database.
+    #[allow(dead_code)]
     pub fn live_files(&self) -> Result<Vec<LiveFile>, Error> {
-        self.underlying.live_files()
+        delegate_call!(self.live_files())
+    }
+
+    /// Create a new batch for the database.
+    pub fn make_batch(&self) -> RocksDBBatch {
+        match self {
+            RocksDB::DB(_) => RocksDBBatch::DB(WriteBatch::default()),
+            RocksDB::OptimisticTransactionDB(_) => {
+                RocksDBBatch::OptimisticTransactionDB(WriteBatchWithTransaction::<true>::default())
+            }
+        }
+    }
+
+    fn new_checkpoint(&self) -> Result<Checkpoint<'_>, TypedStoreError> {
+        match self {
+            RocksDB::DB(d) => {
+                Checkpoint::new(&d.underlying).map_err(typed_store_err_from_rocks_err)
+            }
+            RocksDB::OptimisticTransactionDB(d) => {
+                Checkpoint::new(&d.underlying).map_err(typed_store_err_from_rocks_err)
+            }
+        }
     }
 }
 
-/// A configuration for metrics
+/// A batch of write operations for RocksDB, covering both standard and optimistic transaction DBs.
+pub enum RocksDBBatch {
+    /// A write batch for a standard `rocksdb::DB`.
+    DB(rocksdb::WriteBatch),
+    /// A write batch for an `rocksdb::OptimisticTransactionDB`.
+    OptimisticTransactionDB(rocksdb::WriteBatchWithTransaction<true>),
+}
+
+impl fmt::Debug for RocksDBBatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DB(_) => write!(f, "RocksDBBatch::DB"),
+            Self::OptimisticTransactionDB(_) => write!(f, "RocksDBBatch::OptimisticTransactionDB"),
+        }
+    }
+}
+
+macro_rules! delegate_batch_call {
+    ($self:ident.$method:ident($($args:ident),*)) => {
+        match $self {
+            Self::DB(b) => b.$method($($args),*),
+            Self::OptimisticTransactionDB(b) => b.$method($($args),*),
+        }
+    }
+}
+
+impl RocksDBBatch {
+    fn size_in_bytes(&self) -> usize {
+        delegate_batch_call!(self.size_in_bytes())
+    }
+
+    /// Delete a key from the given column family within this batch.
+    pub fn delete_cf<K: AsRef<[u8]>>(&mut self, cf: &impl AsColumnFamilyRef, key: K) {
+        delegate_batch_call!(self.delete_cf(cf, key))
+    }
+
+    /// Insert a key-value pair into the given column family within this batch.
+    pub fn put_cf<K, V>(&mut self, cf: &impl AsColumnFamilyRef, key: K, value: V)
+    where
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        delegate_batch_call!(self.put_cf(cf, key, value))
+    }
+
+    /// Merge a value with the existing value for a key within the given column family.
+    pub fn merge_cf<K, V>(&mut self, cf: &impl AsColumnFamilyRef, key: K, value: V)
+    where
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        delegate_batch_call!(self.merge_cf(cf, key, value))
+    }
+
+    /// Schedule a range delete tombstone from `from` (inclusive) to `to` (exclusive).
+    pub fn delete_range_cf<K: AsRef<[u8]>>(
+        &mut self,
+        cf: &impl AsColumnFamilyRef,
+        from: K,
+        to: K,
+        _cap: &RangeDeleteHandle<'_>,
+    ) -> Result<(), TypedStoreError> {
+        match self {
+            Self::DB(batch) => {
+                batch.delete_range_cf(cf, from, to);
+                Ok(())
+            }
+            Self::OptimisticTransactionDB(_) => {
+                tracing::warn!("delete_range_cf is not supported for OptimisticTransactionDB");
+                Err(TypedStoreError::RocksDBError(
+                    "delete_range_cf is not supported for OptimisticTransactionDB".into(),
+                ))
+            }
+        }
+    }
+}
+
+/// A configuration for metrics.
 #[derive(Debug, Default)]
 pub struct MetricConf {
-    /// The name of the database
+    /// The name of the database.
     pub db_name: String,
-    /// The sampling interval for read operations
+    /// The sampling interval for read operations.
     pub read_sample_interval: SamplingInterval,
-    /// The sampling interval for write operations
+    /// The sampling interval for write operations.
     pub write_sample_interval: SamplingInterval,
-    /// The sampling interval for iterator operations
+    /// The sampling interval for iterator operations.
     pub iter_sample_interval: SamplingInterval,
 }
 
-/// A configuration for metrics
+/// A configuration for metrics.
 impl MetricConf {
-    /// Create a new metric configuration
+    /// Create a new metric configuration.
     pub fn new(db_name: &str) -> Self {
         if db_name.is_empty() {
             tracing::error!("a meaningful DB name should be used for metrics reporting")
@@ -408,7 +746,7 @@ impl MetricConf {
         }
     }
 
-    /// Set the sampling interval for the database
+    /// Set the sampling interval for the database.
     pub fn with_sampling(self, read_interval: SamplingInterval) -> Self {
         Self {
             db_name: self.db_name,
@@ -421,28 +759,28 @@ impl MetricConf {
 const CF_METRICS_REPORT_PERIOD_SECS: u64 = 30;
 const METRICS_ERROR: i64 = -1;
 
-/// An interface to a rocksDB database, keyed by a columnfamily
+/// An interface to a rocksDB database, keyed by a columnfamily.
 #[derive(Clone, Debug)]
 pub struct DBMap<K, V> {
-    /// The rocksDB database
+    /// The rocksDB database.
     pub rocksdb: Arc<RocksDB>,
-    /// The phantom data
+    /// The phantom data.
     _phantom: PhantomData<fn(K) -> V>,
-    /// The rocksDB ColumnFamily under which the map is stored
+    /// The rocksDB ColumnFamily under which the map is stored.
     cf: String,
-    /// The read-write options
+    /// The read-write options.
     pub opts: ReadWriteOptions,
-    /// The metrics for the database
+    /// The metrics for the database.
     db_metrics: Arc<DBMetrics>,
-    /// The sampling interval for the database
+    /// The sampling interval for the database.
     get_sample_interval: SamplingInterval,
-    /// The sampling interval for multi-get operations
+    /// The sampling interval for multi-get operations.
     multiget_sample_interval: SamplingInterval,
-    /// The sampling interval for write operations
+    /// The sampling interval for write operations.
     write_sample_interval: SamplingInterval,
-    /// The sampling interval for iterator operations
+    /// The sampling interval for iterator operations.
     iter_sample_interval: SamplingInterval,
-    /// The cancel handle for the metrics task
+    /// The cancel handle for the metrics task.
     _metrics_task_cancel_handle: Arc<oneshot::Sender<()>>,
 }
 
@@ -498,7 +836,7 @@ impl<K, V> DBMap<K, V> {
 
     /// Opens a database from a path, with specific options and an optional column family.
     ///
-    /// This database is used to perform operations on single column family, and parametrizes
+    /// This database is used to perform operations on single column family, and parametrizes.
     /// all operations in `DBBatch` when writing across column families.
     #[tracing::instrument(
         level="debug",
@@ -544,13 +882,13 @@ impl<K, V> DBMap<K, V> {
     ///     &rocks,
     ///     Some("First_CF"),
     ///     &ReadWriteOptions::default(),
-    ///     false
+    ///     false,
     /// ).expect("Failed to open storage");
     ///    let db_cf_2 = DBMap::<u32,u32>::reopen(
     ///     &rocks,
     ///     Some("Second_CF"),
     ///     &ReadWriteOptions::default(),
-    ///     false
+    ///     false,
     /// ).expect("Failed to open storage");
     ///    Ok(())
     ///    }
@@ -572,14 +910,19 @@ impl<K, V> DBMap<K, V> {
         Ok(DBMap::new(db.clone(), rw_options, &cf_key, is_deprecated))
     }
 
-    /// Get the column family name
+    /// Get the column family name.
     pub fn cf_name(&self) -> &str {
         &self.cf
     }
 
     /// Create a new batch associated with a DB reference.
     pub fn batch(&self) -> DBBatch {
-        let batch = WriteBatch::default();
+        let batch = match *self.rocksdb {
+            RocksDB::DB(_) => RocksDBBatch::DB(WriteBatch::default()),
+            RocksDB::OptimisticTransactionDB(_) => {
+                RocksDBBatch::OptimisticTransactionDB(WriteBatchWithTransaction::<true>::default())
+            }
+        };
         DBBatch::new(
             &self.rocksdb,
             batch,
@@ -589,7 +932,7 @@ impl<K, V> DBMap<K, V> {
         )
     }
 
-    /// Compact a range of keys in a specific column family
+    /// Compact a range of keys in a specific column family.
     pub fn compact_range<J: Serialize>(&self, start: &J, end: &J) -> Result<(), TypedStoreError> {
         let from_buf = be_fix_int_ser(start)?;
         let to_buf = be_fix_int_ser(end)?;
@@ -598,7 +941,7 @@ impl<K, V> DBMap<K, V> {
         Ok(())
     }
 
-    /// Compact a range of keys in a specific column family
+    /// Compact a range of keys in a specific column family.
     pub fn compact_range_to_bottom<J: Serialize>(
         &self,
         start: &J,
@@ -611,14 +954,14 @@ impl<K, V> DBMap<K, V> {
         Ok(())
     }
 
-    /// Get the column family
+    /// Get the column family.
     pub fn cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily<'_>>, TypedStoreError> {
         self.rocksdb
             .cf_handle(&self.cf)
             .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf.clone()))
     }
 
-    /// Flush the column family
+    /// Flush the column family.
     pub fn flush(&self) -> Result<(), TypedStoreError> {
         self.rocksdb
             .flush_cf(&self.cf()?)
@@ -718,8 +1061,8 @@ impl<K, V> DBMap<K, V> {
                 Self::get_int_property(rocksdb, &cf, ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE)
                     .unwrap_or(METRICS_ERROR),
             );
-        // 7 is the default number of levels in RocksDB. If we ever change the number
-        // of levels using `set_num_levels`, we need to update here as well. Note that
+        // 7 is the default number of levels in RocksDB. If we ever change the number.
+        // of levels using `set_num_levels`, we need to update here as well. Note that.
         // there isn't an API to query the DB to get the number of levels (yet).
         let total_num_files: i64 = (0..=6)
             .map(|level| {
@@ -906,7 +1249,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterUseful) as i64,
             );
         db_metrics
@@ -915,7 +1258,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterFullPositive) as i64,
             );
         db_metrics
@@ -924,7 +1267,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterFullTruePositive) as i64,
             );
         db_metrics
@@ -933,7 +1276,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterPrefixChecked) as i64,
             );
         db_metrics
@@ -942,7 +1285,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterPrefixUseful) as i64,
             );
         db_metrics
@@ -951,7 +1294,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::BloomFilterPrefixTruePositive) as i64,
             );
         db_metrics
@@ -960,7 +1303,7 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::CompactWriteBytes) as i64,
             );
         db_metrics
@@ -969,27 +1312,27 @@ impl<K, V> DBMap<K, V> {
             .with_label_values(&[&rocksdb.db_name()])
             .set(
                 rocksdb
-                    .db_options
+                    .db_options()
                     .get_ticker_count(Ticker::CompactReadBytes) as i64,
             );
         db_metrics
             .op_metrics
             .rocksdb_num_bytes_read
             .with_label_values(&[&rocksdb.db_name()])
-            .set(rocksdb.db_options.get_ticker_count(Ticker::BytesRead) as i64);
+            .set(rocksdb.db_options().get_ticker_count(Ticker::BytesRead) as i64);
         db_metrics
             .op_metrics
             .rocksdb_num_bytes_written
             .with_label_values(&[&rocksdb.db_name()])
-            .set(rocksdb.db_options.get_ticker_count(Ticker::BytesWritten) as i64);
+            .set(rocksdb.db_options().get_ticker_count(Ticker::BytesWritten) as i64);
     }
 
-    /// Create a checkpoint of the database
+    /// Create a checkpoint of the database.
     pub fn checkpoint_db(&self, path: &Path) -> Result<(), TypedStoreError> {
         self.rocksdb.checkpoint(path)
     }
 
-    /// Get a summary of the table
+    /// Get a summary of the table.
     pub fn table_summary(&self) -> eyre::Result<TableSummary>
     where
         K: Serialize + DeserializeOwned,
@@ -1133,7 +1476,7 @@ impl<K, V> DBMap<K, V> {
 
         match lower_bound {
             Bound::Included(lower_bound) => {
-                // Rocksdb lower bound is inclusive by default so nothing to do
+                // Rocksdb lower bound is inclusive by default so nothing to do.
                 let key_buf = be_fix_int_ser(&lower_bound).expect("serialization must not fail");
                 readopts.set_iterate_lower_bound(key_buf);
             }
@@ -1141,7 +1484,7 @@ impl<K, V> DBMap<K, V> {
                 let mut key_buf =
                     be_fix_int_ser(&lower_bound).expect("serialization must not fail");
 
-                // Since we want exclusive, we need to increment the key to exclude the previous
+                // Since we want exclusive, we need to increment the key to exclude the previous.
                 big_endian_saturating_add_one(&mut key_buf);
                 readopts.set_iterate_lower_bound(key_buf);
             }
@@ -1153,15 +1496,17 @@ impl<K, V> DBMap<K, V> {
                 let mut key_buf =
                     be_fix_int_ser(&upper_bound).expect("serialization must not fail");
 
-                // If the key is already at the limit, there's nowhere else to go, so no upper bound
+                // If the key is already at the limit, there's nowhere else to go,
+                // so no upper bound.
                 if !is_max(&key_buf) {
-                    // Since we want exclusive, we need to increment the key to get the upper bound
+                    // Since we want exclusive, we need to increment the key to
+                    // get the upper bound.
                     big_endian_saturating_add_one(&mut key_buf);
                     readopts.set_iterate_upper_bound(key_buf);
                 }
             }
             Bound::Excluded(upper_bound) => {
-                // Rocksdb upper bound is inclusive by default so nothing to do
+                // Rocksdb upper bound is inclusive by default so nothing to do.
                 let key_buf = be_fix_int_ser(&upper_bound).expect("serialization must not fail");
                 readopts.set_iterate_upper_bound(key_buf);
             }
@@ -1174,12 +1519,12 @@ impl<K, V> DBMap<K, V> {
 
 /// Provides a mutable struct to form a collection of database write operations, and execute them.
 ///
-/// Batching write and delete operations is faster than performing them one by one and ensures
+/// Batching write and delete operations is faster than performing them one by one and ensures.
 /// their atomicity, ie. they are all written or none is.
 /// This is also true of operations across column families in the same database.
 ///
-/// Serializations / Deserialization, and naming of column families is performed by passing
-/// a DBMap<K,V>
+/// Serializations / Deserialization, and naming of column families is performed by passing.
+/// a DBMap<K,V>.
 /// with each operation.
 ///
 /// ```
@@ -1187,6 +1532,7 @@ impl<K, V> DBMap<K, V> {
 /// use tempfile::tempdir;
 /// use typed_store::Map;
 /// use typed_store::metrics::DBMetrics;
+/// use typed_store::rocks::MetricConf;
 /// use prometheus::Registry;
 /// use core::fmt::Error;
 /// use std::sync::Arc;
@@ -1229,15 +1575,15 @@ impl<K, V> DBMap<K, V> {
 /// ```
 ///
 pub struct DBBatch {
-    /// The rocksDB database
+    /// The rocksDB database.
     rocksdb: Arc<RocksDB>,
-    /// The batch of write operations
-    batch: rocksdb::WriteBatch,
-    /// The write options
+    /// The batch of write operations.
+    batch: RocksDBBatch,
+    /// The write options.
     opts: WriteOptions,
-    /// The metrics for the database
+    /// The metrics for the database.
     db_metrics: Arc<DBMetrics>,
-    /// The sampling interval for write operations
+    /// The sampling interval for write operations.
     write_sample_interval: SamplingInterval,
 }
 
@@ -1253,7 +1599,7 @@ impl DBBatch {
     /// Use `open_cf` to get the DB reference or an existing open database.
     pub fn new(
         dbref: &Arc<RocksDB>,
-        batch: rocksdb::WriteBatch,
+        batch: RocksDBBatch,
         opts: WriteOptions,
         db_metrics: &Arc<DBMetrics>,
         write_sample_interval: &SamplingInterval,
@@ -1267,7 +1613,7 @@ impl DBBatch {
         }
     }
 
-    /// Consume the batch and write its operations to the database
+    /// Consume the batch and write its operations to the database.
     #[tracing::instrument(level = "trace", skip_all, err)]
     pub fn write(self) -> Result<(), TypedStoreError> {
         let db_name = self.rocksdb.db_name();
@@ -1313,14 +1659,14 @@ impl DBBatch {
         Ok(())
     }
 
-    /// Get the size of the batch in bytes
+    /// Get the size of the batch in bytes.
     pub fn size_in_bytes(&self) -> usize {
         self.batch.size_in_bytes()
     }
 }
 
 impl DBBatch {
-    /// Delete a batch of keys
+    /// Delete a batch of keys.
     pub fn delete_batch<J: Borrow<K>, K: Serialize, V>(
         &mut self,
         db: &DBMap<K, V>,
@@ -1342,19 +1688,20 @@ impl DBBatch {
     }
 
     /// Deletes a range of keys between `from` (inclusive) and `to` (non-inclusive)
-    /// by writing a range delete tombstone in the db map
-    /// If the DBMap is configured with ignore_range_deletions set to false,
-    /// the effect of this write will be visible immediately i.e. you won't
-    /// see old values when you do a lookup or scan. But if it is configured
-    /// with ignore_range_deletions set to true, the old value are visible until
-    /// compaction actually deletes them which will happen sometime after. By
-    /// default ignore_range_deletions is set to true on a DBMap (unless it is
-    /// overridden in the config), so please use this function with caution
+    /// by writing a range delete tombstone in the db map.
+    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// the effect of this write will be visible immediately i.e. you won't.
+    /// see old values when you do a lookup or scan. But if it is configured.
+    /// with ignore_range_deletions set to true, the old value are visible until.
+    /// compaction actually deletes them which will happen sometime after. By.
+    /// default ignore_range_deletions is set to true on a DBMap (unless it is.
+    /// overridden in the config), so please use this function with caution.
     pub fn schedule_delete_range<K: Serialize, V>(
         &mut self,
         db: &DBMap<K, V>,
         from: &K,
         to: &K,
+        cap: &RangeDeleteHandle<'_>,
     ) -> Result<(), TypedStoreError> {
         if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
             return Err(TypedStoreError::CrossDBBatch);
@@ -1363,11 +1710,12 @@ impl DBBatch {
         let from_buf = be_fix_int_ser(from)?;
         let to_buf = be_fix_int_ser(to)?;
 
-        self.batch.delete_range_cf(&db.cf()?, from_buf, to_buf);
+        self.batch
+            .delete_range_cf(&db.cf()?, from_buf, to_buf, cap)?;
         Ok(())
     }
 
-    /// inserts a range of (key, value) pairs given as an iterator
+    /// inserts a range of (key, value) pairs given as an iterator.
     pub fn insert_batch<J: Borrow<K>, K: Serialize, U: Borrow<V>, V: Serialize>(
         &mut self,
         db: &DBMap<K, V>,
@@ -1401,7 +1749,7 @@ impl DBBatch {
         Ok(self)
     }
 
-    /// Inserts a range of (key, value) pairs given as an iterator
+    /// Inserts a range of (key, value) pairs given as an iterator.
     pub fn partial_merge_batch<J: Borrow<K>, K: Serialize, V: Serialize, B: AsRef<[u8]>>(
         &mut self,
         db: &DBMap<K, V>,
@@ -1421,9 +1769,78 @@ impl DBBatch {
     }
 }
 
-/// The raw iterator for the rocksdb
-pub type RocksDBRawIter<'a> =
-    rocksdb::DBRawIteratorWithThreadMode<'a, DBWithThreadMode<MultiThreaded>>;
+macro_rules! delegate_iter_call {
+    ($self:ident.$method:ident($($args:ident),*)) => {
+        match $self {
+            Self::DB(db) => db.$method($($args),*),
+            Self::OptimisticTransactionDB(db) => db.$method($($args),*),
+        }
+    }
+}
+
+/// The raw iterator for the rocksdb.
+pub enum RocksDBRawIter<'a> {
+    /// Raw iterator variant for a standard `rocksdb::DB`.
+    DB(rocksdb::DBRawIteratorWithThreadMode<'a, DBWithThreadMode<MultiThreaded>>),
+    /// Raw iterator variant for an `rocksdb::OptimisticTransactionDB`.
+    OptimisticTransactionDB(
+        rocksdb::DBRawIteratorWithThreadMode<'a, OptimisticTransactionDB<MultiThreaded>>,
+    ),
+}
+
+impl<'a> fmt::Debug for RocksDBRawIter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DB(_) => write!(f, "RocksDBRawIter::DB(..)"),
+            Self::OptimisticTransactionDB(_) => {
+                write!(f, "RocksDBRawIter::OptimisticTransactionDB(..)")
+            }
+        }
+    }
+}
+
+impl<'a> RocksDBRawIter<'a> {
+    /// Returns whether the iterator points to a valid entry.
+    pub fn valid(&self) -> bool {
+        delegate_iter_call!(self.valid())
+    }
+    /// Returns the current key, if any.
+    pub fn key(&self) -> Option<&[u8]> {
+        delegate_iter_call!(self.key())
+    }
+    /// Returns the current value, if any.
+    pub fn value(&self) -> Option<&[u8]> {
+        delegate_iter_call!(self.value())
+    }
+    /// Advances the iterator to the next entry.
+    pub fn next(&mut self) {
+        delegate_iter_call!(self.next())
+    }
+    /// Moves the iterator to the previous entry.
+    pub fn prev(&mut self) {
+        delegate_iter_call!(self.prev())
+    }
+    /// Seeks the iterator to the first entry at or after the given key.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) {
+        delegate_iter_call!(self.seek(key))
+    }
+    /// Seeks the iterator to the last entry.
+    pub fn seek_to_last(&mut self) {
+        delegate_iter_call!(self.seek_to_last())
+    }
+    /// Seeks the iterator to the first entry.
+    pub fn seek_to_first(&mut self) {
+        delegate_iter_call!(self.seek_to_first())
+    }
+    /// Seeks the iterator to the last key that is less than or equal to the given key.
+    pub fn seek_for_prev<K: AsRef<[u8]>>(&mut self, key: K) {
+        delegate_iter_call!(self.seek_for_prev(key))
+    }
+    /// Returns the iterator status.
+    pub fn status(&self) -> Result<(), rocksdb::Error> {
+        delegate_iter_call!(self.status())
+    }
+}
 
 impl<'a, K, V> Map<'a, K, V> for DBMap<K, V>
 where
@@ -1437,8 +1854,8 @@ where
     fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
         let start = std::time::Instant::now();
         let key_buf = be_fix_int_ser(key)?;
-        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
-        // but no false negatives. We use it to short-circuit the absent case
+        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,.
+        // but no false negatives. We use it to short-circuit the absent case.
         let readopts = self.opts.readopts();
         let may_exist = self
             .rocksdb
@@ -1620,10 +2037,10 @@ where
         Ok(())
     }
 
-    /// This method first drops the existing column family and then creates a new one
-    /// with the same name. The two operations are not atomic and hence it is possible
-    /// to get into a race condition where the column family has been dropped but new
-    /// one is not created yet
+    /// This method first drops the existing column family and then creates a new one.
+    /// with the same name. The two operations are not atomic and hence it is possible.
+    /// to get into a race condition where the column family has been dropped but new.
+    /// one is not created yet.
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn unsafe_clear(&self) -> Result<(), TypedStoreError> {
         let _ = self.rocksdb.drop_cf(&self.cf);
@@ -1633,28 +2050,33 @@ where
         Ok(())
     }
 
-    /// Writes a range delete tombstone to delete all entries in the db map
-    /// If the DBMap is configured with ignore_range_deletions set to false,
-    /// the effect of this write will be visible immediately i.e. you won't
-    /// see old values when you do a lookup or scan. But if it is configured
-    /// with ignore_range_deletions set to true, the old value are visible until
-    /// compaction actually deletes them which will happen sometime after. By
-    /// default ignore_range_deletions is set to true on a DBMap (unless it is
-    /// overridden in the config), so please use this function with caution
+    /// Writes a range delete tombstone to delete all entries in the db map.
+    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// the effect of this write will be visible immediately i.e. you won't.
+    /// see old values when you do a lookup or scan. But if it is configured.
+    /// with ignore_range_deletions set to true, the old value are visible until.
+    /// compaction actually deletes them which will happen sometime after. By.
+    /// default ignore_range_deletions is set to true on a DBMap (unless it is.
+    /// overridden in the config), so please use this function with caution.
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn schedule_delete_all(&self) -> Result<(), TypedStoreError> {
-        let first_key = self.safe_iter()?.next().transpose()?.map(|(k, _v)| k);
-        let last_key = self
-            .reversed_safe_iter_with_bounds(None, None)?
-            .next()
-            .transpose()?
-            .map(|(k, _v)| k);
-        if let Some((first_key, last_key)) = first_key.zip(last_key) {
-            let mut batch = self.batch();
-            batch.schedule_delete_range(self, &first_key, &last_key)?;
-            batch.write()?;
+        if let Some(cap) = self.rocksdb.as_range_delete() {
+            let first_key = self.safe_iter()?.next().transpose()?.map(|(k, _v)| k);
+            let last_key = self
+                .reversed_safe_iter_with_bounds(None, None)?
+                .next()
+                .transpose()?
+                .map(|(k, _v)| k);
+            if let Some((first_key, last_key)) = first_key.zip(last_key) {
+                let mut batch = self.batch();
+                batch.schedule_delete_range(self, &first_key, &last_key, &cap)?;
+                batch.write()?;
+            }
+            Ok(())
+        } else {
+            // Fallback to per-key deletes for engines that lack range delete.
+            self.delete_all_individually()
         }
-        Ok(())
     }
 
     fn is_empty(&self) -> bool {
@@ -1662,6 +2084,30 @@ where
             .expect("safe_iter should not fail")
             .next()
             .is_none()
+    }
+
+    /// Deletes all entries by iterating keys and issuing per-key deletes (batched), for engines
+    /// that do not support range deletes (e.g., OptimisticTransactionDB).
+    /// This is less efficient than range deletes but safe and explicit.
+    fn delete_all_individually(&self) -> Result<(), TypedStoreError>
+    where
+        K: Serialize + DeserializeOwned,
+        V: Serialize + DeserializeOwned,
+    {
+        const BATCH_SIZE: usize = 10_000;
+        let iter = self.safe_iter()?;
+        let mut keys: Vec<K> = Vec::with_capacity(BATCH_SIZE);
+        for item in iter {
+            let (k, _v) = item?;
+            keys.push(k);
+            if keys.len() >= BATCH_SIZE {
+                self.multi_remove(keys.drain(..))?;
+            }
+        }
+        if !keys.is_empty() {
+            self.multi_remove(keys.drain(..))?;
+        }
+        Ok(())
     }
 
     fn safe_iter(&'a self) -> Result<Self::SafeIterator, TypedStoreError> {
@@ -1731,7 +2177,7 @@ where
         values_parsed
     }
 
-    /// Convenience method for batch insertion
+    /// Convenience method for batch insertion.
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_insert<J, U>(
         &self,
@@ -1746,7 +2192,7 @@ where
         batch.write()
     }
 
-    /// Convenience method for batch removal
+    /// Convenience method for batch removal.
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn multi_remove<J>(&self, keys: impl IntoIterator<Item = J>) -> Result<(), Self::Error>
     where
@@ -1757,7 +2203,7 @@ where
         batch.write()
     }
 
-    /// Try to catch up with primary when running as secondary
+    /// Try to catch up with primary when running as secondary.
     #[tracing::instrument(level = "trace", skip_all, err)]
     fn try_catch_up_with_primary(&self) -> Result<(), Self::Error> {
         self.rocksdb
@@ -1766,7 +2212,7 @@ where
     }
 }
 
-/// Read a size from an environment variable
+/// Read a size from an environment variable.
 pub fn read_size_from_env(var_name: &str) -> Option<usize> {
     env::var(var_name)
         .ok()?
@@ -1781,31 +2227,31 @@ pub fn read_size_from_env(var_name: &str) -> Option<usize> {
         .ok()
 }
 
-/// The read-write options
+/// The read-write options.
 #[derive(Clone, Debug)]
 pub struct ReadWriteOptions {
-    /// Whether to ignore range deletions
+    /// Whether to ignore range deletions.
     pub ignore_range_deletions: bool,
     // Whether to sync to disk on every write.
     sync_to_disk: bool,
 }
 
 impl ReadWriteOptions {
-    /// The read options
+    /// The read options.
     pub fn readopts(&self) -> ReadOptions {
         let mut readopts = ReadOptions::default();
         readopts.set_ignore_range_deletions(self.ignore_range_deletions);
         readopts
     }
 
-    /// The write options
+    /// The write options.
     pub fn writeopts(&self) -> WriteOptions {
         let mut opts = WriteOptions::default();
         opts.set_sync(self.sync_to_disk);
         opts
     }
 
-    /// Set the ignore range deletions
+    /// Set the ignore range deletions.
     pub fn set_ignore_range_deletions(mut self, ignore: bool) -> Self {
         self.ignore_range_deletions = ignore;
         self
@@ -1821,12 +2267,12 @@ impl Default for ReadWriteOptions {
     }
 }
 
-/// The rocksdb options
+/// The rocksdb options.
 #[derive(Default, Clone)]
 pub struct DBOptions {
-    /// The rocksdb options
+    /// The rocksdb options.
     pub options: rocksdb::Options,
-    /// The read-write options
+    /// The read-write options.
     pub rw_options: ReadWriteOptions,
 }
 
@@ -1840,7 +2286,7 @@ impl fmt::Debug for DBOptions {
 pub fn default_db_options() -> DBOptions {
     let mut opt = rocksdb::Options::default();
 
-    // One common issue when running tests on Mac is that the default ulimit is too low,
+    // One common issue when running tests on Mac is that the default ulimit is too low,.
     // leading to I/O errors such as "Too many open files". Raising fdlimit to bypass it.
     if let Ok(outcome) = fdlimit::raise_fd_limit() {
         let limit = match outcome {
@@ -1850,25 +2296,25 @@ pub fn default_db_options() -> DBOptions {
                 1024
             }
         };
-        // on windows raise_fd_limit return None
+        // on windows raise_fd_limit return None.
         opt.set_max_open_files((limit / 8) as i32);
     }
 
-    // The table cache is locked for updates and this determines the number
+    // The table cache is locked for updates and this determines the number.
     // of shards, ie 2^10. Increase in case of lock contentions.
     opt.set_table_cache_num_shard_bits(10);
 
-    // LSM compression settings
+    // LSM compression settings.
     opt.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opt.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
     opt.set_bottommost_zstd_max_train_bytes(1024 * 1024, true);
 
-    // Sui uses multiple RocksDB in a node, so total sizes of write buffers and WAL can be higher
+    // Sui uses multiple RocksDB in a node, so total sizes of write buffers and WAL can be higher.
     // than the limits below.
     //
-    // RocksDB also exposes the option to configure total write buffer size across
-    // multiple instances. But the write buffer flush policy (flushing the buffer
-    // receiving the next write) may not work well. So sticking to per-db write buffer
+    // RocksDB also exposes the option to configure total write buffer size across.
+    // multiple instances. But the write buffer flush policy (flushing the buffer.
+    // receiving the next write) may not work well. So sticking to per-db write buffer.
     // size limit for now.
     //
     // The environment variables are only meant to be emergency overrides.
@@ -1889,8 +2335,8 @@ pub fn default_db_options() -> DBOptions {
     opt.set_enable_pipelined_write(true);
 
     // Increase block size to 16KiB.
-    // https://github.com/EighteenZi/rocksdb_wiki/blob/master/
-    // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks
+    // https://github.com/EighteenZi/rocksdb_wiki/blob/master/.
+    // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks.
     opt.set_block_based_table_factory(&get_block_options(128 << 20, Some(16 << 10), Some(true)));
 
     // Set memtable bloomfilter.
@@ -1902,14 +2348,14 @@ pub fn default_db_options() -> DBOptions {
     }
 }
 
-/// Get the block options
+/// Get the block options.
 pub fn get_block_options(
     block_cache_size_bytes: usize,
     block_size_bytes: Option<usize>,
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
 ) -> BlockBasedOptions {
-    // https://github.com/facebook/rocksdb/blob/
-    // 11cb6af6e5009c51794641905ca40ce5beec7fee/options/options.cc#L611-L621
+    // https://github.com/facebook/rocksdb/blob/.
+    // 11cb6af6e5009c51794641905ca40ce5beec7fee/options/options.cc#L611-L621.
     let mut block_options = BlockBasedOptions::default();
     // Overrides block size.
     if let Some(block_size_bytes) = block_size_bytes {
@@ -1923,8 +2369,8 @@ pub fn get_block_options(
     if let Some(pin_l0_filter_and_index_blocks_in_block_cache) =
         pin_l0_filter_and_index_blocks_in_block_cache
     {
-        // From https://github.com/EighteenZi/rocksdb_wiki/blob/master/
-        // Block-Cache.md#caching-index-and-filter-blocks
+        // From https://github.com/EighteenZi/rocksdb_wiki/blob/master/.
+        // Block-Cache.md#caching-index-and-filter-blocks.
         block_options.set_pin_l0_filter_and_index_blocks_in_cache(
             pin_l0_filter_and_index_blocks_in_block_cache,
         );
@@ -1932,7 +2378,7 @@ pub fn get_block_options(
     block_options
 }
 
-/// Opens a database with options, and a number of column families that are created
+/// Opens a database with options, and a number of column families that are created.
 /// if they do not exist.
 #[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cfs), err)]
 pub fn open_cf<P: AsRef<Path>>(
@@ -1955,14 +2401,14 @@ pub fn open_cf<P: AsRef<Path>>(
 }
 
 fn prepare_db_options(db_options: Option<rocksdb::Options>) -> rocksdb::Options {
-    // Customize database options
+    // Customize database options.
     let mut options = db_options.unwrap_or_else(|| default_db_options().options);
     options.create_if_missing(true);
     options.create_missing_column_families(true);
     options
 }
 
-/// Opens a database with options, and a number of column families with individual options that
+/// Opens a database with options, and a number of column families with individual options that.
 /// are created if they do not exist.
 #[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref()), err)]
 pub fn open_cf_opts<P: AsRef<Path>>(
@@ -1972,10 +2418,10 @@ pub fn open_cf_opts<P: AsRef<Path>>(
     opt_cfs: &[(&str, rocksdb::Options)],
 ) -> Result<Arc<RocksDB>, TypedStoreError> {
     let path = path.as_ref();
-    // In the simulator, we intercept the wall clock in the test thread only. This causes problems
-    // because rocksdb uses the simulated clock when creating its background threads, but then
-    // those threads see the real wall clock (because they are not the test thread), which causes
-    // rocksdb to panic. The `nondeterministic` macro evaluates expressions in new threads, which
+    // In the simulator, we intercept the wall clock in the test thread only. This causes problems.
+    // because rocksdb uses the simulated clock when creating its background threads, but then.
+    // those threads see the real wall clock (because they are not the test thread), which causes.
+    // rocksdb to panic. The `nondeterministic` macro evaluates expressions in new threads, which.
     // resolves the issue.
     //
     // This is a no-op in non-simulator builds.
@@ -1992,17 +2438,63 @@ pub fn open_cf_opts<P: AsRef<Path>>(
             )
             .map_err(typed_store_err_from_rocks_err)?
         };
-        Ok(Arc::new(RocksDB::new(
+        Ok(Arc::new(RocksDB::DB(DBWithThreadModeWrapper::new(
             rocksdb,
             metric_conf,
             PathBuf::from(path),
             options,
-        )))
+        ))))
     })
 }
 
+/// Opens an OptimisticTransactionDB with options, and a number of column families with.
+/// individual options that are created if they do not exist.
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref()), err)]
+pub fn open_cf_opts_optimistic<P: AsRef<Path>>(
+    path: P,
+    db_options: Option<rocksdb::Options>,
+    metric_conf: MetricConf,
+    opt_cfs: &[(&str, rocksdb::Options)],
+) -> Result<Arc<RocksDB>, TypedStoreError> {
+    let path = path.as_ref();
+    let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
+    sui_macros::nondeterministic!({
+        let options = prepare_db_options(db_options);
+        rocksdb::OptimisticTransactionDB::open_cf_descriptors(
+            &options,
+            path,
+            cfs.into_iter()
+                .map(|(name, opts)| ColumnFamilyDescriptor::new(name, opts)),
+        )
+        .map(|db| {
+            Arc::new(RocksDB::OptimisticTransactionDB(
+                OptimisticTransactionDBWrapper::new(db, metric_conf, PathBuf::from(path), options),
+            ))
+        })
+        .map_err(typed_store_err_from_rocks_err)
+    })
+}
+
+/// Opens an OptimisticTransactionDB with options, and a number of column families that are created.
+/// if they do not exist. Uses the same options for each provided column family name.
+#[tracing::instrument(level="debug", skip_all, fields(path = ?path.as_ref(), cf = ?opt_cfs), err)]
+pub fn open_cf_optimistic<P: AsRef<Path>>(
+    path: P,
+    db_options: Option<rocksdb::Options>,
+    metric_conf: MetricConf,
+    opt_cfs: &[&str],
+) -> Result<Arc<RocksDB>, TypedStoreError> {
+    let options = db_options.unwrap_or_else(|| default_db_options().options);
+    let column_descriptors: Vec<_> = opt_cfs
+        .iter()
+        .map(|name| (*name, options.clone()))
+        .collect();
+    let db = open_cf_opts_optimistic(path, Some(options), metric_conf, &column_descriptors[..])?;
+    Ok(db)
+}
+
 /// TODO: Good description of why we're doing this :
-/// RocksDB stores keys in BE and has a seek operator
+/// RocksDB stores keys in BE and has a seek operator.
 /// on iterators, see `https://github.com/facebook/rocksdb/wiki/Iterator#introduction`
 #[inline]
 pub fn be_fix_int_ser<S>(t: &S) -> Result<Vec<u8>, TypedStoreError>
@@ -2016,13 +2508,13 @@ where
         .map_err(typed_store_err_from_bincode_err)
 }
 
-/// The type of database access
-/// Safe drop the database
+/// The type of database access.
+/// Safe drop the database.
 pub fn safe_drop_db(path: PathBuf) -> Result<(), rocksdb::Error> {
     rocksdb::DB::destroy(&rocksdb::Options::default(), path)
 }
 
-/// Populate missing column families
+/// Populate missing column families.
 fn populate_missing_cfs(
     input_cfs: &[(&str, rocksdb::Options)],
     path: &Path,
@@ -2047,7 +2539,7 @@ fn populate_missing_cfs(
     Ok(cfs)
 }
 
-/// Given a vec<u8>, find the value which is one more than the vector
+/// Given a vec<u8>, find the value which is one more than the vector.
 /// if the vector was a big endian number.
 /// If the vector is already minimum, don't change it.
 fn big_endian_saturating_add_one(v: &mut [u8]) {
@@ -2064,7 +2556,7 @@ fn big_endian_saturating_add_one(v: &mut [u8]) {
     }
 }
 
-/// Check if all the bytes in the vector are 0xFF
+/// Check if all the bytes in the vector are 0xFF.
 fn is_max(v: &[u8]) -> bool {
     v.iter().all(|&x| x == u8::MAX)
 }
@@ -2084,7 +2576,7 @@ fn test_helpers() {
     }
 
     uint::construct_uint! {
-        // 32 byte number
+        // 32 byte number.
         struct Num32(4);
     }
 
@@ -2096,5 +2588,5 @@ fn test_helpers() {
     check_add(vec![6; 32]);
     check_add(vec![254; 32]);
 
-    // TBD: More tests coming with randomized arrays
+    // TBD: More tests coming with randomized arrays.
 }
