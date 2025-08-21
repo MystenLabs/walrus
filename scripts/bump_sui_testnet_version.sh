@@ -81,20 +81,18 @@ git config user.name "github-actions[bot]"
 git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
-git commit -m "chore: bump Sui to ${NEW_TAG}"
+git commit -m "chore: bump Sui version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
-BODY=$(cat <<EOF
-Automated Sui bump with single-pass updater.
-
-This PR bumps Sui testnet tag to ${NEW_TAG}.
+BODY=$(cat <<-EOF
+This PR updates the Sui testnet version to ${NEW_TAG}
 EOF
 )
 
 PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "chore: bump Sui to ${NEW_TAG}" \
+  --title "chore: bump Sui version to ${NEW_TAG}" \
   --reviewer "ebmifa,mlegner,wbbradley" \
   --body "$BODY" \
   2>&1 | grep -Eo 'https://github.com/[^ ]+')
