@@ -21,7 +21,7 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
+BRANCH="$(gh api user --jq '.login')/bump-sui-${NEW_TAG}-${STAMP}"
 git checkout -b "$BRANCH"
 
 # Allow recursive globs.
