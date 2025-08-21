@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   bump:
+    name: Bump Sui Testnet Version
     runs-on: ubuntu-latest
 
     steps:
@@ -32,6 +33,7 @@ jobs:
       - name: Create a PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
           ./scripts/bump_sui_testnet_version.sh "${{ inputs.new_tag }}"

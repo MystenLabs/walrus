@@ -20,8 +20,12 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
 fi
 
+if [[ -z "${GITHUB_ACTOR:-}" ]]; then
+  GITHUB_ACTOR="$(git config user.name 2>/dev/null || echo github-actions[bot])"
+fi
+
 STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="$(gh api user --jq '.login')/bump-sui-${NEW_TAG}-${STAMP}"
+BRANCH="$GITHUB_ACTOR/bump-sui-${NEW_TAG}-${STAMP}"
 git checkout -b "$BRANCH"
 
 # Allow recursive globs.
