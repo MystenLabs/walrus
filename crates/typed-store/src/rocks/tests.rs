@@ -5,6 +5,7 @@ use rstest::rstest;
 
 use super::*;
 use crate::{
+    retry_transaction,
     rocks::safe_iter::{SafeIter, SafeRevIter},
     traits::SeekableIterator,
 };
@@ -453,8 +454,12 @@ async fn test_delete_range() {
         .insert_batch(&db, keys_vals)
         .expect("Failed to batch insert");
 
+    let cap = db
+        .rocksdb
+        .as_range_delete()
+        .expect("range delete supported");
     batch
-        .schedule_delete_range(&db, &50, &100)
+        .schedule_delete_range(&db, &50, &100, &cap)
         .expect("Failed to delete range");
 
     batch.write().expect("Failed to execute batch");
@@ -882,10 +887,12 @@ async fn test_dbmap_ticker_statistics() {
             .expect("Failed to open cf2");
 
     // Get initial ticker counts
-    let initial_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
-    let initial_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
-    let initial_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
-    let initial_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+    let initial_bytes_written = rocks.db_options().get_ticker_count(Ticker::BytesWritten);
+    let initial_keys_written = rocks
+        .db_options()
+        .get_ticker_count(Ticker::NumberKeysWritten);
+    let initial_bytes_read = rocks.db_options().get_ticker_count(Ticker::BytesRead);
+    let initial_keys_read = rocks.db_options().get_ticker_count(Ticker::NumberKeysRead);
 
     // Perform operations on first column family
     db_cf1
@@ -916,10 +923,12 @@ async fn test_dbmap_ticker_statistics() {
     let _val10 = db_cf2.get(&10).expect("Failed to get from cf2");
 
     // Get ticker counts after operations
-    let final_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
-    let final_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
-    let final_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
-    let final_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+    let final_bytes_written = rocks.db_options().get_ticker_count(Ticker::BytesWritten);
+    let final_keys_written = rocks
+        .db_options()
+        .get_ticker_count(Ticker::NumberKeysWritten);
+    let final_bytes_read = rocks.db_options().get_ticker_count(Ticker::BytesRead);
+    let final_keys_read = rocks.db_options().get_ticker_count(Ticker::NumberKeysRead);
 
     // Verify that ticker values have increased
     assert!(
@@ -958,7 +967,7 @@ async fn test_dbmap_ticker_statistics() {
 
     // Test histogram data as well
     let histogram_data = rocks
-        .db_options
+        .db_options()
         .get_histogram_data(rocksdb::statistics::Histogram::DbWrite);
     assert!(
         histogram_data.count() > 0,
@@ -970,7 +979,7 @@ async fn test_dbmap_ticker_statistics() {
     );
 
     let read_histogram_data = rocks
-        .db_options
+        .db_options()
         .get_histogram_data(rocksdb::statistics::Histogram::DbGet);
     assert!(
         read_histogram_data.count() > 0,
@@ -980,4 +989,114 @@ async fn test_dbmap_ticker_statistics() {
         read_histogram_data.max().is_normal(),
         "Read histogram max should be a normal number"
     );
+}
+
+fn open_optimistic_rocksdb<P: AsRef<Path>>(path: P, opt_cfs: &[&str]) -> Arc<RocksDB> {
+    open_cf_optimistic(path, None, MetricConf::default(), opt_cfs)
+        .expect("failed to open optimistic rocksdb")
+}
+
+fn open_optimistic_map<P: AsRef<Path>, K, V>(path: P, cf: &str) -> DBMap<K, V> {
+    let rocks = open_optimistic_rocksdb(path, &[cf]);
+    DBMap::<K, V>::reopen(&rocks, Some(cf), &ReadWriteOptions::default(), false)
+        .expect("failed to reopen optimistic cf")
+}
+
+#[tokio::test]
+async fn test_optimistic_transaction_commit() {
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+
+    // Seed initial value
+    db.insert(&1, &"v1".to_string()).expect("insert");
+
+    // Start a transaction with snapshot
+    let tx = db
+        .rocksdb
+        .as_optimistic()
+        .expect("optimistic db")
+        .transaction();
+    let cf = db.cf().expect("cf handle");
+
+    // Read existing value via tx, then update and commit
+    let key_buf = be_fix_int_ser(&1).unwrap();
+    let new_val = bcs::to_bytes(&"v2".to_string()).unwrap();
+    {
+        let _existing = tx
+            .get_pinned_cf_opt(&cf, &key_buf, &rocksdb::ReadOptions::default())
+            .expect("tx get");
+        // drop pinned slice before commit
+    }
+    tx.put_cf(&cf, &key_buf, &new_val).expect("tx put");
+    tx.commit().expect("tx commit");
+
+    assert_eq!(db.get(&1).unwrap(), Some("v2".to_string()));
+}
+
+#[tokio::test]
+async fn test_optimistic_transaction_rollback() {
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+
+    let tx = db
+        .rocksdb
+        .as_optimistic()
+        .expect("optimistic db")
+        .transaction();
+    let cf = db.cf().expect("cf handle");
+
+    let key_buf = be_fix_int_ser(&42).unwrap();
+    let val = bcs::to_bytes(&"temp".to_string()).unwrap();
+    tx.put_cf(&cf, &key_buf, &val).expect("tx put");
+
+    // Rollback and ensure value is not visible
+    tx.rollback().expect("tx rollback");
+    assert_eq!(db.get(&42).unwrap(), None);
+}
+
+#[tokio::test]
+async fn test_optimistic_transaction_conflict_and_retry() {
+    let db: DBMap<i32, String> = open_optimistic_map(temp_dir(), "cf");
+
+    // Seed initial value
+    db.insert(&1, &"base".to_string()).expect("insert");
+
+    // Two concurrent transactions with snapshots
+    let handle = db.rocksdb.as_optimistic().expect("optimistic db");
+    let tx1 = handle.transaction();
+    let tx2 = handle.transaction();
+    let cf = db.cf().expect("cf handle");
+
+    let key_buf = be_fix_int_ser(&1).unwrap();
+
+    // tx1 updates and commits first
+    let val_tx1 = bcs::to_bytes(&"tx1".to_string()).unwrap();
+    tx1.put_cf(&cf, &key_buf, &val_tx1).expect("tx1 put");
+    tx1.commit().expect("tx1 commit");
+
+    // tx2 attempts to commit a conflicting write
+    let val_tx2 = bcs::to_bytes(&"tx2".to_string()).unwrap();
+    tx2.put_cf(&cf, &key_buf, &val_tx2).expect("tx2 put");
+    let commit_err = tx2.commit();
+    assert!(commit_err.is_err(), "expected a write-conflict error");
+
+    // Now exercise retry_transaction! by retrying until success
+    let _ = retry_transaction!({
+        let tx = db
+            .rocksdb
+            .as_optimistic()
+            .expect("optimistic db")
+            .transaction();
+        let cf = db.cf().expect("cf handle");
+        let key_buf = be_fix_int_ser(&1).unwrap();
+        let final_val = bcs::to_bytes(&"final".to_string()).unwrap();
+        if let Err(_e) = tx.put_cf(&cf, &key_buf, &final_val) {
+            Err(TypedStoreError::RetryableTransactionError)
+        } else {
+            match tx.commit() {
+                Ok(()) => Ok(()),
+                Err(_e) => Err(TypedStoreError::RetryableTransactionError),
+            }
+        }
+    });
+
+    assert_eq!(db.get(&1).unwrap(), Some("final".to_string()));
 }
