@@ -30,11 +30,9 @@ shopt -s globstar nullglob
 # List of relevant TOML locations (globs allowed).
 FILES=(
   "contracts/**/Move.toml"
-  "contracts/**/Move.lock"
   "docker/walrus-antithesis/sui_version.toml"
   "Cargo.toml"
   "testnet-contracts/**/Move.toml"
-  "testnet-contracts/**/Move.lock"
 )
 
 # Expand patterns into actual file paths.
