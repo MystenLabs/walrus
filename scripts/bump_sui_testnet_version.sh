@@ -1,98 +1,87 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
+#
+# This script creates a PR branch and updates Sui testnet versions in
+# selected files.
 
-# This script will create a PR to generate a new Sui testnet version.
+set -Eeuo pipefail
 
-set -euo pipefail
-
-# check required params
-if [[ -z $1 || $# -ne 1 ]]
-then
-    echo "USAGE: bump_sui_testnet_version.sh <new-tag>"
-    exit 1
+# Check required params.
+if [[ -z ${1:-} || $# -ne 1 ]]; then
+  echo "USAGE: bump_sui_testnet_version.sh <new-tag>"
+  exit 1
 else
-    NEW_TAG=$1
+  NEW_TAG="$1"
 fi
 
-BASE="main"   # <-- always use main as the base branch
+# (Loose) sanity check on tag format.
+if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
+fi
 
-# One list with all relevant TOML locations (globs ok)
+# STAMP="$(date +%Y%m%d%H%M%S)"
+# BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
+# git checkout -b "$BRANCH"
+
+# Allow recursive globs.
+shopt -s globstar nullglob
+
+# List of relevant TOML locations (globs allowed).
 FILES=(
-    "Move.toml"
-    "crates/**/Move.toml"
-    "contracts/**/Move.toml"
-    "apps/**/Move.toml"
-    "Cargo.toml"
-    "crates/**/Cargo.toml"
-    "apps/**/Cargo.toml"
-    "docker/**/sui_version.toml"
-    "Cargo.toml"
-    "contracts/*/Move.toml"
-    "testnet-contracts/*/Move.toml"
-    "docker/**/sui_version.toml"
+  "contracts/**/Move.toml"
+  "contracts/**/Move.lock"
+  "docker/walrus-antithesis/sui_version.toml"
+  "Cargo.toml"
+  "Cargo.lock"
+  "testnet-contracts/**/Move.toml"
+  "testnet-contracts/**/Move.lock"
 )
 
-STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="chore/bump-sui-${NEW_TAG}-${STAMP}"
-git checkout -b "$BRANCH"
-
-shopt -s nullglob globstar
-changed=0
-
-# A single sed script with three *independent* substitutions:
-# 1) Move.toml Sui framework rev (strict: repo + subdir must match)
-# 2) Cargo.toml Sui git deps tag (strict: same inline table contains the Sui repo URL)
-# 3) docker/*/sui_version.toml simple key="testnet-vX.Y.Z"
+# Expand patterns into actual file paths.
+TARGETS=()
 for pat in "${FILES[@]}"; do
-for f in $pat; do
-    [[ -f "$f" ]] || continue
-    before="$(sha1sum "$f" | awk '{print $1}')"
-
-    # Use extended regex, in-place
-    sed -E -i \
-    -e 's|^([[:space:]]*Sui[[:space:]]*=[[:space:]]*\{[^}]*\
-        git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui\.git"[^}]*\
-        subdir[[:space:]]*=[[:space:]]*"crates/sui-framework/packages/sui-framework"\
-        [^}]*rev[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
-    -e 's|^([[:space:]]*[A-Za-z0-9_\-]+[[:space:]]*=[[:space:]]*\
-        \{[^}]*git[[:space:]]*=[[:space:]]*"https://github.com/MystenLabs/sui(\.git)?"\
-        [^}]*,?[[:space:]]*tag[[:space:]]*=[[:space:]]*")([^"]+)(")|\1'"$NEW_TAG"'\3|' \
-    -e 's|^([[:space:]]*[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*")\
-        testnet-v[0-9]+\.[0-9]+\.[0-9]+(")|\1'"$NEW_TAG"'\2|' \
-    "$f"
-
-    after="$(sha1sum "$f" | awk '{print $1}')"
-    if [[ "$before" != "$after" ]]; then
-    echo "updated: $f"
-    git add "$f"
-    changed=1
-    fi
-done
+  for f in $pat; do
+    [[ -f "$f" ]] && TARGETS+=("$f")
+  done
 done
 
-if [[ "$changed" -ne 1 ]]; then
-echo "No matching lines changed; nothing to do."
-exit 0
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+  echo "No matching files found for update."
+  exit 0
+else
+  echo "Updating testnet tags in:"
+  printf '  - %s\n' "${TARGETS[@]}"
+
+  for f in "${TARGETS[@]}"; do
+    sed -i -E \
+      "s/( = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
+  done
 fi
 
-# Build & lockfiles
-cargo build --locked || cargo build
-shopt -s globstar
-git add -- Cargo.lock **/Cargo.lock Move.lock **/Move.lock 2>/dev/null || true
+# echo "Running cargo build --release ..."
+# cargo build --release
 
-# Commit, push, PR
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-git commit -m "chore: bump Sui to ${NEW_TAG}"
-git push -u origin "$BRANCH"
+# echo "Staging all changed files..."
+# git add -u
 
-gh pr create \
---base "$BASE" \
---head "$BRANCH" \
---title "chore: bump Sui to ${NEW_TAG}" \
---reviewer "ebmifa,mlegner,wbbradley" \
---body $'Automated Sui bump with single-pass updater:\n\n\
-    1) Move.toml Sui framework rev (repo+subdir strict)\n\
-    2) Cargo.toml Sui git deps tag (repo URL strict)\n\
-    3) docker/**/sui_version.toml\n\n`cargo build` run to refresh lockfiles.'
+# # Commit, push, PR
+# git config user.name "github-actions[bot]"
+# git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+# git commit -m "chore: bump Sui to ${NEW_TAG}"
+# git push -u origin "$BRANCH"
+
+
+# BODY=$(cat <<EOF
+# Automated Sui bump with single-pass updater.
+
+# This PR bumps Sui testnet tag to ${NEW_TAG}.
+# EOF
+# )
+
+# gh pr create \
+#   --base "$BASE" \
+#   --head "$BRANCH" \
+#   --title "chore: bump Sui to ${NEW_TAG}" \
+#   --reviewer "ebmifa,mlegner,wbbradley" \
+#   --body "$BODY"
