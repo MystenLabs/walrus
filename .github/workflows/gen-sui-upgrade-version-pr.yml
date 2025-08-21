@@ -30,7 +30,7 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
           suiup install sui -y
-      
+
       - name: Create a PR
         shell: bash
         run: |
