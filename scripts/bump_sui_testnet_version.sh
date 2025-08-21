@@ -87,9 +87,12 @@ This PR bumps Sui testnet tag to ${NEW_TAG}.
 EOF
 )
 
-gh pr create \
+PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "chore: bump Sui to ${NEW_TAG}" \
   --reviewer "ebmifa,mlegner,wbbradley" \
-  --body "$BODY"
+  --body "Automated Sui bump with single-pass updater." \
+  --json url -q .url)
+
+echo "Pull request created: $PR_URL"
