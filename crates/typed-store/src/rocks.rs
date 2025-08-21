@@ -476,6 +476,59 @@ impl RocksDB {
         )
     }
 
+    /// Create a new transaction without a snapshot.
+    /// This can only be called when the engine is an `OptimisticTransactionDB`.
+    ///
+    /// Panics if called on a standard `RocksDB` engine.
+    ///
+    /// Consistency:
+    /// - No snapshot is taken, so keys are not pinned to a stable view.
+    ///   If a snapshot has not been set, the transaction guarantees that keys.
+    ///   have not been modified since the time each key was first written.
+    ///   (or fetched via `get_for_update`).
+    pub fn transaction_without_snapshot(
+        &self,
+    ) -> Result<Transaction<'_, rocksdb::OptimisticTransactionDB>, TypedStoreError> {
+        match self {
+            Self::OptimisticTransactionDB(db) => Ok(db.underlying.transaction()),
+            Self::DB(d) => panic!(
+                "transaction_without_snapshot requires OptimisticTransactionDB; \
+                called on standard RocksDB. db_path={:?}, db_name={}",
+                d.db_path, d.metric_conf.db_name
+            ),
+        }
+    }
+
+    /// Create a new transaction with a snapshot.
+    /// This can only be called when the engine is an `OptimisticTransactionDB`.
+    ///
+    /// Panics if called on a standard `RocksDB` engine.
+    ///
+    /// Consistency:
+    /// - Sets a snapshot on the transaction, providing a consistent view for.
+    ///   all reads during the transaction (repeatable reads across column.
+    ///   families). This is the safer choice when your write decisions depend.
+    ///   on what you read.
+    pub fn transaction(
+        &self,
+    ) -> Result<Transaction<'_, rocksdb::OptimisticTransactionDB>, TypedStoreError> {
+        match self {
+            Self::OptimisticTransactionDB(db) => {
+                let mut tx_opts = OptimisticTransactionOptions::new();
+                tx_opts.set_snapshot(true);
+
+                Ok(db
+                    .underlying
+                    .transaction_opt(&WriteOptions::default(), &tx_opts))
+            }
+            Self::DB(d) => panic!(
+                "transaction requires OptimisticTransactionDB; \
+                called on standard RocksDB. db_path={:?}, db_name={}",
+                d.db_path, d.metric_conf.db_name
+            ),
+        }
+    }
+
     /// Get a raw iterator for a specific column family.
     pub fn raw_iterator_cf<'a: 'b, 'b>(
         &'a self,
@@ -2292,7 +2345,7 @@ pub fn safe_drop_db(path: PathBuf) -> Result<(), rocksdb::Error> {
     rocksdb::DB::destroy(&rocksdb::Options::default(), path)
 }
 
-/// Populate missing column families
+/// Populate missing column families.
 fn populate_missing_cfs(
     input_cfs: &[(&str, rocksdb::Options)],
     path: &Path,
