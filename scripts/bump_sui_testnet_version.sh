@@ -88,7 +88,7 @@ EOF
 )
 
 gh pr create \
-  --base "$BASE" \
+  --base main \
   --head "$BRANCH" \
   --title "chore: bump Sui to ${NEW_TAG}" \
   --reviewer "ebmifa,mlegner,wbbradley" \
