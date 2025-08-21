@@ -56,8 +56,18 @@ else
   done
 fi
 
-# echo "Running cargo build --release ..."
-# cargo build --release
+echo "Running cargo build --release ..."
+cargo build --release
+
+# Find all directories that contain a Move.toml and rebuild them
+echo "Regenerating Move.lock files..."
+for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
+  if [[ -f "$toml" ]]; then
+    dir=$(dirname "$toml")
+    echo "  -> building $dir"
+    (cd "$dir" && sui move build)
+  fi
+done
 
 # echo "Staging all changed files..."
 # git add -u
