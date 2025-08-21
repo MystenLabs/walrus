@@ -33,7 +33,6 @@ FILES=(
   "contracts/**/Move.lock"
   "docker/walrus-antithesis/sui_version.toml"
   "Cargo.toml"
-  "Cargo.lock"
   "testnet-contracts/**/Move.toml"
   "testnet-contracts/**/Move.lock"
 )
