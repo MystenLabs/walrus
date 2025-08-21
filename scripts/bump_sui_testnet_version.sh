@@ -20,10 +20,12 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
 fi
 
+# Make sure GITHUB_ACTOR is set.
 if [[ -z "${GITHUB_ACTOR:-}" ]]; then
   GITHUB_ACTOR="$(git config user.name 2>/dev/null || echo github-actions[bot])"
 fi
 
+# Set up branch for changes.
 STAMP="$(date +%Y%m%d%H%M%S)"
 BRANCH="${GITHUB_ACTOR}/bump-sui-${NEW_TAG}-${STAMP}"
 git checkout -b "$BRANCH"
@@ -47,6 +49,7 @@ for pat in "${FILES[@]}"; do
   done
 done
 
+# Check if we found any targets.
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
   echo "No matching files found for update."
   exit 0
@@ -60,10 +63,11 @@ else
   done
 fi
 
+# Update Cargo.lock
 echo "Running cargo build --release ..."
 cargo build --release
 
-# Find all directories that contain a Move.toml and rebuild them.
+# Find all directories that contain a Move.toml and generate Move.lock files.
 echo "Regenerating Move.lock files..."
 for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
   if [[ -f "$toml" ]]; then
@@ -73,6 +77,7 @@ for toml in contracts/**/Move.toml testnet-contracts/**/Move.toml; do
   fi
 done
 
+# Staged all changes
 echo "Staging all changed files..."
 git add -u
 
@@ -84,6 +89,7 @@ git config user.email \
 git commit -m "chore: bump Sui version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
+# Generate PR body
 BODY=$(cat <<-EOF
 This PR updates the Sui testnet version to ${NEW_TAG}
 EOF
