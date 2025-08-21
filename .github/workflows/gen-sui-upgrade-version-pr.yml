@@ -18,12 +18,10 @@ permissions:
 jobs:
   bump:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for gh pr create
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4ddd
 
       - name: Install testnet sui binary for move builds
         shell: bash
@@ -32,6 +30,8 @@ jobs:
           suiup install sui -y
 
       - name: Create a PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           ./scripts/bump_sui_testnet_version.sh "${{ inputs.new_tag }}"
