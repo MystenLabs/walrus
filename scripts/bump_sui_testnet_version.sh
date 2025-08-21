@@ -93,6 +93,6 @@ PR_URL=$(gh pr create \
   --title "chore: bump Sui to ${NEW_TAG}" \
   --reviewer "ebmifa,mlegner,wbbradley" \
   --body "$BODY" \
-  --json url -q .url)
+  2>&1 | grep -Eo 'https://github.com/[^ ]+')
 
 echo "Pull request created: $PR_URL"
