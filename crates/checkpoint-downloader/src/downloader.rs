@@ -563,12 +563,10 @@ fn handle_checkpoint_error(err: &RetriableClientError, next_checkpoint: u64) {
         );
     }
 
-    if let RetriableClientError::FallbackError(fallback_error) = err
-        && let FallbackError::RequestFailed(error) = fallback_error
+    if let RetriableClientError::FallbackError(FallbackError::RequestFailed(error)) = err
         && error
             .status()
-            .map(|status| status == axum::http::StatusCode::NOT_FOUND)
-            .unwrap_or(false)
+            .is_some_and(|status| status == axum::http::StatusCode::NOT_FOUND)
     {
         return tracing::debug!(
             next_checkpoint,
