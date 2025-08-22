@@ -72,10 +72,7 @@ impl EventProcessorStores {
         metric_conf: MetricConf,
     ) -> Result<Arc<RocksDB>> {
         let mut db_opts = rocksdb::Options::from(&db_config.global());
-        let db_table_opts_factory = DatabaseTableOptionsFactory::new(
-            db_config.clone(),
-            db_config.event_processor_shared_block_cache_config.clone(),
-        );
+        let db_table_opts_factory = DatabaseTableOptionsFactory::new(db_config.clone(), false);
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let db = rocks::open_cf_opts(
