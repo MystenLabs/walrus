@@ -8,6 +8,7 @@ pub mod catchup;
 pub mod checkpoint;
 pub mod client;
 pub mod config;
+pub mod coordination;
 pub mod db;
 pub mod metrics;
 pub mod package_store;
