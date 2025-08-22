@@ -31,7 +31,8 @@ jobs:
         if: ${{ env.NEW_TAG == '' }}
         run: |
           echo "No new tag provided, using current Sui testnet version."
-          CURRENT_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest | jq -r '.tag_name')
+          CURRENT_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases \
+            | jq -r '[.[] | select(.tag_name | startswith("testnet-")) | .tag_name] | first')
           echo "Current Sui testnet version is: $CURRENT_TAG"
           echo "NEW_TAG=$CURRENT_TAG" >> $GITHUB_ENV
 
