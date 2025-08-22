@@ -57,6 +57,10 @@ pub mod simtest_utils {
         node_index: usize,
         checkpoint_fn: impl Fn(usize) -> u32,
     ) {
+        tracing::info!(
+            "Stopping node {}",
+            walrus_cluster.nodes[node_index].node_id.unwrap()
+        );
         kill_node(walrus_cluster.nodes[node_index].node_id.unwrap()).await;
         let node = &mut walrus_cluster.nodes[node_index];
         node.node_id = Some(
@@ -76,22 +80,32 @@ pub mod simtest_utils {
         client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
     ) -> EventBlob {
         const TIMEOUT: Duration = Duration::from_secs(10);
-        let start = Instant::now();
+        get_last_certified_event_blob(client, TIMEOUT)
+            .await
+            .expect("Timeout waiting for last certified event blob")
+    }
 
-        while start.elapsed() <= TIMEOUT {
+    /// Gets the last certified event blob from the client.
+    /// Returns the last certified event blob if it exists, otherwise returns None.
+    pub async fn get_last_certified_event_blob(
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
+        timeout: Duration,
+    ) -> Option<EventBlob> {
+        let start = Instant::now();
+        while start.elapsed() <= timeout {
             if let Some(blob) = client
                 .inner
                 .sui_client()
                 .read_client
                 .last_certified_event_blob()
                 .await
-                .unwrap()
+                .unwrap_or(None)
             {
-                return blob;
+                return Some(blob);
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        panic!("Timeout waiting for last certified event blob");
+        None
     }
 
     /// Helper function to write a random blob, read it back and check that it is the same.

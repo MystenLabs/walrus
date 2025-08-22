@@ -13,6 +13,8 @@ walrus_utils::metrics::define_metric_set! {
         event_processor_latest_downloaded_checkpoint: IntGauge[],
         #[help = "The number of checkpoints downloaded. Useful for computing the download rate"]
         event_processor_total_downloaded_checkpoints: IntCounter[],
+        #[help = "Current lag in checkpoints detected during runtime monitoring"]
+        runtime_lag_current: IntGauge[],
     }
 }
 

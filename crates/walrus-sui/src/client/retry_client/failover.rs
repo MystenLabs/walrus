@@ -211,7 +211,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 Ok(client) => client,
                 Err(error) => {
                     // Log the error and failover to the next client.
-                    tracing::warn!(
+                    tracing::info!(
                         "failed to get client from url {}, error: {}, failover to next client",
                         self.lazy_client_builders[next_index]
                             .get_rpc_url()
@@ -325,7 +325,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                         .get_current_rpc_url()
                         .await
                         .unwrap_or_else(|error| error.to_string());
-                    tracing::warn!(
+                    tracing::info!(
                         "RPC to endpoint {:?} failed with error: {:?}, fetching next client",
                         failed_rpc_url,
                         error

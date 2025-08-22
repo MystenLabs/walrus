@@ -196,7 +196,14 @@ impl LazyClientBuilder<SuiClient> for LazySuiClientBuilder {
                     "build_sui_client",
                 )
                 .await
-                .map_err(|e| FailoverError::FailedToGetClient(e.to_string()))?;
+                .map_err(|e| {
+                    tracing::info!(
+                        "failed to get sui client from url {}, error: {}",
+                        rpc_url,
+                        e
+                    );
+                    FailoverError::FailedToGetClient(e.to_string())
+                })?;
                 Ok(Arc::new(sui_client))
             }
         }
