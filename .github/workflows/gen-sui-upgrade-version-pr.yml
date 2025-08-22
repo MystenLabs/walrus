@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
     inputs:
       new_tag:
-        description: "New Sui tag (e.g., testnet-v1.55.0)"
-        required: true
+        description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui `testnet` version"
+        required: false
         type: string
 
 concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
@@ -14,6 +14,9 @@ concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 permissions:
   contents: write
   pull-requests: write
+
+env:
+  NEW_TAG: ${{ inputs.new_tag || '' }}
 
 jobs:
   bump:
@@ -24,16 +27,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
 
-      - name: Install testnet sui binary for move builds
+      - name: Get testnet version, if not provided
+        if: ${{ env.NEW_TAG == '' }}
+        run: |
+          echo "No new tag provided, using current Sui testnet version."
+          CURRENT_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest | jq -r '.tag_name')
+          echo "Current Sui testnet version is: $CURRENT_TAG"
+          echo "NEW_TAG=$CURRENT_TAG" >> $GITHUB_ENV
+
+      - name: Install ${{ env.NEW_TAG }} sui binary for move builds
         shell: bash
         run: |
           curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
-          suiup install sui -y
+          suiup install sui@${{ env.NEW_TAG }} -y
 
-      - name: Generate PR
+      - name: Generate PR for ${{ env.NEW_TAG }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          ./scripts/bump_sui_testnet_version.sh "${{ inputs.new_tag }}"
+          ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}"
