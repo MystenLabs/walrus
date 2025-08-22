@@ -357,7 +357,7 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result
 fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize) -> Result<()> {
     let blob_info_options = blob_info_cf_options(&DatabaseTableOptionsFactory::new(
         DatabaseConfig::default(),
-        None,
+        false,
     ));
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -402,7 +402,7 @@ fn read_object_blob_info(
     count: usize,
 ) -> Result<()> {
     let per_object_blob_info_options = per_object_blob_info_cf_options(
-        &DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None),
+        &DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false),
     );
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -444,7 +444,7 @@ fn read_object_blob_info(
 fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
     let blob_info_options = blob_info_cf_options(&DatabaseTableOptionsFactory::new(
         DatabaseConfig::default(),
-        None,
+        false,
     ));
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -526,7 +526,7 @@ fn read_blob_metadata(
         db_path,
         [(
             metadata_cf_name(),
-            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None).metadata(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).metadata(),
         )],
         false,
     )?;
@@ -582,7 +582,7 @@ fn read_primary_slivers(
         db_path,
         [(
             primary_slivers_column_family_name(shard_index),
-            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None).shard(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).shard(),
         )],
         false,
     )?;
@@ -630,7 +630,7 @@ fn read_secondary_slivers(
         db_path,
         [(
             secondary_slivers_column_family_name(shard_index),
-            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None).shard(),
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).shard(),
         )],
         false,
     )?;

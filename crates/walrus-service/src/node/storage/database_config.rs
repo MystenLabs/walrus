@@ -346,12 +346,11 @@ pub struct DatabaseConfig {
     /// Init state store database options.
     pub(super) init_state: Option<DatabaseTableOptions>,
 
-    /// Shared block cache configuration for column families in storage node DB.
-    pub storage_shared_block_cache_config: Option<SharedBlockCacheConfig>,
-    /// Shared block cache configuration for column families in event processor DB.
-    pub event_processor_shared_block_cache_config: Option<SharedBlockCacheConfig>,
-    /// Shared block cache configuration for column families in event blob writer DB.
-    pub event_blob_writer_shared_block_cache_config: Option<SharedBlockCacheConfig>,
+    /// Shared block cache configuration for column families in shard storage DB.
+    /// If not set, the block cache will be created for each column family specified in the shard
+    /// storage option config.
+    /// If set, only the column families used in shard storage will use the shared block cache.
+    pub shared_shard_storage_block_cache_config: Option<SharedBlockCacheConfig>,
 }
 
 impl DatabaseConfig {
@@ -508,9 +507,7 @@ impl Default for DatabaseConfig {
             committee_store: None,
             event_store: None,
             init_state: None,
-            storage_shared_block_cache_config: None,
-            event_processor_shared_block_cache_config: None,
-            event_blob_writer_shared_block_cache_config: None,
+            shared_shard_storage_block_cache_config: None,
         }
     }
 }
@@ -520,28 +517,40 @@ impl Default for DatabaseConfig {
 #[derive(Clone)]
 pub struct DatabaseTableOptionsFactory {
     /// The shared block cache instance for all column families.
-    block_cache: Option<Cache>,
+    shared_shard_storage_block_cache: Option<Cache>,
     /// The database configuration.
     config: DatabaseConfig,
 }
 
 impl DatabaseTableOptionsFactory {
     /// Creates a new DatabaseTableOptionsFactory with a shared block cache.
-    pub fn new(config: DatabaseConfig, block_cache_config: Option<SharedBlockCacheConfig>) -> Self {
-        let block_cache = block_cache_config
-            .as_ref()
-            .map(|shared_block_cache_config| {
-                Cache::new_lru_cache(shared_block_cache_config.cache_size)
-            });
+    /// If `is_storage_db` is true, the database table config is for storage DB, and therefore
+    /// the shared block cache will be used for shard storage column families if it is set.
+    pub fn new(config: DatabaseConfig, is_storage_db: bool) -> Self {
+        let shared_shard_storage_block_cache = if is_storage_db {
+            config.shared_shard_storage_block_cache_config.as_ref().map(
+                |shared_block_cache_config| {
+                    Cache::new_lru_cache(shared_block_cache_config.cache_size)
+                },
+            )
+        } else {
+            None
+        };
 
         Self {
-            block_cache,
+            shared_shard_storage_block_cache,
             config,
         }
     }
 
     /// Converts a DatabaseTableOptions to a RocksDB Options object with the shared block cache.
-    fn to_options(&self, table_options: &DatabaseTableOptions) -> Options {
+    /// If `shard_storage_option` is true, the shared block cache will be used for shard storage
+    /// column families if it is set.
+    fn to_options(
+        &self,
+        table_options: &DatabaseTableOptions,
+        shard_storage_option: bool,
+    ) -> Options {
         let mut options = Options::default();
         if let Some(enable_blob_files) = table_options.enable_blob_files {
             options.set_enable_blob_files(enable_blob_files);
@@ -591,11 +600,16 @@ impl DatabaseTableOptionsFactory {
             options.set_max_bytes_for_level_base(max_bytes_for_level_base);
         }
         if let Some(block_cache_size) = table_options.block_cache_size {
-            let block_cache = if let Some(block_cache) = &self.block_cache {
-                block_cache.clone()
+            let block_cache = if shard_storage_option {
+                if let Some(block_cache) = &self.shared_shard_storage_block_cache {
+                    block_cache.clone()
+                } else {
+                    Cache::new_lru_cache(block_cache_size)
+                }
             } else {
                 Cache::new_lru_cache(block_cache_size)
             };
+
             let block_based_options = get_block_options(
                 &block_cache,
                 table_options.block_size,
@@ -623,97 +637,105 @@ impl DatabaseTableOptionsFactory {
 
     /// Returns the standard (default) database option.
     pub fn standard(&self) -> Options {
-        self.to_options(&self.config.standard())
+        self.to_options(&self.config.standard(), false)
     }
+
+    // Below 5 options are for storage nodes column families that is independent to shard storage.
 
     /// Returns the node status database option with shared cache.
     pub fn node_status(&self) -> Options {
-        self.to_options(&self.config.node_status())
+        self.to_options(&self.config.node_status(), false)
     }
 
     /// Returns the metadata database option with shared cache.
     pub fn metadata(&self) -> Options {
-        self.to_options(&self.config.metadata())
+        self.to_options(&self.config.metadata(), false)
     }
 
     /// Returns the blob info database option with shared cache.
     pub fn blob_info(&self) -> Options {
-        self.to_options(&self.config.blob_info())
+        self.to_options(&self.config.blob_info(), false)
     }
 
     /// Returns the per object blob info database option with shared cache.
     pub fn per_object_blob_info(&self) -> Options {
-        self.to_options(&self.config.per_object_blob_info())
+        self.to_options(&self.config.per_object_blob_info(), false)
     }
 
     /// Returns the event cursor database option with shared cache.
     pub fn event_cursor(&self) -> Options {
-        self.to_options(&self.config.event_cursor())
+        self.to_options(&self.config.event_cursor(), false)
     }
+
+    // Below 4 options are for shard storage column families.
 
     /// Returns the shard database option with shared cache.
     pub fn shard(&self) -> Options {
-        self.to_options(&self.config.shard())
+        self.to_options(&self.config.shard(), true)
     }
 
     /// Returns the shard status database option with shared cache.
     pub fn shard_status(&self) -> Options {
-        self.to_options(&self.config.shard_status())
+        self.to_options(&self.config.shard_status(), true)
     }
 
     /// Returns the shard sync progress database option with shared cache.
     pub fn shard_sync_progress(&self) -> Options {
-        self.to_options(&self.config.shard_sync_progress())
+        self.to_options(&self.config.shard_sync_progress(), true)
     }
 
     /// Returns the pending recover slivers database option with shared cache.
     pub fn pending_recover_slivers(&self) -> Options {
-        self.to_options(&self.config.pending_recover_slivers())
+        self.to_options(&self.config.pending_recover_slivers(), true)
     }
+
+    // Below 5 options are for event blob writer column families.
 
     /// Returns the event blob writer certified database option with shared cache.
     pub fn certified(&self) -> Options {
-        self.to_options(&self.config.certified())
+        self.to_options(&self.config.certified(), false)
     }
 
     /// Returns the event blob writer pending database option with shared cache.
     pub fn pending(&self) -> Options {
-        self.to_options(&self.config.pending())
+        self.to_options(&self.config.pending(), false)
     }
 
     /// Returns the event blob writer attested database option with shared cache.
     pub fn attested(&self) -> Options {
-        self.to_options(&self.config.attested())
+        self.to_options(&self.config.attested(), false)
     }
 
     /// Returns the event blob writer failed to attest database option with shared cache.
     pub fn failed_to_attest(&self) -> Options {
-        self.to_options(&self.config.failed_to_attest())
+        self.to_options(&self.config.failed_to_attest(), false)
     }
 
     /// Returns the checkpoint store database option with shared cache.
     pub fn checkpoint_store(&self) -> Options {
-        self.to_options(&self.config.checkpoint_store())
+        self.to_options(&self.config.checkpoint_store(), false)
     }
+
+    // Below 4 options are for the event processor column families.
 
     /// Returns the walrus package store database option with shared cache.
     pub fn walrus_package_store(&self) -> Options {
-        self.to_options(&self.config.walrus_package_store())
+        self.to_options(&self.config.walrus_package_store(), false)
     }
 
     /// Returns the committee store database option with shared cache.
     pub fn committee_store(&self) -> Options {
-        self.to_options(&self.config.committee_store())
+        self.to_options(&self.config.committee_store(), false)
     }
 
     /// Returns the event store database option with shared cache.
     pub fn event_store(&self) -> Options {
-        self.to_options(&self.config.event_store())
+        self.to_options(&self.config.event_store(), false)
     }
 
     /// Returns the init state store database option with shared cache.
     pub fn init_state(&self) -> Options {
-        self.to_options(&self.config.init_state())
+        self.to_options(&self.config.init_state(), false)
     }
 }
 
@@ -723,7 +745,11 @@ impl fmt::Debug for DatabaseTableOptionsFactory {
         // write debug info for the config
         write!(f, "config: {:?}", self.config)?;
         // write debug info for the block cache
-        write!(f, "block_cache set: {:?}", self.block_cache.is_some())?;
+        write!(
+            f,
+            "shared_shard_storage_block_cache set: {:?}",
+            self.shared_shard_storage_block_cache.is_some()
+        )?;
         Ok(())
     }
 }
@@ -1111,26 +1137,36 @@ mod tests {
     #[test]
     fn test_factory_uses_storage_shared_cache_config() -> TestResult {
         let yaml = indoc! {"
-            storage_shared_block_cache_config:
+            shared_shard_storage_block_cache_config:
                 cache_size: 4294967296  # 4 GB
-            event_processor_shared_block_cache_config:
-                cache_size: 1073741824  # 1 GB
-            event_blob_writer_shared_block_cache_config:
-                cache_size: 536870912  # 512 MB
         "};
 
         let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
-        assert!(config.storage_shared_block_cache_config.is_some());
-        assert!(config.event_processor_shared_block_cache_config.is_some());
-        assert!(config.event_blob_writer_shared_block_cache_config.is_some());
+        assert!(config.shared_shard_storage_block_cache_config.is_some());
 
-        let factory = DatabaseTableOptionsFactory::new(
-            config.clone(),
-            config.storage_shared_block_cache_config.clone(),
-        );
+        let factory = DatabaseTableOptionsFactory::new(config.clone(), true);
 
         // Factory should have created a shared cache from the config
-        assert!(factory.block_cache.is_some());
+        assert!(factory.shared_shard_storage_block_cache.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_factory_not_uses_storage_shared_cache_config() -> TestResult {
+        let yaml = indoc! {"
+            shared_shard_storage_block_cache_config:
+                cache_size: 4294967296  # 4 GB
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        assert!(config.shared_shard_storage_block_cache_config.is_some());
+
+        let factory = DatabaseTableOptionsFactory::new(config.clone(), false);
+
+        // Factory should not have created a shared cache from the config, even if the config is
+        // set.
+        assert!(factory.shared_shard_storage_block_cache.is_none());
 
         Ok(())
     }
