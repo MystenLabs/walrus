@@ -9,7 +9,10 @@
 mod tests {
     use std::{
         fs,
-        sync::Arc,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::{Duration, Instant},
     };
 
@@ -186,7 +189,7 @@ mod tests {
     }
 
     /// This test verifies that the node can correctly recover from a forked event blob.
-    #[ignore = "ignore integration simtests by default"]
+    //#[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
         let (_sui_cluster, mut walrus_cluster, client, _) =
@@ -287,5 +290,121 @@ mod tests {
         wait_for_event_blob_writer_to_recover(&walrus_cluster.nodes[0])
             .await
             .unwrap();
+    }
+
+    /// This integration test simulates pausing checkpoint tailing to trigger runtime catchup.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_runtime_catchup_triggers_on_tailing_pause() {
+        use walrus_service::client::ClientCommunicationConfig;
+
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(15))
+                .with_num_checkpoints_per_blob(20)
+                //.with_event_stream_catchup_min_checkpoint_lag(Some(u64::MAX))
+                .with_test_nodes_config(TestNodesConfig {
+                    node_weights: vec![2, 2, 3, 3, 3],
+                    use_legacy_event_processor: false,
+                    ..Default::default()
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
+
+        let client_arc = Arc::new(client);
+
+        // Wait until all nodes have non zero latest checkpoint sequence number
+        loop {
+            let node_health_info =
+                simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+            if node_health_info
+                .iter()
+                .all(|info| info.latest_checkpoint_sequence_number.unwrap() > 0)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        tracing::info!("All nodes have non zero latest checkpoint sequence number");
+
+        // Get latest certified event blob
+        let mut latest_certified_blob = None;
+        loop {
+            latest_certified_blob =
+                simtest_utils::get_last_certified_event_blob(&client_arc, Duration::from_secs(30))
+                    .await;
+            if latest_certified_blob.is_some() {
+                tracing::info!(
+                    "Latest certified blob: {:?}",
+                    latest_certified_blob.clone().unwrap()
+                );
+                break;
+            }
+            tracing::info!("Waiting for latest certified blob");
+        }
+
+        // Track whether event-blob catchup path is exercised
+        let saw_event_blob_catchup = Arc::new(AtomicBool::new(false));
+        let saw_event_blob_catchup_clone = saw_event_blob_catchup.clone();
+        sui_macros::register_fail_point("fail_point_catchup_using_event_blobs_start", move || {
+            saw_event_blob_catchup_clone.store(true, Ordering::SeqCst);
+        });
+
+        // Pause checkpoint tailing to build lag
+        sui_macros::register_fail_point_async(
+            "pause_checkpoint_tailing_entry",
+            move || async move {
+                // Sleep enough to build lag and trigger catchup monitoring
+                tracing::info!("Pausing checkpoint tailing");
+                tokio::time::sleep(Duration::from_secs(45)).await;
+            },
+        );
+
+        // Restart node 0 to apply failpoint into its runtime
+        simtest_utils::restart_node_with_checkpoints(&mut walrus_cluster, 0, |_| 20).await;
+
+        // Wait until latest certified blob is updated
+        loop {
+            if let Some(blob) =
+                simtest_utils::get_last_certified_event_blob(&client_arc, Duration::from_secs(30))
+                    .await
+            {
+                tracing::info!("Latest certified blob: {:?}", blob);
+                if blob.blob_id != latest_certified_blob.clone().unwrap().blob_id {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        let mut node_health_info =
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
+        let prev_seq = node_health_info[0]
+            .latest_checkpoint_sequence_number
+            .unwrap();
+
+        // Let lag build and catchup trigger
+        tokio::time::sleep(Duration::from_secs(90)).await;
+
+        node_health_info = simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
+
+        // Verify that latest checkpoint advances after the pause window and node is healthy
+        let latest_seq = node_health_info[0]
+            .latest_checkpoint_sequence_number
+            .unwrap();
+        assert!(latest_seq > prev_seq);
+
+        // Verify event-blob catchup ran
+        assert!(saw_event_blob_catchup.load(Ordering::SeqCst));
+
+        sui_macros::clear_fail_point("pause_checkpoint_tailing_entry");
+        sui_macros::clear_fail_point("fail_point_catchup_using_event_blobs_start");
     }
 }
