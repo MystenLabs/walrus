@@ -7,6 +7,14 @@
 
 set -Eeuo pipefail
 
+# Ensure required binaries are available
+for cmd in gh sui git; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Error: required command '$cmd' not found in PATH." >&2
+    exit 1
+  fi
+done
+
 # Check required params.
 if [[ -z ${1:-} || $# -ne 1 ]]; then
   echo "USAGE: bump_sui_testnet_version.sh <new-tag>"
@@ -63,9 +71,9 @@ else
   done
 fi
 
-# Update Cargo.lock
-echo "Running cargo build --release ..."
-cargo build --release
+# Update Cargo.lock files
+echo "Running cargo check ..."
+cargo check || true
 
 # Find all directories that contain a Move.toml and generate Move.lock files.
 echo "Regenerating Move.lock files..."
