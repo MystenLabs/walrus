@@ -3,7 +3,7 @@
 
 //! Metrics module for the event processor.
 
-use prometheus::{IntCounter, IntCounterVec, IntGauge};
+use prometheus::{Histogram, IntCounter, IntCounterVec, IntGauge};
 
 walrus_utils::metrics::define_metric_set! {
     #[namespace = "walrus"]
@@ -13,6 +13,20 @@ walrus_utils::metrics::define_metric_set! {
         event_processor_latest_downloaded_checkpoint: IntGauge[],
         #[help = "The number of checkpoints downloaded. Useful for computing the download rate"]
         event_processor_total_downloaded_checkpoints: IntCounter[],
+        #[help = "Number of runtime catchup operations triggered"]
+        runtime_catchup_triggered_total: IntCounter[],
+        #[help = "Duration of runtime catchup operations in seconds"]
+        runtime_catchup_duration_seconds: Histogram[],
+        #[help = "Whether runtime catchup is currently in progress (1) or not (0)"]
+        runtime_catchup_in_progress: IntGauge[],
+        #[help = "Current lag in checkpoints detected during runtime monitoring"]
+        runtime_lag_current: IntGauge[],
+        #[help = "Number of events recovered during runtime catchup operations"]
+        runtime_catchup_events_recovered: IntCounter[],
+        #[help = "Number of coordination conflicts between catchup and checkpoint downloader"]
+        coordination_conflicts_total: IntCounter[],
+        #[help = "Number of checkpoints deferred due to catchup coordination"]
+        deferred_checkpoints_total: IntCounter[],
     }
 }
 
