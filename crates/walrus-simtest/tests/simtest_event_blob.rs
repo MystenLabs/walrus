@@ -159,7 +159,7 @@ mod tests {
             .join("event_blob_writer")
             .join("db");
         let db_table_opts_factory =
-            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None);
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
         let db = Arc::new(rocksdb::DB::open_cf_with_opts_for_read_only(
             &RocksdbOptions::default(),
             db_path,

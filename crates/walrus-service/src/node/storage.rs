@@ -205,10 +205,7 @@ impl Storage {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
-        let db_table_opts_factory = DatabaseTableOptionsFactory::new(
-            db_config.clone(),
-            db_config.storage_shared_block_cache_config.clone(),
-        );
+        let db_table_opts_factory = DatabaseTableOptionsFactory::new(db_config.clone(), true);
 
         let existing_shards_ids = ShardStorage::existing_cf_shards_ids(path, &db_opts);
         tracing::info!(
@@ -1362,7 +1359,7 @@ pub(crate) mod tests {
         let storage = empty_storage().await;
 
         let db_table_opts_factory =
-            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), None);
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
 
         let primary_cfs_name = primary_slivers_column_family_name(test_shard_index);
         let primary_cfs_options = db_table_opts_factory.shard();
