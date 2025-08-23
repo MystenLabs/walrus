@@ -1857,13 +1857,13 @@ dependencies = [
  "sui-macros",
  "sui-rpc-api",
  "sui-types",
- "telemetry-subscribers",
  "tempfile",
  "tokio",
  "tokio-util 0.7.16",
  "tracing",
  "typed-store 1.32.0",
  "walrus-sui",
+ "walrus-test-utils",
  "walrus-utils",
 ]
 
@@ -12693,7 +12693,6 @@ dependencies = [
  "sui-protocol-config",
  "sui-simulator",
  "sui-types",
- "telemetry-subscribers",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -13093,9 +13092,12 @@ name = "walrus-test-utils"
 version = "1.32.0"
 dependencies = [
  "anyhow",
+ "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
