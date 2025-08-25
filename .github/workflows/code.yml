@@ -30,7 +30,6 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.53.2
 
 jobs:
   diff:
@@ -200,6 +199,9 @@ jobs:
       - name: Get Sui tag
         shell: bash
         run: |
+          export SUI_TAG=$(grep '^sui-config' ./Cargo.toml | grep 'github.com/MystenLabs/sui' \
+            | sed -nE 's/.*tag = "(testnet-v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p')
+          echo "SUI_TAG=${SUI_TAG}" >> $GITHUB_ENV
           
       - name: Restore cached sui binary
         id: cache-sui-restore
@@ -207,9 +209,11 @@ jobs:
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
+
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
