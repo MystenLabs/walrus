@@ -1309,7 +1309,12 @@ impl StorageNode {
             return Ok(());
         };
 
-        tracing::debug!("checking the first contract event if we're severely lagging");
+        tracing::debug!(
+            "checking the first contract event if we're severely lagging, \
+            first new event epoch: {}, epoch at start: {}",
+            first_new_event_epoch,
+            epoch_at_start
+        );
 
         // Clear the starting epoch, so that we won't make this check again in the current run.
         *maybe_epoch_at_start = None;
@@ -1326,18 +1331,19 @@ impl StorageNode {
         }
 
         // Set the initial current event epoch. Note that if the first event is an epoch change
-        // start event, the current event epoch is the previous epoch, since the epoch change has
-        // not been executed yet.
-        let current_event_epoch = match event {
+        // start event, we don't set it here since the epoch change execution will set it to the
+        // new epoch. This helps prevent a race condition where the node enters recovery mode
+        // before the epoch change execution, and the node may be recovering to an epoch that is
+        // 2 or more epochs behind the latest epoch.
+        match event {
             ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(
                 EpochChangeStart { .. },
-            )) => first_new_event_epoch - 1,
-            _ => first_new_event_epoch,
+            )) => {}
+            _ => self
+                .inner
+                .latest_event_epoch_sender
+                .send(Some(first_new_event_epoch))?,
         };
-
-        self.inner
-            .latest_event_epoch_sender
-            .send(Some(current_event_epoch))?;
 
         Ok(())
     }
