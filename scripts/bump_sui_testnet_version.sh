@@ -101,7 +101,8 @@ git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
 git commit -m "chore: bump Sui version to ${NEW_TAG}"
-git push -u origin "$BRANCH"
+# git push -u origin "$BRANCH"
+git push https://"${GITHUB_ACTOR}":"${GH_PAT}"@github.com/MystenLabs/walrus HEAD:"${BRANCH}"
 
 # Generate PR body
 BODY=$(cat <<-EOF

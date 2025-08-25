@@ -45,6 +45,7 @@ jobs:
       - name: Generate PR for ${{ env.NEW_TAG }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.WALRUS_CREATE_RELEASE }}
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
