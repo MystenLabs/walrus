@@ -424,7 +424,7 @@ want to modify the code or contribute to the project.</p>
 <pre><code class="language-sh">docker build -f portal/docker/server/Dockerfile -t server-portal . --build-arg ENABLE_SENTRY=false --no-cache
 </code></pre>
 <p>Finally, run the Docker container:</p>
-<pre><code class="language-sh">docker run -p 3000:3000 server-portal --env-file ./portal/server/.env.local
+<pre><code class="language-sh">docker run --env-file ./portal/server/.env.local -p 3000:3000 server-portal
 </code></pre>
 <p>Browse the sites at <code>localhost:3000</code>.</p>
 <h4 id="local-development"><a class="header" href="#local-development">Local Development</a></h4>
