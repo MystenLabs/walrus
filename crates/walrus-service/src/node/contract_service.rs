@@ -134,6 +134,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Returns the last certified event blob.
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
+
+    /// Flushes any cached data to ensure that the next requests are not affected by stale data.
+    async fn flush_cache(&self);
 }
 
 walrus_utils::metrics::define_metric_set! {
@@ -650,6 +653,10 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.read_client.last_certified_event_blob().await
+    }
+
+    async fn flush_cache(&self) {
+        self.read_client.flush_cache().await;
     }
 }
 

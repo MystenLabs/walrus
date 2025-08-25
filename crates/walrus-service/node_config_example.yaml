@@ -107,6 +107,7 @@ sui:
   rpc: https://fullnode.testnet.sui.io:443
   system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
   staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+  cache_ttl_secs: 10
   event_polling_interval_millis: 400
   wallet_config: /opt/walrus/config/sui_config.yaml
   backoff_config:

@@ -46,13 +46,15 @@ pub(crate) type DefaultRecoverySymbol = walrus_core::RecoverySymbol<MerkleProof>
 /// Service used to query the current, previous, and next committees.
 #[async_trait]
 pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
-    /// Returns the active committees, which are possibly already transitioning.
+    /// Returns the active committees, which are possibly already transitioning. This always gets
+    /// fresh data from the RPC node.
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error>;
 }
 
 #[async_trait]
 impl CommitteeLookupService for SuiReadClient {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
+        self.flush_cache().await;
         let committees_and_state = self.get_committees_and_state().await?;
         ActiveCommittees::try_from(committees_and_state)
     }

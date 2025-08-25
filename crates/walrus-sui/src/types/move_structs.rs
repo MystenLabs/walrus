@@ -3,7 +3,11 @@
 
 //! Walrus move type bindings. Replicates the move types in Rust.
 
-use std::{fmt::Display, num::NonZeroU16};
+use std::{
+    fmt::Display,
+    num::NonZeroU16,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
@@ -33,7 +37,12 @@ use walrus_core::{
 };
 
 use super::NetworkAddress;
-use crate::contracts::{self, AssociatedContractStruct, StructTag};
+use crate::contracts::{
+    self,
+    AssociatedContractStruct,
+    AssociatedContractStructWithPkgId,
+    StructTag,
+};
 
 /// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -551,13 +560,34 @@ impl StakingObject {
     }
 
     /// Returns the epoch duration in milliseconds.
-    pub fn epoch_duration(&self) -> u64 {
+    pub fn epoch_duration_millis(&self) -> u64 {
         self.inner.epoch_duration
+    }
+
+    /// Returns the epoch duration.
+    pub fn epoch_duration(&self) -> Duration {
+        self.inner.epoch_duration()
     }
 
     /// Returns the current epoch.
     pub fn epoch(&self) -> Epoch {
         self.inner.epoch
+    }
+
+    /// Returns the earliest time at which the epoch state can transition to a different state.
+    pub fn earliest_state_transition_time(&self) -> SystemTime {
+        match (self.epoch_state(), self.epoch()) {
+            (EpochState::EpochChangeSync(_), _) => SystemTime::now(),
+            (_, 0) => UNIX_EPOCH + Duration::from_millis(self.inner.first_epoch_start),
+            (EpochState::EpochChangeDone(epoch_start_time), _) => {
+                // The next epoch's parameters can be selected after half the epoch duration.
+                SystemTime::from(*epoch_start_time) + self.epoch_duration() / 2
+            }
+            (EpochState::NextParamsSelected(epoch_start_time), _) => {
+                // The next epoch can start one epoch duration after the current epoch.
+                SystemTime::from(*epoch_start_time) + self.epoch_duration()
+            }
+        }
     }
 }
 
@@ -572,6 +602,12 @@ pub(crate) struct StakingObjectForDeserialization {
 
 impl AssociatedContractStruct for StakingObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::staking::Staking;
+}
+
+impl AssociatedContractStructWithPkgId for StakingObjectForDeserialization {
+    fn package_id(&self) -> ObjectID {
+        self.package_id
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
@@ -657,6 +693,13 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) next_epoch_public_keys: ObjectID,
 }
 
+impl StakingInnerV1 {
+    /// Returns the epoch duration.
+    pub fn epoch_duration(&self) -> Duration {
+        Duration::from_millis(self.epoch_duration)
+    }
+}
+
 impl AssociatedContractStruct for StakingInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::staking_inner::StakingInnerV1;
 }
@@ -736,6 +779,11 @@ impl SystemObject {
     pub fn future_accounting(&self) -> &FutureAccountingRingBuffer {
         &self.inner.future_accounting
     }
+
+    /// Returns the current epoch.
+    pub fn epoch(&self) -> Epoch {
+        self.inner.committee.epoch
+    }
 }
 
 /// Sui type for outer system object. Used for deserialization.
@@ -748,6 +796,12 @@ pub(crate) struct SystemObjectForDeserialization {
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
+}
+
+impl AssociatedContractStructWithPkgId for SystemObjectForDeserialization {
+    fn package_id(&self) -> ObjectID {
+        self.package_id
+    }
 }
 
 /// Sui type for inner system object.
@@ -897,6 +951,12 @@ impl AssociatedContractStruct for Credits {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::credits::Subsidies;
 }
 
+impl AssociatedContractStructWithPkgId for Credits {
+    fn package_id(&self) -> ObjectID {
+        self.package_id
+    }
+}
+
 /// Sui type for a `WalrusSubsidies` object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalrusSubsidies {
@@ -929,6 +989,12 @@ pub(crate) struct WalrusSubsidiesForDeserialization {
 
 impl AssociatedContractStruct for WalrusSubsidiesForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::WalrusSubsidies;
+}
+
+impl AssociatedContractStructWithPkgId for WalrusSubsidiesForDeserialization {
+    fn package_id(&self) -> ObjectID {
+        self.package_id
+    }
 }
 
 /// A pair mapping an epoch to a balance. Used for deserialization of the WalrusSubsidiesInner.
