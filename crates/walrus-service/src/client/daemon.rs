@@ -72,7 +72,10 @@ use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
         config::AuthConfig,
-        daemon::auth::verify_jwt_claim,
+        daemon::{
+            auth::verify_jwt_claim,
+            chunked_upload::{ChunkedUploadConfig, ChunkedUploadState, chunked_upload_middleware},
+        },
     },
     common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
 };
@@ -80,6 +83,7 @@ use crate::{
 pub mod auth;
 pub(crate) mod cache;
 pub(crate) use cache::{CacheConfig, CacheHandle};
+pub mod chunked_upload;
 mod openapi;
 mod routes;
 
@@ -443,12 +447,35 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             "configuring the publisher endpoint",
         );
 
+        // Initialize chunked upload state
+        let chunked_upload_config = ChunkedUploadConfig::default();
+        let chunked_upload_state = Arc::new(ChunkedUploadState::new(chunked_upload_config));
+
+        // Initialize chunked upload storage (ignore errors for now)
+        let upload_state_clone = chunked_upload_state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = upload_state_clone.init().await {
+                tracing::error!("Failed to initialize chunked upload storage: {}", e);
+            }
+        });
+
+        // Start background cleanup task for expired sessions
+        let _cleanup_handle = chunked_upload_state.clone().start_cleanup_task();
+
         let base_layers = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
             .layer(BufferLayer::new(max_request_buffer_size))
             .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
             .layer(DefaultBodyLimit::max(max_body_limit));
+
+        // Add chunked upload middleware layer
+        let chunked_upload_layers = ServiceBuilder::new()
+            .layer(axum::middleware::from_fn_with_state(
+                chunked_upload_state,
+                chunked_upload_middleware,
+            ))
+            .layer(base_layers.clone());
 
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
@@ -459,7 +486,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
                     auth_layer,
                 ))
-                .layer(base_layers.clone());
+                .layer(chunked_upload_layers.clone());
 
             self.router = self
                 .router
@@ -478,13 +505,13 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 .router
                 .route(
                     BLOB_PUT_ENDPOINT,
-                    put(routes::put_blob).route_layer(base_layers.clone()),
+                    put(routes::put_blob).route_layer(chunked_upload_layers.clone()),
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
                     put(routes::put_quilt)
                         .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
-                        .route_layer(base_layers),
+                        .route_layer(chunked_upload_layers),
                 );
         }
         self
