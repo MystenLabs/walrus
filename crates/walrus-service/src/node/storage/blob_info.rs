@@ -26,7 +26,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
-use super::{DatabaseConfig, constants, database_config::DatabaseTableOptions};
+use super::{DatabaseTableOptionsFactory, constants};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -48,8 +48,8 @@ pub(super) struct BlobInfoTable {
 }
 
 /// Returns the options for the aggregate blob info column family.
-pub(crate) fn blob_info_cf_options(db_config: &DatabaseConfig) -> Options {
-    let mut options = db_config.blob_info().to_options();
+pub(crate) fn blob_info_cf_options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> Options {
+    let mut options = db_table_opts_factory.blob_info();
     options.set_merge_operator("merge blob info", merge_mergeable::<BlobInfo>, |_, _, _| {
         None
     });
@@ -57,8 +57,10 @@ pub(crate) fn blob_info_cf_options(db_config: &DatabaseConfig) -> Options {
 }
 
 /// Returns the options for the per object blob info column family.
-pub(crate) fn per_object_blob_info_cf_options(db_config: &DatabaseConfig) -> Options {
-    let mut options = db_config.per_object_blob_info().to_options();
+pub(crate) fn per_object_blob_info_cf_options(
+    db_table_opts_factory: &DatabaseTableOptionsFactory,
+) -> Options {
+    let mut options = db_table_opts_factory.per_object_blob_info();
     options.set_merge_operator(
         "merge per object blob info",
         merge_mergeable::<PerObjectBlobInfo>,
@@ -106,21 +108,23 @@ impl BlobInfoTable {
         Ok(())
     }
 
-    pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
+    pub fn options(
+        db_table_opts_factory: &DatabaseTableOptionsFactory,
+    ) -> Vec<(&'static str, Options)> {
         vec![
             (
                 constants::aggregate_blob_info_cf_name(),
-                blob_info_cf_options(db_config),
+                blob_info_cf_options(db_table_opts_factory),
             ),
             (
                 constants::per_object_blob_info_cf_name(),
-                per_object_blob_info_cf_options(db_config),
+                per_object_blob_info_cf_options(db_table_opts_factory),
             ),
             (
                 constants::event_index_cf_name(),
                 // Doesn't make sense to have special options for the table containing a single
                 // value.
-                DatabaseTableOptions::default().to_options(),
+                db_table_opts_factory.standard(),
             ),
         ]
     }
