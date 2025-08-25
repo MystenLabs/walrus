@@ -47,6 +47,9 @@ FILES=(
   "docker/walrus-antithesis/sui_version.toml"
   "Cargo.toml"
   "testnet-contracts/**/Move.toml"
+  ".github/workflows/code.yml"
+  ".github/workflows/updates.yml"
+  ".github/workflows/scheduled_reports.yml"
 )
 
 # Expand patterns into actual file paths.
@@ -67,7 +70,10 @@ else
 
   for f in "${TARGETS[@]}"; do
     sed -i -E \
-      "s/( = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
+      "s/(rev = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
+       s/(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
+       s/(SUI_TAG: )testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
+       s/(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
   done
 fi
 

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       new_tag:
-        description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui `testnet` version"
+        description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui testnet version"
         required: false
         type: string
 
