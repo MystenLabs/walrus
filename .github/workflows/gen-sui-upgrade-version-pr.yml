@@ -9,6 +9,9 @@ on:
         required: false
         type: string
 
+  repository_dispatch:
+    types: [update-walrus-sui-testnet-tag]        
+
 concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 
 permissions:
