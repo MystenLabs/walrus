@@ -6,15 +6,25 @@ concurrency: ${{ github.workflow }}-${{ inputs.network }}
 on:
   workflow_dispatch:
     inputs:
+      walrus_commit:
+        description: 'Walrus repo commit to release'
+        type: string
+        required: true
       network:
         description: Network to generate release for
         required: true
         type: choice
         options:
+          - devnet
           - testnet
           - mainnet
       announce:
-        description: Announce the release?
+        description: Whether to announce the release on Discord (not relevant for devnet)
+        type: boolean
+        default: true
+        required: true
+      check_sui_version:
+        description: Whether to check if the Sui version is the latest released version (only relevant for devnet releases)
         type: boolean
         default: true
         required: true
@@ -25,12 +35,10 @@ jobs:
   create-release:
     name: Create Release for ${{ inputs.network }}
     runs-on: ubuntu-latest
-    outputs:
-      walrus_commit: ${{ steps.release-commit.outputs.walrus_commit }}
 
     steps:
       - name: Checkout walrus main branch
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # pin@v4.1.1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4.2.2
         with:
           fetch-depth: 0
           ref: main
@@ -54,32 +62,50 @@ jobs:
           export previous_release_branch="releases/walrus-v${previous_release_version}-release"
           echo "previous_release_branch=${previous_release_branch}" >> $GITHUB_ENV
 
-      - name: Checkout release branch
+      - name: Checkout commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-        env:
-          RELEASE_BRANCH: ${{ env.current_release_branch }}
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_BRANCH }}
+          ref: ${{ inputs.walrus_commit }}
+
+      - name: Check if Sui version is the latest released version
+        if: ${{ inputs.check_sui_version == true && inputs.network == 'devnet' }}
+        shell: bash
+        run: |
+          latest_sui_version=$(
+            curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest \
+              | awk -F \" -v RS="," '/tag_name/ {print $(NF-1)}' \
+              | awk -F -v '{print $2}'
+          )
+          used_sui_version=$(sed -n '/^sui-types =/s/.*tag = ".*-v\([0-9.]*\).*/\1/p' Cargo.toml)
+
+          latest_sui_major_minor=$(echo $latest_sui_version | cut -d. -f1,2)
+          used_sui_major_minor=$(echo $used_sui_version | cut -d. -f1,2)
+          if [[ $used_sui_major_minor == $latest_sui_major_minor ]]; then
+            echo "The Sui version used in the Cargo.toml file ($used_sui_version) matches the \
+              latest released version ($latest_sui_version) (ignoring patch version)."
+          else
+            echo "The Sui version used in the Cargo.toml file ($used_sui_version) does not match \
+              the latest released version ($latest_sui_version)."
+            echo "Please bump the Sui version in the Cargo.toml file to the latest released version before creating a new devnet release."
+            echo "This check can be disabled, but this should only be done in exceptional cases and after checking with the Walrus core team."
+            exit 1
+          fi
 
       - name: Update ${{ inputs.network }} branch
         shell: bash
         id: release-commit
         run: |
-          export walrus_commit=$(git rev-parse HEAD)
-          echo "walrus_commit=${walrus_commit}" >> $GITHUB_ENV
-          echo "walrus_commit=${walrus_commit}" >> "$GITHUB_OUTPUT"
           export walrus_release_version=$(cat Cargo.toml | grep '^version =' | tr -d '\"' | awk '{ print $3 }')
           echo "walrus_release_version=${walrus_release_version}" >> $GITHUB_ENV
 
           echo "${{ secrets.WALRUS_CREATE_RELEASE }}" | gh auth login --with-token
-          echo "{\"sha\": \"${walrus_commit}\", \"force\": true}" | gh api -X PATCH /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} \
-            --header "Accept: application/vnd.github+json" --input -
+          echo "{\"sha\": \"${{ inputs.walrus_commit }}\", \"force\": true}" | gh api -X PATCH \
+            /repos/MystenLabs/walrus/git/refs/heads/${{ inputs.network }} --header "Accept: application/vnd.github+json" --input -
 
       - name: Create ${{ inputs.network }}-v${{ env.WALRUS_RELEASE_VERSION }} release tag
         shell: bash
         env:
-          WALRUS_COMMIT: ${{ env.walrus_commit }}
           WALRUS_RELEASE_VERSION: ${{ env.walrus_release_version }}
         run: |
           export release_tag="${{ inputs.network }}-v${{ env.WALRUS_RELEASE_VERSION }}"
@@ -90,7 +116,7 @@ jobs:
             https://api.github.com/repos/MystenLabs/walrus/git/refs \
             -d "{
               \"ref\": \"refs/tags/${release_tag}\",
-              \"sha\": \"${{ env.WALRUS_COMMIT }}\"
+              \"sha\": \"${{ inputs.walrus_commit }}\"
             }"
 
       - name: Get commits for branches
@@ -152,7 +178,7 @@ jobs:
 
   announce-release:
     name: Announce Release in Discord
-    if: ${{ inputs.announce == true }}
+    if: ${{ inputs.announce == true && inputs.network != 'devnet' }}
     needs: create-release
     runs-on: ubuntu-latest
     steps:
@@ -162,4 +188,5 @@ jobs:
           repository: MystenLabs/sui-operations
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
           event-type: walrus-release-announce
-          client-payload: '{"walrus_commit": "${{ needs.create-release.outputs.walrus_commit }}", "environment": "${{ inputs.network }}"}'
+          client-payload: >
+            {"walrus_commit": "${{ inputs.walrus_commit }}", "environment": "${{ inputs.network }}"}

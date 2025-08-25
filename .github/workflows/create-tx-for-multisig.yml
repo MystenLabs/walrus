@@ -1,0 +1,85 @@
+name: Build TX for Multisig Operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      transaction_type:
+        description: "select transaction type to create"
+        type: choice
+        options:
+          - upgrade-walrus-subsidies
+          - set-walrus-subsidy-rates
+      rpc:
+        description: "RPC url"
+        required: true
+        default: "https://fullnode.mainnet.sui.io:443"
+        type: string
+      gas_object_id:
+        description: "object id to get gas from for multisig transaction"
+        required: false
+        type: string
+      commit:
+        description: "commit hash of the walrus repo to create the transaction"
+        required: true
+        type: string
+      base_subsidy_frost:
+        description: "base subsidy in FROST (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+      per_shard_subsidy_frost:
+        description: "per shard subsidy in FROST (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+      subsidy_rate_basis_points:
+        description: "subsidy rate in basis points (only for set-walrus-subsidy-rates)"
+        required: false
+        type: string
+
+jobs:
+  create-tx:
+    name: Create TX for multisig
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Selected transaction type
+        run: |
+          echo ${{ inputs.transaction_type }}
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.commit }}
+
+      - name: Install Homebrew
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+
+      - name: Install Sui using Homebrew
+        run: brew install sui
+
+      - name: Setup sui client config
+        run: |
+          sui client --yes new-env --rpc ${{ inputs.rpc }} --alias mainnet
+          sui client switch --env mainnet
+
+      - name: Create unsigned transaction for multisig
+        run: |
+          mkdir -p artifacts
+          ./scripts/create_multisig_tx.sh \
+            -t '${{ inputs.transaction_type }}' \
+            -g '${{ inputs.gas_object_id }}' \
+            -b '${{ inputs.base_subsidy_frost }}' \
+            -s '${{ inputs.per_shard_subsidy_frost }}' \
+            -r '${{ inputs.subsidy_rate_basis_points }}' \
+            >artifacts/tx-data.txt
+
+      - name: Show Transaction Data (To sign)
+        run: |
+          cat artifacts/tx-data.txt
+
+      - name: Upload Transaction Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@v4
+        with:
+          name: transaction-data
+          path: artifacts/tx-data.txt

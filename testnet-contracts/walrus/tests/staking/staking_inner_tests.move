@@ -435,14 +435,8 @@ fun test_dhondt_without_max_shards() {
 
 #[test]
 fun test_dhondt_with_max_shards() {
-    let stakes = vector::tabulate!(21, |i| {
-        if (i == 5) 200
-        else 20
-    });
-    let expected = vector::tabulate!(21, |i| {
-        if (i == 5) 100
-        else 45
-    });
+    let stakes = vector::tabulate!(21, |i| if (i == 5) 200 else 20);
+    let expected = vector::tabulate!(21, |i| if (i == 5) 100 else 45);
     dhondt_case(1000, stakes, expected);
 }
 

@@ -26,7 +26,7 @@ use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{BlobId, encoding::Primary};
 use walrus_sdk::{
-    client::Client,
+    client::WalrusNodeClient,
     config::{ClientConfig, combine_rpc_urls},
 };
 use walrus_sui::{
@@ -43,28 +43,20 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::utils::{self, MetricsAndLoggingRuntime, version},
-    node::{
-        DatabaseConfig,
-        events::{
-            CheckpointEventPosition,
-            EventStreamElement,
-            PositionedStreamEvent,
-            event_processor::EventProcessor,
-            event_processor_runtime::EventProcessorRuntime,
-        },
-        metrics::TelemetryLabel as _,
-        system_events::SystemEventProvider as _,
+    common::utils::{self, MetricsAndLoggingRuntime},
+    event::{
+        event_processor::{processor::EventProcessor, runtime::EventProcessorRuntime},
+        events::{CheckpointEventPosition, EventStreamElement, PositionedStreamEvent},
     },
+    node::{DatabaseConfig, metrics::TelemetryLabel as _, system_events::SystemEventProvider as _},
 };
 
-/// The version of the Walrus backup service.
-pub const VERSION: &str = version!();
 const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 async fn stream_events(
+    version: &'static str,
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
     db_config: &BackupDbConfig,
@@ -94,6 +86,7 @@ async fn stream_events(
         match &element {
             EventStreamElement::ContractEvent(contract_event) => {
                 record_event(
+                    version,
                     &mut pg_connection,
                     &element,
                     checkpoint_event_position,
@@ -118,6 +111,7 @@ async fn stream_events(
 
 #[allow(clippy::too_many_arguments)]
 async fn record_event(
+    version: &'static str,
     pg_connection: &mut AsyncPgConnection,
     element: &EventStreamElement,
     checkpoint_event_position: CheckpointEventPosition,
@@ -127,7 +121,7 @@ async fn record_event(
     retry_counter: &GenericCounter<AtomicU64>,
     db_reconnects: &GenericCounter<AtomicU64>,
 ) -> Result<(), Error> {
-    let event_id: EventID = element.event_id().unwrap();
+    let event_id: EventID = contract_event.event_id();
     retry_serializable_query(
         pg_connection,
         Location::caller(),
@@ -147,7 +141,7 @@ async fn record_event(
                     .execute(conn)
                     .await?;
 
-                dispatch_contract_event(contract_event, conn).await
+                dispatch_contract_event(version, contract_event, conn).await
             }
             .scope_boxed()
         },
@@ -157,6 +151,7 @@ async fn record_event(
 }
 
 async fn dispatch_contract_event(
+    version: &'static str,
     contract_event: &ContractEvent,
     conn: &mut AsyncPgConnection,
 ) -> Result<(), Error> {
@@ -212,7 +207,7 @@ async fn dispatch_contract_event(
             )
             .bind::<Bytea, _>(blob_certified.blob_id.0.to_vec())
             .bind::<Int8, _>(i64::from(blob_certified.end_epoch))
-            .bind::<Text, _>(VERSION)
+            .bind::<Text, _>(version)
             .execute(conn)
             .await?;
             tracing::info!(
@@ -274,53 +269,56 @@ pub async fn establish_connection_async(
 
 /// Run the database migrations for the backup node.
 pub fn run_backup_database_migrations(config: &BackupConfig) {
-    let mut connection = establish_connection(
+    let mut connection = match establish_connection(
         &config.db_config.database_url,
         "run_backup_database_migrations",
-    )
-    .inspect_err(|error| {
-        tracing::error!(
-            ?error,
-            "failed to connect to postgres for database migration"
-        );
-        std::process::exit(1);
-    })
-    .unwrap();
+    ) {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "failed to connect to postgres for database migration"
+            );
+            std::process::exit(1);
+        }
+    };
+
     tracing::info!("running pending migrations");
-    let versions = connection
-        .run_pending_migrations(MIGRATIONS)
-        .inspect_err(|error| {
+    match connection.run_pending_migrations(MIGRATIONS) {
+        Ok(versions) => {
+            tracing::info!(?versions, "migrations ran successfully");
+        }
+        Err(error) => {
             tracing::error!(?error, "failed to run pending migrations");
             std::process::exit(1);
-        })
-        .unwrap();
-    tracing::info!(?versions, "migrations ran successfully");
+        }
+    }
 }
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_orchestrator(
+    version: &'static str,
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
 ) -> Result<()> {
-    tracing::info!(?config, "starting backup node");
+    tracing::info!(?config, version, "starting backup node");
 
     let registry_clone = metrics_runtime.registry.clone();
     tokio::spawn(async move {
         registry_clone
             .register(mysten_metrics::uptime_metric(
                 "walrus_backup_orchestrator",
-                VERSION,
+                version,
                 "walrus",
             ))
-            .unwrap();
+            .expect("metrics defined at compile time must be valid");
     });
 
-    tracing::info!(version = VERSION, "Walrus backup binary version");
     tracing::info!(
         metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
     );
 
-    utils::export_build_info(&metrics_runtime.registry, VERSION);
+    utils::export_build_info(&metrics_runtime.registry, version);
 
     let cancel_token = CancellationToken::new();
 
@@ -343,6 +341,7 @@ pub async fn start_backup_orchestrator(
     // Connect to the database.
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(
+        version,
         event_processor,
         metrics_registry,
         &config.db_config,
@@ -445,10 +444,11 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
 
 /// Starts a new backup node runtime.
 pub async fn start_backup_fetcher(
+    version: &'static str,
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
 ) -> Result<()> {
-    tracing::info!(?config, "starting backup node");
+    tracing::info!(?config, version, "starting backup node");
     if config.backup_bucket.is_none() {
         // If the backup bucket is not set, we need to create the backup archive storage dir.
         let backup_path_dir = config.backup_storage_path.join(BACKUP_BLOB_ARCHIVE_SUBDIR);
@@ -464,21 +464,20 @@ pub async fn start_backup_fetcher(
         registry_clone
             .register(mysten_metrics::uptime_metric(
                 "walrus_backup_fetcher",
-                VERSION,
+                version,
                 "walrus",
             ))
-            .unwrap();
+            .expect("metrics defined at compile time must be valid");
     });
 
-    tracing::info!(version = VERSION, "Walrus backup binary version");
     tracing::info!(
         metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
     );
 
-    utils::export_build_info(&metrics_runtime.registry, VERSION);
+    utils::export_build_info(&metrics_runtime.registry, version);
 
     let backup_fetcher_metric_set = BackupFetcherMetricSet::new(&metrics_runtime.registry);
-    backup_fetcher(config, backup_fetcher_metric_set).await
+    backup_fetcher(version, config, backup_fetcher_metric_set).await
 }
 
 /// Read the oldest un-fetched blob states from the database and return their BlobIds.
@@ -577,6 +576,7 @@ async fn backup_take_tasks(
 }
 
 async fn backup_fetcher(
+    version: &'static str,
     backup_config: BackupConfig,
     backup_metric_set: BackupFetcherMetricSet,
 ) -> Result<()> {
@@ -604,9 +604,11 @@ async fn backup_fetcher(
     let walrus_client_config =
         ClientConfig::new_from_contract_config(backup_config.sui.contract_config.clone());
 
-    let read_client =
-        Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())
-            .await?;
+    let read_client = WalrusNodeClient::new_read_client_with_refresher(
+        walrus_client_config,
+        sui_read_client.clone(),
+    )
+    .await?;
 
     let mut consecutive_fetch_errors = 0;
     loop {
@@ -623,6 +625,7 @@ async fn backup_fetcher(
         if !blob_ids.is_empty() {
             for blob_id in blob_ids {
                 match backup_fetch_inner_core(
+                    version,
                     &mut conn,
                     &backup_config,
                     &backup_metric_set,
@@ -643,7 +646,7 @@ async fn backup_fetcher(
                 }
                 backup_metric_set
                     .consecutive_blob_fetch_errors
-                    .set(consecutive_fetch_errors as f64);
+                    .set(f64::from(consecutive_fetch_errors));
             }
         } else {
             // Nothing to fetch. We are idle. Let's rest a bit.
@@ -656,10 +659,11 @@ async fn backup_fetcher(
 
 #[tracing::instrument(skip_all)]
 async fn backup_fetch_inner_core(
+    version: &'static str,
     conn: &mut AsyncPgConnection,
     backup_config: &BackupConfig,
     backup_metric_set: &BackupFetcherMetricSet,
-    read_client: &Client<SuiReadClient>,
+    read_client: &WalrusNodeClient<SuiReadClient>,
     blob_id: BlobId,
 ) -> Result<()> {
     tracing::info!(blob_id = %blob_id, "[backup_fetcher] received work item");
@@ -695,9 +699,11 @@ async fn backup_fetch_inner_core(
     let sha256 = sha2::Sha256::digest(&blob).to_vec();
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
-            backup_metric_set
-                .blob_bytes_uploaded
-                .inc_by(blob_len as u64);
+            backup_metric_set.blob_bytes_uploaded.inc_by(
+                blob_len
+                    .try_into()
+                    .expect("blob_len is guaranteed tofit into a u64"),
+            );
             let upload_time = Duration::from_secs_f64(timer_guard.stop_and_record());
             let affected_rows: usize = retry_serializable_query(
                 conn,
@@ -726,10 +732,13 @@ async fn backup_fetch_inner_core(
                                     AND state = 'waiting'",
                         )
                         .bind::<Text, _>(&backup_url)
-                        .bind::<Int8, _>(blob_len as i64)
+                        .bind::<Int8, _>(
+                            i64::try_from(blob_len)
+                                .expect("blob_len is guaranteed to fit into a i64"),
+                        )
                         .bind::<Bytea, _>(md5)
                         .bind::<Bytea, _>(&sha256)
-                        .bind::<Text, _>(VERSION)
+                        .bind::<Text, _>(version)
                         .bind::<Bytea, _>(blob_id.as_ref().to_vec())
                         .execute(conn)
                         .await
@@ -760,7 +769,7 @@ async fn backup_fetch_inner_core(
                     WHERE blob_id = $3",
             )
             .bind::<Text, _>(error.to_string())
-            .bind::<Text, _>(VERSION)
+            .bind::<Text, _>(version)
             .bind::<Bytea, _>(blob_id.as_ref().to_vec())
             .execute(conn)
             .await;
@@ -788,7 +797,7 @@ async fn upload_blob_to_storage(
                         .with_bucket_name(backup_bucket.to_string())
                         .build()?,
                 ),
-                format!("gs://{}/{}", backup_bucket, blob_id),
+                format!("gs://{backup_bucket}/{blob_id}"),
             )
         } else {
             (
@@ -877,7 +886,7 @@ where
                 db_reconnects.inc();
             }
             Err(error) => {
-                panic!("final error within retry_serializable_query: {:?}", error);
+                panic!("final error within retry_serializable_query: {error:?}");
             }
         }
     }

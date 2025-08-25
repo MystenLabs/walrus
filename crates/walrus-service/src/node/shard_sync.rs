@@ -192,7 +192,7 @@ impl ShardSyncHandler {
     ) -> Result<(), SyncShardClientError> {
         node.metrics
             .sync_blob_metadata_progress
-            .set(blob_id.first_two_bytes() as i64);
+            .set(i64::from(blob_id.first_two_bytes()));
 
         let result = node
             .blob_retirement_notifier
@@ -353,7 +353,7 @@ impl ShardSyncHandler {
                 shard_sync_handler_clone.config.shard_sync_retry_min_backoff,
                 shard_sync_handler_clone.config.shard_sync_retry_max_backoff,
                 None,
-                shard_index.0 as u64, // Seed the backoff with the shard index.
+                u64::from(shard_index.0), // Seed the backoff with the shard index.
             );
 
             // Whether to directly recover the shard instead of using shard sync.

@@ -316,6 +316,36 @@ impl NodeWriteCommunication<'_> {
         pairs: impl IntoIterator<Item = &SliverPair>,
         blob_persistence_type: &BlobPersistenceType,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
+        let result = async {
+            self.store_metadata_and_pairs_without_confirmation(metadata, pairs)
+                .await
+                .take_inner_result()?;
+
+            self.get_confirmation_with_retries_inner(
+                metadata.blob_id(),
+                self.committee_epoch,
+                blob_persistence_type,
+            )
+            .await
+            .map_err(StoreError::Confirmation)
+        }
+        .await;
+        tracing::debug!(
+            blob_id = %metadata.blob_id(),
+            node = %self.node.public_key,
+            ?result,
+            "retrieved storage confirmation"
+        );
+        self.to_node_result_with_n_shards(result)
+    }
+
+    /// Stores metadata and sliver pairs on a node, but does _not_ request a storage confirmation.
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn store_metadata_and_pairs_without_confirmation(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: impl IntoIterator<Item = &SliverPair>,
+    ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
             let metadata_status = self
@@ -336,14 +366,7 @@ impl NodeWriteCommunication<'_> {
                 n_stored_slivers,
                 blob_id = %metadata.blob_id(),
                 "finished storing slivers on node");
-
-            self.get_confirmation_with_retries_inner(
-                metadata.blob_id(),
-                self.committee_epoch,
-                blob_persistence_type,
-            )
-            .await
-            .map_err(StoreError::Confirmation)
+            Ok(())
         }
         .await;
         tracing::debug!(

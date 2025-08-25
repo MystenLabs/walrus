@@ -96,6 +96,8 @@ pub fn object_id_for_testing() -> ObjectID {
 }
 
 /// Represents a test cluster running within this process or as a separate process.
+// Allowing a large enum variant as this is anyway just used in tests.
+#[allow(clippy::large_enum_variant)]
 pub enum LocalOrExternalTestCluster {
     /// A test cluster running within this process.
     Local {
@@ -376,7 +378,7 @@ pub mod using_tokio {
         CLUSTER
             .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
             .lock()
-            .unwrap()
+            .expect("mutex should not be poisoned")
             .get_test_cluster_handle()
     }
 }
@@ -488,7 +490,6 @@ pub async fn new_contract_client_on_sui_test_cluster(
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(async |wallet| {
-            #[allow(deprecated)]
             let rpc_urls = &[wallet.get_rpc_url()?];
             SuiContractClient::new(
                 wallet,

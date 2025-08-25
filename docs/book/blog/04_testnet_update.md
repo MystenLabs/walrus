@@ -3,8 +3,8 @@
 Published on: 2024-10-17
 
 ```admonish warning
-This blog post is shown in its original form and may contain information that is no longer accurate.
-Some broken links may have been updated or removed.
+This blog post is mostly shown in its original form and may contain information that is no longer
+accurate. Some broken links may have been updated or removed.
 ```
 
 Today, a community of operators launches the first public Walrus Testnet.
@@ -42,10 +42,14 @@ Walrus Testnet enables multiple epochs. Initially, the epoch duration is set to 
 ensure the logic of epoch change is thoroughly tested. At Mainnet, epochs will likely be multiple
 weeks long.
 
-The progress of epochs makes the expiry epoch of blobs meaningful, and blobs will become unavailable
-after their expiry epoch. The store command may be used to extend the expiry epoch of a blob that is
-still available. This operation is efficient and only affects payments and metadata, and does not
-re-upload blob contents.
+The progress of epochs makes the end epoch of blobs meaningful, and blobs will *become unavailable
+when they reach their end epoch*. The store command may be used to extend the end epoch of a blob
+that is still available. This operation is efficient and only affects payments and metadata, and
+does not re-upload blob contents.
+
+```admonish note
+The previous paragraph was edited on 2025-07-16 for improved clarity.
+```
 
 - Find out the [current epoch](../usage/client-cli.md#walrus-system-information) through the CLI.
 - Find out how to store a blob for

@@ -99,7 +99,7 @@ public fun current(self: &mut ContextRunner): (WalrusContext, &mut TxContext) {
     (wctx(self.epoch, self.committee_selected), &mut self.ctx)
 }
 
-/// Selects committee
+/// Selects committee.
 public fun select_committee(self: &mut ContextRunner): (WalrusContext, &mut TxContext) {
     self.committee_selected = true;
     (wctx(self.epoch, self.committee_selected), &mut self.ctx)
@@ -325,7 +325,7 @@ public fun pad_bls_sk(sk: &vector<u8>): vector<u8> {
     sk
 }
 
-/// Returns the secret key scalar 117
+/// Returns the secret key scalar 117.
 public fun bls_sk_for_testing(): vector<u8> {
     pad_bls_sk(&x"75")
 }
@@ -400,6 +400,11 @@ public fun signers_to_bitmap(signers: &vector<u16>): vector<u8> {
 /// Number of FROST per WAL.
 public fun frost_per_wal(): u64 {
     1_000_000_000
+}
+
+/// Convenience function to convert WAL to FROST.
+public fun wal_to_frost(amount: u64): u64 {
+    amount * frost_per_wal()
 }
 
 // === Unit Tests ===

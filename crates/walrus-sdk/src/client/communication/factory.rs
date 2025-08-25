@@ -13,6 +13,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
+use sui_types::base_types::ObjectID;
 use tokio::sync::Semaphore;
 use walrus_core::{Epoch, NetworkPublicKey, encoding::EncodingConfig};
 use walrus_storage_node_client::{ClientBuildError, StorageNodeClient, StorageNodeClientBuilder};
@@ -135,6 +136,50 @@ impl NodeCommunicationFactory {
         self.node_read_communications_threshold(committees, certified_epoch, |weight| {
             committees.is_quorum(weight)
         })
+    }
+
+    /// Returns a vector of [`NodeWriteCommunication`] objects, matching the specified node IDs.
+    pub(crate) fn node_write_communications_by_id<'a>(
+        &'a self,
+        committees: &'a ActiveCommittees,
+        sliver_write_limit: Arc<Semaphore>,
+        node_ids: impl IntoIterator<Item = ObjectID>,
+    ) -> ClientResult<Vec<NodeWriteCommunication<'a>>> {
+        self.remove_old_cached_clients(
+            committees,
+            &mut self
+                .client_cache
+                .lock()
+                .expect("other threads should not panic"),
+        );
+
+        let write_committee = committees.write_committee();
+        let node_ids: Vec<_> = node_ids.into_iter().collect();
+
+        let comms = write_committee
+            .members()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, node)| {
+                if node_ids.contains(&node.node_id) {
+                    self.create_write_communication(
+                        write_committee,
+                        idx,
+                        sliver_write_limit.clone(),
+                    )
+                    .transpose()
+                } else {
+                    None
+                }
+            })
+            .collect::<Result<Vec<_>, ClientBuildError>>()
+            .map_err(|error| {
+                ClientError::store_blob_internal(format!(
+                    "cannot communicate with one or more of the storage nodes: {error}",
+                ))
+            })?;
+
+        Ok(comms)
     }
 
     /// Builds a [`NodeCommunication`] object for the identified storage node within the

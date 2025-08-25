@@ -46,7 +46,7 @@ runs:
         filters: |
           isMove:
             - 'contracts/**'
-            - 'scripts/move_coverage.sh'
+            - 'scripts/move_tests.sh'
             - '.github/workflows/code.yml'
           isRust:
             - 'crates/**'
@@ -72,9 +72,12 @@ runs:
           isExampleConfig:
             - 'crates/walrus-service/node_config_example.yaml'
             - 'crates/walrus-sdk/client_config_example.yaml'
+            - 'crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml'
           isOpenapi:
             - 'crates/walrus-service/*_openapi.html'
             - 'crates/walrus-service/*_openapi.yaml'
+            - 'crates/walrus-upload-relay/upload_relay_openapi.html'
+            - 'crates/walrus-upload-relay/upload_relay_openapi.yaml'
           isCLI:
             - 'crates/walrus-service/bin/client.rs'
             - 'crates/walrus-service/src/client/cli.rs'

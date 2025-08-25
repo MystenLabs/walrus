@@ -28,8 +28,8 @@ documentation.
 
 After installing the Sui CLI, you need to set up a wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Mainnet, you can use the
-full node at `https://fullnode.mainnet.sui.io:443` for this. See
-[here](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+full node at `https://fullnode.mainnet.sui.io:443` for this. See [the Sui
+documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
 
 After this, you should get something like this (everything besides the `mainnet` line is optional):
 
@@ -72,6 +72,7 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 | ------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Ubuntu  | Intel 64bit           | [`ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64)                 |
 | Ubuntu  | Intel 64bit (generic) | [`ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64-generic) |
+| Ubuntu  | ARM 64bit             | [`ubuntu-aarch64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-aarch64)               |
 | MacOS   | Apple Silicon         | [`macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-arm64)                     |
 | MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
 | Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
@@ -79,18 +80,18 @@ Windows. The Ubuntu version most likely works on other Linux distributions as we
 ### Install via script {#nix-install}
 
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
-commands in your terminal then follow on-screen instructions. See [Windows
-instructions](#windows-install) if you are on Windows.
+commands in your terminal then follow on-screen instructions. If you are on Windows, see the
+[Windows-specific instructions](#windows-install) or the [`suiup` installation](#suiup-install) (experimental)
 
 ```sh
 # Run a first-time install using the latest Mainnet version.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh
+curl -sSf https://install.wal.app | sh
 
 # Install the latest Testnet version instead.
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -n testnet
+curl -sSf https://install.wal.app | sh -s -- -n testnet
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://docs.wal.app/setup/walrus-install.sh | sh -s -- -f
+curl -sSf https://install.wal.app | sh -s -- -f
 ```
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
@@ -135,6 +136,19 @@ Note that most of the remaining instructions assume a UNIX-based system for the 
 commands, etc. If you use Windows, you may need to adapt most of those.
 ```
 
+### Install via suiup (experimental) {#suiup-install}
+
+`suiup` is a tool to install and manage different versions of CLI tools for working in the Sui
+ecosystem, including the `walrus` CLI. After installing `suiup` as described in the [`suiup`
+documentation](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation), you can install
+specific versions of the `walrus` CLI:
+
+```sh
+suiup install walrus@testnet # install the latest testnet release
+suiup install walrus@mainnet # install the latest mainnet release
+suiup install walrus@testnet-v1.27.1 # install a specific release
+```
+
 ### GitHub releases
 
 You can find all our releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases).
@@ -164,8 +178,7 @@ fixes. Follow the instructions in the `README.md` file to build and use Walrus f
 
 The Walrus client needs to know about the Sui objects that store the Walrus system and staking
 information, see the [developer guide](../dev-guide/sui-struct.md#system-and-staking-information).
-These need to be configured in a file `~/.config/walrus/client_config.yaml`. Additionally, a
-`subsidies` object can be specified, which will subsidize storage bought with the client.
+These need to be configured in a file `~/.config/walrus/client_config.yaml`.
 
 You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
 CLI configuration refers to the standard location for Sui configuration
@@ -176,19 +189,16 @@ CLI configuration refers to the standard location for Sui configuration
 ```
 
 <!-- markdownlint-disable code-fence-style -->
-~~~admonish tip
+
+````admonish tip
 The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
 
 ```sh
 curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
-~~~
-<!-- markdownlint-enable code-fence-style -->
+````
 
-```admonish warning title="Walrus Testnet redeployment"
-The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
-```
+<!-- markdownlint-enable code-fence-style -->
 
 ### Custom path (optional) {#config-custom-path}
 
@@ -206,11 +216,6 @@ The configuration file currently supports the following parameters for each of t
 # deployment but then do not change over time.
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working

@@ -15,27 +15,20 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
-use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
+use serde::{Deserialize, Serialize};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
-        Coin,
         SuiExecutionStatus,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         get_new_package_obj_from_response,
     },
-    types::base_types::{ObjectID, ObjectRef},
+    types::base_types::ObjectID,
 };
-use sui_types::{
-    TypeTag,
-    base_types::SuiAddress,
-    event::EventID,
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, ProgrammableTransaction, TransactionData, TransactionKind},
-};
+use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
@@ -64,13 +57,19 @@ use crate::{
         StakedWal,
         StorageNodeCap,
         StorageResource,
-        move_errors::{BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError},
+        move_errors::{
+            BlobError,
+            MoveExecutionError,
+            StakingError,
+            SubsidiesError,
+            SystemError,
+            WalrusSubsidiesError,
+        },
         move_structs::{
             Authorized,
             Blob,
             BlobAttribute,
             BlobWithAttribute,
-            EmergencyUpgradeCap,
             EpochState,
             SharedBlob,
             StorageNode,
@@ -86,10 +85,11 @@ pub use read_client::{
     CommitteesAndState,
     FixedSystemParameters,
     ReadClient,
-    Subsidies,
+    SharedObjectWithPkgConfig,
     SuiReadClient,
 };
 pub mod retry_client;
+pub mod rpc_client;
 pub mod rpc_config;
 
 pub mod transaction_builder;
@@ -108,9 +108,12 @@ pub const MIN_STAKING_THRESHOLD: u64 = 1_000_000_000; // 1 WAL
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
-    /// Subsidies are not enabled for this network.
-    #[error("subsidies are not enabled for this network")]
-    SubsidiesNotEnabled,
+    /// Credits are not enabled for this client.
+    #[error("credits are not enabled for this client")]
+    CreditsNotEnabled,
+    /// Walrus subsidies are not enabled for this client.
+    #[error("walrus subsidies are not configured for this client")]
+    WalrusSubsidiesNotConfigured,
     /// Unexpected internal errors.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -118,8 +121,9 @@ pub enum SuiClientError {
     #[error(transparent)]
     SuiSdkError(#[from] sui_sdk::error::Error),
     /// Other errors resulting from Sui crates.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
-    SuiError(#[from] sui_types::error::SuiError),
+    SuiError(#[from] Box<sui_types::error::SuiError>),
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(MoveExecutionError),
@@ -131,16 +135,15 @@ pub enum SuiClientError {
     NoCompatibleGasCoins(Option<u128>),
     /// The Walrus system object does not exist.
     #[error(
-        "the specified Walrus system object {0} does not exist
-        or is incompatible with this binary;\n\
-        make sure you have the latest binary and configuration,
-        and the correct Sui network is activated \
-        in your Sui wallet"
+        "the specified Walrus system object {0} does not exist or is incompatible with this \
+        binary;\n\
+        make sure you have the latest binary and configuration, and the correct Sui network is  \
+        activated in your Sui wallet"
     )]
     WalrusSystemObjectDoesNotExist(ObjectID),
     /// The specified Walrus package could not be found.
     #[error(
-        "the specified Walrus package {0} could not be found\n\
+        "the specified Walrus package {0} could not be found;\n\
         make sure you have the latest binary and configuration, and the correct Sui network is \
         activated in your Sui wallet"
     )]
@@ -165,7 +168,7 @@ pub enum SuiClientError {
     MultipleStorageNodeCapabilities,
     /// The storage capability object already exists in the account and cannot register another.
     #[error(
-        "storage capability object already exists in the account and cannot register another\n\
+        "storage capability object already exists in the account and cannot register another \
         object ID: {0}"
     )]
     CapabilityObjectAlreadyExists(ObjectID),
@@ -196,6 +199,12 @@ pub enum SuiClientError {
     InsufficientFundsWithMaxCoins(String),
 }
 
+impl From<sui_types::error::SuiError> for SuiClientError {
+    fn from(error: sui_types::error::SuiError) -> Self {
+        Self::SuiError(Box::new(error))
+    }
+}
+
 impl SuiClientError {
     /// Attempts to parse a shared object congestion error from an error string.
     /// Returns None if the string does not match the expected format.
@@ -206,7 +215,7 @@ impl SuiClientError {
             ExecutionCancelledDueToSharedObjectCongestion\x20\{\x20congested_objects:
             \x20CongestedObjects\(\[(0x[a-f0-9]+)\]\)\x20\}",
         )
-        .unwrap();
+        .expect("this regex is valid");
         re.captures(error)
             .and_then(|caps| caps.get(1))
             .map(|objects_match| {
@@ -230,6 +239,8 @@ impl SuiClientError {
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
+    /// The attribute of the blob.
+    pub attribute: &'a BlobAttribute,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
@@ -256,6 +267,15 @@ impl CertifyAndExtendBlobResult {
             None
         }
     }
+}
+
+/// The object ID of a shared object with the object ID of an associated admin cap.
+#[derive(Debug, Clone)]
+pub struct SharedObjectWithAdminCap {
+    /// The object ID of the shared object.
+    pub object_id: ObjectID,
+    /// The object ID of the admin cap.
+    pub admin_cap_id: ObjectID,
 }
 
 /// Metadata for a blob object on Sui.
@@ -292,7 +312,8 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
 }
 
 /// Represents the persistence state of a blob on Walrus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum BlobPersistence {
     /// The blob cannot be deleted.
     Permanent,
@@ -341,14 +362,32 @@ impl BlobPersistence {
     ///
     /// If `deletable` is true, returns [`Self::Deletable`], force otherwise returns
     /// [`Self::Permanent`].
-    pub fn from_deletable(deletable: bool) -> Self {
-        if deletable {
-            Self::Deletable
-        } else {
-            Self::Permanent
+    pub fn from_deletable_and_permanent(
+        deletable: bool,
+        permanent: bool,
+    ) -> Result<Self, InvalidBlobPersistenceError> {
+        match (deletable, permanent) {
+            (true, false) => Ok(Self::Deletable),
+            (false, true) => Ok(Self::Permanent),
+            (true, true) => Err(InvalidBlobPersistenceError),
+            (false, false) => {
+                // TODO(WAL-911): Change the default behavior to return `Deletable` after a few
+                // releases.
+                tracing::warn!(
+                    "blob is marked as neither deletable nor permanent; blobs are currently \
+                    permanent by default, but this behavior will change starting with v1.33; use \
+                    `--deletable` or `--permanent` to explicitly specify the desired behavior"
+                );
+                Ok(Self::Permanent)
+            }
         }
     }
 }
+
+/// Error returned when a blob is defined as both deletable and permanent.
+#[derive(Debug, thiserror::Error)]
+#[error("the blob cannot be defined as both deletable and permanent")]
+pub struct InvalidBlobPersistenceError;
 
 /// The action to be performed for newly-created blobs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -522,8 +561,8 @@ impl SuiContractClient {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Returns the active address of the client.
@@ -599,7 +638,7 @@ impl SuiContractClient {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         self.retry_on_wrong_version(|| async {
@@ -742,6 +781,14 @@ impl SuiContractClient {
         .await
     }
 
+    /// Call to initiate subsidy distribution.
+    ///
+    /// Requires the system-side walrus subsidy contract to be set.
+    pub async fn process_subsidies(&self) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async { self.inner.lock().await.process_subsidies().await })
+            .await
+    }
+
     /// Call to notify the contract that this node is done syncing the specified epoch.
     pub async fn epoch_sync_done(
         &self,
@@ -807,11 +854,38 @@ impl SuiContractClient {
         node_id: ObjectID,
         package_path: PathBuf,
     ) -> SuiClientResult<[u8; 32]> {
+        let digest = self
+            .read_client
+            .compute_package_digest(package_path)
+            .await?;
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .vote_for_upgrade(upgrade_manager, node_id, package_path.clone())
+                .vote_for_upgrade_with_digest(upgrade_manager, node_id, digest)
+                .await
+        })
+        .await
+    }
+
+    /// Vote as node `node_id` for upgrading the walrus package identified by
+    /// its pre-computed `package_digest`.
+    ///
+    /// This variant allows callers that already know the digest (for instance
+    /// when the package has been built elsewhere) to skip re-computing the
+    /// digest from the package path.
+    /// Returns the digest of the package (i.e. the same value supplied).
+    pub async fn vote_for_upgrade_with_digest(
+        &self,
+        upgrade_manager: ObjectID,
+        node_id: ObjectID,
+        package_digest: [u8; 32],
+    ) -> SuiClientResult<[u8; 32]> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .vote_for_upgrade_with_digest(upgrade_manager, node_id, package_digest)
                 .await
         })
         .await
@@ -837,10 +911,21 @@ impl SuiContractClient {
         .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .set_migration_epoch(new_package_id)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -876,21 +961,54 @@ impl SuiContractClient {
             .await
     }
 
-    /// Creates a new [`contracts::subsidies::Subsidies`] object,
+    /// Creates a new walrus subsidies object (`walrus_subsidies::WalrusSubsidies`)
+    /// and returns the object ID and the admin cap ID.
+    pub async fn create_walrus_subsidies(
+        &self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_walrus_subsidies(
+                    package_id,
+                    system_subsidy_rate,
+                    base_subsidy,
+                    subsidy_per_shard,
+                )
+                .await
+        })
+        .await
+    }
+
+    /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
+    /// configured.
+    pub async fn fund_walrus_subsidies(&self, amount: u64) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.fund_walrus_subsidies(amount).await
+        })
+        .await
+    }
+
+    /// Creates a new credits (`subsidies::Subsidies` in Move) object,
     /// funds it with the specified amount,
     /// and returns the object ID and the admin cap ID.
-    pub async fn create_and_fund_subsidies(
+    pub async fn create_and_fund_credits(
         &self,
-        subsidies_package: ObjectID,
+        package_id: ObjectID,
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
         self.inner
             .lock()
             .await
-            .create_and_fund_subsidies(
-                subsidies_package,
+            .create_and_fund_credits(
+                package_id,
                 initial_buyer_subsidy_rate,
                 initial_system_subsidy_rate,
                 amount,
@@ -1223,6 +1341,19 @@ impl SuiContractClient {
         .await
     }
 
+    /// Executes the provided transaction.
+    pub async fn sign_and_send_transaction(
+        &self,
+        transaction: TransactionData,
+        method: &'static str,
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        self.inner
+            .lock()
+            .await
+            .sign_and_send_transaction(transaction, method)
+            .await
+    }
+
     async fn retry_on_wrong_version<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
     where
         F: Fn() -> Fut + Send,
@@ -1233,18 +1364,26 @@ impl SuiContractClient {
             e @ Err(SuiClientError::TransactionExecutionError(
                 MoveExecutionError::Subsidies(SubsidiesError::EWrongVersion(_))
                 | MoveExecutionError::Staking(StakingError::EWrongVersion(_))
-                | MoveExecutionError::System(SystemError::EWrongVersion(_)),
+                | MoveExecutionError::System(SystemError::EWrongVersion(_))
+                | MoveExecutionError::WalrusSubsidies(WalrusSubsidiesError::EWrongVersion(_)),
             )) => {
                 // Store old package IDs
                 let old_package_id = self.read_client.get_system_package_id();
-                let old_subsidies_package_id = self.read_client.get_subsidies_package_id();
+                let old_credits_package_id = self.read_client.get_credits_package_id();
+                let old_walrus_subsidies_package_id =
+                    self.read_client.get_walrus_subsidies_package_id();
 
                 self.read_client.refresh_package_id().await?;
-                self.read_client.refresh_subsidies_package_id().await?;
+                self.read_client.refresh_credits_package_id().await?;
+                self.read_client
+                    .refresh_walrus_subsidies_package_id()
+                    .await?;
 
                 // Check if either package ID changed
                 if self.read_client.get_system_package_id() != old_package_id
-                    || self.read_client.get_subsidies_package_id() != old_subsidies_package_id
+                    || self.read_client.get_credits_package_id() != old_credits_package_id
+                    || self.read_client.get_walrus_subsidies_package_id()
+                        != old_walrus_subsidies_package_id
                 {
                     f().await
                 } else {
@@ -1290,8 +1429,9 @@ impl SuiContractClientInner {
         pt_builder
             .add_blob_attribute(blob_obj_id.into(), blob_attribute.clone())
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "add_blob_attribute").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "add_blob_attribute")
+            .await?;
         Ok(())
     }
 
@@ -1299,8 +1439,9 @@ impl SuiContractClientInner {
     pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.remove_blob_attribute(blob_obj_id.into()).await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "remove_blob_attribute").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "remove_blob_attribute")
+            .await?;
         Ok(())
     }
 
@@ -1318,8 +1459,8 @@ impl SuiContractClientInner {
         pt_builder
             .insert_or_update_blob_attribute_pairs(blob_obj_id.into(), pairs)
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "insert_or_update_blob_attribute_pairs")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "insert_or_update_blob_attribute_pairs")
             .await?;
         Ok(())
     }
@@ -1338,8 +1479,8 @@ impl SuiContractClientInner {
         pt_builder
             .remove_blob_attribute_pairs(blob_obj_id.into(), keys)
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "remove_blob_attribute_pairs")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "remove_blob_attribute_pairs")
             .await?;
         Ok(())
     }
@@ -1350,8 +1491,8 @@ impl SuiContractClientInner {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
@@ -1361,49 +1502,41 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        let subsidies_package_id = self.read_client.get_subsidies_package_id();
-        match subsidies_package_id {
-            Some(pkg_id) => {
-                match self
-                    .reserve_space_with_subsidies(encoded_size, epochs_ahead, pkg_id)
-                    .await
-                {
-                    Ok(arg) => Ok(arg),
-                    Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
-                        SystemError::EWrongVersion(_),
-                    ))) => {
-                        tracing::warn!(
-                            "Walrus package version mismatch in subsidies call,
+        if self.read_client.get_credits_object_id().is_some() {
+            match self
+                .reserve_space_with_credits(encoded_size, epochs_ahead)
+                .await
+            {
+                Ok(arg) => return Ok(arg),
+                Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
+                    SystemError::EWrongVersion(_),
+                ))) => {
+                    tracing::warn!(
+                        "Walrus package version mismatch in credits call,
                             falling back to direct contract call"
-                        );
-                        self.reserve_space_without_subsidies(encoded_size, epochs_ahead)
-                            .await
-                    }
-                    Err(e) => Err(e),
+                    );
                 }
-            }
-            None => {
-                self.reserve_space_without_subsidies(encoded_size, epochs_ahead)
-                    .await
+                Err(e) => return Err(e),
             }
         }
+        self.reserve_space_without_credits(encoded_size, epochs_ahead)
+            .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
-    /// size of `encoded_size` and subsidies package id and returns the created storage resource.
-    async fn reserve_space_with_subsidies(
+    /// size of `encoded_size` and returns the created storage resource.
+    async fn reserve_space_with_credits(
         &mut self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
-        subsidies_package_id: ObjectID,
     ) -> SuiClientResult<StorageResource> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .reserve_space_with_subsidies(encoded_size, epochs_ahead, subsidies_package_id)
+            .reserve_space_with_credits(encoded_size, epochs_ahead)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "reserve_space_with_subsidies")
+            .sign_and_send_transaction(transaction, "reserve_space_with_credits")
             .await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
@@ -1417,23 +1550,23 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
     /// and returns the created blob object.
-    async fn reserve_space_without_subsidies(
+    async fn reserve_space_without_credits(
         &mut self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder
-            .reserve_space_without_subsidies(encoded_size, epochs_ahead)
-            .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "reserve_space_without_subsidies")
+            .sign_and_send_transaction(transaction, "reserve_space_without_credits")
             .await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
@@ -1447,7 +1580,9 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -1466,17 +1601,27 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
 
+        let with_credits = self.read_client.get_credits_object_id().is_some();
+
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
-            pt_builder
-                .register_blob(storage.id.into(), blob_metadata, persistence)
-                .await?;
+            if with_credits {
+                pt_builder
+                    .register_blob_with_credits(storage.id.into(), blob_metadata, persistence)
+                    .await?;
+            } else {
+                pt_builder
+                    .register_blob(storage.id.into(), blob_metadata, persistence)
+                    .await?;
+            };
         }
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb, "register_blobs").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "register_blobs")
+            .await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
@@ -1489,7 +1634,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -1504,110 +1651,41 @@ impl SuiContractClientInner {
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
-        let subsidies_package_id = self.read_client.get_subsidies_package_id();
-        match subsidies_package_id {
-            Some(pkg_id) => {
-                match self
-                    .reserve_and_register_blobs_with_subsidies(
-                        epochs_ahead,
-                        blob_metadata_list.clone(),
-                        persistence,
-                        pkg_id,
-                    )
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
-                        SystemError::EWrongVersion(_),
-                    ))) => {
-                        tracing::warn!(
-                            "Walrus package version mismatch in subsidies call, \
-                            falling back to direct contract call"
-                        );
-                        self.reserve_and_register_blobs_without_subsidies(
-                            epochs_ahead,
-                            blob_metadata_list.clone(),
-                            persistence,
-                        )
-                        .await
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            None => {
-                self.reserve_and_register_blobs_without_subsidies(
+        let with_credits = self.read_client.get_credits_object_id().is_some();
+        if with_credits {
+            match self
+                .reserve_and_register_blobs_inner(
                     epochs_ahead,
-                    blob_metadata_list,
+                    blob_metadata_list.clone(),
                     persistence,
+                    true,
                 )
                 .await
+            {
+                Ok(result) => return Ok(result),
+                Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
+                    SystemError::EWrongVersion(_),
+                ))) => {
+                    tracing::warn!(
+                        "Walrus package version mismatch in credits call, \
+                            falling back to direct contract call"
+                    );
+                }
+                Err(e) => return Err(e),
             }
         }
+        self.reserve_and_register_blobs_inner(epochs_ahead, blob_metadata_list, persistence, false)
+            .await
     }
 
-    /// reserve and register blobs with subsidies
-    pub async fn reserve_and_register_blobs_with_subsidies(
+    /// reserve and register blobs inner
+    pub async fn reserve_and_register_blobs_inner(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-        subsidies_package_id: ObjectID,
+        with_credits: bool,
     ) -> SuiClientResult<Vec<Blob>> {
-        // Use helper for implementing with the subsidies approach
-        self.reserve_and_register_blobs_impl(
-            epochs_ahead,
-            blob_metadata_list,
-            persistence,
-            |builder, encoded_size, epochs| {
-                Box::pin(async move {
-                    builder
-                        .reserve_space_with_subsidies(encoded_size, epochs, subsidies_package_id)
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<Argument>>
-            },
-        )
-        .await
-    }
-
-    /// reserve and register blobs without subsidies
-    pub async fn reserve_and_register_blobs_without_subsidies(
-        &mut self,
-        epochs_ahead: EpochCount,
-        blob_metadata_list: Vec<BlobObjectMetadata>,
-        persistence: BlobPersistence,
-    ) -> SuiClientResult<Vec<Blob>> {
-        // Use helper for implementing with the non-subsidies approach
-        self.reserve_and_register_blobs_impl(
-            epochs_ahead,
-            blob_metadata_list,
-            persistence,
-            |builder, encoded_size, epochs| {
-                Box::pin(async move {
-                    builder
-                        .reserve_space_without_subsidies(encoded_size, epochs)
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<Argument>>
-            },
-        )
-        .await
-    }
-
-    /// Common implementation for reserving and registering blobs
-    async fn reserve_and_register_blobs_impl<F>(
-        &mut self,
-        epochs_ahead: EpochCount,
-        blob_metadata_list: Vec<BlobObjectMetadata>,
-        persistence: BlobPersistence,
-        reserve_space_fn: F,
-    ) -> SuiClientResult<Vec<Blob>>
-    where
-        F: for<'a> Fn(
-                &'a mut WalrusPtbBuilder,
-                u64,
-                EpochCount,
-            ) -> BoxFuture<'a, SuiClientResult<Argument>>
-            + Send,
-    {
         if blob_metadata_list.is_empty() {
             tracing::debug!("no blobs to register");
             return Ok(vec![]);
@@ -1625,8 +1703,16 @@ impl SuiContractClientInner {
         let mut main_storage_arg_size = blob_metadata_list
             .iter()
             .fold(0, |acc, metadata| acc + metadata.encoded_size);
-        let main_storage_arg =
-            reserve_space_fn(&mut pt_builder, main_storage_arg_size, epochs_ahead).await?;
+
+        let main_storage_arg = if with_credits {
+            pt_builder
+                .reserve_space_with_credits(main_storage_arg_size, epochs_ahead)
+                .await?
+        } else {
+            pt_builder
+                .reserve_space(main_storage_arg_size, epochs_ahead)
+                .await?
+        };
 
         for blob_metadata in blob_metadata_list.into_iter() {
             // Split off a storage resource, unless the remainder is equal to the required size.
@@ -1638,14 +1724,21 @@ impl SuiContractClientInner {
             } else {
                 main_storage_arg
             };
-            pt_builder
-                .register_blob(storage_arg.into(), blob_metadata, persistence)
-                .await?;
+
+            if with_credits {
+                pt_builder
+                    .register_blob_with_credits(storage_arg.into(), blob_metadata, persistence)
+                    .await?
+            } else {
+                pt_builder
+                    .register_blob(storage_arg.into(), blob_metadata, persistence)
+                    .await?
+            };
         }
 
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "reserve_and_register_blobs_impl")
+            .sign_and_send_transaction(transaction, "reserve_and_register_blobs_inner")
             .await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
@@ -1660,7 +1753,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -1669,22 +1764,33 @@ impl SuiContractClientInner {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &mut self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let mut pt_builder = self.transaction_builder()?;
-        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob_with_attr, certificate)) in blobs_with_certificates.iter().enumerate() {
+            let blob = &blob_with_attr.blob;
             tracing::debug!(
                 blob_id = %blob.blob_id,
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
+
+            // Add attributes if provided.
+            if let Some(ref attribute) = blob_with_attr.attribute {
+                pt_builder
+                    .add_blob_attribute(blob.id.into(), attribute.clone())
+                    .await?;
+            }
+
             Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb, "certify_blobs").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "certify_blobs")
+            .await?;
 
         if !res.errors.is_empty() {
             tracing::warn!(errors = ?res.errors, "failed to certify blobs on Sui");
@@ -1700,7 +1806,7 @@ impl SuiContractClientInner {
             &res,
             blobs_with_certificates
                 .iter()
-                .map(|(blob, _)| blob.blob_id)
+                .map(|(blob_with_attr, _)| blob_with_attr.blob.blob_id)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
@@ -1729,8 +1835,9 @@ impl SuiContractClientInner {
                 epoch,
             )
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "certify_event_blob").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "certify_event_blob")
+            .await?;
         Ok(())
     }
 
@@ -1742,8 +1849,9 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.invalidate_blob_id(certificate).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "invalidate_blob_id").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "invalidate_blob_id")
+            .await?;
         Ok(())
     }
 
@@ -1757,8 +1865,10 @@ impl SuiContractClientInner {
         pt_builder
             .register_candidate(node_parameters, proof_of_possession)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb, "register_candidate").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "register_candidate")
+            .await?;
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
@@ -1770,7 +1880,7 @@ impl SuiContractClientInner {
             cap_id.len()
         );
 
-        self.sui_client().get_sui_object(cap_id[0]).await
+        self.retriable_sui_client().get_sui_object(cap_id[0]).await
     }
 
     /// Registers candidate nodes, sending the resulting capability objects to the specified
@@ -1799,9 +1909,11 @@ impl SuiContractClientInner {
                 .await?;
             pt_builder.transfer(Some(address), vec![cap.into()]).await?;
         }
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
 
-        let res = self.sign_and_send_ptb(ptb, "register_candidates").await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "register_candidates")
+            .await?;
 
         let cap_ids = get_created_sui_object_ids_by_type(
             &res,
@@ -1814,7 +1926,7 @@ impl SuiContractClientInner {
             cap_ids.len(),
         );
 
-        self.sui_client().get_sui_objects(&cap_ids).await
+        self.retriable_sui_client().get_sui_objects(&cap_ids).await
     }
 
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
@@ -1837,8 +1949,10 @@ impl SuiContractClientInner {
             }
             pt_builder.stake_with_pool(amount, node_id).await?;
         }
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let res = self.sign_and_send_ptb(ptb, "stake_with_pools").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "stake_with_pools")
+            .await?;
 
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
@@ -1852,7 +1966,9 @@ impl SuiContractClientInner {
             count
         );
 
-        self.sui_client().get_sui_objects(&staked_wal).await
+        self.retriable_sui_client()
+            .get_sui_objects(&staked_wal)
+            .await
     }
 
     /// Call to request withdrawal of stake from StakedWal object.
@@ -1862,8 +1978,8 @@ impl SuiContractClientInner {
     pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.request_withdraw_stake(staked_wal_id).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "request_withdraw_stake")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "request_withdraw_stake")
             .await?;
         Ok(())
     }
@@ -1875,8 +1991,9 @@ impl SuiContractClientInner {
     pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.withdraw_stake(staked_wal_id).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "withdraw_stake").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "withdraw_stake")
+            .await?;
         Ok(())
     }
 
@@ -1886,8 +2003,9 @@ impl SuiContractClientInner {
     pub async fn voting_end(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.voting_end().await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "voting_end").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "voting_end")
+            .await?;
         Ok(())
     }
 
@@ -1897,8 +2015,22 @@ impl SuiContractClientInner {
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.initiate_epoch_change().await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "initiate_epoch_change").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "initiate_epoch_change")
+            .await?;
+        Ok(())
+    }
+
+    /// Call to initiate subsidy distribution.
+    ///
+    /// Requires the new walrus subsidy contract to be set.
+    pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+        tracing::debug!("sending transaction to call process_subsidies");
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.process_subsidies().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "process_subsidies")
+            .await?;
         Ok(())
     }
 
@@ -1909,7 +2041,7 @@ impl SuiContractClientInner {
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         let node_capability: StorageNodeCap = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(node_capability_object_id)
             .await?;
 
@@ -1926,37 +2058,36 @@ impl SuiContractClientInner {
         pt_builder
             .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "epoch_sync_done").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "epoch_sync_done")
+            .await?;
         Ok(())
     }
 
-    /// Vote as node `node_id` for upgrading the walrus package to the package at
-    /// `package_path`.
-    /// Returns the digest of the package.
-    pub async fn vote_for_upgrade(
+    /// Vote as node `node_id` for upgrading the walrus package identified by
+    /// its pre-computed `package_digest`.
+    ///
+    /// This variant allows callers that already know the digest (for instance
+    /// when the package has been built elsewhere) to skip re-computing the
+    /// digest from the package path.
+    /// Returns the digest of the package (i.e. the same value supplied).
+    pub async fn vote_for_upgrade_with_digest(
         &mut self,
         upgrade_manager: ObjectID,
         node_id: ObjectID,
-        package_path: PathBuf,
+        package_digest: [u8; 32],
     ) -> SuiClientResult<[u8; 32]> {
-        // Compile package to get the digest.
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (_dependencies, compiled_package, _build_config) =
-            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
-        let digest = compiled_package.get_package_digest(false);
-
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .vote_for_upgrade(upgrade_manager, node_id, &digest)
+            .vote_for_upgrade(upgrade_manager, node_id, &package_digest)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "vote_for_upgrade").await?;
-
-        Ok(digest)
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "vote_for_upgrade_with_digest")
+            .await?;
+        Ok(package_digest)
     }
 
-    /// Performs an emergency upgrade.
+    /// Performs an upgrade.
     ///
     /// Returns the new package ID.
     pub async fn upgrade(
@@ -1966,64 +2097,51 @@ impl SuiContractClientInner {
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
         // Compile package
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (dependencies, compiled_package, build_config) =
-            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
+        let (compiled_package, build_config) =
+            compile_package(package_path, Default::default(), chain_id).await?;
 
-        let digest = compiled_package.get_package_digest(false);
         let mut pt_builder = self.transaction_builder()?;
 
-        let upgrade_ticket_arg = if upgrade_type.is_emergency_upgrade() {
-            let emergency_upgrade_cap: EmergencyUpgradeCap = self
-                .read_client
-                .get_owned_objects(self.wallet.active_address()?, &[])
-                .await?
-                .next()
-                .ok_or_else(|| anyhow!("no emergency upgrade capability found"))?;
-
-            // Authorize the upgrade.
-            pt_builder
-                .authorize_emergency_upgrade(
-                    upgrade_manager,
-                    emergency_upgrade_cap.id.into(),
-                    &digest,
-                )
-                .await?
-        } else {
-            pt_builder
-                .authorize_upgrade(upgrade_manager, &digest)
-                .await?
-        };
-
-        // Execute the upgrade.
-        let modules = compiled_package.get_package_bytes(false);
-        let upgrade_receipt_arg = pt_builder.upgrade(
-            self.read_client.get_system_package_id(),
-            upgrade_ticket_arg,
-            dependencies.published.into_values().collect(),
-            modules,
-        );
-
-        // Commit the upgrade
         pt_builder
-            .commit_upgrade(upgrade_manager, upgrade_receipt_arg)
+            .custom_walrus_upgrade(upgrade_manager, compiled_package, upgrade_type)
             .await?;
 
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let response = self.sign_and_send_ptb(ptb, "upgrade").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let response = self
+            .sign_and_send_transaction(transaction, "upgrade")
+            .await?;
         self.post_upgrade_lock_file_update(&response, build_config)
             .await
     }
 
-    /// Migrate the staking and system objects to the new package id.
+    /// Set the migration epoch on the staking object to the following epoch.
     ///
     /// This must be called in the new package after an upgrade is committed in a separate
     /// transaction.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.set_migration_epoch(new_package_id).await?;
+        let transaction: TransactionData =
+            pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "set_migration_epoch")
+            .await?;
+        Ok(())
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after the migration epoch is set and has started.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.migrate_contracts(new_package_id).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "migrate_contracts").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "migrate_contracts")
+            .await?;
         Ok(())
     }
 
@@ -2047,8 +2165,64 @@ impl SuiContractClientInner {
                     .await?;
             }
         }
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "set_authorized_for_pool")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "set_authorized_for_pool")
+            .await?;
+        Ok(())
+    }
+
+    /// Creates a new walrus subsidies object (i.e. `walrus_subsidies::WalrusSubsidies` in Move),
+    /// and returns its object ID as well as the object ID of its admin cap.
+    pub async fn create_walrus_subsidies(
+        &mut self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
+        tracing::info!("creating a new walrus subsidies object");
+
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .create_walrus_subsidies(
+                package_id,
+                system_subsidy_rate,
+                base_subsidy,
+                subsidy_per_shard,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_and_fund_walrus_subsidies")
+            .await?;
+        let admin_cap = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::walrus_subsidies::AdminCap
+                .to_move_struct_tag_with_package(package_id, &[])?,
+        )?;
+        let subsidies_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::walrus_subsidies::WalrusSubsidies
+                .to_move_struct_tag_with_package(package_id, &[])?,
+        )?;
+        ensure!(
+            subsidies_id.len() == 1,
+            "unexpected number of `WalrusSubsidies`s created: {}",
+            subsidies_id.len()
+        );
+        Ok(SharedObjectWithAdminCap {
+            object_id: subsidies_id[0],
+            admin_cap_id: admin_cap[0],
+        })
+    }
+
+    /// Adds funds to the walrus subsidies object (`walrus_subsidies::WalrusSubsidies`) if it is
+    /// configured.
+    pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.fund_walrus_subsidies(amount).await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "fund_walrus_subsidies")
             .await?;
         Ok(())
     }
@@ -2066,9 +2240,9 @@ impl SuiContractClientInner {
         pt_builder
             .create_and_fund_exchange(exchange_package, amount)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "create_and_fund_exchange")
+            .sign_and_send_transaction(transaction, "create_and_fund_exchange")
             .await?;
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
@@ -2083,47 +2257,48 @@ impl SuiContractClientInner {
         Ok(exchange_id[0])
     }
 
-    /// Creates a new [`contracts::wal_subsidies::Subsidies`] object,
+    /// Creates a new credits object (i.e. `subsidies::Subsidies` in Move),
     /// funds it with `amount` FROST, and returns its object ID, as well
     /// as the object ID of its admin cap.
-    pub async fn create_and_fund_subsidies(
+    pub async fn create_and_fund_credits(
         &mut self,
-        subsidies_package: ObjectID,
+        package_id: ObjectID,
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
-    ) -> SuiClientResult<(ObjectID, ObjectID)> {
-        tracing::info!("creating a new subsidies object");
+    ) -> SuiClientResult<SharedObjectWithAdminCap> {
+        tracing::info!("creating a new credits object");
 
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .create_and_fund_subsidies(
-                subsidies_package,
+            .create_and_fund_credits(
+                package_id,
                 initial_buyer_subsidy_rate,
                 initial_system_subsidy_rate,
                 amount,
             )
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "create_and_fund_subsidies")
+            .sign_and_send_transaction(transaction, "create_and_fund_credits")
             .await?;
         let admin_cap = get_created_sui_object_ids_by_type(
             &res,
-            &contracts::subsidies::AdminCap
-                .to_move_struct_tag_with_package(subsidies_package, &[])?,
+            &contracts::credits::AdminCap.to_move_struct_tag_with_package(package_id, &[])?,
         )?;
-        let subsidies_id = get_created_sui_object_ids_by_type(
+        let credits_id = get_created_sui_object_ids_by_type(
             &res,
-            &contracts::subsidies::Subsidies
-                .to_move_struct_tag_with_package(subsidies_package, &[])?,
+            &contracts::credits::Subsidies.to_move_struct_tag_with_package(package_id, &[])?,
         )?;
         ensure!(
-            subsidies_id.len() == 1,
+            credits_id.len() == 1,
             "unexpected number of `Subsidies`s created: {}",
-            subsidies_id.len()
+            credits_id.len()
         );
-        Ok((subsidies_id[0], admin_cap[0]))
+        Ok(SharedObjectWithAdminCap {
+            object_id: credits_id[0],
+            admin_cap_id: admin_cap[0],
+        })
     }
 
     /// Exchanges the given `amount` of SUI (in MIST) for WAL using the shared exchange.
@@ -2136,13 +2311,9 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
-        let (ptb, sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb_with_additional_gas_coin_balance(
-            ptb,
-            sui_cost,
-            "exchange_sui_for_wal",
-        )
-        .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "exchange_sui_for_wal")
+            .await?;
         Ok(())
     }
 
@@ -2150,8 +2321,9 @@ impl SuiContractClientInner {
     pub async fn delete_blob(&mut self, blob_object_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.delete_blob(blob_object_id.into()).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "delete_blob").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "delete_blob")
+            .await?;
         Ok(())
     }
 
@@ -2163,102 +2335,17 @@ impl SuiContractClientInner {
         ))
     }
 
-    /// Signs and sends a programmable transaction with no additional gas coin balance.
-    ///
-    /// This is the default case for any transactions that only use sui for paying gas. If the
-    /// transaction uses sui for other purposes, the function
-    /// [`Self::sign_and_send_ptb_with_additional_gas_coin_balance`] should be used instead.
-    pub async fn sign_and_send_ptb(
+    async fn sign_and_send_transaction(
         &mut self,
-        programmable_transaction: ProgrammableTransaction,
+        transaction: TransactionData,
         method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(programmable_transaction, 0, 0, method)
-            .await
-    }
-
-    /// Signs and sends a programmable transaction with an additional gas coin balance.
-    ///
-    /// This is useful for transactions that use sui in the transaction which is split off
-    /// from the gas coin. The `additional_gas_coin_balance` is the amount of sui that is
-    /// used in the transaction for anything except gas.
-    pub async fn sign_and_send_ptb_with_additional_gas_coin_balance(
-        &mut self,
-        programmable_transaction: ProgrammableTransaction,
-        additional_gas_coin_balance: u64,
-        method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(
-            programmable_transaction,
-            additional_gas_coin_balance,
-            0,
-            method,
-        )
-        .await
-    }
-
-    /// Signs and sends a programmable transaction with a minimum gas coin balance.
-    ///
-    /// This is useful mainly for merging sui coins, since it allows to set the full balance as
-    /// minimum gas coin balance but still have the gas budget be estimated.
-    async fn sign_and_send_ptb_with_min_gas_coin_balance(
-        &mut self,
-        programmable_transaction: ProgrammableTransaction,
-        minimum_gas_coin_balance: u64,
-        method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(
-            programmable_transaction,
-            0,
-            minimum_gas_coin_balance,
-            method,
-        )
-        .await
-    }
-
-    async fn sign_and_send_ptb_inner(
-        &mut self,
-        programmable_transaction: ProgrammableTransaction,
-        additional_gas_coin_balance: u64,
-        minimum_gas_coin_balance: u64,
-        method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        // Get the current gas price from the network
-        let gas_price = self.read_client.get_reference_gas_price().await?;
-        let wallet_address = self.wallet.active_address()?;
-
-        tracing::debug!(?programmable_transaction, "sending PTB");
-
-        // Estimate the gas budget unless explicitly set.
-        let gas_budget = if let Some(budget) = self.gas_budget {
-            budget
-        } else {
-            let tx_kind =
-                TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
-            self.read_client
-                .sui_client()
-                .estimate_gas_budget(wallet_address, tx_kind, gas_price)
-                .await?
-        };
-
-        let min_gas_coin_balance =
-            minimum_gas_coin_balance.max(gas_budget + additional_gas_coin_balance);
-
-        // Construct the transaction with gas coins that meet the minimum balance requirement
-        let transaction = TransactionData::new_programmable(
-            wallet_address,
-            self.get_compatible_gas_coins(min_gas_coin_balance).await?,
-            programmable_transaction,
-            gas_budget,
-            gas_price,
-        );
-
         // Sign the transaction with the wallet's keys
         let signed_transaction = self.wallet.sign_transaction(&transaction);
 
         // Execute the transaction and wait for response
         let response = self
-            .sui_client()
+            .retriable_sui_client()
             .execute_transaction(signed_transaction, method)
             .await?;
 
@@ -2282,44 +2369,41 @@ impl SuiContractClientInner {
         }
     }
 
-    async fn get_compatible_gas_coins(
-        &mut self,
-        min_balance: u64,
-    ) -> SuiClientResult<Vec<ObjectRef>> {
-        Ok(self
-            .read_client
-            .get_coins_with_total_balance(
-                self.wallet.active_address()?,
-                CoinType::Sui,
-                min_balance,
-                vec![],
-            )
-            .await?
-            .iter()
-            .map(Coin::object_ref)
-            .collect())
-    }
-
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
         let mut tx_builder = self.transaction_builder()?;
         let address = self.wallet.active_address()?;
-        let sui_balance = self.sui_client().get_balance(address, None).await?;
+        let sui_balance = self
+            .retriable_sui_client()
+            .get_balance(address, None)
+            .await?;
         let wal_balance = self
-            .sui_client()
+            .retriable_sui_client()
             .get_balance(address, Some(self.read_client().wal_coin_type().to_owned()))
             .await?;
 
         if wal_balance.coin_object_count > 1 {
             tx_builder
-                .fill_wal_balance(wal_balance.total_balance as u64)
+                .fill_wal_balance(
+                    wal_balance
+                        .total_balance
+                        .try_into()
+                        .expect("this is always smaller than u64::MAX"),
+                )
                 .await?;
         }
 
         if sui_balance.coin_object_count > 1 || wal_balance.coin_object_count > 1 {
-            self.sign_and_send_ptb_with_min_gas_coin_balance(
-                tx_builder.finish().await?.0,
-                sui_balance.total_balance as u64,
+            self.sign_and_send_transaction(
+                tx_builder
+                    .transfer_outputs_and_build_transaction_data(
+                        self.gas_budget,
+                        sui_balance
+                            .total_balance
+                            .try_into()
+                            .expect("this is always smaller than u64::MAX"),
+                    )
+                    .await?,
                 "merge_coins",
             )
             .await?;
@@ -2328,14 +2412,12 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Sends the `amount` gas to the provided `address`.
-    pub async fn send_sui(&mut self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
-
-        pt_builder.pay_sui(vec![address], vec![amount])?;
-        self.sign_and_send_ptb_with_additional_gas_coin_balance(
-            pt_builder.finish(),
-            amount,
+    /// Sends the `amount` gas to the provided `recipient`.
+    pub async fn send_sui(&mut self, amount: u64, recipient: SuiAddress) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.pay_sui(recipient, amount).await?;
+        self.sign_and_send_transaction(
+            pt_builder.build_transaction_data(self.gas_budget).await?,
             "send_sui",
         )
         .await?;
@@ -2348,8 +2430,9 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
 
         pt_builder.pay_wal(address, amount).await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "send_wal").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "send_wal")
+            .await?;
         Ok(())
     }
 
@@ -2364,8 +2447,9 @@ impl SuiContractClientInner {
             for id in id_block {
                 pt_builder.burn_blob(id.into()).await?;
             }
-            let (ptb, _) = pt_builder.finish().await?;
-            self.sign_and_send_ptb(ptb, "burn_blobs").await?;
+            let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+            self.sign_and_send_transaction(transaction, "burn_blobs")
+                .await?;
         }
 
         Ok(())
@@ -2381,8 +2465,9 @@ impl SuiContractClientInner {
         pt_builder
             .fund_shared_blob(shared_blob_obj_id, amount)
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "fund_shared_blob").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "fund_shared_blob")
+            .await?;
         Ok(())
     }
 
@@ -2396,8 +2481,9 @@ impl SuiContractClientInner {
         pt_builder
             .extend_shared_blob(shared_blob_obj_id, epochs_extended)
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "extend_shared_blob").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "extend_shared_blob")
+            .await?;
         Ok(())
     }
 
@@ -2409,7 +2495,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2423,9 +2509,9 @@ impl SuiContractClientInner {
             pt_builder.new_shared_blob(blob.id.into()).await?;
         }
 
-        let (ptb, _) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "share_and_maybe_fund_blob")
+            .sign_and_send_transaction(transaction, "share_and_maybe_fund_blob")
             .await?;
         let shared_blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
@@ -2440,54 +2526,52 @@ impl SuiContractClientInner {
         Ok(shared_blob_obj_id[0])
     }
 
-    /// Extends the owned blob object by `epochs_extended` epochs without subsidies package id.
-    async fn extend_blob_without_subsidies(
+    /// Extends the owned blob object by `epochs_extended` epochs without credits.
+    async fn extend_blob_without_credits(
         &mut self,
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .extend_blob_without_subsidies(
+            .extend_blob(
                 blob_obj_id.into(),
                 epochs_extended,
                 blob.storage.storage_size,
             )
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "extend_blob_without_subsidies")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "extend_blob_without_credits")
             .await?;
         Ok(())
     }
 
-    /// Extends the owned blob object by `epochs_extended` epochs with subsidies package id.
-    async fn extend_blob_with_subsidies(
+    /// Extends the owned blob object by `epochs_extended` epochs with credits.
+    async fn extend_blob_with_credits(
         &mut self,
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
-        subsidies_package_id: ObjectID,
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .extend_blob_with_subsidies(
+            .extend_blob_with_credits(
                 blob_obj_id.into(),
                 epochs_extended,
                 blob.storage.storage_size,
-                subsidies_package_id,
             )
             .await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "extend_blob_with_subsidies")
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "extend_blob_with_credits")
             .await?;
         Ok(())
     }
@@ -2498,34 +2582,28 @@ impl SuiContractClientInner {
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let subsidies_package_id = self.read_client.get_subsidies_package_id();
-        match subsidies_package_id {
-            Some(pkg_id) => {
-                match self
-                    .extend_blob_with_subsidies(blob_obj_id, epochs_extended, pkg_id)
-                    .await
-                {
-                    Ok(_) => Ok(()),
-                    Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
-                        SystemError::EWrongVersion(_),
-                    ))) => {
-                        tracing::warn!(
-                            "Walrus package version mismatch in subsidies
+        let with_credits = self.read_client.get_credits_package_id().is_some();
+        if with_credits {
+            match self
+                .extend_blob_with_credits(blob_obj_id, epochs_extended)
+                .await
+            {
+                Ok(_) => return Ok(()),
+                Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
+                    SystemError::EWrongVersion(_),
+                ))) => {
+                    tracing::warn!(
+                        "Walrus package version mismatch in credits call, \
                         call, falling back to direct contract call"
-                        );
-                        self.extend_blob_without_subsidies(blob_obj_id, epochs_extended)
-                            .await?;
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
+                    );
                 }
-            }
-            None => {
-                self.extend_blob_without_subsidies(blob_obj_id, epochs_extended)
-                    .await?;
-                Ok(())
+                Err(e) => return Err(e),
             }
         }
+
+        self.extend_blob_without_credits(blob_obj_id, epochs_extended)
+            .await?;
+        Ok(())
     }
 
     /// Updates the parameters for a storage node.
@@ -2546,8 +2624,9 @@ impl SuiContractClientInner {
         pt_builder
             .update_node_params(node_capability_object_id.into(), node_parameters)
             .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "update_node_params").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "update_node_params")
+            .await?;
         Ok(())
     }
 
@@ -2556,8 +2635,10 @@ impl SuiContractClientInner {
     pub async fn collect_commission(&mut self, node_id: ObjectID) -> SuiClientResult<u64> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.collect_commission(node_id).await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        let response = self.sign_and_send_ptb(ptb, "collect_commission").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let response = self
+            .sign_and_send_transaction(transaction, "collect_commission")
+            .await?;
         let wal_type_tag = TypeTag::from_str(self.read_client.wal_coin_type())?;
         let sender_address = self.wallet.active_address()?;
         let Some(balance_change) = response
@@ -2594,8 +2675,9 @@ impl SuiContractClientInner {
         for _ in 0..n {
             pt_builder.pay_wal(address, amount).await?;
         }
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(ptb, "multiple_pay_wal").await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "multiple_pay_wal")
+            .await?;
         Ok(())
     }
 
@@ -2606,135 +2688,74 @@ impl SuiContractClientInner {
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        let subsidies_package_id = self.read_client.get_subsidies_package_id();
-        match subsidies_package_id {
-            Some(pkg_id) => {
-                match self
-                    .certify_and_extend_blobs_with_subsidies(
-                        blobs_with_certificates,
-                        post_store,
-                        pkg_id,
-                    )
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(SuiClientError::TransactionExecutionError(
-                        MoveExecutionError::Staking(StakingError::EWrongVersion(_))
-                        | MoveExecutionError::System(SystemError::EWrongVersion(_)),
-                    )) => {
-                        tracing::warn!(
-                            "Walrus package version mismatch in subsidies call, \
+        let with_credits = self.read_client.get_credits_package_id().is_some();
+        if with_credits {
+            match self
+                .certify_and_extend_blobs_inner(blobs_with_certificates, post_store, true)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(SuiClientError::TransactionExecutionError(
+                    MoveExecutionError::Staking(StakingError::EWrongVersion(_))
+                    | MoveExecutionError::System(SystemError::EWrongVersion(_)),
+                )) => {
+                    tracing::warn!(
+                        "Walrus package version mismatch in credits call, \
                             falling back to direct contract call"
-                        );
-                        self.certify_and_extend_blobs_without_subsidies(
-                            blobs_with_certificates,
-                            post_store,
-                        )
-                        .await
-                    }
-                    Err(e) => Err(e),
+                    );
                 }
-            }
-            None => {
-                self.certify_and_extend_blobs_without_subsidies(blobs_with_certificates, post_store)
-                    .await
+                Err(e) => return Err(e),
             }
         }
-    }
 
-    async fn certify_and_extend_blobs_with_subsidies(
-        &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
-        post_store: PostStoreAction,
-        subsidies_package_id: ObjectID,
-    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        self.certify_and_extend_blobs_impl(
-            blobs_with_certificates,
-            post_store,
-            |pt_builder, blob_id, epochs_extended, storage_size| {
-                Box::pin(async move {
-                    pt_builder
-                        .extend_blob_with_subsidies(
-                            blob_id.into(),
-                            epochs_extended,
-                            storage_size,
-                            subsidies_package_id,
-                        )
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<()>>
-            },
-        )
-        .await
-    }
-
-    async fn certify_and_extend_blobs_without_subsidies(
-        &mut self,
-        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
-        post_store: PostStoreAction,
-    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
-        self.certify_and_extend_blobs_impl(
-            blobs_with_certificates,
-            post_store,
-            |pt_builder, blob_id, epochs_extended, storage_size| {
-                Box::pin(async move {
-                    pt_builder
-                        .extend_blob_without_subsidies(
-                            blob_id.into(),
-                            epochs_extended,
-                            storage_size,
-                        )
-                        .await
-                }) as BoxFuture<'_, SuiClientResult<()>>
-            },
-        )
-        .await
+        self.certify_and_extend_blobs_inner(blobs_with_certificates, post_store, false)
+            .await
     }
 
     /// Common implementation for certifying and extending blobs with different extension strategies
-    async fn certify_and_extend_blobs_impl<'b, F>(
+    async fn certify_and_extend_blobs_inner<'b>(
         &mut self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'b>],
         post_store: PostStoreAction,
-        extend_blob_fn: F,
-    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>>
-    where
-        F: for<'a> Fn(
-                &'a mut WalrusPtbBuilder,
-                ObjectID,
-                EpochCount,
-                u64,
-            ) -> BoxFuture<'a, SuiClientResult<()>>
-            + Send,
-    {
+        with_credits: bool,
+    ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let mut pt_builder = self.transaction_builder()?;
         for blob_params in blobs_with_certificates {
+            let blob = blob_params.blob;
+
             if let Some(certificate) = blob_params.certificate.as_ref() {
-                pt_builder
-                    .certify_blob(blob_params.blob.id.into(), certificate)
-                    .await?;
+                pt_builder.certify_blob(blob.id.into(), certificate).await?;
             }
+
+            // Add attributes if provided.
+            pt_builder
+                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
-                extend_blob_fn(
-                    &mut pt_builder,
-                    blob_params.blob.id,
-                    epochs_extended,
-                    blob_params.blob.storage.storage_size,
-                )
-                .await?;
+                // TODO(WAL-835): buy single storage resource to extend multiple blobs
+                if with_credits {
+                    pt_builder
+                        .extend_blob_with_credits(
+                            blob.id.into(),
+                            epochs_extended,
+                            blob.storage.storage_size,
+                        )
+                        .await?;
+                } else {
+                    pt_builder
+                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
+                        .await?;
+                }
             }
 
-            SuiContractClientInner::apply_post_store_action(
-                &mut pt_builder,
-                blob_params.blob.id,
-                post_store,
-            )
-            .await?;
+            SuiContractClientInner::apply_post_store_action(&mut pt_builder, blob.id, post_store)
+                .await?;
         }
 
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
-            .sign_and_send_ptb(ptb, "certify_and_extend_blobs")
+            .sign_and_send_transaction(transaction, "certify_and_extend_blobs")
             .await?;
 
         if !res.errors.is_empty() {
@@ -2841,7 +2862,7 @@ impl SuiContractClientInner {
         );
 
         let shared_blobs = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_objects::<SharedBlob>(&object_ids)
             .await?;
 
@@ -2876,7 +2897,7 @@ impl SuiContractClientInner {
             // Fetch all SharedBlob objects and collect them as a mapping from blob object ID
             // to shared blob object ID.
             let shared_blobs = self
-                .sui_client()
+                .retriable_sui_client()
                 .get_sui_objects::<SharedBlob>(&object_ids)
                 .await?;
             Ok(shared_blobs
@@ -3032,8 +3053,12 @@ impl ReadClient for SuiContractClient {
         self.read_client.refresh_package_id().await
     }
 
-    async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
-        self.read_client.refresh_subsidies_package_id().await
+    async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_credits_package_id().await
+    }
+
+    async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_walrus_subsidies_package_id().await
     }
 
     async fn system_object_version(&self) -> SuiClientResult<u64> {

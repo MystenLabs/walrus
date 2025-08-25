@@ -4,12 +4,15 @@
 use rstest::rstest;
 
 use super::*;
-use crate::rocks::safe_iter::{SafeIter, SafeRevIter};
+use crate::{
+    rocks::safe_iter::{SafeIter, SafeRevIter},
+    traits::SeekableIterator,
+};
 
 fn temp_dir() -> std::path::PathBuf {
     tempfile::tempdir()
         .expect("Failed to open temporary directory")
-        .into_path()
+        .keep()
 }
 
 enum TestIteratorWrapper<'a, K, V> {
@@ -30,12 +33,46 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for TestIteratorWrapper<
     }
 }
 
+impl<K: DeserializeOwned + Serialize, V: DeserializeOwned> SeekableIterator<K>
+    for TestIteratorWrapper<'_, K, V>
+{
+    fn seek_to_first(&mut self) {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_first(),
+        }
+    }
+
+    fn seek_to_last(&mut self) {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_last(),
+        }
+    }
+
+    fn seek(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek(key),
+        }
+    }
+
+    fn seek_to_prev(&mut self, key: &K) -> Result<(), TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.seek_to_prev(key),
+        }
+    }
+
+    fn key(&self) -> Result<Option<K>, TypedStoreError> {
+        match self {
+            TestIteratorWrapper::SafeIter(iter) => iter.key(),
+        }
+    }
+}
+
 fn get_iter<K, V>(db: &DBMap<K, V>) -> TestIteratorWrapper<'_, K, V>
 where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_iter())
+    TestIteratorWrapper::SafeIter(db.safe_iter().expect("failed to get iterator"))
 }
 
 fn get_reverse_iter<K, V>(
@@ -60,7 +97,10 @@ where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_iter_with_bounds(lower_bound, upper_bound))
+    TestIteratorWrapper::SafeIter(
+        db.safe_iter_with_bounds(lower_bound, upper_bound)
+            .expect("failed to get iterator"),
+    )
 }
 
 fn get_range_iter<K, V>(
@@ -71,7 +111,7 @@ where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,
 {
-    TestIteratorWrapper::SafeIter(db.safe_range_iter(range))
+    TestIteratorWrapper::SafeIter(db.safe_range_iter(range).expect("failed to get iterator"))
 }
 
 #[tokio::test]
@@ -452,17 +492,17 @@ async fn test_clear() {
     insert_batch.write().expect("Failed to execute batch");
 
     // Check we have multiple entries
-    assert!(db.safe_iter().count() > 1);
+    assert!(db.safe_iter().expect("failed to get iterator").count() > 1);
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     // Clear again to ensure safety when clearing empty map
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     // Clear with one item
     let _ = db.insert(&1, &"e".to_string());
-    assert_eq!(db.safe_iter().count(), 1);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 1);
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
 }
 
 #[tokio::test]
@@ -517,7 +557,9 @@ async fn test_iter_with_bounds() {
     );
 
     // Specify a bound outside of dataset.
-    let db_iter = db.safe_iter_with_bounds(Some(200), Some(300));
+    let db_iter = db
+        .safe_iter_with_bounds(Some(200), Some(300))
+        .expect("failed to get iterator");
     assert!(db_iter.collect::<Vec<_>>().is_empty());
 
     // Skip to first key in the bound (bound is [1, 50))
@@ -594,12 +636,12 @@ async fn test_is_empty() {
     insert_batch.write().expect("Failed to execute batch");
 
     // Check we have multiple entries and not empty
-    assert!(db.safe_iter().count() > 1);
+    assert!(db.safe_iter().expect("failed to get iterator").count() > 1);
     assert!(!db.is_empty());
 
     // Clear again to ensure empty works after clearing
     let _ = db.unsafe_clear();
-    assert_eq!(db.safe_iter().count(), 0);
+    assert_eq!(db.safe_iter().expect("failed to get iterator").count(), 0);
     assert!(db.is_empty());
 }
 
@@ -676,7 +718,10 @@ async fn test_multi_remove() {
     // Remove 50 items
     db.multi_remove(keys_vals.clone().map(|kv| kv.0).take(50))
         .expect("Failed to multi-remove");
-    assert_eq!(db.safe_iter().count(), 101 - 50);
+    assert_eq!(
+        db.safe_iter().expect("failed to get iterator").count(),
+        101 - 50
+    );
 
     // Check that the remaining are present
     for (k, v) in keys_vals.skip(50) {
@@ -730,4 +775,209 @@ async fn test_sampling_time() {
     tokio::time::advance(Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
     assert!(sampling_interval.sample());
+}
+
+#[tokio::test]
+async fn test_iterator_seek() {
+    let db: DBMap<u32, String> = open_map(temp_dir(), None);
+
+    db.insert(&123, &"123".to_string())
+        .expect("Failed to insert");
+    db.insert(&456, &"456".to_string())
+        .expect("Failed to insert");
+    db.insert(&789, &"789".to_string())
+        .expect("Failed to insert");
+
+    let mut iter = get_iter(&db);
+
+    assert!(matches!(
+        iter.key().unwrap_err(),
+        TypedStoreError::IteratorNotInitialized
+    ));
+
+    iter.seek(&0).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+    assert_eq!(
+        iter.by_ref().collect::<Vec<_>>(),
+        vec![
+            (123, "123".to_string()),
+            (456, "456".to_string()),
+            (789, "789".to_string())
+        ]
+    );
+
+    iter.seek(&123).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek(&234).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(456));
+    assert_eq!(
+        iter.by_ref().collect::<Vec<_>>(),
+        vec![(456, "456".to_string()), (789, "789".to_string())]
+    );
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek(&567).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek_to_prev(&234).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_prev(&123).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_prev(&122).unwrap();
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek(&789).unwrap();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek(&890).unwrap();
+    assert_eq!(iter.key().unwrap(), None);
+
+    iter.seek_to_last();
+    assert_eq!(iter.key().unwrap(), Some(789));
+
+    iter.seek_to_first();
+    assert_eq!(iter.key().unwrap(), Some(123));
+
+    iter.seek_to_last();
+    assert_eq!(iter.key().unwrap(), Some(789));
+}
+
+#[tokio::test]
+async fn test_dbmap_ticker_statistics() {
+    use rocksdb::statistics::Ticker;
+
+    // Create a temporary directory for the test
+    let path = temp_dir();
+
+    // Create database options with statistics enabled
+    let mut db_options = default_db_options().options;
+    db_options.enable_statistics();
+    db_options.set_statistics_level(rocksdb::statistics::StatsLevel::All);
+
+    // Create metric configuration
+    let metric_conf = MetricConf::new("test_db");
+
+    // Open the database with multiple column families
+    let rocks = open_cf_opts(
+        &path,
+        Some(db_options),
+        metric_conf,
+        &[
+            ("cf1", default_db_options().options),
+            ("cf2", default_db_options().options),
+        ],
+    )
+    .expect("Failed to open database");
+
+    // Create DBMaps for different column families
+    let db_cf1: DBMap<i32, String> =
+        DBMap::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+            .expect("Failed to open cf1");
+
+    let db_cf2: DBMap<i32, String> =
+        DBMap::reopen(&rocks, Some("cf2"), &ReadWriteOptions::default(), false)
+            .expect("Failed to open cf2");
+
+    // Get initial ticker counts
+    let initial_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
+    let initial_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
+    let initial_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
+    let initial_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+
+    // Perform operations on first column family
+    db_cf1
+        .insert(&1, &"value1".to_string())
+        .expect("Failed to insert");
+    db_cf1
+        .insert(&2, &"value2".to_string())
+        .expect("Failed to insert");
+    db_cf1
+        .insert(&3, &"value3".to_string())
+        .expect("Failed to insert");
+
+    // Perform operations on second column family
+    db_cf2
+        .insert(&10, &"value10".to_string())
+        .expect("Failed to insert");
+    db_cf2
+        .insert(&20, &"value20".to_string())
+        .expect("Failed to insert");
+
+    // Flush both column families to ensure data is written
+    db_cf1.flush().expect("Failed to flush cf1");
+    db_cf2.flush().expect("Failed to flush cf2");
+
+    // Read some data to generate read statistics
+    let _val1 = db_cf1.get(&1).expect("Failed to get from cf1");
+    let _val2 = db_cf1.get(&2).expect("Failed to get from cf1");
+    let _val10 = db_cf2.get(&10).expect("Failed to get from cf2");
+
+    // Get ticker counts after operations
+    let final_bytes_written = rocks.db_options.get_ticker_count(Ticker::BytesWritten);
+    let final_keys_written = rocks.db_options.get_ticker_count(Ticker::NumberKeysWritten);
+    let final_bytes_read = rocks.db_options.get_ticker_count(Ticker::BytesRead);
+    let final_keys_read = rocks.db_options.get_ticker_count(Ticker::NumberKeysRead);
+
+    // Verify that ticker values have increased
+    assert!(
+        final_bytes_written > initial_bytes_written,
+        "BytesWritten should have increased: {initial_bytes_written} -> {final_bytes_written}"
+    );
+
+    assert!(
+        final_keys_written > initial_keys_written,
+        "NumberKeysWritten should have increased: {initial_keys_written} -> {final_keys_written}"
+    );
+
+    assert!(
+        final_bytes_read > initial_bytes_read,
+        "BytesRead should have increased: {initial_bytes_read} -> {final_bytes_read}"
+    );
+
+    assert!(
+        final_keys_read > initial_keys_read,
+        "NumberKeysRead should have increased: {initial_keys_read} -> {final_keys_read}"
+    );
+
+    // Verify that we wrote the expected number of keys
+    assert_eq!(
+        final_keys_written - initial_keys_written,
+        5,
+        "Should have written exactly 5 keys"
+    );
+
+    // Verify that we read the expected number of keys
+    assert_eq!(
+        final_keys_read - initial_keys_read,
+        3,
+        "Should have read exactly 3 keys"
+    );
+
+    // Test histogram data as well
+    let histogram_data = rocks
+        .db_options
+        .get_histogram_data(rocksdb::statistics::Histogram::DbWrite);
+    assert!(
+        histogram_data.count() > 0,
+        "Write histogram should have data"
+    );
+    assert!(
+        histogram_data.max().is_normal(),
+        "Write histogram max should be a normal number"
+    );
+
+    let read_histogram_data = rocks
+        .db_options
+        .get_histogram_data(rocksdb::statistics::Histogram::DbGet);
+    assert!(
+        read_histogram_data.count() > 0,
+        "Read histogram should have data"
+    );
+    assert!(
+        read_histogram_data.max().is_normal(),
+        "Read histogram max should be a normal number"
+    );
 }

@@ -9,6 +9,7 @@ use std::{
     future::Future,
     num::NonZeroU16,
     ops::ControlFlow,
+    path::PathBuf,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Duration,
 };
@@ -33,7 +34,6 @@ use sui_types::{
     TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
-    object::Owner,
     transaction::ObjectArg,
 };
 use tokio::sync::{OnceCell, mpsc};
@@ -50,6 +50,7 @@ use super::{
 };
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
+    system_setup::compile_package,
     types::{
         BlobEvent,
         Committee,
@@ -69,10 +70,12 @@ use crate::{
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
+            SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
-            SystemStateInnerV1Enum,
-            SystemStateInnerV1Testnet,
+            WalrusSubsidies,
+            WalrusSubsidiesForDeserialization,
+            WalrusSubsidiesInner,
         },
     },
     utils::{get_sui_object_from_object_response, handle_pagination},
@@ -106,7 +109,7 @@ pub struct CommitteesAndState {
 }
 
 /// Walrus parameters that do not change across epochs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FixedSystemParameters {
     /// The number of shards in the system.
     pub n_shards: NonZeroU16,
@@ -229,10 +232,17 @@ pub trait ReadClient: Send + Sync {
     /// Should be called after the contract is upgraded.
     fn refresh_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
-    /// Refreshes the subsidies package ID.
+    /// Refreshes the credits package ID.
     ///
-    /// Should be called after the subsidies contract is upgraded.
-    fn refresh_subsidies_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+    /// Should be called after the `subsidies` contract for credits is upgraded.
+    fn refresh_credits_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Refreshes the walrus subsidies package ID.
+    ///
+    /// Should be called after the `walrus_subsidies` contract is upgraded.
+    fn refresh_walrus_subsidies_package_id(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Returns the version of the system object.
     fn system_object_version(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
@@ -263,26 +273,18 @@ impl From<Mutability> for bool {
     }
 }
 
-/// Subsidies configuration and state
+/// Configuration and state for a shared object with a package ID that is not the walrus package.
+/// E.g. for credits or walrus subsidies.
 #[derive(Clone, Debug)]
-pub struct Subsidies {
-    /// The package ID of the subsidies contract
+pub struct SharedObjectWithPkgConfig {
+    /// The package ID of the corresponding package
     pub package_id: ObjectID,
-    /// The object ID of the subsidies object
+    /// The object ID of the object
     pub object_id: ObjectID,
-    /// The initial version of the subsidies object when it was created
-    subsidies_obj_initial_version: OnceCell<SequenceNumber>,
-}
-
-impl Subsidies {
-    /// Creates a new Subsidies instance with the given package and object IDs
-    pub fn new(package_id: ObjectID, object_id: ObjectID) -> Self {
-        Self {
-            package_id,
-            object_id,
-            subsidies_obj_initial_version: OnceCell::new(),
-        }
-    }
+    /// The initial version of the shared object when it was created
+    initial_version: SequenceNumber,
+    /// The type origin map for the package
+    type_origin_map: TypeOriginMap,
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -295,7 +297,8 @@ pub struct SuiReadClient {
     type_origin_map: Arc<RwLock<TypeOriginMap>>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
-    subsidies: Arc<RwLock<Option<Subsidies>>>,
+    credits: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
+    walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
     wal_type: String,
 }
 
@@ -315,19 +318,7 @@ impl SuiReadClient {
             .type_origin_map_for_package(walrus_package_id)
             .await?;
         let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
-        let subsidies = if let Some(subsidies_object_id) = contract_config.subsidies_object {
-            let subsidies_package_id = sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
-                .await?;
-            Some(Subsidies {
-                package_id: subsidies_package_id,
-                object_id: subsidies_object_id,
-                subsidies_obj_initial_version: OnceCell::new(),
-            })
-        } else {
-            None
-        };
-        Ok(Self {
+        let client = Self {
             walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
             sui_client,
             system_object_id: contract_config.system_object,
@@ -335,9 +326,19 @@ impl SuiReadClient {
             type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
-            subsidies: Arc::new(RwLock::new(subsidies)),
+            credits: Arc::new(RwLock::new(None)),
+            walrus_subsidies: Arc::new(RwLock::new(None)),
             wal_type,
-        })
+        };
+        if let Some(credits_object_id) = contract_config.credits_object {
+            client.set_credits_object(credits_object_id).await?;
+        }
+        if let Some(walrus_subsidies_object_id) = contract_config.walrus_subsidies_object {
+            client
+                .set_walrus_subsidies_object(walrus_subsidies_object_id)
+                .await?;
+        }
+        Ok(client)
     }
 
     /// Constructs a new `SuiReadClient` around a [`RetriableSuiClient`] constructed for the
@@ -353,7 +354,7 @@ impl SuiReadClient {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
         &self.sui_client
     }
 
@@ -362,7 +363,10 @@ impl SuiReadClient {
         object_id: ObjectID,
         mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
-        let initial_shared_version = self.get_shared_object_initial_version(object_id).await?;
+        let initial_shared_version = self
+            .sui_client
+            .get_shared_object_initial_version(object_id)
+            .await?;
         Ok(ObjectArg::SharedObject {
             id: object_id,
             initial_shared_version,
@@ -385,7 +389,10 @@ impl SuiReadClient {
     async fn system_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
         let initial_shared_version = self
             .sys_obj_initial_version
-            .get_or_try_init(|| self.get_shared_object_initial_version(self.system_object_id))
+            .get_or_try_init(|| {
+                self.sui_client
+                    .get_shared_object_initial_version(self.system_object_id)
+            })
             .await?;
         Ok(*initial_shared_version)
     }
@@ -402,26 +409,37 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn object_arg_for_subsidies_obj(
+    pub(crate) async fn object_arg_for_credits_obj(
         &self,
         mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
-        let subsidies = self
-            .subsidies
-            .read()
-            .expect("lock should not be poisoned")
+        let credits = self.credits.read().expect("mutex should not be poisoned");
+        let credits = credits
             .as_ref()
-            .ok_or_else(|| SuiClientError::Internal(anyhow!("subsidies object ID not found")))?
-            .clone();
-
-        let initial_shared_version = subsidies
-            .subsidies_obj_initial_version
-            .get_or_try_init(|| self.get_shared_object_initial_version(subsidies.object_id))
-            .await?;
+            .ok_or_else(|| SuiClientError::Internal(anyhow!("credits object ID not found")))?;
 
         Ok(ObjectArg::SharedObject {
-            id: subsidies.object_id,
-            initial_shared_version: *initial_shared_version,
+            id: credits.object_id,
+            initial_shared_version: credits.initial_version,
+            mutable: mutable.into(),
+        })
+    }
+
+    pub(crate) async fn object_arg_for_walrus_subsidies_obj(
+        &self,
+        mutable: Mutability,
+    ) -> SuiClientResult<ObjectArg> {
+        let walrus_subsidies = self
+            .walrus_subsidies
+            .read()
+            .expect("mutex should not be poisoned");
+        let walrus_subsidies = walrus_subsidies.as_ref().ok_or_else(|| {
+            SuiClientError::Internal(anyhow!("walrus subsidies object ID not found"))
+        })?;
+
+        Ok(ObjectArg::SharedObject {
+            id: walrus_subsidies.object_id,
+            initial_shared_version: walrus_subsidies.initial_version,
             mutable: mutable.into(),
         })
     }
@@ -429,30 +447,12 @@ impl SuiReadClient {
     async fn staking_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
         let initial_shared_version = self
             .staking_obj_initial_version
-            .get_or_try_init(|| self.get_shared_object_initial_version(self.staking_object_id))
+            .get_or_try_init(|| {
+                self.sui_client
+                    .get_shared_object_initial_version(self.staking_object_id)
+            })
             .await?;
         Ok(*initial_shared_version)
-    }
-
-    async fn get_shared_object_initial_version(
-        &self,
-        object_id: ObjectID,
-    ) -> SuiClientResult<SequenceNumber> {
-        let Some(Owner::Shared {
-            initial_shared_version,
-        }) = self
-            .sui_client
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
-            .await?
-            .owner()
-        else {
-            return Err(anyhow!(
-                "trying to get the initial version of a non-shared object {}",
-                object_id
-            )
-            .into());
-        };
-        Ok(initial_shared_version)
     }
 
     /// Returns the system package ID.
@@ -460,11 +460,20 @@ impl SuiReadClient {
         *self.walrus_package_id()
     }
 
-    /// Returns the subsidies package ID.
-    pub fn get_subsidies_package_id(&self) -> Option<ObjectID> {
-        self.subsidies
+    /// Returns the credits package ID.
+    pub fn get_credits_package_id(&self) -> Option<ObjectID> {
+        self.credits
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
+            .as_ref()
+            .map(|s| s.package_id)
+    }
+
+    /// Returns the walrus subsidies package ID.
+    pub fn get_walrus_subsidies_package_id(&self) -> Option<ObjectID> {
+        self.walrus_subsidies
+            .read()
+            .expect("mutex should not be poisoned")
             .as_ref()
             .map(|s| s.package_id)
     }
@@ -479,26 +488,42 @@ impl SuiReadClient {
         self.staking_object_id
     }
 
-    /// Returns the subsidies object ID.
-    pub fn get_subsidies_object_id(&self) -> Option<ObjectID> {
-        self.subsidies
+    /// Returns the credits object ID.
+    pub fn get_credits_object_id(&self) -> Option<ObjectID> {
+        self.credits
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
+            .as_ref()
+            .map(|s| s.object_id)
+    }
+
+    /// Returns the walrus subsidies object ID.
+    pub fn get_walrus_subsidies_object_id(&self) -> Option<ObjectID> {
+        self.walrus_subsidies
+            .read()
+            .expect("mutex should not be poisoned")
             .as_ref()
             .map(|s| s.object_id)
     }
 
     /// Returns the contract config.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new_with_subsidies(
-            self.system_object_id,
-            self.staking_object_id,
-            self.subsidies
+        ContractConfig {
+            system_object: self.system_object_id,
+            staking_object: self.staking_object_id,
+            credits_object: self
+                .credits
                 .read()
-                .expect("lock should not be poisoned")
+                .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
-        )
+            walrus_subsidies_object: self
+                .walrus_subsidies
+                .read()
+                .expect("mutex should not be poisoned")
+                .as_ref()
+                .map(|s| s.object_id),
+        }
     }
 
     /// Returns the staking pool for the given node ID.
@@ -506,33 +531,40 @@ impl SuiReadClient {
         self.sui_client.get_sui_object(node_id).await
     }
 
-    fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
+    fn walrus_package_id(&self) -> RwLockReadGuard<'_, ObjectID> {
         self.walrus_package_id
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
-    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<ObjectID> {
+    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<'_, ObjectID> {
         self.walrus_package_id
             .write()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
-    /// Returns a mutable reference to the subsidies object.
-    fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
-        self.subsidies.write().expect("lock should not be poisoned")
+    /// Returns a mutable reference to the credits object.
+    fn credits_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
+        self.credits.write().expect("mutex should not be poisoned")
     }
 
-    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
+    /// Returns a mutable reference to the walrus subsidies object.
+    fn walrus_subsidies_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
+        self.walrus_subsidies
+            .write()
+            .expect("mutex should not be poisoned")
+    }
+
+    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .read()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
-    fn type_origin_map_mut(&self) -> RwLockWriteGuard<TypeOriginMap> {
+    fn type_origin_map_mut(&self) -> RwLockWriteGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .write()
-            .expect("lock should not be poisoned")
+            .expect("mutex should not be poisoned")
     }
 
     /// Returns the balance of the owner for the given coin type.
@@ -583,6 +615,34 @@ impl SuiReadClient {
                 },
                 err => err,
             })
+    }
+
+    /// Returns the digest of the package at `package_path` for the currently active sui network.
+    pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+        // Compile package to get the digest.
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
+        tracing::info!(?chain_id, "chain identifier");
+        let (compiled_package, _build_config) =
+            compile_package(package_path, Default::default(), chain_id).await?;
+        let digest = compiled_package.get_package_digest(false);
+        Ok(digest)
+    }
+
+    pub(crate) async fn get_compatible_gas_coins(
+        &self,
+        sender_address: SuiAddress,
+        min_balance: u64,
+    ) -> SuiClientResult<Vec<ObjectRef>> {
+        Ok(self
+            .get_coins_with_total_balance(sender_address, CoinType::Sui, min_balance, vec![])
+            .await?
+            .iter()
+            .map(Coin::object_ref)
+            .collect())
     }
 
     /// Get the reference gas price for the current epoch.
@@ -713,32 +773,63 @@ impl SuiReadClient {
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
         }
-        let inner = if let Ok(inner) = self
+        let inner = self
             .sui_client
             .get_dynamic_field::<u64, SystemStateInnerV1>(
                 self.system_object_id,
                 TypeTag::U64,
                 version,
             )
-            .await
-        {
-            SystemStateInnerV1Enum::V1(inner)
-        } else {
-            let inner = self
-                .sui_client
-                .get_dynamic_field::<u64, SystemStateInnerV1Testnet>(
-                    self.system_object_id,
-                    TypeTag::U64,
-                    version,
-                )
-                .await?;
-            SystemStateInnerV1Enum::V1Testnet(inner)
-        };
+            .await?;
         Ok(SystemObject {
             id,
             version,
             package_id,
             new_package_id,
+            inner,
+        })
+    }
+
+    /// Checks if the walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) exist on chain and returns the object.
+    pub async fn get_walrus_subsidies_object(
+        &self,
+        with_inner: bool,
+    ) -> SuiClientResult<WalrusSubsidies> {
+        let walrus_subsidies = self
+            .walrus_subsidies
+            .read()
+            .expect("RwLock should not be poisoned")
+            .as_ref()
+            .cloned();
+
+        let Some(walrus_subsidies) = walrus_subsidies else {
+            return Err(SuiClientError::WalrusSubsidiesNotConfigured);
+        };
+
+        let deserialized_object = self
+            .sui_client
+            .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id)
+            .await?;
+        let inner = if with_inner {
+            let key_tag = contracts::walrus_subsidies::SubsidiesInnerKey
+                .to_move_struct_tag_with_type_map(&walrus_subsidies.type_origin_map, &[])?;
+            let inner = self
+                .sui_client
+                .get_dynamic_field::<SubsidiesInnerKey, WalrusSubsidiesInner>(
+                    walrus_subsidies.object_id,
+                    key_tag.into(),
+                    SubsidiesInnerKey { dummy_field: false },
+                )
+                .await?;
+            Some(inner)
+        } else {
+            None
+        };
+        Ok(WalrusSubsidies {
+            id: deserialized_object.id,
+            version: deserialized_object.version,
+            package_id: deserialized_object.package_id,
             inner,
         })
     }
@@ -772,16 +863,51 @@ impl SuiReadClient {
         Ok(staking_object)
     }
 
-    /// Sets a subsidies object to be used by the client.
-    pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
-        let subsidies_package_id = self
+    /// Sets a credit (`subsidies::Subsidies` in Move) object to be used by the client.
+    pub async fn set_credits_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
+        let package_id = self
             .sui_client
-            .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
+            .get_credits_object(object_id)
+            .await?
+            .package_id;
+        let initial_version = self
+            .sui_client
+            .get_shared_object_initial_version(object_id)
             .await?;
-        *self.subsidies_mut() = Some(Subsidies {
-            package_id: subsidies_package_id,
-            object_id: subsidies_object_id,
-            subsidies_obj_initial_version: OnceCell::new(),
+        let type_origin_map = self
+            .sui_client
+            .type_origin_map_for_package(package_id)
+            .await?;
+        *self.credits_mut() = Some(SharedObjectWithPkgConfig {
+            package_id,
+            object_id,
+            initial_version,
+            type_origin_map,
+        });
+        Ok(())
+    }
+
+    /// Sets a walrus subsidies ([`contracts::walrus_subsidies::WalrusSubsidies`]) object to be
+    /// used by the client.
+    pub async fn set_walrus_subsidies_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
+        let package_id = self
+            .sui_client
+            .get_sui_object::<WalrusSubsidiesForDeserialization>(object_id)
+            .await?
+            .package_id;
+        let initial_version = self
+            .sui_client
+            .get_shared_object_initial_version(object_id)
+            .await?;
+        let type_origin_map = self
+            .sui_client
+            .type_origin_map_for_package(package_id)
+            .await?;
+        *self.walrus_subsidies_mut() = Some(SharedObjectWithPkgConfig {
+            package_id,
+            object_id,
+            initial_version,
+            type_origin_map,
         });
         Ok(())
     }
@@ -860,6 +986,7 @@ impl SuiReadClient {
     }
 
     /// Returns the backoff configuration for the inner client.
+    #[cfg(feature = "test-utils")]
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
     }
@@ -879,6 +1006,16 @@ impl SuiReadClient {
         &self,
     ) -> SuiClientResult<SystemObjectForDeserialization> {
         self.sui_client.get_sui_object(self.system_object_id).await
+    }
+
+    /// Returns the time at which process_subsidies was last called on the walrus subsidies object.
+    pub async fn last_walrus_subsidies_call(&self) -> SuiClientResult<DateTime<Utc>> {
+        Ok(self
+            .get_walrus_subsidies_object(true)
+            .await?
+            .inner
+            .ok_or_else(|| anyhow!("could not retrieve inner subsidies object"))?
+            .last_subsidized)
     }
 }
 
@@ -929,7 +1066,7 @@ impl ReadClient for SuiReadClient {
             package: *self
                 .walrus_package_id
                 .read()
-                .expect("lock should not be poisoned"),
+                .expect("mutex should not be poisoned"),
             module: Identifier::new(EVENT_MODULE)?,
         };
         tokio::spawn(async move {
@@ -1132,26 +1269,17 @@ impl ReadClient for SuiReadClient {
         self.refresh_package_id_with_id(walrus_package_id).await
     }
 
-    async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
-        let subsidies = self
-            .subsidies
-            .read()
-            .expect("lock should not be poisoned")
-            .clone();
-        if let Some(subsidies) = subsidies {
-            let new_package_id = self
-                .sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies.object_id)
-                .await?;
+    async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
+        if let Some(credits_object_id) = self.get_credits_object_id() {
+            self.set_credits_object(credits_object_id).await?;
+        }
+        Ok(())
+    }
 
-            // Update the package_id if it has changed
-            if new_package_id != subsidies.package_id {
-                let mut subsidies_guard =
-                    self.subsidies.write().expect("lock should not be poisoned");
-                if let Some(subsidies) = subsidies_guard.as_mut() {
-                    subsidies.package_id = new_package_id;
-                }
-            }
+    async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
+        if let Some(walrus_subsidies_object_id) = self.get_walrus_subsidies_object_id() {
+            self.set_walrus_subsidies_object(walrus_subsidies_object_id)
+                .await?;
         }
         Ok(())
     }

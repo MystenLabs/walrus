@@ -255,6 +255,7 @@ pub mod staking {
     contract_ident!(fn staking::set_node_capacity_vote);
     contract_ident!(fn staking::collect_commission);
     contract_ident!(fn staking::set_next_commission);
+    contract_ident!(fn staking::set_migration_epoch);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.
@@ -357,6 +358,7 @@ pub mod events {
     contract_ident!(struct events::DenyListBlobDeleted);
     contract_ident!(struct events::ContractUpgradeProposed);
     contract_ident!(struct events::ContractUpgradeQuorumReached);
+    contract_ident!(struct events::ProtocolVersionUpdated);
 }
 
 /// Module for tags corresponding to the Move module `auth`.
@@ -408,7 +410,10 @@ pub mod wal_exchange {
 }
 
 /// Module for tags corresponding to the Move module `subsidies`.
-pub mod subsidies {
+///
+/// This module is only used for Walrus credits. Callsites to this module have been updated to be
+/// named "credits" in the rust codebase to avoid confusion with the `walrus_subsidies` module.
+pub mod credits {
     use super::*;
 
     contract_ident!(struct subsidies::Subsidies);
@@ -421,6 +426,19 @@ pub mod subsidies {
     contract_ident!(fn subsidies::extend_blob);
     contract_ident!(fn subsidies::reserve_space);
     contract_ident!(fn subsidies::register_blob);
+}
+
+/// Module for tags corresponding to the Move module `walrus_subsidies`.
+pub mod walrus_subsidies {
+    use super::*;
+
+    contract_ident!(struct walrus_subsidies::WalrusSubsidies);
+    contract_ident!(struct walrus_subsidies::WalrusSubsidiesInnerV1);
+    contract_ident!(struct walrus_subsidies::SubsidiesInnerKey);
+    contract_ident!(struct walrus_subsidies::AdminCap);
+    contract_ident!(fn walrus_subsidies::new);
+    contract_ident!(fn walrus_subsidies::add_coin);
+    contract_ident!(fn walrus_subsidies::process_subsidies);
 }
 
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.

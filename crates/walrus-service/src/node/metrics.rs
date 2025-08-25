@@ -19,11 +19,12 @@ use walrus_sui::types::{
     DenyListEvent,
     EpochChangeEvent,
     PackageEvent,
+    ProtocolEvent,
 };
 
 use crate::{
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
-    node::events::EventStreamElement,
+    event::events::EventStreamElement,
 };
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
@@ -162,6 +163,16 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Status metric indicating the node's ID"]
         node_id: IntGaugeVec["walrus_node_id"],
+
+        #[help = "The progress of the node recovery. It is represented by the first two bytes \
+        of the blob ID since the recovery job is sequential over blob IDs."]
+        node_recovery_recover_blob_progress: IntGauge[],
+
+        #[help = "The number of ongoing blob syncs during node recovery."]
+        node_recovery_ongoing_blob_syncs: IntGauge[],
+
+        #[help = "The number of blob events pending processing in the queue."]
+        pending_processing_blob_event_in_queue: IntGaugeVec["worker_index"],
     }
 }
 
@@ -172,6 +183,14 @@ walrus_utils::metrics::define_metric_set! {
 /// histograms created by Prometheus.
 fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.03125, 2.0, 14).expect("count, start, and factor are valid")
+}
+
+fn with_zero_bucket(mut buckets: Vec<f64>) -> Vec<f64> {
+    if let Some(&front) = buckets.first() {
+        assert!(front > 0.0);
+    }
+    buckets.insert(0, 0.0);
+    buckets
 }
 
 walrus_utils::metrics::define_metric_set! {
@@ -190,12 +209,14 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of times a recovery futures entered exponential backoff before
         completing."]
         recovery_future_backoffs: Histogram {
-            buckets: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+            buckets: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
         },
 
         #[help = "The number of failed recovery symbol requests before completion"]
         recovery_future_failed_requests: Histogram {
-            buckets: prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+            buckets: with_zero_bucket(
+                prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets")
+            ),
         },
 
         #[help = "The number of recovery futures in a given recovery state."]
@@ -251,6 +272,14 @@ impl TelemetryLabel for DenyListEvent {
     }
 }
 
+impl TelemetryLabel for ProtocolEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            ProtocolEvent::ProtocolVersionUpdated(_) => "protocol-version-updated",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -258,6 +287,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),
+            ContractEvent::ProtocolEvent(event) => event.label(),
         }
     }
 }
@@ -299,6 +329,8 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
             ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
+            ClientErrorKind::QuiltError(_) => "quilt-error",
+            ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
         }
     }
 }

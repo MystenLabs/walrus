@@ -1,7 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -13,6 +18,7 @@ use axum::{
 };
 use axum_extra::{
     TypedHeader,
+    extract::Multipart,
     headers::{Authorization, authorization::Bearer},
 };
 use jsonwebtoken::{DecodingKey, Validation};
@@ -23,28 +29,36 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    EpochCount,
+    encoding::{
+        QuiltError,
+        quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
+    },
+};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::{
-    client::responses::BlobStoreResult,
+    client::responses::{BlobStoreResult, QuiltStoreResult},
     error::{ClientError, ClientErrorKind},
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     ObjectIdSchema,
     SuiAddressSchema,
-    client::BlobPersistence,
+    client::{BlobPersistence, InvalidBlobPersistenceError},
     types::move_structs::{BlobAttribute, BlobWithAttribute},
 };
 
-use super::{WalrusReadClient, WalrusWriteClient};
+use super::{AggregatorResponseHeaderConfig, WalrusReadClient, WalrusWriteClient};
 use crate::{
     client::daemon::{
         PostStoreAction,
         auth::{Claim, PublisherAuthError},
     },
-    common::api::{Binary, BlobIdString, RestApiError},
+    common::api::{Binary, BlobIdString, QuiltPatchIdString, RestApiError},
 };
 
 /// The status endpoint, which always returns a 200 status when it is available.
@@ -57,6 +71,17 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to store multiple files as a quilt using multipart/form-data.
+pub const QUILT_PUT_ENDPOINT: &str = "/v1/quilts";
+/// The path to get blobs from quilt by IDs.
+pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{quilt_patch_id}";
+/// The path to get blob from quilt by quilt ID and identifier.
+pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
+    "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
+/// Custom header for quilt patch identifier.
+const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
+
+const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 
 /// Retrieve a Walrus blob.
 ///
@@ -82,29 +107,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
-            headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-            // Insert headers that help caches distribute Walrus blobs.
-            //
-            // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
-            // check if the content has changed. This allows invalidated blobs to be removed from
-            // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
-            // the browser tries to validate it (async revalidation).
-            headers.insert(
-                CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
-            );
-            // The `ETag` is the blob ID itself.
-            headers.insert(
-                ETAG,
-                HeaderValue::from_str(&blob_id.to_string())
-                    .expect("the blob ID string only contains visible ASCII characters"),
-            );
-            // Mirror the content type.
-            if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
-                tracing::debug!(?content_type, "mirroring the request's content type");
-                headers.insert(CONTENT_TYPE, content_type.clone());
-            }
+            populate_response_headers_from_request(&request_headers, &blob_id.to_string(), headers);
             response
         }
         Err(error) => {
@@ -123,18 +126,48 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     }
 }
 
-fn populate_response_headers(
+fn populate_response_headers_from_request(
+    request_headers: &HeaderMap,
+    etag: &str,
+    headers: &mut HeaderMap,
+) {
+    // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    // Insert headers that help caches distribute Walrus blobs.
+    //
+    // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+    // check if the content has changed. This allows invalidated blobs to be removed from
+    // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
+    // the browser tries to validate it (async revalidation).
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
+    );
+    // The `ETag` is the blob ID itself.
+    headers.insert(
+        ETAG,
+        HeaderValue::from_str(etag)
+            .expect("the blob ID string only contains visible ASCII characters"),
+    );
+    // Mirror the content type.
+    if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+        tracing::debug!(?content_type, "mirroring the request's content type");
+        headers.insert(CONTENT_TYPE, content_type.clone());
+    } // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+}
+
+fn populate_response_headers_from_attributes(
     headers: &mut HeaderMap,
     attribute: &BlobAttribute,
-    allowed_headers: &HashSet<String>,
+    allowed_headers: Option<&HashSet<String>>,
 ) {
     for (key, value) in attribute.iter() {
-        if allowed_headers.contains(key) {
-            if let (Ok(header_name), Ok(header_value)) =
+        if !key.is_empty()
+            && allowed_headers.is_none_or(|headers| headers.contains(key))
+            && let (Ok(header_name), Ok(header_value)) =
                 (HeaderName::from_str(key), HeaderValue::from_str(value))
-            {
-                headers.insert(header_name, header_value);
-            }
+        {
+            headers.insert(header_name, header_value);
         }
     }
 }
@@ -161,7 +194,7 @@ fn populate_response_headers(
     ),
 )]
 pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
-    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     request_headers: HeaderMap,
     Path(blob_object_id): Path<ObjectID>,
 ) -> Response {
@@ -177,10 +210,14 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
             .await;
 
             // If the response was successful, add our additional metadata headers
-            if response.status() == StatusCode::OK {
-                if let Some(attribute) = attribute {
-                    populate_response_headers(response.headers_mut(), &attribute, &allowed_headers);
-                }
+            if response.status() == StatusCode::OK
+                && let Some(attribute) = attribute
+            {
+                populate_response_headers_from_attributes(
+                    response.headers_mut(),
+                    &attribute,
+                    Some(&response_header_config.allowed_headers),
+                );
             }
 
             response
@@ -214,6 +251,11 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
     BlobNotFound,
 
+    /// The requested quilt patch does not exist on Walrus.
+    #[error("the requested quilt patch does not exist on Walrus")]
+    #[rest_api_error(reason = "QUILT_PATCH_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    QuiltPatchNotFound,
+
     /// The blob cannot be returned as has been blocked.
     #[error("the requested metadata is blocked")]
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
@@ -229,6 +271,9 @@ impl From<ClientError> for GetBlobError {
         match error.kind() {
             ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::QuiltError(QuiltError::BlobsNotFoundInQuilt(_)) => {
+                Self::QuiltPatchNotFound
+            }
             _ => anyhow::anyhow!(error).into(),
         }
     }
@@ -261,11 +306,16 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     blob: Bytes,
 ) -> Response {
     // Check if there is an authorization claim, and use it to check the size.
-    if let Some(TypedHeader(header)) = bearer_header {
-        if let Err(error) = check_blob_size(header, blob.len()) {
-            return error.into_response();
-        }
+    if let Some(TypedHeader(header)) = bearer_header
+        && let Err(error) = check_blob_size(header, blob.len())
+    {
+        return error.into_response();
     }
+
+    let blob_persistence = match query.blob_persistence() {
+        Ok(blob_persistence) => blob_persistence,
+        Err(error) => return error.into_response(),
+    };
 
     tracing::debug!("starting to store received blob");
     match client
@@ -273,8 +323,8 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             &blob[..],
             query.encoding_type,
             query.epochs,
-            query.store_when(),
-            query.blob_persistence(),
+            query.optimizations(),
+            blob_persistence,
             query.post_store_action(client.default_post_store_action()),
         )
         .await
@@ -315,15 +365,15 @@ fn check_blob_size(
 
     match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
         Ok(claim) => {
-            if let Some(max_size) = claim.max_size {
-                if blob_size as u64 > max_size {
-                    return Err(PublisherAuthError::InvalidSize);
-                }
+            if let Some(max_size) = claim.max_size
+                && blob_size as u64 > max_size
+            {
+                return Err(PublisherAuthError::InvalidSize);
             }
-            if let Some(size) = claim.size {
-                if blob_size as u64 != size {
-                    return Err(PublisherAuthError::InvalidSize);
-                }
+            if let Some(size) = claim.size
+                && blob_size as u64 != size
+            {
+                return Err(PublisherAuthError::InvalidSize);
             }
             Ok(())
         }
@@ -344,10 +394,20 @@ pub(crate) enum StoreBlobError {
     )]
     NotEnoughConfirmations,
 
-    /// The blob cannot be returned as has been blocked.
+    /// The blob cannot be returned as it has been blocked.
     #[error("the requested metadata is blocked")]
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
+
+    /// The request is malformed.
+    #[error("the request is malformed: {message}")]
+    #[rest_api_error(reason = "MALFORMED_REQUEST", status = ApiStatusCode::InvalidArgument)]
+    MalformedRequest { message: String },
+
+    /// The blob cannot be defined as both deletable and permanent.
+    #[error(transparent)]
+    #[rest_api_error(reason = "INVALID_BLOB_PERSISTENCE", status = ApiStatusCode::InvalidArgument)]
+    InvalidBlobPersistence(#[from] InvalidBlobPersistenceError),
 
     #[error(transparent)]
     #[rest_api_error(delegate)]
@@ -359,6 +419,9 @@ impl From<ClientError> for StoreBlobError {
         match error.kind() {
             ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::QuiltError(_) => Self::MalformedRequest {
+                message: format!("the quilt patch is not found: {error:?}"),
+            },
             _ => Self::Internal(anyhow!(error)),
         }
     }
@@ -371,6 +434,242 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
         .allow_methods(Any)
         .max_age(Duration::from_secs(86400))
         .allow_headers(Any)
+}
+
+/// Retrieve a blob from quilt by its QuiltPatchId.
+///
+/// Takes a quilt patch ID and returns the corresponding blob from the quilt.
+/// The blob content is returned as raw bytes in the response body, while metadata
+/// such as the patch identifier and tags are returned in response headers.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-patch-id/\
+/// DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+/// ```
+///
+/// Response:
+/// ```text
+/// HTTP/1.1 200 OK
+/// Content-Type: application/octet-stream
+/// X-Quilt-Patch-Identifier: my-file.txt
+/// ETag: "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+///
+/// [raw blob bytes]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_PATCH_BY_ID_GET_ENDPOINT,
+    params(
+        (
+            "quilt_patch_id" = String, Path,
+            description = "The QuiltPatchId encoded as URL-safe base64",
+            example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
+                        the identifier and other attributes are returned as headers.",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Get blob from quilt",
+    description = "Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the \
+                raw blob bytes, the identifier and other attributes are returned as headers.",
+)]
+pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
+    request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
+) -> Response {
+    let quilt_patch_id_str = quilt_patch_id.to_string();
+    tracing::debug!("starting to read quilt patch: {}", quilt_patch_id_str);
+
+    match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
+        Ok(mut blobs) => {
+            if let Some(blob) = blobs.pop() {
+                build_quilt_patch_response(
+                    blob,
+                    &request_headers,
+                    &quilt_patch_id_str,
+                    &response_header_config,
+                )
+            } else {
+                tracing::debug!(
+                    ?quilt_patch_id_str,
+                    "no blob returned for the requested quilt patchID"
+                );
+                let error = GetBlobError::QuiltPatchNotFound;
+                error.to_response()
+            }
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(
+                        ?quilt_patch_id_str,
+                        "requested quilt patch ID does not exist"
+                    )
+                }
+                GetBlobError::QuiltPatchNotFound => {
+                    tracing::debug!(
+                        ?quilt_patch_id_str,
+                        "requested quilt patch ID does not exist"
+                    )
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::error!(?error, ?quilt_patch_id_str, "error retrieving quilt patch")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Builds a response for a quilt patch.
+fn build_quilt_patch_response(
+    blob: QuiltStoreBlob<'static>,
+    request_headers: &HeaderMap,
+    etag: &str,
+    response_header_config: &AggregatorResponseHeaderConfig,
+) -> Response {
+    let identifier = blob.identifier().to_string();
+    let blob_attribute: BlobAttribute = blob.tags().clone().into();
+    let blob_data = blob.into_data();
+    let mut response = (StatusCode::OK, blob_data).into_response();
+    populate_response_headers_from_request(request_headers, etag, response.headers_mut());
+    populate_response_headers_from_attributes(
+        response.headers_mut(),
+        &blob_attribute,
+        if response_header_config.allow_quilt_patch_tags_in_response {
+            None
+        } else {
+            Some(&response_header_config.allowed_headers)
+        },
+    );
+    if let (Ok(header_name), Ok(header_value)) = (
+        HeaderName::from_str(X_QUILT_PATCH_IDENTIFIER),
+        HeaderValue::from_str(&identifier),
+    ) {
+        response.headers_mut().insert(header_name, header_value);
+    }
+    response
+}
+
+/// Retrieve a blob by quilt ID and identifier.
+///
+/// Takes a quilt ID and an identifier and returns the corresponding blob from the quilt.
+/// The blob content is returned as raw bytes in the response body, while metadata
+/// such as the blob identifier and tags are returned in response headers.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-id/\
+/// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU/my-file.txt"
+/// ```
+///
+/// Response:
+/// ```text
+/// HTTP/1.1 200 OK
+/// Content-Type: application/octet-stream
+/// X-Quilt-Patch-Identifier: my-file.txt
+/// ETag: "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+///
+/// [raw blob bytes]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    params(
+        (
+            "quilt_id" = String, Path,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        ),
+        (
+            "identifier" = String, Path,
+            description = "The identifier of the blob within the quilt",
+            example = "my-file.txt"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
+                        the identifier and other attributes are returned as headers.",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+    summary = "Get blob from quilt by ID and identifier",
+    description = "Retrieve a specific blob from a quilt using the quilt ID and its identifier. \
+                Returns the raw blob bytes, the identifier and other attributes are returned as \
+                headers. If the quilt ID or identifier is not found, the response is 404.",
+)]
+pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
+    request_headers: HeaderMap,
+    State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
+    Path((quilt_id_str, identifier)): Path<(String, String)>,
+) -> Response {
+    tracing::debug!(
+        "starting to read quilt blob by ID and identifier: {} / {}",
+        quilt_id_str,
+        identifier
+    );
+
+    let quilt_id = match BlobId::from_str(&quilt_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::error!("invalid quilt ID format: {}", quilt_id_str);
+            return GetBlobError::BlobNotFound.to_response();
+        }
+    };
+
+    match client
+        .get_blob_by_quilt_id_and_identifier(&quilt_id, &identifier)
+        .await
+    {
+        Ok(blob) => build_quilt_patch_response(
+            blob,
+            &request_headers,
+            &quilt_id_str,
+            &response_header_config,
+        ),
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::info!(
+                        "requested quilt blob with ID {} does not exist",
+                        quilt_id_str,
+                    )
+                }
+                GetBlobError::QuiltPatchNotFound => {
+                    tracing::info!(
+                        "requested quilt patch {} does not exist in quilt {}",
+                        identifier,
+                        quilt_id_str,
+                    )
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::info!(?error, "error retrieving quilt blob by ID and identifier")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]
@@ -398,7 +697,7 @@ pub enum SendOrShare {
 }
 
 /// The query parameters for a publisher.
-#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, IntoParams, utoipa::ToSchema, PartialEq, Eq)]
 #[into_params(parameter_in = Query, style = Form)]
 #[serde(deny_unknown_fields)]
 pub struct PublisherQuery {
@@ -410,15 +709,26 @@ pub struct PublisherQuery {
     /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
     pub epochs: EpochCount,
-    /// If true, the publisher creates a deletable blob instead of a permanent one.
+    // TODO(WAL-911): Change the docstrings when the default behavior changes.
+    /// If true, the publisher creates a deletable blob instead of a permanent one. *This will
+    /// become the default behavior starting with v1.33.*
     #[serde(default)]
     pub deletable: bool,
+    /// If true, the publisher creates a permanent blob. This is currently the default behavior;
+    /// but *blobs will be deletable by default starting with v1.33*.
+    #[serde(default)]
+    pub permanent: bool,
     /// If true, the publisher will always store the blob, creating a new Blob object.
     ///
     /// The blob will be stored even if the blob is already certified on Walrus for the specified
     /// number of epochs.
     #[serde(default)]
     pub force: bool,
+    /// The quilt version to use (for quilt endpoints only).
+    /// Valid values: "v1", "V1", or "1". Defaults to "v1" if not specified.
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_quilt_version")]
+    pub quilt_version: Option<QuiltVersionEnum>,
 
     #[serde(flatten, default)]
     #[param(inline)]
@@ -435,27 +745,26 @@ impl Default for PublisherQuery {
             encoding_type: None,
             epochs: default_epochs(),
             deletable: false,
+            permanent: false,
             force: false,
+            quilt_version: None,
             send_or_share: None,
         }
     }
 }
 
 impl PublisherQuery {
-    /// Returns the [`StoreWhen`] value based on the query parameters.
+    /// Returns the [`StoreOptimizations`] value based on the query parameters.
     ///
     /// The publisher always ignores existing resources.
-    fn store_when(&self) -> StoreWhen {
-        if self.force {
-            StoreWhen::AlwaysIgnoreResources
-        } else {
-            StoreWhen::NotStoredIgnoreResources
-        }
+    fn optimizations(&self) -> StoreOptimizations {
+        StoreOptimizations::none().with_check_status(!self.force)
     }
 
     /// Returns the [`BlobPersistence`] value based on the query parameters.
-    fn blob_persistence(&self) -> BlobPersistence {
-        BlobPersistence::from_deletable(self.deletable)
+    fn blob_persistence(&self) -> Result<BlobPersistence, StoreBlobError> {
+        BlobPersistence::from_deletable_and_permanent(self.deletable, self.permanent)
+            .map_err(StoreBlobError::from)
     }
 
     /// Returns the [`PostStoreAction`] value based on the query parameters.
@@ -485,6 +794,189 @@ impl PublisherQuery {
     }
 }
 
+/// A helper structure to hold metadata for a quilt patch.
+#[derive(Debug, Deserialize)]
+pub struct QuiltPatchMetadata {
+    pub identifier: String,
+    #[serde(default)]
+    pub tags: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Store multiple blobs as a quilt using multipart/form-data.
+///
+/// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+/// The form contains:
+/// - Blobs identified by their identifiers as field names
+/// - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+///
+/// # Contents of Walrus-native metadata
+/// - `identifier`: The identifier of the blob, must match the corresponding blob field name
+/// - `tags`: JSON object with string key-value pairs (optional)
+///
+/// Blobs without corresponding metadata entries will be stored with empty tags.
+///
+/// # Examples
+///
+/// ## Blobs without Walrus-native metadata, with quilt version V1
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+///   -F "contract-v2=@document.pdf" \
+///   -F "logo-2024=@image.png"
+/// ```
+///
+/// ## Blobs with Walrus-native metadata, with default quilt version
+/// ```bash
+/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+///   -F "quilt-manual=@document.pdf" \
+///   -F "logo-2025=@image.png" \
+///   -F "_metadata=[
+///     {"identifier": "quilt-manual", "tags": {"creator": "walrus", "version": "1.0"}},
+///     {"identifier": "logo-2025", "tags": {"type": "logo", "format": "png"}}
+///   ]'
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
+#[utoipa::path(
+    put,
+    path = QUILT_PUT_ENDPOINT,
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form with blobs and their Walrus-native metadata"),
+    params(PublisherQuery),
+    responses(
+        (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The quilt is too large"),
+        StoreBlobError,
+    ),
+)]
+pub(super) async fn put_quilt<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
+    Query(query): Query<PublisherQuery>,
+    bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
+    multipart: Multipart,
+) -> Response {
+    tracing::debug!("starting to process quilt upload");
+
+    // Parse the quilt version, defaulting to V1 if not specified.
+    let quilt_version = query.quilt_version.clone().unwrap_or(QuiltVersionEnum::V1);
+
+    let quilt_store_blobs = match parse_multipart_quilt(multipart).await {
+        Ok(blobs) => blobs,
+        Err(error) => {
+            tracing::debug!(?error, "failed to parse multipart form");
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to parse multipart form: {error:?}"),
+            }
+            .into_response();
+        }
+    };
+
+    if quilt_store_blobs.is_empty() {
+        return StoreBlobError::MalformedRequest {
+            message: "no files provided in multipart form".to_string(),
+        }
+        .into_response();
+    }
+
+    let blob_persistence = match query.blob_persistence() {
+        Ok(blob_persistence) => blob_persistence,
+        Err(error) => return error.into_response(),
+    };
+
+    // For now, we only support V1 quilts.
+    assert_eq!(quilt_version, QuiltVersionEnum::V1);
+
+    let quilt = match client
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, query.encoding_type)
+        .await
+    {
+        Ok(quilt) => quilt,
+        Err(e) => {
+            return StoreBlobError::MalformedRequest {
+                message: format!("failed to construct quilt: {e:?}"),
+            }
+            .into_response();
+        }
+    };
+
+    if let Some(TypedHeader(header)) = bearer_header
+        && let Err(error) = check_blob_size(header, quilt.data().len())
+    {
+        return error.into_response();
+    }
+
+    let result = client
+        .write_quilt::<QuiltVersionV1>(
+            quilt,
+            query.encoding_type,
+            query.epochs,
+            query.optimizations(),
+            blob_persistence,
+            query.post_store_action(client.default_post_store_action()),
+        )
+        .await;
+
+    match result {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(error) => {
+            tracing::error!(?error, "error storing quilt");
+            StoreBlobError::from(error).into_response()
+        }
+    }
+}
+
+/// Parse multipart form data and extract files with their metadata.
+async fn parse_multipart_quilt(
+    mut multipart: Multipart,
+) -> Result<Vec<QuiltStoreBlob<'static>>, anyhow::Error> {
+    let mut blobs_with_identifiers = Vec::new();
+    let mut metadata_map: HashMap<String, QuiltPatchMetadata> = HashMap::new();
+
+    while let Some(field) = multipart.next_field().await? {
+        let field_name = field.name().unwrap_or("").to_string();
+        if field_name == WALRUS_NATIVE_METADATA_FIELD_NAME {
+            let metadata_json = field.text().await?;
+            for meta in serde_json::from_str::<Vec<QuiltPatchMetadata>>(&metadata_json)? {
+                let identifier = meta.identifier.clone();
+                if let Some(existing) = metadata_map.insert(identifier, meta) {
+                    return Err(StoreBlobError::MalformedRequest {
+                        message: format!("duplicate identifiers found in _metadata: {existing:?}"),
+                    }
+                    .into());
+                }
+            }
+        } else {
+            let data = field.bytes().await?.to_vec();
+            blobs_with_identifiers.push((field_name, data));
+        }
+    }
+
+    let mut res = Vec::with_capacity(blobs_with_identifiers.len());
+    for (identifier, data) in blobs_with_identifiers {
+        let tags = if let Some(meta) = metadata_map.get(&identifier) {
+            meta.tags
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+
+        res.push(QuiltStoreBlob::new_owned(data, identifier)?.with_tags(tags));
+    }
+
+    Ok(res)
+}
+
+/// Custom deserializer for QuiltVersionEnum that uses From<String>.
+fn deserialize_quilt_version<'de, D>(deserializer: D) -> Result<Option<QuiltVersionEnum>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_str: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt_str.map(QuiltVersionEnum::from))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::Uri;
@@ -503,7 +995,7 @@ mod tests {
             &[
                 Token::Struct {
                     name: "PublisherQuery",
-                    len: 4,
+                    len: 5,
                 },
                 Token::Str("encoding_type"),
                 Token::None,
@@ -513,6 +1005,8 @@ mod tests {
                 Token::Bool(false),
                 Token::Str("force"),
                 Token::Bool(false),
+                Token::Str("quilt_version"),
+                Token::None,
                 Token::StructEnd,
             ],
         );
@@ -613,7 +1107,7 @@ mod tests {
         ]
     }
     fn test_parse_publisher_query(query_str: &str, expected: Option<PublisherQuery>) {
-        let uri_str = format!("http://localhost/test?{}", query_str);
+        let uri_str = format!("http://localhost/test?{query_str}");
         let uri: Uri = uri_str.parse().expect("the uri is valid");
 
         let result = Query::<PublisherQuery>::try_from_uri(&uri);
@@ -629,5 +1123,47 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_quilt_file_metadata_deserialization() {
+        let json = r#"[
+                {
+                    "identifier": "contract-v2",
+                    "tags": {
+                        "author": "alice",
+                        "version": "2.0"
+                    }
+                },
+                {
+                    "identifier": "logo-2024",
+                    "tags": {
+                        "type": 3,
+                        "format": "png"
+                    }
+                }
+            ]"#;
+
+        let metadata: Vec<QuiltPatchMetadata> = serde_json::from_str(json).expect("should parse");
+        assert_eq!(metadata.len(), 2);
+        assert_eq!(metadata[0].identifier, "contract-v2");
+        assert_eq!(metadata[1].identifier, "logo-2024");
+        assert_eq!(
+            metadata[0]
+                .tags
+                .get("author")
+                .expect("should be some")
+                .as_str()
+                .expect("should be some"),
+            "alice"
+        );
+        assert_eq!(
+            metadata[1]
+                .tags
+                .get("type")
+                .expect("should be some")
+                .to_string(),
+            "3"
+        );
     }
 }

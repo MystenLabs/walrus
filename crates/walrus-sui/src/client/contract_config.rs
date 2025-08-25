@@ -13,30 +13,22 @@ pub struct ContractConfig {
     pub system_object: ObjectID,
     /// Object ID of the Walrus staking object.
     pub staking_object: ObjectID,
-    /// Object ID of the Walrus subsidies object.
+    /// Object ID of the credits object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subsidies_object: Option<ObjectID>,
+    pub credits_object: Option<ObjectID>,
+    /// Object ID of the walrus subsidies object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walrus_subsidies_object: Option<ObjectID>,
 }
 
 impl ContractConfig {
-    /// Creates a [`ContractConfig`] with the system, staking, and subsidies objects.
-    pub fn new_with_subsidies(
-        system_object: ObjectID,
-        staking_object: ObjectID,
-        subsidies_object: Option<ObjectID>,
-    ) -> Self {
-        Self {
-            system_object,
-            staking_object,
-            subsidies_object,
-        }
-    }
     /// Creates a basic [`ContractConfig`] with just the system and staking objects.
     pub fn new(system_object: ObjectID, staking_object: ObjectID) -> Self {
         Self {
             system_object,
             staking_object,
-            subsidies_object: None,
+            credits_object: None,
+            walrus_subsidies_object: None,
         }
     }
 }

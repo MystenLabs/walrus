@@ -18,17 +18,11 @@ use walrus_sui::client::{ReadClient, SuiReadClient};
 use super::{STATUS_PENDING, STATUS_PERSISTED, StorageNodeInner};
 use crate::{
     common::config::SuiConfig,
-    node::{
-        events::{
-            CheckpointEventPosition,
-            EventStreamCursor,
-            InitState,
-            PositionedStreamEvent,
-            event_processor::EventProcessor,
-        },
-        metrics::STATUS_HIGHEST_FINISHED,
-        storage::EventProgress,
+    event::{
+        event_processor::processor::EventProcessor,
+        events::{CheckpointEventPosition, EventStreamCursor, InitState, PositionedStreamEvent},
     },
+    node::{metrics::STATUS_HIGHEST_FINISHED, storage::EventProgress},
 };
 
 /// The capacity of the event channel.
@@ -196,7 +190,7 @@ impl SuiSystemEventProvider {
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
-    /// Return a new stream over [`PositionedStreamEvent`]s starting from those
+    /// Returns a new stream over [`PositionedStreamEvent`]s starting from those
     /// specified by `from`.
     async fn events(
         &self,
@@ -218,7 +212,7 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     async fn init_state(&self, from: EventStreamCursor)
     -> Result<Option<InitState>, anyhow::Error>;
 
-    /// Return a reference to this provider as a [`EventProcessor`].
+    /// Returns a reference to this provider as a [`EventProcessor`].
     fn as_event_processor(&self) -> Option<&EventProcessor>;
 }
 
@@ -281,6 +275,15 @@ impl EventManager for SuiSystemEventProvider {
 
 #[async_trait]
 impl SystemEventProvider for EventProcessor {
+    /// Returns a new stream over [`PositionedStreamEvent`]s starting from those specified by
+    /// `from`.
+    ///
+    /// This expects a contiguous range of events present in the events store starting at the
+    /// provided `cursor`.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the event store contains a gap in the event sequence.
     async fn events<'life0>(
         &'life0 self,
         cursor: EventStreamCursor,
@@ -298,9 +301,24 @@ impl SystemEventProvider for EventProcessor {
                     .poll(element_index)
                     .inspect_err(|error| tracing::error!(?error, "failed to poll event stream"))
                     .ok()?;
+
                 // Update the index such that the next future continues the sequence.
                 let n_events = u64::try_from(events.len()).expect("number of events is within u64");
-                Some((stream::iter(events), (interval, element_index + n_events)))
+                let next_element_index = element_index + n_events;
+                if n_events > 0 {
+                    let last_event_index = events
+                        .last()
+                        .expect("we just checked that events is not empty")
+                        .index;
+                    assert!(
+                        last_event_index == next_element_index - 1,
+                        "event index inconsistency in event store",
+                    );
+                };
+                Some((
+                    stream::iter(events.into_iter().map(|e| e.element)),
+                    (interval, next_element_index),
+                ))
             },
         )
         .flatten();

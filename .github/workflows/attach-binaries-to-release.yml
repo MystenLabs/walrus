@@ -68,13 +68,13 @@ jobs:
           ref: ${{ env.walrus_tag }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # pin@v2
+        uses: google-github-actions/setup-gcloud@6a7c903a70c8625ed6700fa299f5ddb4ca6022e9 # pin@v2
         with:
           version: ">= 363.0.0"
 
       - name: Configure GCP service user auth
         id: auth
-        uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193 # pin@v2
+        uses: google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5 # pin@v2
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-releases | \
+          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-binaries | \
             grep -w "walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz" | \
             head -n 1 || echo '')
 
@@ -111,12 +111,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p ${{ env.TMP_BUILD_DIR }}
-          gcloud storage cp gs://mysten-walrus-releases/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+          gcloud storage cp gs://mysten-walrus-binaries/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
       - name: Install nexttest (Windows)
         if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
-        uses: taiki-e/install-action@33022ba120c3f523d134bbbee12278fc11a3df1a # pin@nextest
+        uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
 
       - name: Install postgres (Windows)
         if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
@@ -193,7 +193,7 @@ jobs:
         run: ls -al ./tmp
 
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
-        uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
+        uses: google-github-actions/upload-cloud-storage@7c73f5d6eae167341002e9c946f7479a609c588e # pin@v2
         with:
           path: "./tmp"
           destination: "mysten-walrus-releases"
@@ -208,7 +208,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # pin@v2.2.2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # pin@v2.3.2
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |

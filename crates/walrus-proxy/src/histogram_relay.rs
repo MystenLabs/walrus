@@ -38,7 +38,7 @@ overflowed to/from the queue.",
             ),
             &["histogram_relay"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
@@ -54,7 +54,7 @@ static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             ]),
             &["histogram_relay"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 
@@ -78,9 +78,14 @@ pub fn start_prometheus_server(listener: TcpListener) -> HistogramRelay {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true).unwrap();
-        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-        axum::serve(listener, app).await.unwrap();
+        listener
+            .set_nonblocking(true)
+            .expect("listener is valid and supports non-blocking mode");
+        let listener = tokio::net::TcpListener::from_std(listener)
+            .expect("valid std listener can always be converted to tokio listener");
+        axum::serve(listener, app)
+            .await
+            .expect("axum server should run without error");
     });
     relay
 }
@@ -126,8 +131,10 @@ impl HistogramRelay {
         //  represents a collection timestamp
         let timestamp_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+            .expect("system time should be after UNIX_EPOCH")
+            .as_secs()
+            .try_into()
+            .expect("timestamp should fit in i64");
         let mut queue = self
             .0
             .lock()

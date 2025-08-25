@@ -11,11 +11,8 @@ use std::{
     time::Instant,
 };
 
-use blob_info::{BlobInfoIterator, PerObjectBlobInfo, PerObjectBlobInfoIterator};
-use event_cursor_table::EventIdWithProgress;
 use futures::FutureExt as _;
 use itertools::Itertools;
-use metrics::{CommonDatabaseMetrics, Labels, OperationType};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
@@ -37,7 +34,14 @@ use walrus_sui::types::BlobEvent;
 use walrus_utils::metrics::Registry;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
+    blob_info::{
+        BlobInfo,
+        BlobInfoApi,
+        BlobInfoIterator,
+        BlobInfoTable,
+        PerObjectBlobInfo,
+        PerObjectBlobInfoIterator,
+    },
     constants::{
         metadata_cf_name,
         node_status_cf_name,
@@ -47,7 +51,8 @@ use self::{
         shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     },
-    event_cursor_table::EventCursorTable,
+    event_cursor_table::{EventCursorTable, EventIdWithProgress},
+    metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
 use crate::utils;
@@ -86,13 +91,17 @@ pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
 }
 
 /// The status of the node.
-//
-//     Standby <--> RecoveryCatchUp --> RecoveryInProgress
-//         \            /          ^       |
-//          \          /            \      |
-//           v        v              \     v
-//          RecoverMetadata  -------> Active
-//
+///
+/// ```text
+///    RecoveryCatchUpWithIncompleteHistory
+///       ^                             |
+///      /                              |
+///     v                               v
+/// Standby <--> RecoveryCatchUp --> RecoveryInProgress
+///      \          /        ^       /
+///       v        v          \     v
+///      RecoverMetadata  --> Active
+/// ```
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,8 +114,19 @@ pub enum NodeStatus {
     RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    /// The node is in recovery mode and recovering missing slivers.
+    /// The node is in recovery mode and recovering missing slivers. The included epoch is the
+    /// epoch in which the node started recovering.
     RecoveryInProgress(Epoch),
+    /// The node is in recovery mode and catching up with the chain, but the history is incomplete
+    /// due to expired event blobs.
+    RecoveryCatchUpWithIncompleteHistory {
+        /// The first epoch for which all events are available and relevant. When processing events,
+        /// we will discard all events issued before this epoch.
+        first_complete_epoch: Epoch,
+        /// The epoch at which the node started recovering. When processing events, we will include
+        /// events for all blobs that expire after this epoch.
+        epoch_at_start: Epoch,
+    },
 }
 
 impl NodeStatus {
@@ -118,7 +138,24 @@ impl NodeStatus {
             NodeStatus::RecoverMetadata => 2,
             NodeStatus::RecoveryCatchUp => 3,
             NodeStatus::RecoveryInProgress(_) => 4,
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. } => 5,
         }
+    }
+
+    /// Returns `true` if the node is catching up.
+    pub fn is_catching_up(&self) -> bool {
+        matches!(
+            self,
+            NodeStatus::RecoveryCatchUp | NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
+        )
+    }
+
+    /// Returns `true` if the node is catching up with incomplete history.
+    pub fn is_catching_up_with_incomplete_history(&self) -> bool {
+        matches!(
+            self,
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
+        )
     }
 }
 
@@ -130,6 +167,14 @@ impl Display for NodeStatus {
             NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                first_complete_epoch: first_epoch,
+                epoch_at_start,
+            } => write!(
+                f,
+                "RecoveryCatchUpWithIncompleteHistory \
+                (first complete epoch: {first_epoch}, epoch at start: {epoch_at_start})"
+            ),
         }
     }
 }
@@ -285,14 +330,23 @@ impl Storage {
         })
     }
 
+    /// Returns a reference to the database.
+    pub(crate) fn get_db(&self) -> Arc<RocksDB> {
+        self.database.clone()
+    }
+
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
         self.node_status
             .get(&())
             .map(|value| value.expect("node status should always be set"))
     }
 
-    pub(crate) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+    pub(super) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
+    }
+
+    pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
+        self.blob_info.clear()
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -306,6 +360,7 @@ impl Storage {
     }
 
     /// Creates the storage for the specified shards, if it does not exist yet.
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) async fn create_storage_for_shards(
         &self,
         new_shards: &[ShardIndex],
@@ -435,6 +490,8 @@ impl Storage {
     }
 
     /// Store the verified metadata.
+    ///
+    /// This must *not* be called for a blob that is not tracked in the blob-info table.
     #[tracing::instrument(skip_all)]
     pub async fn put_verified_metadata(
         &self,
@@ -444,6 +501,7 @@ impl Storage {
             .await
     }
 
+    // Important: This must *not* be called for a blob that is not tracked in the blob-info table.
     async fn put_metadata(
         &self,
         blob_id: &BlobId,
@@ -473,7 +531,10 @@ impl Storage {
 
     /// Returns the blob info for `blob_id`.
     #[tracing::instrument(skip_all)]
-    pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
+    pub(crate) fn get_blob_info(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
     }
 
@@ -504,7 +565,18 @@ impl Storage {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        self.blob_info.update_blob_info(event_index, event)
+        if let NodeStatus::RecoveryCatchUpWithIncompleteHistory { epoch_at_start, .. } =
+            self.node_status()?
+        {
+            self.blob_info
+                .update_blob_info_during_recovery_with_incomplete_history(
+                    event_index,
+                    event,
+                    epoch_at_start,
+                )
+        } else {
+            self.blob_info.update_blob_info(event_index, event)
+        }
     }
 
     /// Repositions the event cursor to the specified event index.
@@ -575,10 +647,12 @@ impl Storage {
     }
 
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
+    ///
+    /// This *does not* update the blob-info table in any way.
     #[tracing::instrument(skip_all)]
     pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id, true)?;
+        self.delete_metadata(&mut batch, blob_id, false)?;
         self.delete_slivers(&mut batch, blob_id).await?;
         batch.write()?;
         Ok(())
@@ -671,10 +745,11 @@ impl Storage {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
-        let mut fetched_blobs = Vec::with_capacity(request.sliver_count() as usize);
+        let sliver_count = request.sliver_count();
+        let mut fetched_blobs = Vec::with_capacity(sliver_count);
         let mut last_fetched_blob_id = None;
-        while fetched_blobs.len() < request.sliver_count() as usize {
-            let remaining_count = request.sliver_count() as usize - fetched_blobs.len();
+        while fetched_blobs.len() < sliver_count {
+            let remaining_count = sliver_count - fetched_blobs.len();
 
             // Set starting point - either the initial request start or after last fetched blob
             let starting_blob_id_bound =
@@ -704,7 +779,10 @@ impl Storage {
     }
 
     /// Returns an iterator over the certified blob info before the specified epoch.
-    pub(crate) fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
+    pub(crate) fn certified_blob_info_iter_before_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> BlobInfoIterator<'_> {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
@@ -713,7 +791,7 @@ impl Storage {
     pub(crate) fn certified_per_object_blob_info_iter_before_epoch(
         &self,
         epoch: Epoch,
-    ) -> PerObjectBlobInfoIterator {
+    ) -> PerObjectBlobInfoIterator<'_> {
         self.blob_info
             .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
@@ -721,6 +799,11 @@ impl Storage {
     /// Returns the current event cursor.
     pub(crate) fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor.get_event_cursor_progress()
+    }
+
+    /// Returns the latest event index that has been handled by the node.
+    pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
+        self.blob_info.get_latest_handled_event_index()
     }
 
     /// Clears the metadata in the storage for testing purposes.

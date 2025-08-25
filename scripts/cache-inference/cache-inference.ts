@@ -4,19 +4,22 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
-import { AggregatorData, AggregatorDataVerbose, HeaderValue, Operators } from './types';
+import { AggregatorData, HeaderValue, Operators } from './types';
 
 type HeaderMatch = {
     key: string;
     value: string | null
 };
 
-// Speedups bigger than this value (milliseconds) will are attributed to cache hits.
-const THRESHOLD_MS: number = 1000;
+// Speedups between first and second fetch that are bigger than this value (milliseconds) will be
+// attributed to cache hits.
+const CACHE_LATENCY_IMPROVEMENT_THRESHOLD_MS: number = 1000;
+// Latencies smaller than this value (milliseconds) will be attributed to cache hits.
+const HIT_LATENCY_THRESHOLD_MS: number = 500;
 
 // Filters header keys by searching for "cache" substring inside them.
 function headerKeyContainsCache(headers: Headers): HeaderMatch[] {
-    let filtered = [];
+    const filtered = [];
     headers.forEach((value, key, _parent) => {
         if (key.toLowerCase().includes("cache")) {
             filtered.push({ key, value });
@@ -35,13 +38,17 @@ async function updateAggregatorCacheInfo(
     aggregators: Record<string, AggregatorData>,
     blobId: string,
     verbose: boolean,
+    removeOnError: boolean,
 ) {
+    const urlsToRemove: string[] = [];
+
     for (const [url, value] of Object.entries(aggregators)) {
         const blobUrl = new URL(`v1/blobs/${blobId}`, url);
         let fetch1: number;
         let fetch2: number;
         let headers1: Headers;
         let headers2: Headers;
+
         try {
             let start = Date.now();
             const resp1 = await fetch(blobUrl);
@@ -56,26 +63,55 @@ async function updateAggregatorCacheInfo(
             fetch2 = Date.now() - start
             headers2 = resp2.headers;
         } catch (e) {
-            console.error(`Error during measuring ${blobUrl}:`);
-            console.error(e);
+            console.error(`${url}: Error while measuring aggregator performance:\n  ${e}`);
+            urlsToRemove.push(url);
+            value.functional = false;
+            value.cache = undefined;
             continue;
         }
         const speedupMs = fetch1 - fetch2;
 
-        let headersWithCacheKey1 = headerKeyContainsCache(headers1);
-        let headersWithCacheKey2 = headerKeyContainsCache(headers2);
+        const headersWithCacheKey1 = headerKeyContainsCache(headers1);
+        const headersWithCacheKey2 = headerKeyContainsCache(headers2);
 
-        // Update value.cache in the existing operators
-        if (headersHaveCacheHit(headersWithCacheKey1)) { // Identifying cache-hit on the 1st request
-            console.warn(`Error measuring cache speedup for ${blobUrl}:`);
-            console.warn(`First fetch is a cache-hit: ${JSON.stringify(headersWithCacheKey1)}`);
-            value.cache = true;
+        // Update value.cache in the existing operator.
+        value.cache = true;
+        if (fetch1 < HIT_LATENCY_THRESHOLD_MS) {
+            console.warn(
+                `${url}: Latency of first fetch (${fetch1}ms) is smaller than the ` +
+                `threshold ${HIT_LATENCY_THRESHOLD_MS}ms, indicating a cache hit.`
+            );
+        } else if (fetch2 < HIT_LATENCY_THRESHOLD_MS) {
+            console.warn(
+                `${url}: Latency of second fetch (${fetch2}ms) is smaller than the ` +
+                `threshold ${HIT_LATENCY_THRESHOLD_MS}ms, indicating a cache hit.`
+            );
+        } else if (speedupMs > CACHE_LATENCY_IMPROVEMENT_THRESHOLD_MS) {
+            console.warn(
+                `${url}: Speedup (${speedupMs}ms) is greater than the threshold ` +
+                `${CACHE_LATENCY_IMPROVEMENT_THRESHOLD_MS}ms`
+            );
+        } else if (headersHaveCacheHit(headersWithCacheKey1)) {
+            console.warn(
+                `${url}: Headers of first fetch indicate a cache-hit: ` +
+                `${JSON.stringify(headersWithCacheKey1)}`
+            );
+        } else if (headersHaveCacheHit(headersWithCacheKey2)) {
+            console.warn(
+                `${url}: Headers of second fetch indicate a cache-hit: ` +
+                `${JSON.stringify(headersWithCacheKey2)}`
+            );
         } else {
-            value.cache = speedupMs > THRESHOLD_MS || headersHaveCacheHit(headersWithCacheKey2)
+            console.warn(
+                `${url}: No cache-hit detected:\n` +
+                `  first fetch: ${fetch1}ms, second fetch: ${fetch2}ms\n` +
+                `  first fetch headers: ${JSON.stringify(headersWithCacheKey1)}\n` +
+                `  second fetch headers: ${JSON.stringify(headersWithCacheKey2)}`
+            );
+            value.cache = false;
         }
         if (verbose) {
-            // Create a single key -> value1, value2 mapping
-            // ie. commonkey -> [value from first fetch, value from second fetch]
+            // Create a mapping commonKey -> [value from first fetch, value from second fetch]
             const map2 = Object.fromEntries(
                 headersWithCacheKey2.map(({ key, value }) => [key, value])
             );
@@ -90,6 +126,15 @@ async function updateAggregatorCacheInfo(
             value.cacheSpeedupMs = [speedupMs, [fetch1, fetch2]];
         }
     }
+
+    // Remove aggregators that had errors
+    if (removeOnError && urlsToRemove.length > 0) {
+        console.warn(`Removing ${urlsToRemove.length} aggregators due to errors`);
+        for (const url of urlsToRemove) {
+            delete aggregators[url];
+            console.warn(`Removed aggregator ${url}`);
+        }
+    }
 }
 
 // Get command line arguments
@@ -97,14 +142,16 @@ let parsedArgs: {
     mainnetBlobId: string;
     testnetBlobId: string;
     verbose: boolean;
+    removeOnError: boolean;
 } = {
     mainnetBlobId: '',
     testnetBlobId: '',
-    verbose: false
+    verbose: false,
+    removeOnError: false,
 };
 
 yargs(hideBin(process.argv))
-    .scriptName('bin')
+    .scriptName('cache-inference')
     .command(
         '$0 <mainnetBlobId> [testnetBlobId]',
         'Run the binary',
@@ -123,12 +170,19 @@ yargs(hideBin(process.argv))
                     type: 'boolean',
                     description: 'Run with verbose logging',
                     default: false,
+                })
+                .option('remove-on-error', {
+                    alias: 'r',
+                    type: 'boolean',
+                    description: 'Remove operators on error',
+                    default: false,
                 }),
         (argv) => {
             parsedArgs = {
                 mainnetBlobId: argv.mainnetBlobId!,
                 testnetBlobId: argv.testnetBlobId ?? argv.mainnetBlobId!,
                 verbose: argv.verbose ?? false,
+                removeOnError: argv.removeOnError ?? false,
             };
         }
     )
@@ -136,10 +190,20 @@ yargs(hideBin(process.argv))
     .parseSync()
 
 async function run() {
-    const { mainnetBlobId, testnetBlobId, verbose } = parsedArgs;
+    const { mainnetBlobId, testnetBlobId, verbose, removeOnError } = parsedArgs;
     const nodes: Operators = mdbookOperatorsJson;
-    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, mainnetBlobId, verbose);
-    await updateAggregatorCacheInfo(nodes.testnet.aggregators, testnetBlobId, verbose);
+    await updateAggregatorCacheInfo(
+        nodes.mainnet.aggregators,
+        mainnetBlobId,
+        verbose,
+        removeOnError,
+    );
+    await updateAggregatorCacheInfo(
+        nodes.testnet.aggregators,
+        testnetBlobId,
+        verbose,
+        removeOnError,
+    );
     console.log(JSON.stringify(nodes, null, 2))
 }
 

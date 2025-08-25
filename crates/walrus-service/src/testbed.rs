@@ -132,7 +132,7 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
             .expect("this is smaller than `u16::MAX`")
             + 1
     };
-    format!("dryrun-node-{node_index:00$}", width)
+    format!("dryrun-node-{node_index:0width$}")
 }
 
 /// Generates deterministic keypairs for the benchmark purposes.
@@ -161,24 +161,13 @@ pub fn metrics_socket_address(ip: IpAddr, port: u16, node_index: Option<u16>) ->
     SocketAddr::new(ip, port)
 }
 
-/// Formats the REST API address for a node. If both the node index and the committee size is
-/// provided, the port is adjusted to ensure uniqueness across nodes.
-pub fn rest_api_socket_address(
-    ip: IpAddr,
-    port: u16,
-    node_index: Option<u16>,
-    committee_size: Option<u16>,
-) -> SocketAddr {
-    SocketAddr::new(ip, rest_api_port(port, node_index, committee_size))
-}
-
 /// Creates the REST API address for a node. If both the node index and the committee size is
 /// provided, the port is adjusted to ensure uniqueness across nodes.
 pub fn public_rest_api_address(
     host: String,
     port: u16,
     node_index: Option<u16>,
-    committee_size: Option<u16>,
+    committee_size: Option<NonZeroU16>,
 ) -> NetworkAddress {
     NetworkAddress(format!(
         "{}:{}",
@@ -187,9 +176,9 @@ pub fn public_rest_api_address(
     ))
 }
 
-fn rest_api_port(port: u16, node_index: Option<u16>, committee_size: Option<u16>) -> u16 {
+fn rest_api_port(port: u16, node_index: Option<u16>, committee_size: Option<NonZeroU16>) -> u16 {
     if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
-        port + committee_size + node_index
+        port + committee_size.get() + node_index
     } else {
         port
     }
@@ -258,8 +247,6 @@ pub struct DeployTestbedContractParameters<'a> {
     pub with_wal_exchange: bool,
     /// Flag to use an existing WAL token deployment at the address specified in `Move.lock`.
     pub use_existing_wal_token: bool,
-    /// Flag to create a subsidies package.
-    pub with_subsidies: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -283,34 +270,28 @@ pub async fn deploy_walrus_contract(
         do_not_copy_contracts,
         with_wal_exchange,
         use_existing_wal_token,
-        with_subsidies,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
-    // 10M WAL for subsidies that will be used to fund the subsidy pool
-    const SUBSIDIES_AMOUNT: u64 = 10_000_000 * 1_000_000_000;
-    // 80% buyer subsidy rate
-    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 8000;
-    // 80% system subsidy rate
-    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 8000;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
     let collocated = hosts_set.len() != hosts.len();
 
-    tracing::debug!("Storage nodes collocated on same machine: {}", collocated);
-    tracing::debug!("Deploying contract to Sui network: {}", sui_network);
+    tracing::debug!("storage nodes collocated on same machine: {}", collocated);
+    tracing::debug!("deploying contract to Sui network '{}'", sui_network);
 
     // Build one Sui storage node config for each storage node.
-    let committee_size = hosts.len() as u16;
+    let committee_size = hosts.len();
     let keypairs = if deterministic_keys {
-        deterministic_keypairs(committee_size as usize)
+        deterministic_keypairs(committee_size)
     } else {
-        random_keypairs(committee_size as usize)
+        random_keypairs(committee_size)
     };
+    let committee_size = committee_size_from_usize(committee_size)?;
 
     tracing::debug!(
-        "Finished generating keypairs for {} storage nodes",
+        "finished generating keypairs for {} storage nodes",
         committee_size
     );
 
@@ -320,8 +301,10 @@ pub async fn deploy_walrus_contract(
     for (i, ((keypair, network_keypair), host)) in
         keypairs.into_iter().zip(hosts.iter().cloned()).enumerate()
     {
-        let node_index = i as u16;
-        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
+        let node_index = i
+            .try_into()
+            .expect("we checked above that the number of keypairs is at most 2^16");
+        let name = node_config_name_prefix(node_index, committee_size);
         let network_address = if collocated {
             public_rest_api_address(host, rest_api_port, Some(node_index), Some(committee_size))
         } else {
@@ -338,7 +321,7 @@ pub async fn deploy_walrus_contract(
 
         // The first half of the nodes will have a protocol key pair path, the second half will not.
         let protocol_key_pair_path = if i < mid {
-            Some(working_dir.join(format!("node-{}.key", node_index)))
+            Some(working_dir.join(format!("node-{node_index}.key")))
         } else {
             None
         };
@@ -352,7 +335,7 @@ pub async fn deploy_walrus_contract(
             commission_rate: 0,
             storage_price,
             write_price,
-            node_capacity: storage_capacity / (hosts.len() as u64),
+            node_capacity: storage_capacity / u64::from(committee_size.get()),
         });
     }
 
@@ -362,19 +345,19 @@ pub async fn deploy_walrus_contract(
     );
 
     // Create the working directory if it does not exist
-    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+    fs::create_dir_all(working_dir).context("failed to create working directory")?;
 
-    tracing::debug!("Creating working directory at {}", working_dir.display());
+    tracing::debug!("creating working directory at {}", working_dir.display());
 
     // Load or create wallet for publishing contracts on sui and setting up system object
-    let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
+    let admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
         tracing::debug!(
-            "Loading existing admin wallet from path: {}",
+            "loading existing admin wallet from '{}'",
             admin_wallet_path.display()
         );
         load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
-        tracing::debug!("Creating new admin wallet in working directory");
+        tracing::debug!("creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
@@ -388,7 +371,6 @@ pub async fn deploy_walrus_contract(
         // Try to flush output
         let _ = std::io::stdout().flush();
 
-        #[allow(deprecated)]
         let rpc_url = admin_wallet.get_rpc_url()?;
 
         // Get coins from faucet for the wallet.
@@ -407,8 +389,8 @@ pub async fn deploy_walrus_contract(
         Some(working_dir.join("contracts"))
     };
 
-    let mut system_ctx = create_and_init_system(
-        &mut admin_wallet,
+    let (system_ctx, contract_client) = create_and_init_system(
+        admin_wallet,
         InitSystemParams {
             n_shards,
             epoch_zero_duration,
@@ -418,7 +400,8 @@ pub async fn deploy_walrus_contract(
             deploy_directory,
             use_existing_wal_token,
             with_wal_exchange,
-            with_subsidies,
+            with_credits: false,
+            with_walrus_subsidies: true,
         },
         gas_budget,
     )
@@ -429,21 +412,7 @@ pub async fn deploy_walrus_contract(
         n_shards
     );
 
-    let contract_config = system_ctx.contract_config();
-
-    tracing::debug!("Retrieved contract configuration from system context");
-
-    #[allow(deprecated)]
-    let rpc_urls = &[admin_wallet.get_rpc_url()?];
-
-    let contract_client = SuiContractClient::new(
-        admin_wallet,
-        rpc_urls,
-        &contract_config,
-        ExponentialBackoffConfig::default(),
-        gas_budget,
-    )
-    .await?;
+    tracing::debug!("retrieved contract configuration from system context");
 
     let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
         // Create WAL exchange.
@@ -464,51 +433,17 @@ pub async fn deploy_walrus_contract(
             .unwrap_or_else(|| "None".to_string())
     );
 
-    let objects = if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
-        Some(
-            contract_client
-                .create_and_fund_subsidies(
-                    subsidies_pkg_id,
-                    INITIAL_BUYER_SUBSIDY_RATE,
-                    INITIAL_SYSTEM_SUBSIDY_RATE,
-                    SUBSIDIES_AMOUNT,
-                )
-                .await?,
-        )
-    } else {
-        None
-    };
-
-    match &objects {
-        Some((subsidies_id, admin_cap_id)) => {
-            tracing::debug!(
-                subsidies_id = %subsidies_id,
-                admin_cap_id = %admin_cap_id,
-                "Successfully created subsidies objects"
-            );
-        }
-        None => {
-            tracing::debug!("Subsidies creation skipped");
-        }
-    }
-
-    system_ctx.subsidies_object = objects.map(|(id, _)| id);
     println!(
         "Walrus contract created:\n\
             package_id: {}\n\
             system_object: {}\n\
             staking_object: {}\n\
             upgrade_manager_object: {}\n\
-            subsidies_object: {}\n\
             exchange_object: {}",
         system_ctx.walrus_pkg_id,
         system_ctx.system_object,
         system_ctx.staking_object,
         system_ctx.upgrade_manager_object,
-        system_ctx
-            .subsidies_object
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| "None".to_string()),
         exchange_object
             .map(|id| id.to_string())
             .unwrap_or_else(|| "None".to_string()),
@@ -536,14 +471,14 @@ pub async fn create_client_config(
     sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
-    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+    fs::create_dir_all(working_dir).context("failed to create working directory")?;
 
     // Create wallet for the client
-    let sui_client_wallet_path = working_dir.join(format!("{}.yaml", wallet_name));
+    let sui_client_wallet_path = working_dir.join(format!("{wallet_name}.yaml"));
     let mut sui_client_wallet_context = create_wallet(
         &sui_client_wallet_path,
         sui_network.env(),
-        Some(&format!("{}.keystore", wallet_name)),
+        Some(&format!("{wallet_name}.keystore")),
         sui_client_request_timeout,
     )?;
 
@@ -590,6 +525,7 @@ pub async fn create_client_config(
             ..Default::default()
         },
         refresh_config: Default::default(),
+        quilt_client_config: Default::default(),
     };
 
     Ok(client_config)
@@ -692,10 +628,10 @@ pub async fn create_storage_node_configs(
     };
 
     // Build one Sui storage node config for each storage node.
-    let committee_size = nodes.len() as u16;
+    let committee_size = committee_size_from_usize(nodes.len())?;
     let wallets = create_storage_node_wallets(
         working_dir,
-        NonZeroU16::new(committee_size).expect("committee size must be > 0"),
+        committee_size,
         testbed_config.sui_network,
         faucet_cooldown,
         admin_contract_client.wallet_mut(),
@@ -715,8 +651,10 @@ pub async fn create_storage_node_configs(
     let rpc = wallets[0].get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (node, rest_api_address)) in nodes.into_iter().zip(rest_api_addrs).enumerate() {
-        let node_index = i as u16;
-        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
+        let node_index = i
+            .try_into()
+            .expect("we checked above that the number of nodes is at most 2^16");
+        let name = node_config_name_prefix(node_index, committee_size);
 
         let metrics_address = if collocated {
             metrics_socket_address(rest_api_address.ip(), metrics_port, Some(node_index))
@@ -804,14 +742,17 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                enable_sliver_data_existence_check: true,
+                enable_sliver_data_existence_check: false,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
+            checkpoint_config: Default::default(),
+            admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
+            node_recovery_config: Default::default(),
+            blob_event_processor_config: Default::default(),
         });
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
-        #[allow(deprecated)]
         let rpc_urls = &[wallet
             .get_rpc_url()
             .expect("wallet environment should contain an rpc url")];
@@ -881,6 +822,14 @@ fn replace_keystore_path(wallet_path: &Path, new_directory: &Path) -> anyhow::Re
     Ok(())
 }
 
+fn committee_size_from_usize(n: usize) -> Result<NonZeroU16, anyhow::Error> {
+    NonZeroU16::new(
+        n.try_into()
+            .map_err(|_| anyhow!("committee size is too large: {} > {}", n, u16::MAX))?,
+    )
+    .ok_or_else(|| anyhow!("committee size must be > 0"))
+}
+
 async fn create_storage_node_wallets(
     working_dir: &Path,
     n_nodes: NonZeroU16,
@@ -893,11 +842,11 @@ async fn create_storage_node_wallets(
     let mut storage_node_wallets = (0..n_nodes.get())
         .map(|index| {
             let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{}-sui.yaml", name));
+            let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
             create_wallet(
                 &wallet_path,
                 sui_network.env(),
-                Some(&format!("{}.keystore", name)),
+                Some(&format!("{name}.keystore")),
                 None,
             )
         })

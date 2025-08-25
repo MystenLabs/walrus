@@ -12,6 +12,7 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
+use sui_move_build::CompiledPackage;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
     Identifier,
@@ -19,7 +20,14 @@ use sui_types::{
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
+    transaction::{
+        Argument,
+        Command,
+        ObjectArg,
+        ProgrammableTransaction,
+        TransactionData,
+        TransactionKind,
+    },
 };
 use tokio::sync::OnceCell;
 use tracing::instrument;
@@ -40,6 +48,7 @@ use super::{
     SuiClientError,
     SuiClientResult,
     SuiReadClient,
+    UpgradeType,
     read_client::Mutability,
 };
 use crate::{
@@ -50,9 +59,9 @@ use crate::{
         NodeUpdateParams,
         SystemObject,
         UpdatePublicKeyParams,
-        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
+        move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },
-    utils::{price_for_encoded_length, write_price_for_encoded_length},
+    utils::{TEN_THOUSAND_BASIS_POINTS, price_for_encoded_length, write_price_for_encoded_length},
 };
 
 const CLOCK_OBJECT_ARG: ObjectArg = ObjectArg::SharedObject {
@@ -158,9 +167,11 @@ impl WalrusPtbBuilder {
     /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance
     /// can be found.
     pub async fn fill_wal_balance(&mut self, min_balance: u64) -> SuiClientResult<()> {
-        if min_balance <= self.tx_wal_balance {
+        // If we already have a wal_coin_arg and sufficient balance, we're done
+        if min_balance <= self.tx_wal_balance && self.wal_coin_arg.is_some() {
             return Ok(());
         }
+
         let additional_balance = min_balance - self.tx_wal_balance;
         let mut coins = self
             .read_client
@@ -252,13 +263,13 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `reserve_space` to the `pt_builder` and returns the result [`Argument`].
-    pub async fn reserve_space_without_subsidies(
+    pub async fn reserve_space(
         &mut self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, false)
             .await?;
         self.fill_wal_balance(price).await?;
 
@@ -276,26 +287,29 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `reserve_space` to the `pt_builder` and returns the result [`Argument`].
-    pub async fn reserve_space_with_subsidies(
+    pub async fn reserve_space_with_credits(
         &mut self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
-        subsidies_package_id: ObjectID,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
         self.fill_wal_balance(price).await?;
+
         let reserve_arguments = vec![
-            self.subsidies_arg(Mutability::Mutable).await?,
+            self.credits_arg(Mutability::Mutable).await?,
             self.system_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(encoded_size)?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
         ];
+        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+            return Err(SuiClientError::CreditsNotEnabled);
+        };
         let result_arg = self.move_call(
-            subsidies_package_id,
-            contracts::subsidies::reserve_space,
+            credits_package_id,
+            contracts::credits::reserve_space,
             reserve_arguments,
         )?;
         self.reduce_wal_balance(price)?;
@@ -331,7 +345,7 @@ impl WalrusPtbBuilder {
         persistence: BlobPersistence,
     ) -> SuiClientResult<Argument> {
         let price = self
-            .write_price_for_encoded_length(blob_metadata.encoded_size)
+            .write_price_for_encoded_length(blob_metadata.encoded_size, false)
             .await?;
         self.fill_wal_balance(price).await?;
 
@@ -350,6 +364,48 @@ impl WalrusPtbBuilder {
         ];
         let result_arg =
             self.walrus_move_call(contracts::system::register_blob, register_arguments)?;
+        self.reduce_wal_balance(price)?;
+        self.mark_arg_as_consumed(&storage_resource_arg);
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
+    /// with credits.
+    pub async fn register_blob_with_credits(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+    ) -> SuiClientResult<Argument> {
+        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+            return Err(SuiClientError::CreditsNotEnabled);
+        };
+        let price = self
+            .write_price_for_encoded_length(blob_metadata.encoded_size, true)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+
+        let register_arguments = vec![
+            self.credits_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            storage_resource_arg,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(persistence.is_deletable())?,
+            self.wal_coin_arg()?,
+        ];
+        let result_arg = self.move_call(
+            credits_package_id,
+            contracts::credits::register_blob,
+            register_arguments,
+        )?;
+
         self.reduce_wal_balance(price)?;
         self.mark_arg_as_consumed(&storage_resource_arg);
         self.add_result_to_be_consumed(result_arg);
@@ -614,15 +670,15 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Adds a call to extend an owned blob without subsidies.
-    pub async fn extend_blob_without_subsidies(
+    /// Adds a call to extend an owned blob without credits.
+    pub async fn extend_blob(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         epochs_extended: EpochCount,
         encoded_size: u64,
     ) -> SuiClientResult<()> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_extended)
+            .storage_price_for_encoded_length(encoded_size, epochs_extended, false)
             .await?;
 
         self.fill_wal_balance(price).await?;
@@ -638,32 +694,30 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Adds a call to extend an owned blob with subsidies.
-    pub async fn extend_blob_with_subsidies(
+    /// Adds a call to extend an owned blob with credits.
+    pub async fn extend_blob_with_credits(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         epochs_ahead: EpochCount,
         encoded_size: u64,
-        subsidies_package_id: ObjectID,
     ) -> SuiClientResult<()> {
+        let Some(credits_package_id) = self.read_client.get_credits_package_id() else {
+            return Err(SuiClientError::CreditsNotEnabled);
+        };
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
 
         self.fill_wal_balance(price).await?;
 
         let args = vec![
-            self.subsidies_arg(Mutability::Mutable).await?,
+            self.credits_arg(Mutability::Mutable).await?,
             self.system_arg(Mutability::Mutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
         ];
-        self.move_call(
-            subsidies_package_id,
-            contracts::subsidies::extend_blob,
-            args,
-        )?;
+        self.move_call(credits_package_id, contracts::credits::extend_blob, args)?;
         self.reduce_wal_balance(price)?;
         Ok(())
     }
@@ -707,14 +761,14 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let exchange: WalExchange = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(exchange_id)
             .await?;
         // We can get the package ID from the exchange object because we only use it in testnet
         // and the exchange is currently not designed for upgrades.
         let exchange_package = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_package_id_from_object(exchange_id)
             .await?;
         let exchange_arg = self.pt_builder.obj(
@@ -754,10 +808,11 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to create a new subsidies object, funded with `amount` WAL, to the PTB.
-    pub async fn create_and_fund_subsidies(
+    /// Adds a call to create a new credits object (`subsidies::Subsidies` in Move), funded with
+    /// `amount` WAL, to the PTB.
+    pub async fn create_and_fund_credits(
         &mut self,
-        subsidies_package: ObjectID,
+        package_id: ObjectID,
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
@@ -770,19 +825,72 @@ impl WalrusPtbBuilder {
             vec![split_amount_arg],
         ));
         let args = vec![
-            self.pt_builder.pure(subsidies_package)?,
+            self.pt_builder.pure(package_id)?,
             self.pt_builder.pure(initial_buyer_subsidy_rate)?,
             self.pt_builder.pure(initial_system_subsidy_rate)?,
             split_coin,
         ];
         let result_arg = self.move_call(
-            subsidies_package,
-            contracts::subsidies::new_with_initial_rates_and_funds,
+            package_id,
+            contracts::credits::new_with_initial_rates_and_funds,
             args,
         )?;
         self.reduce_wal_balance(amount)?;
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
+    }
+
+    /// Adds a call to create a new walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB.
+    pub async fn create_walrus_subsidies(
+        &mut self,
+        package_id: ObjectID,
+        system_subsidy_rate: u32,
+        base_subsidy: u64,
+        subsidy_per_shard: u64,
+    ) -> SuiClientResult<Argument> {
+        let args = vec![
+            self.system_arg(Mutability::Immutable).await?,
+            self.staking_arg(Mutability::Immutable).await?,
+            self.pt_builder.pure(system_subsidy_rate)?,
+            self.pt_builder.pure(base_subsidy)?,
+            self.pt_builder.pure(subsidy_per_shard)?,
+        ];
+        let result_arg = self.move_call(package_id, contracts::walrus_subsidies::new, args)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to fund the walrus subsidies object
+    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB, if a walrus subsidies object
+    /// is configured.
+    pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
+        let Some(walrus_subsidies_pkg_id) = self.read_client.get_walrus_subsidies_package_id()
+        else {
+            return Err(SuiClientError::WalrusSubsidiesNotConfigured);
+        };
+        self.fill_wal_balance(amount).await?;
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_walrus_subsidies_obj(Mutability::Mutable)
+                    .await?,
+            )?,
+            split_coin,
+        ];
+        self.move_call(
+            walrus_subsidies_pkg_id,
+            contracts::walrus_subsidies::add_coin,
+            args,
+        )?;
+        self.reduce_wal_balance(amount)?;
+        Ok(())
     }
 
     /// Adds a call to `invalidate_blob_id` to the PTB.
@@ -836,6 +944,26 @@ impl WalrusPtbBuilder {
             self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
         ];
         self.walrus_move_call(contracts::staking::voting_end, args)?;
+        Ok(())
+    }
+
+    /// Adds a call to `walrus_subsidies::process_subsidies` to the PTB.
+    pub async fn process_subsidies(&mut self) -> SuiClientResult<()> {
+        let args = vec![
+            self.walrus_subsidies_arg(Mutability::Mutable).await?,
+            self.staking_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            self.pt_builder.obj(CLOCK_OBJECT_ARG)?,
+        ];
+        let Some(walrus_subsidies_package_id) = self.read_client.get_walrus_subsidies_package_id()
+        else {
+            return Err(SuiClientError::CreditsNotEnabled);
+        };
+        self.move_call(
+            walrus_subsidies_package_id,
+            contracts::walrus_subsidies::process_subsidies,
+            args,
+        )?;
         Ok(())
     }
 
@@ -973,6 +1101,18 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Sends `amount` of SUI to `recipient, splitting the amount off of the gas coin.
+    pub async fn pay_sui(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
+        let amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self
+            .pt_builder
+            .command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
+        self.transfer(Some(recipient), once(split_coin.into()))
+            .await?;
+        self.tx_sui_cost += amount;
+        Ok(())
+    }
+
     /// Authenticates the sender address. Returns an `Authenticated` Move type as result argument.
     pub fn authenticate_sender(&mut self) -> SuiClientResult<Argument> {
         let result_arg = self.walrus_move_call(contracts::auth::authenticate_sender, vec![])?;
@@ -990,7 +1130,7 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<Argument> {
         let object_data = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_object_with_options(object, SuiObjectDataOptions::new().with_type())
             .await?
             .data
@@ -1333,26 +1473,8 @@ impl WalrusPtbBuilder {
         self.walrus_move_call(contracts::upgrade::authorize_emergency_upgrade, args)
     }
 
-    /// Performs a contract upgrade.
-    ///
-    /// Returns the `UpgradeReceipt` as result argument.
-    pub fn upgrade(
-        &mut self,
-        current_package_object_id: ObjectID,
-        upgrade_ticket: Argument,
-        transitive_deps: Vec<ObjectID>,
-        modules: Vec<Vec<u8>>,
-    ) -> Argument {
-        self.pt_builder.upgrade(
-            current_package_object_id,
-            upgrade_ticket,
-            transitive_deps,
-            modules,
-        )
-    }
-
     /// Commits a contract upgrade.
-    pub async fn commit_upgrade(
+    pub(crate) async fn commit_upgrade(
         &mut self,
         upgrade_manager: ObjectID,
         upgrade_receipt: Argument,
@@ -1371,6 +1493,65 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Builds a transaction to upgrade the walrus contract using the custom upgrade policy.
+    ///
+    /// This includes the authorization, the upgrade itself, and committing the upgrade.
+    pub async fn custom_walrus_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        compiled_package: CompiledPackage,
+        upgrade_type: UpgradeType,
+    ) -> SuiClientResult<()> {
+        let digest = compiled_package.get_package_digest(false);
+
+        let upgrade_ticket_arg = if upgrade_type.is_emergency_upgrade() {
+            let emergency_upgrade_cap: EmergencyUpgradeCap = self
+                .read_client
+                .get_owned_objects(self.sender_address, &[])
+                .await?
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("no emergency upgrade capability found"))?;
+
+            // Authorize the upgrade.
+            self.authorize_emergency_upgrade(
+                upgrade_manager,
+                emergency_upgrade_cap.id.into(),
+                &digest,
+            )
+            .await?
+        } else {
+            self.authorize_upgrade(upgrade_manager, &digest).await?
+        };
+
+        // Execute the upgrade.
+        let modules = compiled_package.get_package_bytes(false);
+        let upgrade_receipt_arg = self.pt_builder.upgrade(
+            self.read_client.get_system_package_id(),
+            upgrade_ticket_arg,
+            compiled_package
+                .dependency_ids
+                .published
+                .into_values()
+                .collect(),
+            modules,
+        );
+
+        // Commit the upgrade
+        self.commit_upgrade(upgrade_manager, upgrade_receipt_arg)
+            .await
+    }
+
+    /// Sets the migration epoch on the staking object to the following epoch.
+    pub async fn set_migration_epoch(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let args = vec![self.staking_arg(Mutability::Mutable).await?];
+        self.move_call(
+            new_package_id,
+            contracts::staking::set_migration_epoch,
+            args,
+        )?;
+        Ok(())
+    }
+
     /// Migrates the staking and system contracts to the new package id.
     pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
         let args = vec![
@@ -1380,12 +1561,52 @@ impl WalrusPtbBuilder {
         self.move_call(new_package_id, contracts::init::migrate, args)?;
         Ok(())
     }
+
     /// Transfers all remaining outputs and returns the PTB and the SUI balance needed in addition
     /// to the gas cost that needs to be covered by the gas coin.
+    #[deprecated = "use [`Self::build_transaction_data`] instead"]
     pub async fn finish(mut self) -> SuiClientResult<(ProgrammableTransaction, u64)> {
         self.transfer_remaining_outputs(None).await?;
         let sui_cost = self.tx_sui_cost;
         Ok((self.pt_builder.finish(), sui_cost))
+    }
+
+    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
+    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    pub async fn build_transaction_data(
+        self,
+        gas_budget: Option<u64>,
+    ) -> SuiClientResult<TransactionData> {
+        self.transfer_outputs_and_build_transaction_data(gas_budget, 0)
+            .await
+    }
+
+    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
+    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    /// The used gas coins will cover a balance of at least `minimum_gas_coin_balance`. This
+    /// is useful, e.g.,  to make sure that all gas coins get merged.
+    pub(crate) async fn transfer_outputs_and_build_transaction_data(
+        mut self,
+        gas_budget: Option<u64>,
+        minimum_gas_coin_balance: u64,
+    ) -> SuiClientResult<TransactionData> {
+        self.transfer_remaining_outputs(None).await?;
+        let programmable_transaction = self.pt_builder.finish();
+
+        // Get the current gas price from the network
+        // TODO(WAL-512): cache this to avoid RPC roundtrip.
+        let gas_price = self.read_client.get_reference_gas_price().await?;
+
+        build_transaction_data_with_min_gas_balance(
+            programmable_transaction,
+            gas_price,
+            self.read_client.as_ref(),
+            self.sender_address,
+            gas_budget,
+            minimum_gas_coin_balance,
+            self.tx_sui_cost,
+        )
+        .await
     }
 
     /// Given the node ID, checks if the sender is authorized to perform the operation (either as
@@ -1412,7 +1633,7 @@ impl WalrusPtbBuilder {
             Authorized::Object(receiver) => {
                 let object = self
                     .read_client
-                    .sui_client()
+                    .retriable_sui_client()
                     .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
                     .await?;
                 ensure!(
@@ -1432,19 +1653,57 @@ impl WalrusPtbBuilder {
         &self,
         encoded_size: u64,
         epochs_ahead: EpochCount,
+        with_credits: bool,
     ) -> SuiClientResult<u64> {
-        Ok(price_for_encoded_length(
+        let full_price = price_for_encoded_length(
             encoded_size,
             self.read_client.storage_price_per_unit_size().await?,
             epochs_ahead,
-        ))
+        );
+        let buyer_pays = match self.read_client.get_credits_object_id() {
+            Some(credits_object_id) if with_credits => {
+                let credits_object = self
+                    .read_client
+                    .retriable_sui_client()
+                    .get_credits_object(credits_object_id)
+                    .await?;
+                let subsidy = full_price * u64::from(credits_object.buyer_subsidy_rate)
+                    / TEN_THOUSAND_BASIS_POINTS;
+                full_price - subsidy
+            }
+            Some(_) => full_price,
+            None => full_price,
+        };
+
+        Ok(buyer_pays)
     }
 
-    async fn write_price_for_encoded_length(&self, encoded_size: u64) -> SuiClientResult<u64> {
-        Ok(write_price_for_encoded_length(
+    async fn write_price_for_encoded_length(
+        &self,
+        encoded_size: u64,
+        with_credits: bool,
+    ) -> SuiClientResult<u64> {
+        let full_price = write_price_for_encoded_length(
             encoded_size,
             self.read_client.write_price_per_unit_size().await?,
-        ))
+        );
+        let buyer_pays = match self.read_client.get_credits_object_id() {
+            Some(credits_object_id) if with_credits => {
+                let buyer_subsidy_rate = self
+                    .read_client
+                    .retriable_sui_client()
+                    .get_credits_object(credits_object_id)
+                    .await?
+                    .buyer_subsidy_rate;
+                let subsidy =
+                    full_price * u64::from(buyer_subsidy_rate) / TEN_THOUSAND_BASIS_POINTS;
+                full_price - subsidy
+            }
+            Some(_) => full_price,
+            None => full_price,
+        };
+
+        Ok(buyer_pays)
     }
 
     async fn argument_from_arg_or_obj(
@@ -1471,10 +1730,16 @@ impl WalrusPtbBuilder {
             .obj(self.read_client.object_arg_for_staking_obj(mutable).await?)?)
     }
 
-    async fn subsidies_arg(&mut self, mutable: Mutability) -> SuiClientResult<Argument> {
+    async fn credits_arg(&mut self, mutable: Mutability) -> SuiClientResult<Argument> {
+        Ok(self
+            .pt_builder
+            .obj(self.read_client.object_arg_for_credits_obj(mutable).await?)?)
+    }
+
+    async fn walrus_subsidies_arg(&mut self, mutable: Mutability) -> SuiClientResult<Argument> {
         Ok(self.pt_builder.obj(
             self.read_client
-                .object_arg_for_subsidies_obj(mutable)
+                .object_arg_for_walrus_subsidies_obj(mutable)
                 .await?,
         )?)
     }
@@ -1513,4 +1778,43 @@ impl WalrusPtbBuilder {
             }
         }
     }
+}
+
+// Returns the [`TransactionData`] containing the unsigned transaction.
+///
+/// If no `gas_budget` is provided, the budget will be estimated. The used gas coins will cover a
+/// balance of at least `minimum_gas_coin_balance`. This is useful, e.g.,  to make sure that all gas
+/// coins get merged.
+pub async fn build_transaction_data_with_min_gas_balance(
+    programmable_transaction: ProgrammableTransaction,
+    gas_price: u64,
+    read_client: &SuiReadClient,
+    sender_address: SuiAddress,
+    gas_budget: Option<u64>,
+    minimum_gas_coin_balance: u64,
+    tx_sui_cost: u64,
+) -> SuiClientResult<TransactionData> {
+    // Estimate the gas budget unless explicitly set.
+    let gas_budget = if let Some(budget) = gas_budget {
+        budget
+    } else {
+        let tx_kind = TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
+        read_client
+            .retriable_sui_client()
+            .estimate_gas_budget(sender_address, tx_kind, gas_price)
+            .await?
+    };
+
+    let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
+
+    // Construct the transaction with gas coins that meet the minimum balance requirement
+    Ok(TransactionData::new_programmable(
+        sender_address,
+        read_client
+            .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
+            .await?,
+        programmable_transaction,
+        gas_budget,
+        gas_price,
+    ))
 }

@@ -25,11 +25,11 @@ use super::{
     SliverRecoveryOrVerificationError,
     Symbols,
     errors::{SliverRecoveryError, SliverVerificationError},
-    symbols,
 };
 use crate::{
     SliverIndex,
     SliverPairIndex,
+    encoding::RequiredSymbolsCount,
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
@@ -217,6 +217,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. Returns a
     /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
+    ///
     pub fn decoding_symbol_for_sliver(
         &self,
         target_pair_index: SliverPairIndex,
@@ -224,23 +225,35 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoverySymbolError> {
         Self::check_index(target_pair_index.into(), config.n_shards())?;
 
-        // TODO(jsmith): Avoid expanding all the symbols to get a single symbol (WAL-611).
-        let recovery_symbols = self.recovery_symbols(config)?;
         let target_sliver_index =
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
-
-        Ok(recovery_symbols
-            .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
-            .expect("we have exactly `n_shards` symbols and the bound was checked"))
+        let is_source_target = usize::from(target_sliver_index.get()) < self.symbols.len();
+        if is_source_target {
+            let symbol_bytes = self.symbols[target_sliver_index.as_usize()].to_vec();
+            let sliver_index = self.index;
+            Ok(DecodingSymbol::<T::OrthogonalAxis>::new(
+                sliver_index.get(),
+                symbol_bytes,
+            ))
+        } else {
+            // TODO(jsmith): Avoid expanding all the symbols to get a single symbol (WAL-611).
+            let recovery_symbols = self.recovery_symbols(config)?;
+            let decoding_symbol = recovery_symbols
+                .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
+                .expect("we have exactly `n_shards` symbols and the bound was checked");
+            Ok(decoding_symbol)
+        }
     }
 
-    /// Recovers a [`Sliver`] from the provided recovery symbols.
+    // Removed: decoding_symbol_for_sliver_with_recovery_symbols
+
+    /// Recovers a [`SliverData`] from the provided recovery symbols.
     ///
-    /// Returns the recovered [`Sliver`] if decoding succeeds or `None` if decoding fails.
+    /// Returns the recovered [`SliverData`] if decoding succeeds or `None` if decoding fails.
     ///
     /// Does *not perform any checks* on the provided symbols; in particular, it does not verify any
     /// proofs.
-    fn recover_sliver_without_verification<I, U>(
+    pub fn recover_sliver_without_verification<I, U>(
         recovery_symbols: I,
         target_index: SliverIndex,
         symbol_size: NonZeroU16,
@@ -248,67 +261,45 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Option<Self>
     where
         I: IntoIterator,
-        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>>,
+        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>> + ExactSizeIterator,
         U: MerkleAuth,
     {
+        let recovery_symbols = recovery_symbols.into_iter();
+
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredSymbolsCount::Exact(n_symbols_required) = config.n_symbols_for_recovery::<T>();
+        if recovery_symbols.len() < n_symbols_required {
+            // We don't even have to attempt decoding if we don't have enough recovery symbols.
+            return None;
+        }
+
         config
             .decode_from_decoding_symbols(
                 symbol_size,
-                recovery_symbols
-                    .into_iter()
-                    .map(RecoverySymbol::into_decoding_symbol),
+                recovery_symbols.map(RecoverySymbol::into_decoding_symbol),
             )
             .map(|data| SliverData::new(data, symbol_size, target_index))
     }
 
-    /// Recovers a [`SliverData`] from the provided recovery symbols, verifying each symbol.
-    ///
-    /// Returns the recovered [`SliverData`] if decoding succeeds or a [`SliverRecoveryError`] if
-    /// decoding fails.
-    ///
-    /// Symbols that fail verification are logged and dropped.
-    pub fn recover_sliver<I, U>(
-        recovery_symbols: I,
-        target_index: SliverIndex,
-        metadata: &BlobMetadata,
-        encoding_config: &EncodingConfig,
-    ) -> Result<Self, SliverRecoveryError>
-    where
-        I: IntoIterator,
-        I::IntoIter: Iterator<Item = RecoverySymbol<T, U>>,
-        U: MerkleAuth,
-    {
-        let symbol_size = metadata.symbol_size(encoding_config)?;
-        Self::recover_sliver_without_verification(
-            symbols::filter_recovery_symbols_and_log_invalid(
-                recovery_symbols,
-                metadata,
-                encoding_config,
-                target_index,
-            ),
-            target_index,
-            symbol_size,
-            &encoding_config.get_for_type(metadata.encoding_type()),
-        )
-        .ok_or(SliverRecoveryError::DecodingFailure)
-    }
-
     /// Attempts to recover a sliver from the provided recovery symbols.
+    ///
+    /// The function *does not* verify the recovery symbols. It is the caller's responsibility to
+    /// ensure that the recovery symbols have been verified to be useable to recover the identified
+    /// symbol.
+    ///
+    /// It is also the caller's responsibility to ensure that the number of recovery symbols is
+    /// sufficient to recover the sliver (an error is returned if this is not the case).
     ///
     /// If recovery succeeds an the recovered sliver is verified successfully against the metadata,
     /// that sliver is returned. If the recovered sliver is inconsistent with the metadata, an
     /// [`InconsistencyProof`] is generated and returned. If recovery fails or another error occurs,
     /// a [`SliverRecoveryError`] is returned.
-    ///
-    /// If `verify_symbols` is set to true, symbols that fail verification are logged and
-    /// dropped. Otherwise, it is the caller's responsibility to ensure that the recovery symbols
-    /// have been verified to be useable to recover the identified symbol.
     pub fn recover_sliver_or_generate_inconsistency_proof<I, U>(
-        recovery_symbols: I,
+        verified_recovery_symbols: I,
         target_index: SliverIndex,
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
-        verify_symbols: bool,
     ) -> Result<SliverOrInconsistencyProof<T, U>, SliverRecoveryOrVerificationError>
     where
         I: IntoIterator,
@@ -316,30 +307,29 @@ impl<T: EncodingAxis> SliverData<T> {
         U: MerkleAuth,
     {
         let symbol_size = metadata.symbol_size(encoding_config)?;
-        let filtered_recovery_symbols: Vec<_> = if verify_symbols {
-            symbols::filter_recovery_symbols_and_log_invalid(
-                recovery_symbols,
-                metadata,
-                encoding_config,
-                target_index,
-            )
-            .collect()
-        } else {
-            recovery_symbols.into_iter().collect()
-        };
+        let config_enum = encoding_config.get_for_type(metadata.encoding_type());
+
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of symbols to recover a sliver.
+        let RequiredSymbolsCount::Exact(n_symbols_required) =
+            config_enum.n_symbols_for_recovery::<T>();
+        let verified_recovery_symbols: Vec<_> = verified_recovery_symbols
+            .into_iter()
+            .take(n_symbols_required)
+            .collect();
 
         let sliver = Self::recover_sliver_without_verification(
-            filtered_recovery_symbols.clone(),
+            verified_recovery_symbols.clone(),
             target_index,
             symbol_size,
-            &encoding_config.get_for_type(metadata.encoding_type()),
+            &config_enum,
         )
         .ok_or(SliverRecoveryError::DecodingFailure)?;
 
         match sliver.verify(encoding_config, metadata) {
             Ok(()) => Ok(sliver.into()),
             Err(SliverVerificationError::MerkleRootMismatch) => {
-                Ok(InconsistencyProof::new(target_index, filtered_recovery_symbols).into())
+                Ok(InconsistencyProof::new(target_index, verified_recovery_symbols).into())
             }
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
@@ -485,7 +475,7 @@ mod tests {
     use super::*;
     use crate::{
         EncodingType,
-        encoding::{DecodingSymbol, InvalidDataSizeError, RaptorQEncodingConfig},
+        encoding::{DecodingSymbol, InvalidDataSizeError, ReedSolomonEncodingConfig},
         test_utils,
     };
 
@@ -551,15 +541,8 @@ mod tests {
 
     param_test! {
         test_create_recovery_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
-            ),
-            rectangle_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
-            ),
-            square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_reed_solomon: (
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            rectangle_two_byte_symbol: (
                 EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
         ]
@@ -603,16 +586,16 @@ mod tests {
 
     param_test! {
         test_recover_sliver_failure: [
-            no_symbols: (&[], 2, 1),
-            empty_symbols: (&[&[], &[]], 2, 1),
+            no_symbols: (&[], 2, 2),
+            empty_symbols: (&[&[], &[]], 2, 2),
             too_few_symbols: (&[&[1,2]], 2, 2),
             inconsistent_size: (&[&[1,2],&[3]], 2, 2),
-            inconsistent_and_empty_size: (&[&[1],&[]], 2, 1),
+            inconsistent_and_empty_size: (&[&[1],&[]], 2, 2),
         ]
     }
     // Only testing for failures in the decoding. The correct decoding is tested below.
     fn test_recover_sliver_failure(symbols: &[&[u8]], n_source_symbols: u16, symbol_size: u16) {
-        let config = RaptorQEncodingConfig::new_for_test(
+        let config = ReedSolomonEncodingConfig::new_for_test(
             n_source_symbols,
             n_source_symbols,
             n_source_symbols * 3 + 1,
@@ -636,28 +619,15 @@ mod tests {
 
     param_test! {
         test_recover_sliver_from_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
-            ),
-            rectangle_two_byte_symbol_1_raptorq: (
-                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
-            ),
-            rectangle_two_byte_symbol_2_raptorq: (
-                EncodingType::RedStuffRaptorQ, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
-            ),
-            rectangle_two_byte_symbol_3_raptorq: (
-                EncodingType::RedStuffRaptorQ, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
-            ),
-            square_one_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_1_reed_solomon: (
+            square_one_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
+            square_two_byte_symbol: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
+            rectangle_two_byte_symbol_1: (
                 EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
-            rectangle_two_byte_symbol_2_reed_solomon: (
+            rectangle_two_byte_symbol_2: (
                 EncodingType::RS2, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
             ),
-            rectangle_two_byte_symbol_3_reed_solomon: (
+            rectangle_two_byte_symbol_3: (
                 EncodingType::RS2, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
             ),
         ]
@@ -669,7 +639,7 @@ mod tests {
         blob: &[u8],
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
-        let (config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
+        let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
@@ -677,37 +647,36 @@ mod tests {
             blob,
         );
         let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary).into();
+        let encoding_config_enum = encoding_config.get_for_type(metadata.encoding_type());
+        let symbol_size = metadata.symbol_size(&encoding_config)?;
 
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
             let recovery_symbols: Vec<_> = random_subset(
                 pairs.iter().map(|p| {
-                    p.recovery_symbol_pair_for_sliver(
-                        pair.index(),
-                        &config.get_for_type(metadata.encoding_type()),
-                    )
-                    .unwrap()
+                    p.recovery_symbol_pair_for_sliver(pair.index(), &encoding_config_enum)
+                        .unwrap()
                 }),
                 n_to_recover_from,
             )
             .collect();
 
             // Recover the primary sliver.
-            let recovered = SliverData::recover_sliver(
+            let recovered = SliverData::recover_sliver_without_verification(
                 recovery_symbols.iter().map(|s| s.primary.clone()),
                 pair.primary.index,
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.primary);
 
             // Recover the secondary sliver.
-            let recovered = SliverData::recover_sliver(
+            let recovered = SliverData::recover_sliver_without_verification(
                 recovery_symbols.iter().map(|s| s.secondary.clone()),
                 pair.secondary.index,
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.secondary);
@@ -717,10 +686,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbols_empty_sliver: [
-            primary_raptorq: <Primary>(EncodingType::RedStuffRaptorQ),
-            secondary_raptorq: <Secondary>(EncodingType::RedStuffRaptorQ),
-            primary_reed_solomon: <Primary>(EncodingType::RS2),
-            secondary_reed_solomon: <Secondary>(EncodingType::RS2),
+            primary: <Primary>(EncodingType::RS2),
+            secondary: <Secondary>(EncodingType::RS2),
         ]
     }
     fn test_recovery_symbols_empty_sliver<T: EncodingAxis>(encoding_type: EncodingType) {
@@ -734,25 +701,13 @@ mod tests {
 
     param_test! {
         test_recover_all_slivers_from_f_plus_1: [
-            recover_empty_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[]),
-            recover_single_byte_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[1]),
-            recover_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
+            recover_empty: (EncodingType::RS2, 3, &[]),
+            recover_single_byte: (EncodingType::RS2, 3, &[1]),
+            recover_one_byte_symbol: (EncodingType::RS2, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
             ]),
-            recover_two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-            ]),
-            recover_empty_reed_solomon: (EncodingType::RS2, 3, &[]),
-            recover_single_byte_reed_solomon: (EncodingType::RS2, 3, &[1]),
-            recover_one_byte_symbol_reed_solomon: (EncodingType::RS2, 3, &[
-                1,2,3,4,5,6,7,8,9,
-                1,2,3,4,5,6,7,8,9,
-            ]),
-            recover_two_byte_symbol_reed_solomon: (EncodingType::RS2, 3, &[
+            recover_two_byte_symbol: (EncodingType::RS2, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
@@ -762,14 +717,15 @@ mod tests {
     }
     fn test_recover_all_slivers_from_f_plus_1(encoding_type: EncodingType, f: u16, blob: &[u8]) {
         let n_shards = 3 * f + 1;
-        let (config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
+        let (encoding_config, pairs, metadata) = create_config_and_encode_pairs_and_get_metadata(
             f,
             2 * f,
             n_shards,
             encoding_type,
             blob,
         );
-        let config_enum = config.get_for_type(metadata.encoding_type());
+        let encoding_config_enum = encoding_config.get_for_type(metadata.encoding_type());
+        let symbol_size = metadata.symbol_size(&encoding_config).unwrap();
 
         // Keep only the first `to_reconstruct_from` primary slivers.
         let to_reconstruct_from = f + 1;
@@ -783,13 +739,14 @@ mod tests {
         let secondary_slivers = (0..n_shards)
             .map(|target_index| {
                 let index = SliverPairIndex(target_index);
-                SliverData::<Secondary>::recover_sliver(
-                    primary_slivers
-                        .iter()
-                        .map(|p| p.recovery_symbol_for_sliver(index, &config_enum).unwrap()),
+                SliverData::<Secondary>::recover_sliver_without_verification(
+                    primary_slivers.iter().map(|p| {
+                        p.recovery_symbol_for_sliver(index, &encoding_config_enum)
+                            .unwrap()
+                    }),
                     SliverIndex(n_shards - 1 - target_index),
-                    &metadata,
-                    &config,
+                    symbol_size,
+                    &encoding_config_enum,
                 )
                 .unwrap()
             })
@@ -798,14 +755,22 @@ mod tests {
         // Recover the missing primary slivers from 2f+1 of the reconstructed secondary slivers.
         primary_slivers.extend((to_reconstruct_from..n_shards).map(|target_index| {
             let index = SliverPairIndex(target_index);
-            SliverData::<Primary>::recover_sliver(
+            SliverData::<Primary>::recover_sliver_without_verification(
                 secondary_slivers
                     .iter()
-                    .take(config_enum.n_secondary_source_symbols().get().into())
-                    .map(|s| s.recovery_symbol_for_sliver(index, &config_enum).unwrap()),
+                    .take(
+                        encoding_config_enum
+                            .n_secondary_source_symbols()
+                            .get()
+                            .into(),
+                    )
+                    .map(|s| {
+                        s.recovery_symbol_for_sliver(index, &encoding_config_enum)
+                            .unwrap()
+                    }),
                 index.into(),
-                &metadata,
-                &config,
+                symbol_size,
+                &encoding_config_enum,
             )
             .unwrap()
         }));
@@ -822,10 +787,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbol_proof: [
-            one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 4, 1),
-            two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 2, 2),
-            two_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4], 2, 2),
-            four_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 4),
+            two_byte_symbol: (EncodingType::RS2, &[1,2,3,4], 2, 2),
+            four_byte_symbol: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 4),
         ]
     }
     fn test_recovery_symbol_proof(
@@ -847,7 +810,8 @@ mod tests {
                 sliver
                     .recovery_symbol_for_sliver(shard_pair_index, &config)
                     .unwrap()
-                    .verify_proof(&merkle_tree.root(), index.into())
+                    .verify_proof(&merkle_tree.root(), n_shards.into(), index.into())
+                    .is_ok()
             );
         }
     }

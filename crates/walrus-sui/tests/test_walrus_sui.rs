@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in tests.
+#![allow(clippy::unwrap_used)]
+
 //! Contains integration tests for the Sui bindings.
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
@@ -32,7 +35,13 @@ use walrus_sui::{
         new_contract_client_on_sui_test_cluster,
         system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
-    types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
+    types::{
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
+        NodeRegistrationParams,
+        move_structs::BlobWithAttribute,
+    },
     utils,
 };
 use walrus_test_utils::{WithTempDir, async_param_test};
@@ -43,7 +52,16 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     SystemContext,
     TestNodeKeys,
 )> {
-    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 1).await
+    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), false, 0, 1).await
+}
+
+async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyhow::Result<(
+    Arc<tokio::sync::Mutex<TestClusterHandle>>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+    TestNodeKeys,
+)> {
+    initialize_contract_and_wallet_for_testing(Duration::from_secs(3600), true, 10_000, 1).await
 }
 
 #[tokio::test]
@@ -51,6 +69,51 @@ async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
 async fn test_initialize_contract() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
     initialize_contract_and_wallet_with_single_node().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let encoding_type = EncodingType::RS2;
+
+    let (_sui_cluster_handle, walrus_client, _, _) =
+        initialize_contract_and_wallet_with_credits_with_single_node().await?;
+
+    // used to calculate the encoded size of the blob
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
+
+    let size = 10_000;
+    // Send all WAL coins from admin wallet to a random wallet to ensure that we have a zero coin
+    let admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    if admin_balance > 0 {
+        let random_address = SuiAddress::random_for_testing_only();
+
+        // Send all WAL balance to random wallet
+        walrus_client
+            .as_ref()
+            .send_wal(admin_balance, random_address)
+            .await?;
+
+        // Verify admin wallet now has zero balance
+        let new_admin_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+        assert_eq!(new_admin_balance, 0);
+    }
+
+    // Call the reserve_space method with zero coin
+    let resource_size = encoding_config
+        .get_for_type(encoding_type)
+        .encoded_blob_length(size)
+        .unwrap();
+    let storage_resource = walrus_client
+        .as_ref()
+        .reserve_space(resource_size, 3)
+        .await?;
+    assert_eq!(storage_resource.start_epoch, 1);
+    assert_eq!(storage_resource.end_epoch, 4);
+    assert_eq!(storage_resource.storage_size, resource_size);
+
     Ok(())
 }
 
@@ -145,9 +208,13 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let certificate = test_node_keys.blob_certificate_for_signers(&[0], blob_id, 1)?;
 
+    let blob_with_attr = BlobWithAttribute {
+        blob: blob_obj,
+        attribute: None,
+    };
     walrus_client
         .as_ref()
-        .certify_blobs(&[(&blob_obj, certificate)], PostStoreAction::Keep)
+        .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Make sure that we got the expected event
@@ -210,11 +277,15 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     };
     assert_eq!(blob_registered.blob_id, blob_id);
 
+    let blob_with_attr = BlobWithAttribute {
+        blob: blob_obj,
+        attribute: None,
+    };
     walrus_client
         .as_ref()
         .certify_blobs(
             &[(
-                &blob_obj,
+                &blob_with_attr,
                 test_node_keys.blob_certificate_for_signers(&[0], blob_id, 1)?,
             )],
             PostStoreAction::Keep,
@@ -418,7 +489,7 @@ async fn test_collect_commission() -> anyhow::Result<()> {
 
     // Set zero duration, s.t. we can change the epoch whenever we need to.
     let (_sui_cluster_handle, walrus_client, _, _) =
-        initialize_contract_and_wallet_for_testing(Duration::ZERO, false, 1).await?;
+        initialize_contract_and_wallet_for_testing(Duration::ZERO, false, 0, 1).await?;
 
     let cap = walrus_client
         .as_ref()
@@ -501,7 +572,7 @@ async fn test_automatic_wal_coin_squashing(
     // `n_target_coins` coins.
     let n_coins = client_1
         .as_ref()
-        .sui_client()
+        .retriable_sui_client()
         .get_balance(
             client_1_address,
             Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
@@ -528,7 +599,7 @@ async fn test_automatic_wal_coin_squashing(
             )
             .await?
             .len(),
-        n_source_coins as usize
+        usize::try_from(n_source_coins).unwrap()
     );
 
     // Now send the full amount back in `n_target_coins` coins payments, which should trigger the
@@ -551,14 +622,14 @@ async fn test_automatic_wal_coin_squashing(
     assert_eq!(
         client_1
             .as_ref()
-            .sui_client()
+            .retriable_sui_client()
             .get_balance(
                 client_1_address,
                 Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
             )
             .await?
             .coin_object_count,
-        n_coins + n_target_coins as usize
+        n_coins + usize::try_from(n_target_coins).unwrap()
     );
     Ok(())
 }

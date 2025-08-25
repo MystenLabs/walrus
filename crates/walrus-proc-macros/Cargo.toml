@@ -17,8 +17,8 @@ walrus-simtest = [
 ]
 
 [dependencies]
-darling = { version = "0.20.11", optional = true }
-proc-macro2 = { version = "1.0.95", optional = true }
+darling = { version = "0.21.3", optional = true }
+proc-macro2 = { version = "1.0.101", optional = true }
 quote.workspace = true
 sui-macros = { workspace = true, optional = true }
 syn.workspace = true

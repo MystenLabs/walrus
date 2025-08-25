@@ -59,4 +59,4 @@ echo "starting walrus node"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=1 RUST_LOG=info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml
+RUST_BACKTRACE=full RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml

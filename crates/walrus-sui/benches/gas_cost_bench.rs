@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in benchmarks.
+#![allow(clippy::unwrap_used)]
+
 //! Gas cost benchmark for `walrus-sui`.
 
 use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, time::Duration};
@@ -30,6 +33,7 @@ use walrus_sui::{
         SuiContractClient,
     },
     test_utils::system_setup::initialize_contract_and_wallet_for_testing,
+    types::move_structs::BlobWithAttribute,
 };
 
 const MEGA_SUI: u64 = 1_000_000_000_000_000; // 1M Sui
@@ -66,10 +70,10 @@ impl FromStr for InputRange {
 }
 
 impl InputRange {
-    fn iter<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
+    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
         self.range
             .clone()
-            .step_by(self.step.clone())
+            .step_by(self.step)
             .map(|val| if self.exp { 2u32.pow(val) } else { val })
     }
 }
@@ -100,9 +104,9 @@ struct Args {
     /// Benchmark the calls to `certify`. Otherwise, only `reserve_and_register` is benchmarked.
     #[arg(long)]
     with_certify: bool,
-    /// Call the system contract directly, excluding the subsidies contract.
+    /// Call the system contract with credits instead of directly.
     #[arg(long)]
-    no_subsidies: bool,
+    with_credits: bool,
     /// Benchmark the calls to `extend`. This uses the epoch range for the extension instead of
     /// the initial reservation (for which one epoch will be used and no output is produced).
     #[arg(long)]
@@ -139,7 +143,8 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     let (sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_for_testing(
             Duration::from_secs(3600),
-            !args.no_subsidies,
+            args.with_credits,
+            0,
             args.committee_size.get() as usize,
         )
         .await?;
@@ -202,12 +207,24 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
                 test_node_keys.blob_certificate_for_signers(&signers, blob_metadata.blob_id, 1)?;
             let blob_objs_with_certs: Vec<_> = blob_objs
                 .iter()
-                .map(|blob| (blob, certificate.clone()))
-                .collect();
+                .map(|blob| {
+                    let blob_with_attr = BlobWithAttribute {
+                        blob: blob.clone(),
+                        attribute: None,
+                    };
+                    (blob_with_attr, certificate.clone())
+                })
+                .collect::<Vec<_>>();
 
             walrus_client
                 .as_ref()
-                .certify_blobs(&blob_objs_with_certs, PostStoreAction::Keep)
+                .certify_blobs(
+                    &blob_objs_with_certs
+                        .iter()
+                        .map(|(b, c)| (b, c.clone()))
+                        .collect::<Vec<_>>(),
+                    PostStoreAction::Keep,
+                )
                 .await?;
             if args.with_certify {
                 write_data_entry(
@@ -221,10 +238,12 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
 
             if args.extend {
                 let epochs_extended = Some(epochs_ahead);
+                let attribute = Default::default();
                 let certify_and_extend_params: Vec<CertifyAndExtendBlobParams> = blob_objs
                     .iter()
                     .map(|blob| CertifyAndExtendBlobParams {
                         blob,
+                        attribute: &attribute,
                         certificate: None,
                         epochs_extended,
                     })
@@ -310,7 +329,7 @@ async fn gas_cost_summary_for_last_tx(
         ),
     );
     let transaction = walrus_client
-        .sui_client()
+        .retriable_sui_client()
         .query_transaction_blocks(query.clone(), None, None, true)
         .await?
         .data

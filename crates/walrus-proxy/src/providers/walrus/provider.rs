@@ -25,7 +25,7 @@ static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
             ),
             &["rpc_method", "status"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
@@ -41,7 +41,7 @@ static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             ],),
             &["rpc_method"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 
@@ -66,7 +66,7 @@ impl Allower<NetworkPublicKey> for WalrusNodeProvider {
     fn allowed(&self, key: &NetworkPublicKey) -> bool {
         self.nodes
             .read()
-            .unwrap()
+            .expect("read lock acquisition cannot fail as no thread panics while holding lock")
             .contains_key(&stdlib_hash(key.as_ref()))
     }
 }
@@ -91,7 +91,7 @@ impl WalrusNodeProvider {
     }
     /// poll_peer_list will act as a refresh interval for our cache
     pub fn poll_peer_list(&self) {
-        tracing::info!("Started polling for peers using rpc: {}", self.rpc_url);
+        tracing::info!("started polling for peers using RPC '{}'", self.rpc_url);
 
         let rpc_poll_interval = self.rpc_poll_interval;
         let cloned_self = self.clone();
@@ -158,7 +158,10 @@ impl WalrusNodeProvider {
                 );
             }
         });
-        let mut allow = self.nodes.write().unwrap();
+        let mut allow = self
+            .nodes
+            .write()
+            .expect("write lock acquisition cannot fail as no thread panics while holding lock");
         allow.clear();
         allow.extend(nodes);
         tracing::info!(
@@ -171,7 +174,12 @@ impl WalrusNodeProvider {
         let encoded_pub_key = key.encode_base64();
         let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
         tracing::debug!("look for {} {}", &encoded_pub_key, &cache_key);
-        if let Some(v) = self.nodes.read().unwrap().get(&cache_key) {
+        if let Some(v) = self
+            .nodes
+            .read()
+            .expect("read lock acquisition cannot fail as no thread panics while holding lock")
+            .get(&cache_key)
+        {
             return Some(v.to_owned());
         }
         tracing::debug!("not found {} {}", &encoded_pub_key, &cache_key);

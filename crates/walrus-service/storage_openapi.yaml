@@ -38,7 +38,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_StorageConfirmation'
         '400':
-          description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
+          description: May be returned when (1) The blob has not been registered or has already expired. (2) The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
           content:
             application/json:
               schema:
@@ -72,7 +72,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_StorageConfirmation'
         '400':
-          description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
+          description: May be returned when (1) The blob has not been registered or has already expired. (2) The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
           content:
             application/json:
               schema:
@@ -122,7 +122,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_SignedMessage_u8'
         '400':
-          description: May be returned when (1)  The metadata for the blob is required but missing. (2)  The provided inconsistency proof is not valid.
+          description: May be returned when (1) The metadata for the blob is required but missing. (2) The provided inconsistency proof is not valid.
           content:
             application/json:
               schema:
@@ -158,13 +158,13 @@ paths:
                   format: int32
                   minimum: 0
         '404':
-          description: ' The requested metadata could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
+          description: The requested metadata could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The metadata cannot be returned, as the associated blob has been blocked on this storage node.'
+          description: The metadata cannot be returned, as the associated blob has been blocked on this storage node.
           content:
             application/json:
               schema:
@@ -218,7 +218,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_String'
         '400':
-          description: May be returned when (1)  Storing the metadata cannot be completed because the blob has been marked as invalid by the system. (2)  The blob has not been registered or has already expired. (3)  The provided metadata is not valid for the blob.
+          description: May be returned when (1) Storing the metadata cannot be completed because the blob has been marked as invalid by the system. (2) The blob has not been registered or has already expired. (3) The provided metadata is not valid for the blob.
           content:
             application/json:
               schema:
@@ -290,19 +290,19 @@ paths:
                   format: int32
                   minimum: 0
         '400':
-          description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The shard associated with the operation is not assigned to this storage node.
+          description: May be returned when (1) The index identifying the resource is out-of-range for the system. (2) The shard associated with the operation is not assigned to this storage node.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '404':
-          description: ' The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
+          description: The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The sliver cannot be returned, as the associated blob has been blocked on this storage node.'
+          description: The sliver cannot be returned, as the associated blob has been blocked on this storage node.
           content:
             application/json:
               schema:
@@ -357,19 +357,19 @@ paths:
                   format: int32
                   minimum: 0
         '400':
-          description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The shard associated with the operation is not assigned to this storage node.
+          description: May be returned when (1) The index identifying the resource is out-of-range for the system. (2) The shard associated with the operation is not assigned to this storage node.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '404':
-          description: ' The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
+          description: The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The sliver cannot be returned, as the associated blob has been blocked on this storage node.'
+          description: The sliver cannot be returned, as the associated blob has been blocked on this storage node.
           content:
             application/json:
               schema:
@@ -421,7 +421,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiSuccess_String'
         '400':
-          description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The index identifying the resource is out-of-range for the system. (3)  The metadata for the blob is required but missing. (4)  The provided sliver failed verification against the previously uploaded metadata for that blob ID. (5)  The shard associated with the operation is not assigned to this storage node.
+          description: May be returned when (1) The blob has not been registered or has already expired. (2) The index identifying the resource is out-of-range for the system. (3) The metadata for the blob is required but missing. (4) The provided sliver failed verification against the previously uploaded metadata for that blob ID. (5) The shard associated with the operation is not assigned to this storage node.
           content:
             application/json:
               schema:
@@ -477,19 +477,19 @@ paths:
                   format: int32
                   minimum: 0
         '400':
-          description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The shard associated with the operation is not assigned to this storage node.
+          description: May be returned when (1) The index identifying the resource is out-of-range for the system. (2) The shard associated with the operation is not assigned to this storage node.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '404':
-          description: ' The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
+          description: The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
         '451':
-          description: ' The sliver cannot be returned, as the associated blob has been blocked on this storage node.'
+          description: The sliver cannot be returned, as the associated blob has been blocked on this storage node.
           content:
             application/json:
               schema:
@@ -1020,8 +1020,7 @@ components:
             minimum: 0
       examples:
       - txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
-        eventSeq:
-          $serde_json::private::Number: '0'
+        eventSeq: 0
     ObjectID:
       type: string
       title: Sui object ID

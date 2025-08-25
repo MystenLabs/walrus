@@ -107,7 +107,7 @@ impl FromStr for RawMoveError {
         let re = Regex::new(
             r#"MoveAbort.*address:\s*(.*?),.* name:.*Identifier\((.*?)\).*instruction:\s+(\d+),.*function_name:.*Some\((.*?)\).*},\s*(\d+).*in command\s*(\d+)"#, // editorconfig-checker-disable
         )
-        .unwrap();
+        .expect("this is a valid regex");
         let Some(captures) = re.captures(s) else {
             anyhow::bail!(
                 "Cannot parse abort status string: {} as a move abort string",

@@ -13,6 +13,7 @@ default-members = [
   "crates/walrus-stress",
   "crates/walrus-sui",
   "crates/walrus-test-utils",
+  "crates/walrus-upload-relay",
   "crates/walrus-utils",
 ]
 members = ["crates/*"]
@@ -22,34 +23,37 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.27.0"
+version = "1.32.0"
 
 [workspace.dependencies]
-anyhow = "1.0.98"
-async-channel = "2.3.1"
-async-trait = "0.1.88"
+anyhow = "1.0.99"
+async-channel = "2.5.0"
+async-trait = "0.1.89"
 atomic-time = "0.1.5"
 axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
 axum-extra = { version = "0.10" }
 axum-server = { version = "0.7.2", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
+bimap = "0.6.3"
 bincode = "1.3.3"
 byteorder = "1.5.0"
 bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
+bytesize = "1.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.38", features = ["deprecated", "derive"] }
-clap_complete = "4.5.50"
+clap = { version = "4.5.45", features = ["deprecated", "derive"] }
+clap_complete = "4.5.57"
 collectable = "0.0.2"
 colored = "2.2.0"
+const-str = "0.6.4"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
 diesel-async = { version = "0.5", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "16fa86d0dd943024a9088d46850a72ecd55b7f46" }
 fdlimit = "0.3.0"
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.3" # required for MSIM
@@ -62,19 +66,19 @@ hostname = "0.4.1"
 http-body-util = "0.1.1"
 humantime = "2.2.0"
 hyper = "1"
-indexmap = "2.9.0"
+indexmap = "2.11.0"
 indicatif = "0.17.11"
 indoc = "2.0.6"
 integer-encoding = "4.0.2"
-itertools = "0.13.0"
+itertools = "0.14.0"
 jsonrpsee = "0.24.9"
 jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 once_cell = { version = "1.21.3" }
@@ -82,78 +86,93 @@ opentelemetry = { version = "=0.27.1", default-features = false, features = ["tr
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.10"
 prettytable = "0.10.0"
-proc-macro2 = "1.0.95"
+proc-macro2 = "1.0.101"
 prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
-raptorq = "2.0.0"
-rayon = "1.10.0"
+rand_distr = "0.4"
+rayon = "1.11.0"
 rcgen = "0.13.2"
 reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
 rstest = "0.25.0"
-rustls = { version = "0.23.27", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.31", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+serde_json = "1.0.143"
 serde_test = "1.0.177"
-serde_with = { version = "3.12", features = ["base64"] }
+serde_urlencoded = { version = "0.7.1" }
+serde_with = { version = "3.14", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-json-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
 syn = "2.0"
 tap = "1.0.1"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-# TODO (WAL-834): Update to the latest version after sui testnet-v1.50 is used.
-tempfile = "=3.19.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.49.1" }
-thiserror = "2.0.12"
-tokio = { version = "=1.44.2", features = ["macros", "rt-multi-thread", "signal"] }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+tempfile = "3.21.0"
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
+thiserror = "2.0.16"
+tokio = { version = "=1.46.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-metrics = { version = "0.4.2", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
-tonic = { version = "0.13", default-features = false }
+tonic = { version = "0.13.1", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.41"
 tracing-opentelemetry = { version = "=0.28.0", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }
-twox-hash = "2.1.0"
+twox-hash = "2.1.1"
 typed-store = { path = "crates/typed-store" }
 uint = "0.10.0"
 url = "2.5.4"
+urlencoding = "2.1"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.16.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.18.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-storage-node-client = { path = "crates/walrus-storage-node-client" }
+walrus-stress = { path = "crates/walrus-stress" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
+walrus-upload-relay = { path = "crates/walrus-upload-relay" }
 walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
 
 [workspace.lints.rust]
+future_incompatible = "warn"
 missing_debug_implementations = "warn"
 missing_docs = "warn"
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'] }
+nonstandard_style = "warn"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'], priority = 1 }
+unused = "warn"
+
+[workspace.lints.clippy]
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+empty_structs_with_brackets = "warn"
+unwrap_used = "warn"
 
 [profile.release]
 panic = 'abort'

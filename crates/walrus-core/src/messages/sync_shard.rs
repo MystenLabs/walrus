@@ -84,9 +84,12 @@ impl SyncShardRequest {
     }
 
     /// Returns the number of slivers to sync starting from the starting blob ID.
-    pub fn sliver_count(&self) -> u64 {
+    pub fn sliver_count(&self) -> usize {
         match self {
-            Self::V1(request) => request.sliver_count,
+            Self::V1(request) => request
+                .sliver_count
+                .try_into()
+                .expect("nodes are expected to run on 64-bit architectures"),
         }
     }
 

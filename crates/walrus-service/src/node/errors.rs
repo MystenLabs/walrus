@@ -395,12 +395,33 @@ pub enum SyncNodeConfigError {
     #[error("Node needs reboot")]
     NodeNeedsReboot,
     /// A SuiClientError occurred.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
-    SuiClientError(#[from] SuiClientError),
+    SuiClientError(#[from] Box<SuiClientError>),
     /// The node configuration is inconsistent with the on-chain configuration.
     #[error("Node config is inconsistent: {0}")]
     NodeConfigInconsistent(String),
     /// An unexpected error occurred.
     #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+impl From<SuiClientError> for SyncNodeConfigError {
+    fn from(value: SuiClientError) -> Self {
+        Self::SuiClientError(Box::new(value))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbCheckpointError {
+    #[error("Failed to create checkpoint: {0}")]
+    CheckpointCreationError(String),
+    #[error("Backup already in progress")]
+    CheckpointInProgress,
+    #[error("No checkpoint found")]
+    NoCheckpointFound,
+    #[error("Restore error: {0}")]
+    RestoreError(#[from] rocksdb::Error),
+    #[error("Other checkpoint error: {0}")]
     Other(#[from] anyhow::Error),
 }

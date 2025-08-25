@@ -49,7 +49,10 @@ impl StartEpochChangeFinisher {
         let self_clone = self.clone();
         let event_clone = event.clone();
 
-        let mut locked_task_handle = self.task_handle.lock().unwrap();
+        let mut locked_task_handle = self
+            .task_handle
+            .lock()
+            .expect("mutex should not be poisoned");
         assert!(locked_task_handle.is_none());
 
         let handle = tokio::spawn(async move {
@@ -108,6 +111,7 @@ impl StartEpochChangeFinisher {
                 .contract_service
                 .epoch_sync_done(event.epoch, self.node.node_capability())
                 .await;
+            tracing::info!("epoch sync done signaled");
         } else {
             // Since we just refreshed the committee after receiving the event, the committees'
             // epoch must be at least the event's epoch.

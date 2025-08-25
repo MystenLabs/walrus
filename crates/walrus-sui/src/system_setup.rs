@@ -16,7 +16,6 @@ use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
     BuildConfig,
     CompiledPackage,
-    PackageDependencies,
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
@@ -79,14 +78,18 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-/// Compiles a package and returns the dependencies, compiled package, and build config.
-pub(crate) async fn compile_package(
+/// Compiles a package and returns the compiled package, and build config.
+pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig)> {
     tokio::task::spawn_blocking(|| {
-        compile_package_inner_blocking(package_path, build_config, chain_id)
+        sui_macros::nondeterministic!(compile_package_inner_blocking(
+            package_path,
+            build_config,
+            chain_id
+        ))
     })
     .await?
 }
@@ -97,7 +100,7 @@ fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
-) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+) -> Result<(CompiledPackage, MoveBuildConfig)> {
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
@@ -150,7 +153,7 @@ fn compile_package_inner_blocking(
         )?;
     }
 
-    Ok((dependencies, compiled_package, build_config))
+    Ok((compiled_package, build_config))
 }
 
 #[tracing::instrument(err, skip(wallet, build_config))]
@@ -161,7 +164,6 @@ pub(crate) async fn publish_package(
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    #[allow(deprecated)]
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
@@ -170,7 +172,7 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await.ok();
 
-    let (dependencies, compiled_package, build_config) =
+    let (compiled_package, build_config) =
         compile_package(package_path, build_config, chain_id).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
@@ -185,7 +187,11 @@ pub(crate) async fn publish_package(
         .publish_tx_kind(
             sender,
             compiled_modules,
-            dependencies.published.into_values().collect(),
+            compiled_package
+                .dependency_ids
+                .published
+                .into_values()
+                .collect(),
         )
         .await?;
 
@@ -199,32 +205,28 @@ pub(crate) async fn publish_package(
     };
 
     let gas_coins = retry_client
-        .select_coins(sender, None, gas_budget as u128, vec![])
+        .select_coins(sender, None, u128::from(gas_budget), vec![])
         .await?
         .into_iter()
-        .map(|coin| coin.coin_object_id)
+        .map(|coin| coin.object_ref())
         .collect::<Vec<_>>();
 
-    // TODO: WAL-778 support `tx_data` with failover mechanics.
+    // TODO: WAL-778 support `gas_price` with failover mechanics.
     #[allow(deprecated)]
-    let transaction = retry_client
-        .get_current_client()
-        .await
-        .transaction_builder()
-        .tx_data(
-            sender,
-            transaction_kind,
-            gas_budget,
-            wallet.get_reference_gas_price().await?,
-            gas_coins,
-            None,
-        )
-        .await?;
+    let gas_price = wallet.get_reference_gas_price().await?;
 
-    let signed_transaction = wallet.sign_transaction(&transaction);
+    let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
+        transaction_kind,
+        sender,
+        gas_coins,
+        gas_budget,
+        gas_price,
+        sender,
+    );
+
     #[allow(deprecated)]
     let response = wallet
-        .execute_transaction_may_fail(signed_transaction)
+        .execute_transaction_may_fail(wallet.sign_transaction(&tx_data))
         .await?;
 
     // Update the lock file with the new package ID.
@@ -244,7 +246,8 @@ pub(crate) async fn publish_package(
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_exchange_pkg_id: Option<ObjectID>,
-    pub subsidies_pkg_id: Option<ObjectID>,
+    pub credits_pkg_id: Option<ObjectID>,
+    pub walrus_subsidies_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
 }
@@ -290,20 +293,24 @@ fn copy_recursively_inner_blocking(
 /// If `use_existing_wal_token` is set, skips the deployment of the `wal` package. This requires
 /// the package address to be set in the `wal/Move.lock` file for the current network.
 #[tracing::instrument(err, skip(wallet))]
-pub async fn publish_coin_and_system_package(
+pub(crate) async fn publish_coin_and_system_package(
     wallet: &mut Wallet,
-    walrus_contract_directory: PathBuf,
-    deploy_directory: Option<PathBuf>,
-    with_wal_exchange: bool,
-    use_existing_wal_token: bool,
-    with_subsidies: bool,
+    InitSystemParams {
+        contract_dir,
+        deploy_directory,
+        with_wal_exchange,
+        use_existing_wal_token,
+        with_credits,
+        with_walrus_subsidies,
+        ..
+    }: InitSystemParams,
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
+        copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
     } else {
-        walrus_contract_directory
+        contract_dir
     };
 
     if !use_existing_wal_token {
@@ -338,19 +345,6 @@ pub async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
-    let subsidies_pkg_id = if with_subsidies {
-        // Publish `subsidies` package.
-        let transaction_response = publish_package_with_default_build_config(
-            wallet,
-            walrus_contract_directory.join("subsidies"),
-            gas_budget,
-        )
-        .await?;
-        Some(get_pkg_id_from_tx_response(&transaction_response)?)
-    } else {
-        None
-    };
-
     let [init_cap_id] = get_created_sui_object_ids_by_type(
         &transaction_response,
         &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
@@ -365,12 +359,39 @@ pub async fn publish_coin_and_system_package(
         bail!("unexpected number of UpgradeCap objects created");
     };
 
+    let credits_pkg_id = if with_credits {
+        // Publish `subsidies` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("subsidies"),
+            gas_budget,
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
+
+    let walrus_subsidies_pkg_id = if with_walrus_subsidies {
+        // Publish `walrus_subsidies` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("walrus_subsidies"),
+            gas_budget,
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
+
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
         wal_exchange_pkg_id,
-        subsidies_pkg_id,
+        credits_pkg_id,
         init_cap_id,
         upgrade_cap_id,
+        walrus_subsidies_pkg_id,
     })
 }
 
@@ -393,8 +414,10 @@ pub struct InitSystemParams {
     pub with_wal_exchange: bool,
     /// Whether to use an existing WAL token.
     pub use_existing_wal_token: bool,
-    /// Whether to publish the `subsidies` package.
-    pub with_subsidies: bool,
+    /// Whether to publish the `subsidies` package for client-side credits.
+    pub with_credits: bool,
+    /// Whether to publish the `walrus_subsidies` package for system subsidies.
+    pub with_walrus_subsidies: bool,
 }
 
 /// Initialize the system and staking objects on chain.
@@ -463,7 +486,6 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    #[allow(deprecated)]
     let retry_client = RetriableSuiClient::new(
         vec![LazySuiClientBuilder::new(wallet.get_rpc_url()?, None)],
         Default::default(),
@@ -484,7 +506,7 @@ pub async fn create_system_and_staking_objects(
     };
 
     let gas_coins = retry_client
-        .select_coins(address, None, gas_budget as u128, vec![])
+        .select_coins(address, None, u128::from(gas_budget), vec![])
         .await?
         .into_iter()
         .map(|coin| coin.object_ref())

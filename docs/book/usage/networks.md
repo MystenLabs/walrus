@@ -16,8 +16,8 @@ Some important fixed system parameters for Mainnet and Testnet are summarized in
 | Maximum number of epochs for which storage can be bought | 53      | 53      |
 
 Many other parameters, including the system capacity and prices, are dynamic. Those are stored in
-the system object (see [here](../dev-guide/sui-struct.md#system-and-staking-information)) and can be
-viewed with various tools like the [Walruscan explorer](https://walruscan.com/).
+the system object (see [the documentation about the system and staking objects](../dev-guide/sui-struct.md#system-and-staking-information))
+and can be viewed with various tools like the [Walruscan explorer](https://walruscan.com/).
 
 ## Mainnet configuration
 
@@ -33,7 +33,6 @@ In case you wish to explore the Walrus contracts, their package IDs are the foll
 
 - WAL package: `0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59`
 - Walrus package: `0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77`
-- Subsidies package: `0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc`
 
 As these are inferred automatically from the object IDs above, there is no need to manually input
 them into the Walrus client configuration file. The latest published package IDs can also be found
@@ -41,15 +40,10 @@ in the `Move.lock` files in the subdirectories of the [`contracts` directory on
 GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
 The configuration file described on the [setup page](./setup.md#configuration) includes both Mainnet
-and Testnet configuration. If you want *only* the Mainnet configuration, you can get the file
-[here](../setup/client_config_mainnet.yaml).
+and Testnet configuration. If you want *only* the Mainnet configuration, you can download the
+[Mainnet-only configuration file](../setup/client_config_mainnet.yaml).
 
 ## Testnet configuration
-
-```admonish warning title="Walrus Testnet redeployment"
-The Walrus Testnet is currently undergoing a redeployment. The configuration parameters included
-here refer to the *new* Testnet v3, which will be operational after 2025-04-03T15:00:00Z.
-```
 
 ```admonish danger title="Disclaimer about the Walrus Testnet"
 All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
@@ -74,8 +68,8 @@ Testnet using `walrus generate-sui-wallet --network testnet`.
 
 After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
 prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
-full node at `https://fullnode.testnet.sui.io:443` for this. See
-[here](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+full node at `https://fullnode.testnet.sui.io:443` for this. See [the Sui
+documentation](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
 
 If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
 don't have it yet),
@@ -127,7 +121,7 @@ or when [running the CLI](./interacting.md).
 
 The configuration parameters for the Walrus Testnet are included in the configuration file described
 on the [setup page](./setup.md#configuration). If you want *only* the Testnet configuration, you can
-get the file [here](../setup/client_config_testnet.yaml). The parameters are:
+get the [Testnet-only configuration file](../setup/client_config_testnet.yaml). The parameters are:
 
 ```yaml
 {{ #include ../setup/client_config_testnet.yaml }}

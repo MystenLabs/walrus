@@ -16,9 +16,9 @@ Sui transactions, and Sui objects on chain:
 - **Storage resources.** A storage resource is needed to store a blob, with an appropriate capacity
   and epoch duration.
   Storage resources can be acquired from the Walrus system contract while there is free space
-  available on the system against some WAL. Other options are also available, such as buying
-  them from the subsidy contract, having it transferred, or splitting a larger resource bought
-  occasionally into smaller ones (see discussion below).
+  available on the system against some WAL. Other options are also available, such as receiving it
+  from other parties, or splitting a larger resource bought occasionally into smaller ones (see
+  discussion below).
 
 - **Upload costs.** Upon blob registration, some WAL is charged to cover the costs of data upload.
   This ensures that deleting blobs and reusing the same storage resource for storing a new blob is
@@ -41,7 +41,9 @@ blob. The encoded size of a blob is the size of the erasure coded blob, which is
 than the unencoded original blob size, and the size of some metadata that is independent of the
 size of the blob. Since the fixed size per-blob metadata is quite large (about 64MB in the worse
 case), the cost of storing small blobs (< 10MB) is dominated by this, and the size of storing
-larger blobs is dominated by their increasing size.
+larger blobs is dominated by their increasing size. See
+[Reducing costs for small blobs](#reducing-costs-for-small-blobs) for more information on cost
+optimization strategies.
 
 The Walrus CLI uses some strategies to lower costs but is not guaranteed to be optimal for all
 use-cases. For high volume or other cost sensitive users there may be strategies that further
@@ -79,27 +81,23 @@ transactions:
   system contract and also cost of uploads.
 
 - The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations
-  of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain. Note
-  that currently, the estimated WAL cost **does not take subsidies into account** and as such is
-  an overestimate while subsidies are available.
+  of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain.
 
 ## Managing and minimizing costs
 
 There are multiple ways of acquiring storage resources, which impact their costs.
 
 The primary means is by sending some WAL to the Walrus system contract to "buy" a storage resource
-for some size in bytes and a defined lifetime in epochs. Currently, the Walrus Foundation also
-operates a subsidy contract that allows acquiring storage resources at a lower WAL cost as compared
-with the System contract. The Walrus CLI and the publisher use the subsidy contract by default to
-lower costs if a subsidy object is included in the configuration file.
+for some size in bytes and a defined lifetime in epochs.
 
 Furthermore, before acquiring a storage resource, the CLI client will use any user-owned storage
 resource of an appropriate length (in epochs and size in bytes). However, the current implementation
 does not make any attempts yet to properly split or merge storage resources.
+
 <!-- TODO(WAL-363): Update this as soon as better storage management is implemented. -->
 
 There are a few ways to minimize costs associated with the need for storage resources. First,
-acquiring resources from either the system or subsidy contract involves at least one Sui
+acquiring resources from the system contract involves at least one Sui
 transaction interacting with a relatively complex shared object Sui smart contract. Therefore,
 acquiring larger storage resources at once both in length and size minimizes the SUI gas costs.
 Storage resources can then be split and merged to store smaller blobs or blobs for shorter time
@@ -134,7 +132,14 @@ storage costs. This does not delete the blob on Walrus. Depending on the relativ
 WAL it might be cheaper to burn a long lived blob object, and subsequently re-registering and
 re-certifying them close to the end of its lifetime to extend it.
 
+### Reducing costs for small blobs
+
+Walrus [Quilt](../usage/quilt.md) is a batch storage tool that reduces storage costs for small
+blobs. When multiple blobs are stored together, the metadata costs are amortized across the batch.
+Quilt can also significantly reduce Sui computation and storage costs, as detailed in the
+[Lower Cost](../usage/quilt.md#lower-cost) section.
+
 ## The future
 
-The Walrus teams are focused on both making storage of small blobs more cost efficient,
-as well as the size of metadata smaller to reduce costs for all blob sizes.
+The Walrus team has planned initiatives to reduce costs for all blob sizes by making metadata
+smaller, as well as further improving the efficiency of Quilt for small blob storage.

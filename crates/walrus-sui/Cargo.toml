@@ -40,6 +40,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 sui-config.workspace = true
+sui-json-rpc-api.workspace = true
 sui-keys.workspace = true
 sui-macros.workspace = true
 sui-move-build.workspace = true
@@ -51,23 +52,24 @@ sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 test-cluster = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "sync"] }
+tokio = { workspace = true, features = ["fs", "sync", "test-util"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
 url.workspace = true
-utoipa = { workspace = true, optional = true }
+urlencoding.workspace = true
+utoipa = { workspace = true, optional = true, features = ["axum_extras", "macros", "yaml"] }
 walkdir = "2.5.0"
-walrus-core = { workspace = true, features = ["sui-types"] }
+walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "log", "metrics"] }
 
 [dev-dependencies]
 clap.workspace = true
 indoc.workspace = true
 serde_yaml.workspace = true
 tracing-subscriber.workspace = true
-walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
+walrus-core = { workspace = true, features = ["sui-types", "test-utils", "utoipa"] }
 
 [build-dependencies]
 inflections = "1.1.1"

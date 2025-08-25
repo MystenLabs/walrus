@@ -41,7 +41,10 @@ impl BlobRetirementNotifier {
 
     /// Acquire a BlobRetirementNotify for a blob.
     pub fn acquire_blob_retirement_notify(&self, blob_id: &BlobId) -> BlobRetirementNotify {
-        let mut registered_blobs = self.registered_blobs.lock().unwrap();
+        let mut registered_blobs = self
+            .registered_blobs
+            .lock()
+            .expect("mutex should not be poisoned");
         registered_blobs
             .entry(*blob_id)
             .or_insert_with(|| BlobRetirementNotify::new(*blob_id, Arc::new(self.clone())))
@@ -51,7 +54,10 @@ impl BlobRetirementNotifier {
     /// Notify all BlobRetirementNotify for a blob.
     pub fn notify_blob_retirement(&self, blob_id: &BlobId) {
         let notify = {
-            let mut registered_blobs = self.registered_blobs.lock().unwrap();
+            let mut registered_blobs = self
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned");
             registered_blobs.remove(blob_id)
         };
         if let Some(notify) = notify {
@@ -67,7 +73,10 @@ impl BlobRetirementNotifier {
         node: Arc<StorageNodeInner>,
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("EpochChange::NotifyRetiredBlobs");
-        let mut registered_blobs = self.registered_blobs.lock().unwrap();
+        let mut registered_blobs = self
+            .registered_blobs
+            .lock()
+            .expect("mutex should not be poisoned");
         for (blob_id, notify) in registered_blobs.iter_mut() {
             if !node.is_blob_certified(blob_id)? {
                 tracing::debug!(%blob_id, "epoch change notify blob retirement");
@@ -137,7 +146,7 @@ impl BlobRetirementNotify {
     /// Wait for notification.
     /// Note that in order to be awakened, notified must be called before any future possible
     /// notify_waiters.
-    pub fn notified(&self) -> Notified {
+    pub fn notified(&self) -> Notified<'_> {
         self.notify.notified()
     }
 
@@ -150,7 +159,7 @@ impl BlobRetirementNotify {
 /// Clone BlobRetirementNotify will increase the ref count.
 impl Clone for BlobRetirementNotify {
     fn clone(&self) -> Self {
-        let mut ref_count = self.ref_count.lock().unwrap();
+        let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
         *ref_count = ref_count.checked_add(1).unwrap_or(0);
         Self {
             notify: self.notify.clone(),
@@ -166,7 +175,7 @@ impl Clone for BlobRetirementNotify {
 impl Drop for BlobRetirementNotify {
     fn drop(&mut self) {
         let new_ref_count = {
-            let mut ref_count = self.ref_count.lock().unwrap();
+            let mut ref_count = self.ref_count.lock().expect("mutex should not be poisoned");
             tracing::trace!(
                 "BlobRetirementNotifier drop NotifyWrapper for blob {} ref count: {}",
                 self.blob_id,
@@ -183,7 +192,7 @@ impl Drop for BlobRetirementNotify {
             self.node_wide_blob_retirement_notifier
                 .registered_blobs
                 .lock()
-                .unwrap()
+                .expect("mutex should not be poisoned")
                 .remove(&self.blob_id);
         }
     }
@@ -232,12 +241,26 @@ mod tests {
 
         // The second task should still be waiting
         assert!(!wait_handle2.is_finished());
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 1);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 1
+        );
 
         // Notify another unrelatedblob, the second task should still be waiting
         notifier.notify_blob_retirement(&random_blob_id());
         assert!(!wait_handle2.is_finished());
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 1);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 1
+        );
     }
 
     /// Test that BlobRetirementNotifier can notify multiple blob retirement.
@@ -303,22 +326,62 @@ mod tests {
         let notify2 = notifier.acquire_blob_retirement_notify(&blob_id);
         let notify3 = notifier.acquire_blob_retirement_notify(&blob_id2);
 
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 2);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 2
+        );
         drop(notify);
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 2);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 2
+        );
         drop(notify1);
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 2);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 2
+        );
         drop(notify2);
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 1);
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .len()
+                == 1
+        );
 
         // Notify the second blob, the ref count should be 0, and the notify should be removed from
         // BlobRetirementNotifier.
         let notified_3 = notify3.notified();
         notifier.notify_blob_retirement(&blob_id2);
         notifier.notify_blob_retirement(&blob_id2);
-        assert!(notifier.registered_blobs.lock().unwrap().is_empty());
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .is_empty()
+        );
         assert!(timeout(Duration::from_secs(1), notified_3).await.is_ok());
         drop(notify3);
-        assert!(notifier.registered_blobs.lock().unwrap().is_empty());
+        assert!(
+            notifier
+                .registered_blobs
+                .lock()
+                .expect("mutex should not be poisoned")
+                .is_empty()
+        );
     }
 }

@@ -7,28 +7,29 @@
 
 mod basic_encoding;
 pub use basic_encoding::{
+    BLOB_TYPE_ATTRIBUTE_KEY,
     Decoder,
-    raptorq::{RaptorQDecoder, RaptorQEncoder},
-    reed_solomon::{ReedSolomonDecoder, ReedSolomonEncoder},
+    QUILT_TYPE_VALUE,
+    ReedSolomonDecoder,
+    ReedSolomonEncoder,
 };
 
 mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
-mod quilt_encoding;
-pub use quilt_encoding::{QuiltDecoderV1, QuiltEncoderV1, QuiltV1};
+pub mod quilt_encoding;
 
 mod common;
-pub use common::{EncodingAxis, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE, Primary, Secondary};
+pub use common::{EncodingAxis, Primary, Secondary};
 
 mod config;
 pub use config::{
     EncodingConfig,
     EncodingConfigEnum,
     EncodingConfigTrait,
-    RaptorQEncodingConfig,
+    MAX_SOURCE_SYMBOLS,
     ReedSolomonEncodingConfig,
-    decoding_safety_limit,
+    RequiredSymbolsCount,
     encoded_blob_length_for_n_shards,
     encoded_slivers_length_for_n_shards,
     max_blob_size_for_n_shards,
@@ -70,7 +71,6 @@ pub use symbols::{
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
     Symbols,
-    min_symbols_for_recovery,
 };
 
 mod utils;

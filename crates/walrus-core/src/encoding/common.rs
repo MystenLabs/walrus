@@ -5,17 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::SliverType;
 
-/// The maximum length in bytes of a single symbol in RaptorQ.
-pub const MAX_SYMBOL_SIZE: u16 = u16::MAX;
-
-/// The maximum number of source symbols per block for RaptorQ.
-///
-/// See `K'_max` in
-/// [RFC 6330, Section 5.1.2](<https://datatracker.ietf.org/doc/html/rfc6330#section-5.1.2>)
-pub const MAX_SOURCE_SYMBOLS_PER_BLOCK: u16 = 56403;
-
 /// Marker trait to indicate the encoding axis (primary or secondary).
-pub trait EncodingAxis: Clone + PartialEq + Eq + Default + core::fmt::Debug {
+pub trait EncodingAxis:
+    Clone + PartialEq + Eq + Default + core::fmt::Debug + Send + Sync + 'static
+{
     /// The complementary encoding axis.
     type OrthogonalAxis: EncodingAxis;
     /// Whether this corresponds to the primary (true) or secondary (false) encoding.

@@ -35,7 +35,7 @@ static CONSUMER_OPS_SUBMITTED: Lazy<Counter> = Lazy::new(|| {
             "Operations counter for the number of metric family types we submit, \
 excluding histograms, and not the discrete timeseries counts."
         ))
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 static CONSUMER_OPS: Lazy<CounterVec> = Lazy::new(|| {
@@ -47,7 +47,7 @@ static CONSUMER_OPS: Lazy<CounterVec> = Lazy::new(|| {
             ),
             &["operation", "status"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 static CONSUMER_ENCODE_COMPRESS_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
@@ -63,7 +63,7 @@ static CONSUMER_ENCODE_COMPRESS_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             ]),
             &["operation"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 static CONSUMER_OPERATION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
@@ -375,7 +375,7 @@ pub async fn convert_to_remote_write(
             }
         }
     }
-    CONSUMER_OPS_SUBMITTED.inc_by(mf_cnt as f64);
+    CONSUMER_OPS_SUBMITTED.inc_by(f64::from(mf_cnt));
     timer.observe_duration();
     (StatusCode::CREATED, "created")
 }

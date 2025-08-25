@@ -5,7 +5,7 @@ crates/walrus-service/publisher_openapi.html
 docs/mdbook-admonish.css
 docs/theme/tabs.css
 docs/theme/tabs.js
-scripts/move_coverage.sh
+scripts/move_tests.sh
 crates/typed-store/src/rocks/safe_iter.rs
 crates/typed-store/src/rocks/tests.rs
 crates/typed-store/src/rocks/mod.rs
@@ -15,3 +15,6 @@ crates/typed-store/src/traits.rs
 crates/typed-store/src/rocks/errors.rs
 crates/typed-store/src/rocks/safe_iter.rs
 crates/typed-store/src/rocks/tests.rs
+crates/walrus-upload-relay/upload_relay_openapi.html
+crates/walrus-upload-relay/upload_relay_openapi.yaml
+scripts/cache-inference/eslint.config.mjs

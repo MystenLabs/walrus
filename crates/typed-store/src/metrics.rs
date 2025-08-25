@@ -336,6 +336,10 @@ impl ColumnFamilyMetrics {
 pub struct OperationMetrics {
     /// Rocksdb iter latency in seconds
     pub rocksdb_iter_latency_seconds: HistogramVec,
+    /// Rocksdb iter key bytes
+    pub rocksdb_iter_key_bytes: HistogramVec,
+    /// Rocksdb iter value bytes
+    pub rocksdb_iter_value_bytes: HistogramVec,
     /// Rocksdb iter size in bytes
     pub rocksdb_iter_bytes: HistogramVec,
     /// Rocksdb iter num keys
@@ -344,6 +348,17 @@ pub struct OperationMetrics {
     pub rocksdb_get_latency_seconds: HistogramVec,
     /// Rocksdb get bytes
     pub rocksdb_get_bytes: HistogramVec,
+    /// Rocksdb get key bytes
+    pub rocksdb_get_key_bytes: HistogramVec,
+    /// Rocksdb get value bytes
+    pub rocksdb_get_value_bytes: HistogramVec,
+    /// Rocksdb contains_key latency in seconds
+    pub rocksdb_contains_key_latency_seconds: HistogramVec,
+    /// Number of times key_may_exist_cf returned true per CF (potential positives)
+    pub rocksdb_bloom_filter_may_exist_true_total: IntCounterVec,
+    /// Number of times key_may_exist_cf returned true but get
+    /// found nothing (false positives) per CF
+    pub rocksdb_bloom_filter_false_positive_total: IntCounterVec,
     /// Rocksdb multiget latency in seconds
     pub rocksdb_multiget_latency_seconds: HistogramVec,
     /// Rocksdb multiget bytes
@@ -352,8 +367,16 @@ pub struct OperationMetrics {
     pub rocksdb_put_latency_seconds: HistogramVec,
     /// Rocksdb put bytes
     pub rocksdb_put_bytes: HistogramVec,
+    /// Rocksdb put key bytes
+    pub rocksdb_put_key_bytes: HistogramVec,
+    /// Rocksdb put value bytes
+    pub rocksdb_put_value_bytes: HistogramVec,
     /// Rocksdb batch put bytes
     pub rocksdb_batch_put_bytes: HistogramVec,
+    /// Rocksdb batch put key bytes
+    pub rocksdb_batch_put_key_bytes: HistogramVec,
+    /// Rocksdb batch put value bytes
+    pub rocksdb_batch_put_value_bytes: HistogramVec,
     /// Rocksdb delete latency in seconds
     pub rocksdb_delete_latency_seconds: HistogramVec,
     /// Rocksdb delete calls
@@ -372,6 +395,22 @@ pub struct OperationMetrics {
     pub rocksdb_very_slow_puts_count: IntCounterVec,
     /// Total duration of puts that took more than 1 second
     pub rocksdb_very_slow_puts_duration_ms: IntCounterVec,
+    /// Bloom filter ticker counters
+    /// Note: These are only available upon turning on statistics in the rocksdb options
+    /// using `opt.enable_statistics();` and with lowest setting
+    /// `opt.set_statistics_level(StatsLevel::ExceptHistogramOrTimers);`
+    /// Number of times bloom filter has avoided file reads (negatives)
+    pub rocksdb_bloom_filter_useful_total: IntGaugeVec,
+    /// Number of times bloom FullFilter has not avoided the reads
+    pub rocksdb_bloom_filter_full_positive_total: IntGaugeVec,
+    /// Number of times bloom FullFilter has not avoided the reads and data actually exist
+    pub rocksdb_bloom_filter_full_true_positive_total: IntGaugeVec,
+    /// Number of times prefix filter was queried
+    pub rocksdb_bloom_filter_prefix_checked_total: IntGaugeVec,
+    /// Number of times prefix filter returned false so prevented accessing data+index blocks
+    pub rocksdb_bloom_filter_prefix_useful_total: IntGaugeVec,
+    /// Number of times prefix filter found a key matching the point query
+    pub rocksdb_bloom_filter_prefix_true_positive_total: IntGaugeVec,
 }
 
 impl OperationMetrics {
@@ -389,9 +428,25 @@ impl OperationMetrics {
                 registry,
             )
             .unwrap(),
+            rocksdb_iter_key_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_iter_key_bytes",
+                "Rocksdb iter key size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
             rocksdb_iter_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_iter_bytes",
                 "Rocksdb iter size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_iter_value_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_iter_value_bytes",
+                "Rocksdb iter value size in bytes",
                 &["cf_name"],
                 bucket_vec.clone(),
                 registry,
@@ -406,8 +461,8 @@ impl OperationMetrics {
             .unwrap(),
             rocksdb_get_latency_seconds: register_histogram_vec_with_registry!(
                 "rocksdb_get_latency_seconds",
-                "Rocksdb get latency in seconds",
-                &["cf_name"],
+                "Rocksdb get latency in seconds. `found` label is true if key was found",
+                &["cf_name", "found"],
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
@@ -417,6 +472,45 @@ impl OperationMetrics {
                 "Rocksdb get call returned data size in bytes",
                 &["cf_name"],
                 bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_get_key_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_get_key_bytes",
+                "Rocksdb get call key size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry
+            )
+            .unwrap(),
+            rocksdb_get_value_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_get_value_bytes",
+                "Rocksdb get call returned value size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry
+            )
+            .unwrap(),
+            rocksdb_contains_key_latency_seconds: register_histogram_vec_with_registry!(
+                "rocksdb_contains_key_latency_seconds",
+                "Rocksdb contains_key latency in seconds. `found` label is true if key was found",
+                &["cf_name", "found"],
+                LATENCY_SEC_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_may_exist_true_total: register_int_counter_vec_with_registry!(
+                "rocksdb_bloom_filter_may_exist_true_total",
+                "Number of times key_may_exist_cf returned true (potential positives)",
+                &["cf_name"],
+                registry
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_false_positive_total: register_int_counter_vec_with_registry!(
+                "rocksdb_bloom_filter_false_positive_total",
+                "Number of false positives where key_may_exist_cf \
+                returned true but get found nothing",
+                &["cf_name"],
                 registry
             )
             .unwrap(),
@@ -446,7 +540,23 @@ impl OperationMetrics {
             .unwrap(),
             rocksdb_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_put_bytes",
-                "Rocksdb put call puts data size in bytes",
+                "Rocksdb put call returned data size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_put_key_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_put_key_bytes",
+                "Rocksdb put call key size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_put_value_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_put_value_bytes",
+                "Rocksdb put call value size in bytes",
                 &["cf_name"],
                 bucket_vec.clone(),
                 registry,
@@ -455,6 +565,22 @@ impl OperationMetrics {
             rocksdb_batch_put_bytes: register_histogram_vec_with_registry!(
                 "rocksdb_batch_put_bytes",
                 "Rocksdb batch put call puts data size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_batch_put_key_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_batch_put_key_bytes",
+                "Rocksdb batch put call puts key data size in bytes",
+                &["cf_name"],
+                bucket_vec.clone(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_batch_put_value_bytes: register_histogram_vec_with_registry!(
+                "rocksdb_batch_put_value_bytes",
+                "Rocksdb batch put call puts value data size in bytes",
                 &["cf_name"],
                 bucket_vec.clone(),
                 registry,
@@ -523,6 +649,48 @@ impl OperationMetrics {
                 "rocksdb_very_slow_puts_duration",
                 "Total duration of puts that took more than 1 second",
                 &["cf_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_useful_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_useful_total",
+                "Number of times bloom filter has avoided file reads (negatives)",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_full_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_full_positive_total",
+                "Number of times bloom FullFilter has not avoided the reads",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_full_true_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_full_true_positive_total",
+                "Number of times bloom FullFilter hasn't avoided reads and data actually exist",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_checked_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_checked_total",
+                "Number of times prefix filter was queried",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_useful_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_useful_total",
+                "Number of times prefix filter returned false to prevent data+index block",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_bloom_filter_prefix_true_positive_total: register_int_gauge_vec_with_registry!(
+                "rocksdb_bloom_filter_prefix_true_positive_total",
+                "Number of times prefix filter found a key matching the point query",
+                &["db_name"],
                 registry,
             )
             .unwrap(),

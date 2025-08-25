@@ -18,6 +18,7 @@ pub(super) const GROUP_STORING_BLOBS: &str = "Writing Blobs";
 pub(super) const GROUP_READING_BLOBS: &str = "Reading Blobs";
 pub(super) const GROUP_RECOVERY: &str = "Recovery";
 pub(super) const GROUP_STATUS: &str = "Status";
+#[allow(dead_code)] // False positive; this is actually used in the generated OpenAPI spec.
 pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
 
 #[derive(utoipa::OpenApi)]

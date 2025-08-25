@@ -484,15 +484,15 @@ where
 /// `concat!` to form a single `&'static str`.
 fn get_docstring(attrs: &[Attribute]) -> TokenStream {
     let description = attrs.iter().filter_map(|attr| {
-        if let Some(ident) = attr.path().get_ident() {
-            if ident == "doc" {
-                return attr.meta.require_name_value().ok().map(|v| &v.value);
-            }
+        if let Some(ident) = attr.path().get_ident()
+            && ident == "doc"
+        {
+            return attr.meta.require_name_value().ok().map(|v| &v.value);
         }
         None
     });
 
     quote! {
-        concat!(#(#description),*)
+        concat!(#(#description),*).trim()
     }
 }

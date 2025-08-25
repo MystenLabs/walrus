@@ -137,8 +137,7 @@ impl WalletConfig {
                 .config
                 .keystore
                 .addresses()
-                .iter()
-                .any(|address| *address == active_address)
+                .contains(&active_address)
             {
                 return Err(anyhow!(
                     "Address '{}' not found in wallet keystore for file '{}'.",

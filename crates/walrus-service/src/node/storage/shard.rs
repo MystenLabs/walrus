@@ -160,6 +160,13 @@ impl ShardSyncProgress {
             sliver_type,
         })
     }
+
+    #[cfg(test)]
+    fn last_synced_blob_id(&self) -> Option<BlobId> {
+        match self {
+            ShardSyncProgress::V1(p) => Some(p.last_synced_blob_id),
+        }
+    }
 }
 
 // Represents the last synced status of the shard after restart.
@@ -681,8 +688,13 @@ impl ShardStorage {
         }
 
         let shard_status = self.status()?;
+        // (WAL-903): determine the correct behavior for shard status LockedToMove. This status
+        // indicates that the previous shard sync hasn't finished yet, but the shard is moving
+        // out. We continue to sync the shard in this case.
         assert!(
-            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover,
+            shard_status == ShardStatus::ActiveSync
+                || shard_status == ShardStatus::ActiveRecover
+                || shard_status == ShardStatus::LockedToMove,
             "unexpected shard status at the beginning of a shard sync: {shard_status}"
         );
 
@@ -820,7 +832,7 @@ impl ShardStorage {
                     &self.id.to_string(),
                     &sliver_type.to_string()
                 )
-                .set(next_starting_blob_id.first_two_bytes() as i64);
+                .set(i64::from(next_starting_blob_id.first_two_bytes()));
 
                 let fetched_slivers = node
                     .committee_service
@@ -897,7 +909,7 @@ impl ShardStorage {
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
         epoch: Epoch,
-        node: &Arc<StorageNodeInner>,
+        _node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
@@ -911,14 +923,11 @@ impl ShardStorage {
                 %sliver_type,
                 "synced blob",
             );
-            //TODO(#705): verify sliver validity.
+            //TODO(WAL-523): verify sliver validity.
             //  - blob is certified
+            //  - fetch metadata if missing (note that certified event may be processed after epoch
+            //    change, so we need to fetch metadata if missing)
             //  - metadata is correct
-
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                debug_assert!(node.storage.has_metadata(blob_id)?);
-            }
 
             match sliver {
                 Sliver::Primary(primary) => {
@@ -1050,10 +1059,10 @@ impl ShardStorage {
 
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
-        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter().count();
+        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter()?.count();
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
-        for recover_blob in self.pending_recover_slivers.safe_iter() {
+        for recover_blob in self.pending_recover_slivers.safe_iter()? {
             let ((sliver_type, blob_id), _) = recover_blob?;
 
             #[allow(unused_mut)]
@@ -1082,14 +1091,14 @@ impl ShardStorage {
             self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
             // Wait for some futures to complete if we reach the concurrent blob recovery limit
-            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
-                if let Some(Err(error)) = futures.next().await {
-                    tracing::error!(
-                        ?error,
-                        "error recovering missing blob sliver. \
+            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery
+                && let Some(Err(error)) = futures.next().await
+            {
+                tracing::error!(
+                    ?error,
+                    "error recovering missing blob sliver. \
                         blob is not removed from pending_recover_slivers"
-                    );
-                }
+                );
             }
         }
 
@@ -1115,7 +1124,11 @@ impl ShardStorage {
             node.metrics.sync_shard_recover_sliver_pending_total,
             &self.id.to_string()
         )
-        .set(total_blobs_pending_recovery as i64);
+        .set(
+            total_blobs_pending_recovery
+                .try_into()
+                .expect("number of pending recoveries should fit into an i64"),
+        );
     }
 
     /// Skips recovering a blob that is no longer certified.
@@ -1301,11 +1314,11 @@ impl ShardStorage {
         match sliver_type {
             SliverType::Primary => self
                 .primary_slivers
-                .safe_iter()
+                .safe_iter()?
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
             SliverType::Secondary => self
                 .secondary_slivers
-                .safe_iter()
+                .safe_iter()?
                 .try_fold(0, |count, e| e.map(|_| count + 1)),
         }
     }
@@ -1340,9 +1353,16 @@ impl ShardStorage {
         &self,
     ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
         self.pending_recover_slivers
-            .safe_iter()
+            .safe_iter()?
             .map(|r| r.map(|(k, _)| k))
             .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get_last_synced_blob_id(&self) -> Result<Option<BlobId>, TypedStoreError> {
+        self.shard_sync_progress
+            .get(&())
+            .map(|progress| progress.and_then(|p| p.last_synced_blob_id()))
     }
 }
 

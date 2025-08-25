@@ -5,6 +5,7 @@
 
 use std::{fmt::Display, num::NonZeroU16};
 
+use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
 use serde::{
     Deserialize,
@@ -166,7 +167,7 @@ impl BlobAttribute {
     }
 
     /// Returns an iterator over the key-value pairs in the metadata.
-    pub fn iter(&self) -> MetadataIter {
+    pub fn iter(&self) -> MetadataIter<'_> {
         MetadataIter {
             inner: self.metadata.contents.iter(),
         }
@@ -413,8 +414,8 @@ pub enum Authorized {
 impl Display for Authorized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Address(address) => write!(f, "sui address {}", address),
-            Self::Object(object) => write!(f, "object id {}", object),
+            Self::Address(address) => write!(f, "sui address {address}"),
+            Self::Object(object) => write!(f, "object id {object}"),
         }
     }
 }
@@ -549,7 +550,7 @@ impl StakingObject {
         &self.inner.epoch_state
     }
 
-    /// Returns the epoch duration.
+    /// Returns the epoch duration in milliseconds.
     pub fn epoch_duration(&self) -> u64 {
         self.inner.epoch_duration
     }
@@ -694,62 +695,46 @@ pub struct SystemObject {
     /// The new package ID of the system object.
     pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
-    pub(crate) inner: SystemStateInnerV1Enum,
+    pub(crate) inner: SystemStateInnerV1,
 }
 
 impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.committee.members.len() as u16,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.committee.members.len() as u16,
-        }
+        self.inner
+            .committee
+            .members
+            .len()
+            .try_into()
+            .expect("committee size always fits in a u16")
     }
 
     /// Returns the number of epochs ahead that can be used to extend a blob.
     pub fn max_epochs_ahead(&self) -> u32 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.future_accounting.length(),
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.future_accounting.length(),
-        }
+        self.inner.future_accounting.length()
     }
 
     /// Returns the storage price per unit size.
     pub fn storage_price_per_unit_size(&self) -> u64 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.storage_price_per_unit_size,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.storage_price_per_unit_size,
-        }
+        self.inner.storage_price_per_unit_size
     }
 
     /// Returns the write price per unit size.
     pub fn write_price_per_unit_size(&self) -> u64 {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner.write_price_per_unit_size,
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner.write_price_per_unit_size,
-        }
+        self.inner.write_price_per_unit_size
     }
 
     /// Returns the latest certified event blob.
     pub fn latest_certified_event_blob(&self) -> Option<EventBlob> {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => inner
-                .event_blob_certification_state
-                .latest_certified_blob
-                .clone(),
-            SystemStateInnerV1Enum::V1Testnet(inner) => inner
-                .event_blob_certification_state
-                .latest_certified_blob
-                .clone(),
-        }
+        self.inner
+            .event_blob_certification_state
+            .latest_certified_blob
+            .clone()
     }
 
     /// Returns the future accounting ring buffer.
     pub fn future_accounting(&self) -> &FutureAccountingRingBuffer {
-        match &self.inner {
-            SystemStateInnerV1Enum::V1(inner) => &inner.future_accounting,
-            SystemStateInnerV1Enum::V1Testnet(inner) => &inner.future_accounting,
-        }
+        &self.inner.future_accounting
     }
 }
 
@@ -763,41 +748,6 @@ pub(crate) struct SystemObjectForDeserialization {
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
-pub(crate) enum SystemStateInnerV1Enum {
-    V1(SystemStateInnerV1),
-    V1Testnet(SystemStateInnerV1Testnet),
-}
-
-/// Sui type for inner system object.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub(crate) struct SystemStateInnerV1Testnet {
-    /// The current committee of the Walrus instance.
-    pub committee: BlsCommittee,
-    /// Total storage capacity of the Walrus instance.
-    pub total_capacity_size: u64,
-    /// Used storage capacity of the Walrus instance.
-    pub used_capacity_size: u64,
-    /// The price per unit of storage per epoch.
-    pub storage_price_per_unit_size: u64,
-    /// The write price per unit.
-    pub write_price_per_unit_size: u64,
-    /// The future accounting ring buffer to keep track of future rewards.
-    pub future_accounting: FutureAccountingRingBuffer,
-    /// Event blob certification state.
-    pub event_blob_certification_state: EventBlobCertificationStateTestnet,
-    /// Extended field with the size of the deny list for committee members.
-    pub deny_list_sized: ObjectID,
-}
-
-impl AssociatedContractStruct for SystemStateInnerV1Testnet {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
-}
-
-impl AssociatedContractStruct for SystemStateInnerV1 {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
 }
 
 /// Sui type for inner system object.
@@ -819,6 +769,10 @@ pub(crate) struct SystemStateInnerV1 {
     pub event_blob_certification_state: EventBlobCertificationState,
     /// Extended field with the size of the deny list for committee members.
     pub deny_list_sized: ObjectID,
+}
+
+impl AssociatedContractStruct for SystemStateInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
 }
 
 #[tracing::instrument(err, skip_all)]
@@ -846,12 +800,11 @@ impl Display for StakedWalState {
             StakedWalState::Withdrawing(epoch, Some(amount)) => {
                 write!(
                     f,
-                    "Withdrawing: epoch={}, pool token amount={:?}",
-                    epoch, amount
+                    "Withdrawing: epoch={epoch}, pool token amount={amount:?}"
                 )
             }
             StakedWalState::Withdrawing(epoch, None) => {
-                write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
+                write!(f, "Withdrawing: epoch={epoch}, pool token amount=Unknown")
             }
         }
     }
@@ -915,10 +868,18 @@ impl ExchangeRate {
     }
 }
 
-/// Sui type for a subsidies object.
+/// Sui type for a `subsidies::Subsidies` object. Called `Credits` here to avoid confusion with
+/// the new Walrus Subsidies contract.
+///
+/// The "credits" were previously used to subsidize clients purchasing storage. In this function
+/// they were superseded by the `walrus_subsidies` contract, which only provides subsidies on the
+/// system side.
+/// The same interfaces are still used as part of a credit system developed by the DevRel team that
+/// allows additionally subsidizing clients. Because of this, we keep the corresponding code-paths
+/// in the codebase, to provide backwards compatibility.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Subsidies {
-    /// The object ID of the subsidies object
+pub struct Credits {
+    /// The object ID of the object
     pub id: ObjectID,
     /// The subsidy rate for blob storage buyers
     pub buyer_subsidy_rate: u16,
@@ -926,14 +887,94 @@ pub struct Subsidies {
     pub system_subsidy_rate: u16,
     /// The total amount of WAL available for subsidies
     pub subsidy_pool: u64,
-    /// The package ID of the subsidies contract
+    /// The package ID of the contract
     pub package_id: ObjectID,
-    /// The version of the subsidies object
+    /// The version of the object
     pub version: u64,
 }
 
-impl AssociatedContractStruct for Subsidies {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::subsidies::Subsidies;
+impl AssociatedContractStruct for Credits {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::credits::Subsidies;
+}
+
+/// Sui type for a `WalrusSubsidies` object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalrusSubsidies {
+    /// The object ID of the object
+    pub id: ObjectID,
+    /// The version of the object
+    pub version: u64,
+    /// The package ID of the contract
+    pub package_id: ObjectID,
+    /// The inner state of the object
+    pub(crate) inner: Option<WalrusSubsidiesInner>,
+}
+
+#[cfg(feature = "test-utils")]
+impl WalrusSubsidies {
+    /// Returns the subsidy pool funds for the WalrusSubsidies object if it was requested with
+    /// the inner object.
+    pub fn subsidy_pool_funds(&self) -> Option<u64> {
+        self.inner.as_ref().map(|inner| inner.subsidy_pool)
+    }
+}
+
+/// Sui type for outer system object. Used for deserialization.
+#[derive(Debug, Deserialize)]
+pub(crate) struct WalrusSubsidiesForDeserialization {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+    pub(crate) package_id: ObjectID,
+}
+
+impl AssociatedContractStruct for WalrusSubsidiesForDeserialization {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::WalrusSubsidies;
+}
+
+/// A pair mapping an epoch to a balance. Used for deserialization of the WalrusSubsidiesInner.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct EpochBalance {
+    epoch: Epoch,
+    balance: u64,
+}
+
+/// A ring buffer holding the epoch balances for a continuous range of epochs.
+/// Used for deserialization of the WalrusSubsidiesInner.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct EpochBalanceRingBuffer {
+    current_index: u32,
+    ring_buffer: Vec<EpochBalance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(crate) struct WalrusSubsidiesInner {
+    /// The subsidy rate applied to the price paid to the system and added to the per-epoch rewards
+    /// pool of the system. Subsidy rates are expressed in basis points (1/100 of a percent). A
+    /// subsidy rate of 100 basis points means a 1% subsidy.
+    pub system_subsidy_rate: u32,
+    /// The balance of funds available in the subsidy pool.
+    pub subsidy_pool: u64,
+    // TODO(WAL-788): Use a specific type to represent different denominations.
+    /// The base subsidy (in FROST) paid directly per storage node per epoch.
+    pub base_subsidy: u64,
+    /// The additional subsidy (in FROST) paid to each storage node directly per shard.
+    pub subsidy_per_shard: u64,
+    /// The last epoch for which the usage-independent subsidies were paid.
+    pub latest_epoch: u32,
+    /// Ring buffer to track how much of the per-epoch balance of the walrus system object has
+    /// already had subsidies added.
+    pub already_subsidized_balances: EpochBalanceRingBuffer,
+    /// Timestamp of the last time the subsidies were processed. Enables storage nodes to
+    /// easily check if subsidies were processed recently.
+    #[serde(deserialize_with = "chrono::serde::ts_milliseconds::deserialize")]
+    pub last_subsidized: DateTime<Utc>,
+    /// Reserved for future use and migrations.
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    pub extra_fields: ObjectID,
+}
+
+impl AssociatedContractStruct for WalrusSubsidiesInner {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::WalrusSubsidiesInnerV1;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -979,4 +1020,15 @@ pub(crate) struct Key {
 
 impl AssociatedContractStruct for Key {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::extended_field::Key;
+}
+
+/// Sui type for the key of the dynamic field of the WalrusSubsidiesInner object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct SubsidiesInnerKey {
+    /// To match empty struct in Move.
+    pub dummy_field: bool,
+}
+
+impl AssociatedContractStruct for SubsidiesInnerKey {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::walrus_subsidies::SubsidiesInnerKey;
 }

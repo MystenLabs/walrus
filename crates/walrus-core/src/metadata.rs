@@ -4,6 +4,7 @@
 //! Metadata associated with a Blob and stored by storage nodes.
 
 use alloc::{
+    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BlobId,
     EncodingType,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     encoding::{
@@ -25,6 +27,13 @@ use crate::{
         EncodingConfigTrait as _,
         QuiltError,
         encoded_blob_length_for_n_shards,
+        quilt_encoding::{
+            QuiltIndexApi,
+            QuiltPatchApi,
+            QuiltPatchInternalIdApi,
+            QuiltVersion,
+            QuiltVersionV1,
+        },
         source_symbols_for_n_shards,
     },
     merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode},
@@ -52,9 +61,8 @@ pub enum VerificationError {
 
 /// Represents a blob within a unencoded quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltPatchV1 {
-    /// The unencoded length of the blob.
-    pub unencoded_length: u64,
     /// The start sliver index of the blob.
     #[serde(skip)]
     pub start_index: u16,
@@ -62,18 +70,57 @@ pub struct QuiltPatchV1 {
     pub end_index: u16,
     /// The identifier of the blob, it can be used to locate the blob in the quilt.
     pub identifier: String,
+    /// The tags of the blob.
+    //
+    // A BTreeMap is used to ensure deterministic serialization.
+    pub tags: BTreeMap<String, String>,
+}
+
+impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
+    fn quilt_patch_internal_id(&self) -> QuiltPatchInternalIdV1 {
+        QuiltPatchInternalIdV1::new(self.start_index, self.end_index)
+    }
+
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    fn has_matched_tag(&self, target_tag: &str, target_value: &str) -> bool {
+        self.tags.get(target_tag).map(|s| s.as_str()) == Some(target_value)
+    }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
+    }
 }
 
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
-    pub fn new(unencoded_length: u64, identifier: String) -> Result<Self, QuiltError> {
+    pub fn new(identifier: String) -> Result<Self, QuiltError> {
         Self::validate_identifier(&identifier)?;
 
         Ok(Self {
-            unencoded_length,
             identifier,
             start_index: 0,
             end_index: 0,
+            tags: BTreeMap::new(),
+        })
+    }
+
+    /// Creates a new [`QuiltPatchV1`] with tags.
+    pub fn new_with_tags<T: IntoIterator<Item = (String, String)>>(
+        identifier: String,
+        tags: T,
+    ) -> Result<Self, QuiltError> {
+        Self::validate_identifier(&identifier)?;
+
+        Ok(Self {
+            identifier,
+            start_index: 0,
+            end_index: 0,
+            tags: tags.into_iter().collect(),
         })
     }
 
@@ -91,13 +138,118 @@ impl QuiltPatchV1 {
         }
         Ok(())
     }
+
+    /// Sets the range of the quilt patch.
+    pub fn set_range(&mut self, start_index: u16, end_index: u16) {
+        self.start_index = start_index;
+        self.end_index = end_index;
+    }
 }
 
 /// A enum wrapper around the quilt index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QuiltIndex {
     /// QuiltIndexV1.
     V1(QuiltIndexV1),
+}
+
+impl QuiltIndex {
+    /// Returns the sliver indices of the quilt patch with the given identifiers.
+    pub fn get_sliver_indices_for_identifiers(
+        &self,
+        identifiers: &[&str],
+    ) -> Result<Vec<SliverIndex>, QuiltError> {
+        match self {
+            QuiltIndex::V1(quilt_index) => {
+                quilt_index.get_sliver_indices_for_identifiers(identifiers)
+            }
+        }
+    }
+
+    /// Returns the patches of the quilt index.
+    pub fn patches(&self) -> &[QuiltPatchV1] {
+        match self {
+            QuiltIndex::V1(quilt_index) => &quilt_index.quilt_patches,
+        }
+    }
+}
+
+/// QuiltPatchInternalIdV1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltPatchInternalIdV1 {
+    /// The start index of the patch.
+    pub start_index: u16,
+    /// The end index of the patch.
+    pub end_index: u16,
+}
+
+/// Definition of the layout of the quilt patch internal id in QuiltVersionV1.
+///
+/// ```text
+///┌─────────────┬──────────────────┬──────────────────┐
+///│    Byte 0   │     Byte 1-2     │     Byte 3-4     │
+///├─────────────┼──────────────────┼──────────────────┤
+///│  Version    │   start_index    │    end_index     │
+///│    Byte     │   (16 bits LE)   │   (16 bits LE)   │
+///└─────────────┴──────────────────┴──────────────────┘
+/// ```
+impl QuiltPatchInternalIdApi for QuiltPatchInternalIdV1 {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(5);
+
+        // First byte is the version byte.
+        bytes.push(QuiltVersionV1::quilt_version_byte());
+
+        bytes.extend_from_slice(&u16::to_le_bytes(self.start_index));
+        bytes.extend_from_slice(&u16::to_le_bytes(self.end_index));
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, QuiltError> {
+        if bytes.len() != 5 {
+            return Err(QuiltError::Other(
+                "QuiltPatchInternalIdV1 requires 5 bytes".to_string(),
+            ));
+        }
+
+        // Check version byte.
+        if bytes[0] != QuiltVersionV1::quilt_version_byte() {
+            return Err(QuiltError::QuiltVersionMismatch(
+                bytes[0],
+                QuiltVersionV1::quilt_version_byte(),
+            ));
+        }
+        let start_index = u16::from_le_bytes(
+            bytes[1..3]
+                .try_into()
+                .expect("start_bytes should be 2 bytes"),
+        );
+        let end_index =
+            u16::from_le_bytes(bytes[3..5].try_into().expect("end_bytes should be 2 bytes"));
+
+        Ok(Self {
+            start_index,
+            end_index,
+        })
+    }
+
+    fn sliver_indices(&self) -> Vec<SliverIndex> {
+        (self.start_index..self.end_index)
+            .map(SliverIndex::new)
+            .collect()
+    }
+}
+
+impl QuiltPatchInternalIdV1 {
+    /// Creates a new quilt patch id.
+    pub fn new(start_index: u16, end_index: u16) -> Self {
+        Self {
+            start_index,
+            end_index,
+        }
+    }
 }
 
 /// An index over the [patches][QuiltPatchV1] (blobs) in a quilt.
@@ -106,50 +258,45 @@ pub enum QuiltIndex {
 /// mapped to a contiguous index range.
 // INV: The patches are sorted by their end indices.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuiltIndexV1 {
     /// Location/identity index of the blob in the quilt.
     pub quilt_patches: Vec<QuiltPatchV1>,
 }
 
-impl QuiltIndexV1 {
-    /// Returns the quilt patch with the given blob identifier.
-    // TODO(WAL-829): Consider storing the quilt patch in a hashmap for O(1) lookup.
-    pub fn get_quilt_patch_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<&QuiltPatchV1, QuiltError> {
-        self.quilt_patches
-            .iter()
-            .find(|patch| patch.identifier == identifier)
-            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+impl QuiltIndexApi<QuiltVersionV1> for QuiltIndexV1 {
+    fn patches(&self) -> &[QuiltPatchV1] {
+        &self.quilt_patches
     }
 
-    /// Returns an iterator over the identifiers of the blobs in the quilt.
-    pub fn identifiers(&self) -> impl Iterator<Item = &str> {
+    fn identifiers(&self) -> impl Iterator<Item = &str> {
         self.quilt_patches
             .iter()
             .map(|patch| patch.identifier.as_str())
     }
 
-    /// Returns the number of patches in the quilt.
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.quilt_patches.len()
     }
 
-    /// Returns true if the quilt index is empty.
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.quilt_patches.is_empty()
     }
+}
 
+impl From<QuiltIndexV1> for QuiltIndex {
+    fn from(quilt_index: QuiltIndexV1) -> Self {
+        QuiltIndex::V1(quilt_index)
+    }
+}
+
+impl QuiltIndexV1 {
     /// Populate start_indices of the patches, since the start index is not stored in wire format.
     pub fn populate_start_indices(&mut self, first_start: u16) {
-        if let Some(first_patch) = self.quilt_patches.first_mut() {
-            first_patch.start_index = first_start;
-        }
-
-        for i in 1..self.quilt_patches.len() {
-            let prev_end_index = self.quilt_patches[i - 1].end_index;
+        let mut prev_end_index = first_start;
+        for i in 0..self.quilt_patches.len() {
             self.quilt_patches[i].start_index = prev_end_index;
+            prev_end_index = self.quilt_patches[i].end_index;
         }
     }
 }
@@ -169,11 +316,12 @@ impl QuiltMetadata {
         }
     }
 }
+
 /// Metadata associated with a quilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuiltMetadataV1 {
     /// The BlobId of the quilt blob.
-    pub quilt_blob_id: BlobId,
+    pub quilt_id: BlobId,
     /// The blob metadata of the quilt blob.
     pub metadata: BlobMetadata,
     /// The index of the quilt.
@@ -183,10 +331,7 @@ pub struct QuiltMetadataV1 {
 impl QuiltMetadataV1 {
     /// Returns the verified metadata for the quilt blob.
     pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
-        VerifiedBlobMetadataWithId::new_verified_unchecked(
-            self.quilt_blob_id,
-            self.metadata.clone(),
-        )
+        VerifiedBlobMetadataWithId::new_verified_unchecked(self.quilt_id, self.metadata.clone())
     }
 }
 
@@ -269,7 +414,7 @@ impl VerifiedBlobMetadataWithId {
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
         let encoding_type = self.metadata.encoding_type();
-        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards(), encoding_type);
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
         let config = config.get_for_type(encoding_type);
 
         self.n_shards() == config.n_shards()
@@ -283,7 +428,10 @@ impl VerifiedBlobMetadataWithId {
     /// of shards in the encoding config with which this was verified.
     pub fn n_shards(&self) -> NonZeroU16 {
         let n_hashes = self.metadata.hashes().len();
-        NonZeroU16::new(n_hashes as u16).expect("verified metadata has a valid number of shards")
+        u16::try_from(n_hashes)
+            .ok()
+            .and_then(NonZeroU16::new)
+            .expect("verified metadata has a valid number of shards")
     }
 }
 

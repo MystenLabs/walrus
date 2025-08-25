@@ -5,8 +5,7 @@
 
 use std::{
     fmt::{self, Display},
-    fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
 
@@ -14,18 +13,20 @@ use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use walrus_core::BlobId;
+use walrus_core::{BlobId, QuiltPatchId, encoding::QuiltError};
 use walrus_sdk::{
     blocklist::Blocklist,
-    client::Client,
+    client::WalrusNodeClient,
     config::ClientConfig,
     sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
 use walrus_sui::wallet::Wallet;
 
 mod args;
+mod backfill;
 mod cli_output;
 mod runner;
+
 pub use args::{
     AggregatorArgs,
     App,
@@ -37,12 +38,18 @@ pub use args::{
     NodeSelection,
     NodeSortBy,
     PublisherArgs,
+    QuiltBlobInput,
+    QuiltPatchByIdentifier,
+    QuiltPatchByPatchId,
+    QuiltPatchByTag,
+    QuiltPatchSelector,
     SortBy,
 };
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 
-/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
+/// Creates a [`WalrusNodeClient`] based on the provided [`ClientConfig`] with read-only access to
+/// Sui.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `rpc_url` field in the
 /// `config` (if `Some`), or the `wallet` (if `Ok`). An error is returned if it cannot be set
@@ -52,7 +59,7 @@ pub async fn get_read_client(
     rpc_url: Option<String>,
     wallet: Result<Wallet>,
     blocklist_path: &Option<PathBuf>,
-) -> Result<Client<SuiReadClient>> {
+) -> Result<WalrusNodeClient<SuiReadClient>> {
     let sui_read_client =
         get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
 
@@ -60,7 +67,7 @@ pub async fn get_read_client(
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    let client = Client::new_read_client(config, refresh_handle, sui_read_client).await?;
+    let client = WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -69,21 +76,21 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with
+/// Creates a [`WalrusNodeClient<SuiContractClient>`] based on the provided [`ClientConfig`] with
 /// write access to Sui.
 pub async fn get_contract_client(
     config: ClientConfig,
     wallet: Result<Wallet>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
-) -> Result<Client<SuiContractClient>> {
+) -> Result<WalrusNodeClient<SuiContractClient>> {
     let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
 
     let refresh_handle = config
         .refresh_config
         .build_refresher_and_run(sui_client.read_client().clone())
         .await?;
-    let client = Client::new_contract_client(config, refresh_handle, sui_client).await?;
+    let client = WalrusNodeClient::new_contract_client(config, refresh_handle, sui_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -260,11 +267,12 @@ impl std::fmt::Display for HumanReadableBytes {
             UNITS[usize::try_from(exponent - 1).expect("we assume at least a 32-bit architecture")];
 
         // Get correct number of significant digits (not rounding integer part).
-        let normalized_integer_digits = normalized_value.log10() as usize + 1;
+        #[allow(clippy::cast_possible_truncation)] // the truncation is intentional here
+        let normalized_integer_digits = normalized_value.log10().floor() as usize + 1;
         let set_precision = f.precision().unwrap_or(3).max(1);
         let precision = set_precision.saturating_sub(normalized_integer_digits);
 
-        write!(f, "{normalized_value:.*} {unit}", precision)
+        write!(f, "{normalized_value:.precision$} {unit}")
     }
 }
 
@@ -282,7 +290,7 @@ trait CurrencyForDisplay {
     }
 
     fn units_in_superunit() -> u64 {
-        10u64.pow(Self::DECIMALS as u32)
+        10u64.pow(u32::from(Self::DECIMALS))
     }
 
     /// Gets the value of the current coin.
@@ -382,19 +390,12 @@ fn thousands_separator(num: u64) -> String {
         .join(",")
 }
 
+#[allow(clippy::cast_possible_truncation)] // the truncation is intentional here
 fn thousands_separator_float(num: f64, digits: u32) -> String {
     let integer = num.floor() as u64;
     let decimal = (num.fract() * 10u64.pow(digits) as f64).round() as u64;
     let digits = digits as usize;
     format!("{}.{:0digits$}", thousands_separator(integer), decimal)
-}
-
-/// Reads a blob from the filesystem or returns a helpful error message.
-pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
-    fs::read(&path).context(format!(
-        "unable to read blob from '{}'",
-        path.as_ref().display()
-    ))
 }
 
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
@@ -423,6 +424,11 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
         Err(_) => BlobIdParseError::InvalidBlobId,
         Ok(blob_id) => BlobIdParseError::BlobIdInDecimalFormat(blob_id.into()),
     })
+}
+
+/// Parses a [`QuiltPatchId`] from a string.
+pub fn parse_quilt_patch_id(input: &str) -> Result<QuiltPatchId, QuiltError> {
+    QuiltPatchId::from_str(input).map_err(|_| QuiltError::QuiltPatchIdParseError(input.to_string()))
 }
 
 /// Helper struct to parse and format blob IDs as decimal numbers.

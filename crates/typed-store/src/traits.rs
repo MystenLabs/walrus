@@ -16,7 +16,7 @@ where
     /// The error type for the map
     type Error: Error;
     /// The safe iterator type for the map
-    type SafeIterator: Iterator<Item = Result<(K, V), TypedStoreError>>;
+    type SafeIterator: Iterator<Item = Result<(K, V), TypedStoreError>> + SeekableIterator<K>;
 
     /// Returns true if the map contains a value for the specified key.
     fn contains_key(&self, key: &K) -> Result<bool, Self::Error>;
@@ -53,17 +53,20 @@ where
     fn is_empty(&self) -> bool;
 
     /// Same as `iter` but performs status check.
-    fn safe_iter(&'a self) -> Self::SafeIterator;
+    fn safe_iter(&'a self) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Same as `iter_with_bounds` but performs status check.
     fn safe_iter_with_bounds(
         &'a self,
         lower_bound: Option<K>,
         upper_bound: Option<K>,
-    ) -> Self::SafeIterator;
+    ) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Same as `range_iter` but performs status check.
-    fn safe_range_iter(&'a self, range: impl RangeBounds<K>) -> Self::SafeIterator;
+    fn safe_range_iter(
+        &'a self,
+        range: impl RangeBounds<K>,
+    ) -> Result<Self::SafeIterator, Self::Error>;
 
     /// Returns a vector of values corresponding to the keys provided, non-atomically.
     fn multi_get<J>(&self, keys: impl IntoIterator<Item = J>) -> Result<Vec<Option<V>>, Self::Error>
@@ -98,6 +101,24 @@ where
 
     /// Try to catch up with primary when running as secondary
     fn try_catch_up_with_primary(&self) -> Result<(), Self::Error>;
+}
+
+/// The trait for seekable iterator.
+pub trait SeekableIterator<K> {
+    /// Seeks to the first key in the iterator.
+    fn seek_to_first(&mut self);
+
+    /// Seeks to the last key in the iterator.
+    fn seek_to_last(&mut self);
+
+    /// Seeks to the specified key. If the key does not exist, it will seek to the next key.
+    fn seek(&mut self, key: &K) -> Result<(), TypedStoreError>;
+
+    /// Seeks to the previous key. If the key does not exist, it will seek to the previous key.
+    fn seek_to_prev(&mut self, key: &K) -> Result<(), TypedStoreError>;
+
+    /// Returns the current key.
+    fn key(&self) -> Result<Option<K>, TypedStoreError>;
 }
 
 /// The summary of the table

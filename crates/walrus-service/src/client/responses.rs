@@ -32,9 +32,10 @@ use walrus_core::{
         max_blob_size_for_n_shards,
         max_sliver_size_for_n_secondary,
         metadata_length_for_n_shards,
+        quilt_encoding::QuiltStoreBlob,
         source_symbols_for_n_shards,
     },
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_sdk::{
     client::NodeCommunicationFactory,
@@ -50,7 +51,11 @@ use walrus_sdk::{
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
 };
-use walrus_storage_node_client::api::{BlobStatus, ServiceHealthInfo};
+use walrus_storage_node_client::{
+    ClientBuildError,
+    NodeError,
+    api::{BlobStatus, ServiceHealthInfo},
+};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -133,6 +138,15 @@ pub(crate) struct DryRunOutput {
     pub storage_cost: u64,
     /// The encoding type used for the blob.
     pub encoding_type: EncodingType,
+}
+
+/// The output of the `store-quilt --dry-run` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoreQuiltDryRunOutput {
+    pub(crate) quilt_blob_output: DryRunOutput,
+    pub(crate) quilt_index: QuiltIndex,
 }
 
 /// The output of the `blob-status` command.
@@ -309,7 +323,7 @@ impl EncodingDependentPriceInfo {
         }
 
         let metadata_storage_size =
-            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
+            u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards);
         let metadata_price =
             storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
@@ -404,7 +418,7 @@ impl InfoCommitteeOutput {
 
         let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards, DEFAULT_ENCODING);
+            source_symbols_for_n_shards(n_shards);
 
         let max_sliver_size =
             max_sliver_size_for_n_secondary(n_secondary_source_symbols, DEFAULT_ENCODING);
@@ -437,7 +451,7 @@ impl InfoCommitteeOutput {
         }
 
         let metadata_storage_size =
-            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
+            u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards);
 
         Ok(Self {
             n_shards,
@@ -655,22 +669,38 @@ pub(crate) struct NodeHealthOutput {
     pub node_url: String,
     pub node_name: String,
     pub network_public_key: NetworkPublicKey,
-    pub health_info: Result<ServiceHealthInfo, String>,
+    pub health_info: Result<ServiceHealthInfo, HealthInfoError>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HealthInfoError {
+    #[error(transparent)]
+    FailedToBuildClient(#[from] ClientBuildError),
+    #[error(transparent)]
+    FailedToGetHealthInfo(#[from] NodeError),
+}
+
+impl Serialize for HealthInfoError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl NodeHealthOutput {
-    pub async fn new(
+    pub async fn get_for_node(
         node: StorageNode,
         detail: bool,
         node_communication_factory: &NodeCommunicationFactory,
     ) -> Self {
-        let client = node_communication_factory.create_client(&node);
-        let health_info = match client {
+        let health_info = match node_communication_factory.create_client(&node) {
             Ok(client) => client
                 .get_server_health_info(detail)
                 .await
-                .map_err(|err| format!("failed to get health info: {:?}", err)),
-            Err(err) => Err(format!("failed to build client: {:?}", err)),
+                .map_err(HealthInfoError::from),
+            Err(err) => Err(err.into()),
         };
 
         Self {
@@ -693,16 +723,17 @@ pub(crate) struct ServiceHealthInfoOutput {
 
 impl ServiceHealthInfoOutput {
     /// Collects the health information of the storage nodes by querying their health endpoints.
-    pub async fn new_for_nodes(
+    pub async fn get_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         communication_factory: &NodeCommunicationFactory,
         latest_seq: Option<u64>,
         detail: bool,
         sort: SortBy<HealthSortBy>,
+        concurrent_requests: usize,
     ) -> anyhow::Result<Self> {
         let mut health_info = stream::iter(nodes)
-            .map(|node| NodeHealthOutput::new(node, detail, communication_factory))
-            .buffer_unordered(10)
+            .map(|node| NodeHealthOutput::get_for_node(node, detail, communication_factory))
+            .buffer_unordered(concurrent_requests)
             .collect::<Vec<_>>()
             .await;
 
@@ -750,9 +781,34 @@ impl NodeHealthOutput {
                 .to_lowercase()
                 .cmp(&info_b.node_status.to_lowercase())
                 .then_with(|| self.cmp_by_name(other)),
-            (Err(err_a), Err(err_b)) => err_a.cmp(err_b).then_with(|| self.cmp_by_name(other)),
+            (Err(err_a), Err(err_b)) => err_a
+                .to_string()
+                .cmp(&err_b.to_string())
+                .then_with(|| self.cmp_by_name(other)),
             (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
             (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+/// The output of the `read-quilt` command.
+#[derive(Serialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadQuiltOutput {
+    /// The output directory path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub out: Option<PathBuf>,
+    /// The retrieved blobs.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub retrieved_blobs: Vec<QuiltStoreBlob<'static>>,
+}
+
+impl ReadQuiltOutput {
+    /// Creates a new [`ReadQuiltOutput`] object.
+    pub fn new(out: Option<PathBuf>, retrieved_blobs: Vec<QuiltStoreBlob<'static>>) -> Self {
+        Self {
+            out,
+            retrieved_blobs,
         }
     }
 }

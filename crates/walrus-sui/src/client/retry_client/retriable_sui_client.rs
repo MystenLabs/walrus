@@ -50,8 +50,9 @@ use sui_sdk::{
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, SuiAddress, TransactionDigest},
+    base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    object::Owner,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
@@ -72,7 +73,7 @@ use super::{
 use crate::{
     client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
+    types::move_structs::{Credits, Key, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
 };
 
@@ -321,7 +322,7 @@ impl RetriableSuiClient {
                     .balance();
                 if min_coin_balance < coin.balance {
                     selected_coins.pop();
-                    total_selected -= min_coin_balance as u128;
+                    total_selected -= u128::from(min_coin_balance);
                 } else {
                     continue;
                 }
@@ -818,6 +819,26 @@ impl RetriableSuiClient {
 
     // Other wrapper methods.
 
+    pub(crate) async fn get_shared_object_initial_version(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SequenceNumber> {
+        let Some(Owner::Shared {
+            initial_shared_version,
+        }) = self
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+            .await?
+            .owner()
+        else {
+            return Err(anyhow::anyhow!(
+                "trying to get the initial version of a non-shared object {}",
+                object_id
+            )
+            .into());
+        };
+        Ok(initial_shared_version)
+    }
+
     pub(crate) async fn get_extended_field<V>(
         &self,
         object_id: ObjectID,
@@ -844,9 +865,8 @@ impl RetriableSuiClient {
         K: DeserializeOwned + Serialize,
     {
         let key_tag = key_type.to_canonical_string(true);
-        let key_tag =
-            TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
-                .expect("valid type tag");
+        let key_tag = TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{key_tag}>"))
+            .expect("valid type tag");
         let inner_object_id = self.get_dynamic_field(parent, key_tag, key).await?;
         let inner = self.get_sui_object(inner_object_id).await?;
         Ok(inner)
@@ -886,17 +906,10 @@ impl RetriableSuiClient {
         Ok(pkg_id)
     }
 
-    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
-    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
-        &self,
-        subsidies_object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
-        let subsidies_object = self
-            .get_sui_object::<Subsidies>(subsidies_object_id)
-            .await?;
-
-        let pkg_id = subsidies_object.package_id;
-        Ok(pkg_id)
+    /// Checks if the credits object (`subsidies::Subsidies` in Move) exist on chain and returns
+    /// the object.
+    pub(crate) async fn get_credits_object(&self, object_id: ObjectID) -> SuiClientResult<Credits> {
+        self.get_sui_object::<Credits>(object_id).await
     }
 
     /// Returns the package ID from the type of the given object.
@@ -1009,14 +1022,14 @@ impl RetriableSuiClient {
         kind: TransactionKind,
         gas_price: u64,
     ) -> SuiClientResult<u64> {
-        let dry_run_tx_data = self
-            .failover_sui_client
-            .get_current_client()
-            .await
-            .expect("client must have been created")
-            .transaction_builder()
-            .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
-            .await;
+        let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
+            kind,
+            signer,
+            vec![],
+            MAX_GAS_BUDGET,
+            gas_price,
+            signer,
+        );
         let effects = self
             .dry_run_transaction_block(dry_run_tx_data)
             .await
@@ -1028,8 +1041,14 @@ impl RetriableSuiClient {
 
         let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
         let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
-        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
-        Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
+        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage()
+            + i64::try_from(safe_overhead).expect("this should always be smaller than i64::MAX");
+        Ok(computation_cost_with_overhead.max(
+            gas_usage_with_overhead
+                .max(0)
+                .try_into()
+                .expect("we just set any negative value to 0"),
+        ))
     }
 
     /// Executes a transaction.

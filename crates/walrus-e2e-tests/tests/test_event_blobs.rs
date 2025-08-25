@@ -1,7 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// Allowing `unwrap`s in tests.
+#![allow(clippy::unwrap_used)]
+
 //! End-to-end tests for event blobs.
+
 use std::time::Duration;
 
 use anyhow::Context;
@@ -18,6 +22,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(TestNodesConfig {
             node_weights: vec![2, 2],
+            use_legacy_event_processor: false,
             ..Default::default()
         })
         .build()
@@ -62,8 +67,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             .read_blob::<Primary>(&prev_event_blob)
             .await
             .context("should be able to read blob we just stored")?;
-        let event_blob =
-            walrus_service::node::events::event_blob::EventBlob::new(&read_blob_primary)?;
+        let event_blob = walrus_service::event::event_blob::EventBlob::new(&read_blob_primary)?;
         prev_event_blob = event_blob.prev_blob_id();
         for i in event_blob {
             tracing::debug!("element: {:?}", i);
@@ -80,8 +84,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
             node_weights: vec![1, 1],
             use_legacy_event_processor: false,
             disable_event_blob_writer: true,
-            blocklist_dir: None,
-            enable_node_config_synchronizer: false,
+            ..Default::default()
         })
         .build()
         .await?;
@@ -97,7 +100,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
         .await
         .unwrap()
     {
-        panic!("Event blob should not be written: {:?}", blob);
+        panic!("Event blob should not be written: {blob:?}");
     };
     Ok(())
 }

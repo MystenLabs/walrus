@@ -1,6 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+//! Utilities for the Walrus SDK.
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Display},
@@ -228,11 +229,17 @@ where
             .collect()
     }
 
-    /// Returns references to all the errors in the struct.
-    pub fn inner_err(&self) -> Vec<&T::Error> {
+    /// Returns references to all the errors in the struct, along with their weight.
+    pub fn inner_err(&self) -> Vec<(&T::Error, usize)> {
         self.results
             .iter()
-            .filter_map(|result| result.inner_result().as_ref().err())
+            .filter_map(|result| {
+                result
+                    .inner_result()
+                    .as_ref()
+                    .err()
+                    .map(|error| (error, result.weight()))
+            })
             .collect()
     }
 }
@@ -331,7 +338,7 @@ impl From<CompletedReasonWeight> for CompletedReason {
 pub fn string_prefix<T: ToString>(s: &T) -> String {
     let mut string = s.to_string();
     string.truncate(8);
-    format!("{}...", string)
+    format!("{string}...")
 }
 
 // TODO: See WAL-763. Move these helpers back into the `walrus-service` crate once we've created an

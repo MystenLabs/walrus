@@ -12,7 +12,6 @@ use core::{
     slice::{Chunks, ChunksMut},
 };
 
-use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 use serde_with::{Bytes, serde_as};
 
@@ -32,7 +31,7 @@ use crate::{
     WrongAxisError,
     by_axis::{self, ByAxis},
     ensure,
-    merkle::{MerkleAuth, MerkleProof, Node},
+    merkle::{MerkleAuth, MerkleProof, MerkleProofError, Node},
     metadata::{BlobMetadata, BlobMetadataApi as _},
     utils,
 };
@@ -300,11 +299,6 @@ pub struct DecodingSymbol<T> {
 }
 
 impl<T: EncodingAxis> DecodingSymbol<T> {
-    /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
-    pub fn into_encoding_packet(self) -> EncodingPacket {
-        EncodingPacket::new(PayloadId::new(0, self.index.into()), self.data)
-    }
-
     /// Returns the symbol size in bytes.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -495,13 +489,12 @@ impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
             .get_expected_root(metadata, n_shards)
             .ok_or(SymbolVerificationError::InvalidMetadata)?;
 
-        if !self.proof.verify_proof(
+        self.proof.verify_proof(
             expected_root,
+            n_shards.get().into(),
             self.symbol.data(),
             self.target_index.as_usize(),
-        ) {
-            return Err(SymbolVerificationError::InvalidProof);
-        }
+        )?;
 
         Ok(())
     }
@@ -568,6 +561,10 @@ impl<U: MerkleAuth> From<GeneralRecoverySymbol<U>> for EitherRecoverySymbol<U> {
 ///
 /// This wraps a [`DecodingSymbol`] with a Merkle proof for verification.
 ///
+/// The type parameter `T` represents the [`EncodingAxis`] of the sliver that can be recovered from
+/// this symbol.  I.e., a [`DecodingSymbol<Primary>`] is used to recover a
+/// [`Sliver<Primary>`][super::slivers::SliverData<Primary>].
+///
 /// The type parameter `U` represents the type of the Merkle proof associated with the symbol.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 #[serde(bound(
@@ -590,9 +587,14 @@ pub type SecondaryRecoverySymbol<U> = RecoverySymbol<Secondary, U>;
 impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
     /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
     /// against the `root` hash stored.
-    pub fn verify_proof(&self, root: &Node, target_index: usize) -> bool {
+    pub fn verify_proof(
+        &self,
+        root: &Node,
+        total_leaf_count: usize,
+        target_index: usize,
+    ) -> Result<(), MerkleProofError> {
         self.proof
-            .verify_proof(root, &self.symbol.data, target_index)
+            .verify_proof(root, total_leaf_count, &self.symbol.data, target_index)
     }
 
     /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
@@ -604,33 +606,28 @@ impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
     /// Returns `Ok(())` if the verification succeeds, a [`SymbolVerificationError`] otherwise.
     pub fn verify(
         &self,
+        n_shards: NonZeroU16,
+        expected_symbol_size: usize,
         metadata: &BlobMetadata,
-        encoding_config: &EncodingConfig,
         target_index: SliverIndex,
     ) -> Result<(), SymbolVerificationError> {
-        let n_shards = encoding_config.n_shards();
         if self.symbol.index >= n_shards.get() {
             return Err(SymbolVerificationError::IndexTooLarge);
         }
-        if !metadata
-            .symbol_size(encoding_config)
-            .is_ok_and(|s| self.symbol.len() == usize::from(s.get()))
-        {
+        if self.symbol.len() != expected_symbol_size {
             return Err(SymbolVerificationError::SymbolSizeMismatch);
         }
-        if self.verify_proof(
+        self.verify_proof(
             metadata
                 .get_sliver_hash(
                     SliverIndex(self.symbol.index).to_pair_index::<T::OrthogonalAxis>(n_shards),
                     T::OrthogonalAxis::sliver_type(),
                 )
                 .ok_or(SymbolVerificationError::InvalidMetadata)?,
+            n_shards.get().into(),
             target_index.get().into(),
-        ) {
-            Ok(())
-        } else {
-            Err(SymbolVerificationError::InvalidProof)
-        }
+        )?;
+        Ok(())
     }
 
     /// Consumes the [`RecoverySymbol<T, U>`], removing the proof, and returns the
@@ -661,47 +658,6 @@ pub struct RecoverySymbolPair<U: MerkleAuth> {
     pub primary: PrimaryRecoverySymbol<U>,
     /// Symbol to recover the secondary sliver.
     pub secondary: SecondaryRecoverySymbol<U>,
-}
-
-/// Filters an iterator of [`DecodingSymbol`s][DecodingSymbol], dropping and logging any that
-/// don't have a valid Merkle proof.
-pub(crate) fn filter_recovery_symbols_and_log_invalid<'a, T, I, V>(
-    recovery_symbols: I,
-    metadata: &'a BlobMetadata,
-    encoding_config: &'a EncodingConfig,
-    target_index: SliverIndex,
-) -> impl Iterator<Item = RecoverySymbol<T, V>> + 'a
-where
-    T: EncodingAxis,
-    I: IntoIterator,
-    I::IntoIter: Iterator<Item = RecoverySymbol<T, V>> + 'a,
-    V: MerkleAuth,
-{
-    recovery_symbols
-        .into_iter()
-        .filter(move |symbol: &RecoverySymbol<T, V>| {
-            symbol
-                .verify(metadata, encoding_config, target_index)
-                .map_err(|error| {
-                    tracing::warn!(
-                        %error,
-                        %symbol,
-                        %target_index,
-                        "invalid recovery symbol encountered during sliver recovery",
-                    )
-                })
-                .is_ok()
-        })
-}
-
-/// Returns the minimum number of symbols required to recover a sliver of [`EncodingAxis`] T.
-pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
-    let max_n_faulty = crate::bft::max_n_faulty(n_shards);
-    if T::IS_PRIMARY {
-        n_shards.get() - max_n_faulty
-    } else {
-        n_shards.get() - 2 * max_n_faulty
-    }
 }
 
 #[cfg(test)]
@@ -814,9 +770,6 @@ mod tests {
 
     param_test! {
         test_recovery_symbol_proof -> TestResult: [
-            raptorq: (
-                EncodingType::RedStuffRaptorQ,
-            ),
             reed_solomon: (
                 EncodingType::RS2,
             ),

@@ -1,6 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
+#![allow(clippy::cast_possible_truncation, clippy::unwrap_used)]
+
 //! Orchestrator entry point.
 
 use std::path::PathBuf;

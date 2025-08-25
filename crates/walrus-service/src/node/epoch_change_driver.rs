@@ -31,6 +31,8 @@ const MAX_SCHEDULE_JITTER: Duration = Duration::from_secs(180);
 const MIN_BACKOFF: Duration = Duration::from_secs(5);
 /// The maximum exponential backoff when performing retries.
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
+/// The maximum amount of time before the epoch change that process subsidies is scheduled.
+const MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE: Duration = Duration::from_secs(300);
 
 /// Function returning the current time in Utc.
 type UtcNowFn = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
@@ -74,6 +76,7 @@ impl EpochChangeDriver {
                 waker: None,
                 end_voting_future: None,
                 epoch_change_start_future: None,
+                subsidies_future: None,
             }))),
             system_parameters,
             contract_service,
@@ -94,7 +97,7 @@ impl EpochChangeDriver {
     pub async fn run(&self) {
         let inner = self.inner.clone();
         std::future::poll_fn(move |cx| {
-            let mut inner_guard = inner.lock().expect("mutex is not poisoned");
+            let mut inner_guard = inner.lock().expect("mutex should not be poisoned");
             inner_guard.poll_unpin(cx)
         })
         .await
@@ -121,7 +124,10 @@ impl EpochChangeDriver {
         match state {
             EpochState::EpochChangeSync(_) => (),
             EpochState::EpochChangeDone(_) => self.schedule_voting_end(next_epoch),
-            EpochState::NextParamsSelected(_) => self.schedule_initiate_epoch_change(next_epoch),
+            EpochState::NextParamsSelected(_) => {
+                self.schedule_initiate_epoch_change(next_epoch);
+                self.schedule_process_subsidies();
+            }
         }
 
         Ok(())
@@ -147,7 +153,7 @@ impl EpochChangeDriver {
         let end_voting_future = ScheduledEpochOperation::new(
             VotingEndOperation {
                 epoch_under_vote: next_epoch,
-                system_params: self.system_parameters.clone(),
+                system_params: self.system_parameters,
             },
             self.system_parameters.epoch_duration,
             self.contract_service.clone(),
@@ -201,7 +207,7 @@ impl EpochChangeDriver {
         let epoch_change_start_future = ScheduledEpochOperation::new(
             InitiateEpochChangeOperation {
                 next_epoch,
-                system_params: self.system_parameters.clone(),
+                system_params: self.system_parameters,
             },
             self.system_parameters.epoch_duration,
             self.contract_service.clone(),
@@ -239,6 +245,50 @@ impl EpochChangeDriver {
         }
     }
 
+    /// Schedules a call to process subsidies for the next epoch that will be dispatched by
+    /// [`run()`][Self::run] if subsidies are configured in the contract service.
+    ///
+    /// Should be called after [`NextParamsSelected`] events. Subsequent calls to this
+    /// method cancel any earlier scheduled calls.
+    #[tracing::instrument(skip_all)]
+    pub fn schedule_process_subsidies(&self) {
+        if !self.contract_service.is_subsidies_object_configured() {
+            tracing::debug!(
+                "subsidies are not configured in the contract, skipping call to process subsidies"
+            );
+            return;
+        }
+
+        let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        if inner.subsidies_future.is_some() {
+            tracing::debug!("replacing subsidies future");
+            inner.subsidies_future = None;
+        }
+
+        let subsidies_future = ScheduledEpochOperation::new(
+            SubsidiesOperation {
+                // Schedule the call `MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE` before the epoch
+                // change. If the epoch duration is short, e.g. for tests, we use 1/10th of the
+                // epoch duration to make sure to schedule it shortly before the epoch change.
+                time_before_epoch_change: MAX_SUBSIDIES_TIME_BEFORE_EPOCH_CHANGE
+                    .min(self.system_parameters.epoch_duration / 10),
+                system_params: self.system_parameters,
+                time_fn: self.utc_now_fn.clone(),
+            },
+            self.system_parameters.epoch_duration,
+            self.contract_service.clone(),
+            self.utc_now_fn.clone(),
+            &mut inner.rng,
+        )
+        .wait_then_call();
+
+        inner.subsidies_future = Some(subsidies_future.boxed());
+
+        tracing::debug!("scheduled process subsidies");
+        inner.wake();
+    }
+
     #[cfg(test)]
     /// Returns true if there is currently a scheduled call to end voting.
     pub fn is_voting_end_scheduled(&self) -> bool {
@@ -274,6 +324,8 @@ struct EpochChangeDriverInner<'pin> {
     end_voting_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
     /// An optional future that will start epoch change for a given epoch.
     epoch_change_start_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
+    /// An optional future that will process subsidies.
+    subsidies_future: Option<BoxFuture<'pin, ()>>,
 }
 
 impl EpochChangeDriverInner<'_> {
@@ -305,20 +357,29 @@ impl Future for EpochChangeDriverInner<'_> {
             .clone_from(cx.waker());
 
         tracing::info_span!("scheduled_end_voting").in_scope(|| {
-            if let Some((_, end_voting_future)) = this.end_voting_future.as_mut() {
-                if let Poll::Ready(()) = end_voting_future.poll_unpin(cx) {
-                    tracing::trace!("voting-end future completed");
-                    this.end_voting_future = None;
-                }
+            if let Some((_, end_voting_future)) = this.end_voting_future.as_mut()
+                && let Poll::Ready(()) = end_voting_future.poll_unpin(cx)
+            {
+                tracing::trace!("voting-end future completed");
+                this.end_voting_future = None;
             }
         });
 
         tracing::info_span!("scheduled_initiate_epoch_change").in_scope(|| {
-            if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut() {
-                if let Poll::Ready(()) = epoch_change_start.poll_unpin(cx) {
-                    tracing::trace!("epoch-change-start future completed");
-                    this.epoch_change_start_future = None;
-                }
+            if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut()
+                && let Poll::Ready(()) = epoch_change_start.poll_unpin(cx)
+            {
+                tracing::trace!("epoch-change-start future completed");
+                this.epoch_change_start_future = None;
+            }
+        });
+
+        tracing::info_span!("scheduled_process_subsidies").in_scope(|| {
+            if let Some(subsidies) = this.subsidies_future.as_mut()
+                && let Poll::Ready(()) = subsidies.poll_unpin(cx)
+            {
+                tracing::trace!("subsidies future completed");
+                this.subsidies_future = None;
             }
         });
 
@@ -584,6 +645,73 @@ impl EpochOperation for InitiateEpochChangeOperation {
         .await
         .map_err(|e| anyhow::anyhow!("initiate epoch change panicked: {:?}", e))??;
         tracing::debug!("epoch change successfully started");
+        Ok(())
+    }
+}
+
+/// Operation that calls the walrus subsidies contract if set.
+struct SubsidiesOperation {
+    time_before_epoch_change: Duration,
+    system_params: FixedSystemParameters,
+    time_fn: UtcNowFn,
+}
+
+impl EpochOperation for SubsidiesOperation {
+    fn time_until_ready(
+        &self,
+        utc_now: DateTime<Utc>,
+        current_epoch: Epoch,
+        state: EpochState,
+    ) -> Option<Duration> {
+        let current_epoch_started_at = match state {
+            EpochState::EpochChangeDone(_) | EpochState::EpochChangeSync(_) => {
+                tracing::debug!("next epoch parameters have not been selected yet");
+                return None;
+            }
+            EpochState::NextParamsSelected(current_epoch_started_at) => current_epoch_started_at,
+        };
+        if current_epoch == GENESIS_EPOCH {
+            tracing::debug!("subsidies are not distributed in epoch 0");
+            return None;
+        }
+
+        let subsidies_call_at = current_epoch_started_at + self.system_params.epoch_duration
+            - self.time_before_epoch_change;
+
+        let duration_until_subsidies_call = subsidies_call_at
+            .signed_duration_since(utc_now)
+            .max(TimeDelta::zero())
+            .to_std()
+            .expect("max(., 0) makes the value always positive");
+        tracing::debug!("subsidies call in {duration_until_subsidies_call:.0?}");
+
+        Some(duration_until_subsidies_call)
+    }
+
+    async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error> {
+        let last_subsidies_call = contract.last_walrus_subsidies_call().await?;
+        let current_time = (self.time_fn)();
+        // If the last subsidies call was less than time_before_epoch_change ago, return without
+        // calling them again. We use the same duration here to avoid having to configure too
+        // many parameters.
+        if current_time < last_subsidies_call + self.time_before_epoch_change {
+            tracing::debug!("subsidies already called recently");
+            return Ok(());
+        }
+
+        tracing::info!("initiating subsidy distribution");
+        // Move transaction execution to a separate task so that it cannot be cancelled when
+        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
+        // conflicts.
+        tokio::spawn({
+            let contract = contract.clone();
+            async move { contract.process_subsidies().await }
+        })
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("call to initiate subsidy distribution panicked: {:?}", e)
+        })??;
+        tracing::debug!("successfully initiated subsidy distribution");
         Ok(())
     }
 }

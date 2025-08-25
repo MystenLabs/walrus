@@ -8,7 +8,10 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationMilliSeconds, DurationSeconds, serde_as};
 
-use crate::{common::config::SuiReaderConfig, node::events::EventProcessorConfig};
+use crate::{
+    common::config::SuiReaderConfig,
+    event::event_processor::config::EventProcessorConfig,
+};
 
 /// The subdirectory in which to store the backup blobs when running without remote storage.
 pub const BACKUP_BLOB_ARCHIVE_SUBDIR: &str = "archive";
@@ -171,7 +174,7 @@ pub mod defaults {
     /// The reason we multiply by the chunk size is to ensure that the fetchers don't race to fetch
     /// blobs that are already in another fetcher's in-memory queue.
     pub fn retry_fetch_after_interval() -> Duration {
-        Duration::from_secs(45 * 60 * blob_job_chunk_size() as u64)
+        Duration::from_secs(45 * 60 * u64::from(blob_job_chunk_size()))
     }
 
     /// The default interval between the fetcher polling the database when there is no work to do.

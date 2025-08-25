@@ -79,7 +79,6 @@ impl SuiConfig {
     ) -> Result<SuiContractClient, SuiClientError> {
         let wallet = WalletConfig::load_wallet(Some(&self.wallet_config), self.request_timeout)?;
 
-        #[allow(deprecated)]
         let rpc_urls = combine_rpc_urls(
             wallet.get_rpc_url()?,
             &combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints),
@@ -168,7 +167,7 @@ impl SuiReaderConfig {
 
 /// Shared configuration defaults.
 pub mod defaults {
-    use super::*;
+    use std::time::Duration;
 
     /// Default polling interval in milliseconds.
     pub const POLLING_INTERVAL_MS: u64 = 400;

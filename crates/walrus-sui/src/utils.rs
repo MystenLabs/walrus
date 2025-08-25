@@ -17,7 +17,7 @@ use move_core_types::language_storage::StructTag as MoveStructTag;
 use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
-use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
+use sui_keys::keystore::{AccountKeystore as _, FileBasedKeystore, Keystore};
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
@@ -44,6 +44,9 @@ use crate::{
     contracts::AssociatedContractStruct,
     wallet::Wallet,
 };
+
+/// 10,000 basis points is 100%.
+pub const TEN_THOUSAND_BASIS_POINTS: u64 = 10_000;
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
 // The storage unit is used in doc comments for CLI arguments in the files
@@ -77,7 +80,7 @@ pub fn price_for_encoded_length(
     price_per_unit_size: u64,
     epochs: EpochCount,
 ) -> u64 {
-    storage_units_from_size(encoded_length) * price_per_unit_size * (epochs as u64)
+    storage_units_from_size(encoded_length) * price_per_unit_size * u64::from(epochs)
 }
 
 /// Computes the price given the encoded blob size.
@@ -192,8 +195,8 @@ where
 
 // Faucets
 const LOCALNET_FAUCET: &str = "http://127.0.0.1:9123/gas";
-const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
-const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
+const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v2/gas";
+const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v2/gas";
 
 /// Enum for the different sui networks.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,7 +323,7 @@ pub fn create_wallet(
 
     let mut keystore = FileBasedKeystore::new(&keystore_path)?;
     let (new_address, _phrase, _scheme) =
-        keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
+        keystore.generate(SignatureScheme::ED25519, None, None, None)?;
 
     let keystore = Keystore::from(keystore);
 
@@ -340,10 +343,7 @@ pub fn create_wallet(
 pub async fn send_faucet_request(address: SuiAddress, network: &SuiNetwork) -> Result<()> {
     // send the request to the faucet
     let client = reqwest::Client::new();
-    let data_raw = format!(
-        "{{\"FixedAmountRequest\": {{ \"recipient\": \"{}\" }} }} ",
-        address
-    );
+    let data_raw = format!("{{\"FixedAmountRequest\": {{ \"recipient\": \"{address}\" }} }} ");
     let Some(faucet) = network.faucet() else {
         return Err(anyhow!("faucet not available for {network}"));
     };
@@ -416,7 +416,6 @@ pub async fn get_sui_from_wallet_or_faucet(
     let one_sui = 1_000_000_000;
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.get_rpc_url()?];
     let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
     let balance = client.get_balance(sender, None).await?;
@@ -426,7 +425,7 @@ pub async fn get_sui_from_wallet_or_faucet(
         let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = client
-            .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
+            .select_coins(sender, None, u128::from(gas_budget + one_sui), vec![])
             .await?
             .iter()
             .map(|coin| coin.object_ref())

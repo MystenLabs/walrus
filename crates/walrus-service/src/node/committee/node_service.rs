@@ -38,7 +38,7 @@ use walrus_core::{
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::{
     ClientBuildError,
@@ -93,7 +93,8 @@ pub(crate) enum Request {
 pub(crate) enum Response {
     VerifiedMetadata(VerifiedBlobMetadataWithId),
     VerifiedRecoverySymbol(DefaultRecoverySymbol),
-    InvalidBlobAttestation(InvalidBlobIdAttestation),
+    // Wrapped in a `Box` as this variant is very large and rarely used.
+    InvalidBlobAttestation(Box<InvalidBlobIdAttestation>),
     ShardSlivers(Vec<(BlobId, Sliver)>),
     VerifiedRecoverySymbols(Vec<GeneralRecoverySymbol>),
 }
@@ -145,8 +146,29 @@ impl_response_conversion!(
     Vec<GeneralRecoverySymbol>,
     Response::VerifiedRecoverySymbols
 );
-impl_response_conversion!(InvalidBlobIdAttestation, Response::InvalidBlobAttestation);
+impl_response_conversion!(
+    Box<InvalidBlobIdAttestation>,
+    Response::InvalidBlobAttestation
+);
 impl_response_conversion!(Vec<(BlobId, Sliver)>, Response::ShardSlivers);
+
+impl TryFrom<Response> for InvalidBlobIdAttestation {
+    type Error = InvalidResponseVariant;
+
+    fn try_from(value: Response) -> Result<Self, Self::Error> {
+        if let Response::InvalidBlobAttestation(inner) = value {
+            Ok(*inner)
+        } else {
+            Err(InvalidResponseVariant)
+        }
+    }
+}
+
+impl From<InvalidBlobIdAttestation> for Response {
+    fn from(value: InvalidBlobIdAttestation) -> Self {
+        Response::InvalidBlobAttestation(Box::new(value))
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum NodeServiceError {
@@ -207,11 +229,18 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     sliver_pair_at_remote,
                     intersecting_pair_index,
                 } => {
+                    let n_shards = encoding_config.n_shards();
+                    let symbol_size = metadata
+                        .metadata()
+                        .symbol_size(&encoding_config)
+                        .map_err(NodeError::other)?;
+
                     let symbol = if sliver_type == SliverType::Primary {
                         client
                             .get_and_verify_recovery_symbol::<Primary>(
+                                n_shards,
+                                symbol_size.get().into(),
                                 &metadata,
-                                &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
                             )
@@ -220,8 +249,9 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                     } else {
                         client
                             .get_and_verify_recovery_symbol::<Secondary>(
+                                n_shards,
+                                symbol_size.get().into(),
                                 &metadata,
-                                &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
                             )
@@ -359,6 +389,7 @@ impl DefaultNodeServiceFactory {
 
     /// Skips the use of proxies or the loading of native certificates, as these require interacting
     /// with the operating system and can significantly slow down the construction of new instances.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn avoid_system_services() -> Self {
         Self {
             disable_use_proxy: true,

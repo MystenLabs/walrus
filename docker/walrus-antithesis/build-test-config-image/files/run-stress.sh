@@ -37,7 +37,7 @@ echo "starting stress client"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=full RUST_LOG=info /opt/walrus/bin/walrus-stress \
+RUST_BACKTRACE=full RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-stress \
     --config-path /opt/walrus/outputs/client_config_stress.yaml \
     --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
     stress \

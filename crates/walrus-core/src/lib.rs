@@ -9,10 +9,10 @@
 extern crate alloc;
 extern crate std;
 
-use alloc::vec::Vec;
 #[allow(unused)]
 #[cfg(feature = "utoipa")]
-use alloc::{format, string::String};
+use alloc::format;
+use alloc::{string::String, vec::Vec};
 use core::{
     fmt::{self, Debug, Display},
     num::NonZeroU16,
@@ -29,12 +29,14 @@ use encoding::{
     Primary,
     PrimaryRecoverySymbol,
     PrimarySliver,
+    QuiltError,
     RecoverySymbolError,
     Secondary,
     SecondaryRecoverySymbol,
     SecondarySliver,
     SliverVerificationError,
     WrongSliverVariantError,
+    quilt_encoding::QuiltVersionEnum,
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
@@ -66,6 +68,8 @@ pub mod messages;
 pub mod metadata;
 pub mod utils;
 
+pub use encoding_type::EncodingType;
+
 /// A public key for protocol messages.
 pub type PublicKey = BLS12381PublicKey;
 /// A public key for network communication.
@@ -82,34 +86,8 @@ pub type Epoch = u32;
 pub type EpochCount = u32;
 
 /// A tuple containing the list of supported encodings, and the default encoding type.
-const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) = {
-    #[cfg(all(feature = "rs2", feature = "raptorq"))]
-    {
-        (
-            &[EncodingType::RS2, EncodingType::RedStuffRaptorQ],
-            EncodingType::RS2,
-        )
-    }
-
-    #[cfg(all(feature = "raptorq", not(feature = "rs2")))]
-    {
-        (
-            &[EncodingType::RedStuffRaptorQ],
-            EncodingType::RedStuffRaptorQ,
-        )
-    }
-
-    #[cfg(all(feature = "rs2", not(feature = "raptorq")))]
-    {
-        (&[EncodingType::RS2], EncodingType::RS2)
-    }
-
-    #[cfg(not(any(feature = "raptorq", feature = "rs2")))]
-    {
-        // If nothing is specified, default to RS2.
-        (&[EncodingType::RS2], EncodingType::RS2)
-    }
-};
+const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) =
+    (&[EncodingType::RS2], EncodingType::RS2);
 
 /// The encoding types supported for this build.
 pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = SUPPORTED_AND_DEFAULT_ENCODING.0;
@@ -212,6 +190,105 @@ impl Display for BlobId {
 impl Debug for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlobId({self})")
+    }
+}
+
+/// A QuiltPatchId is a globally unique id for a quilt patch.
+///
+/// A quilt patch is a individual blob within a quilt.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchId {
+    /// The BlobId of the quilt as a Walrus blob.
+    pub quilt_id: BlobId,
+    /// The patch id of the quilt patch.
+    pub patch_id_bytes: Vec<u8>,
+}
+
+impl QuiltPatchId {
+    /// Create a new QuiltPatchId.
+    pub fn new(quilt_id: BlobId, patch_id_bytes: Vec<u8>) -> Self {
+        Self {
+            quilt_id,
+            patch_id_bytes,
+        }
+    }
+
+    /// Serializes the QuiltPatchId to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.quilt_id.0);
+        bytes.extend_from_slice(&self.patch_id_bytes);
+        bytes
+    }
+
+    /// Deserializes the QuiltPatchId from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BlobIdParseError> {
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
+        Ok(Self {
+            quilt_id,
+            patch_id_bytes,
+        })
+    }
+
+    /// Returns a zero-initialized QuiltPatchId.
+    pub fn zero() -> Self {
+        Self {
+            quilt_id: BlobId::ZERO,
+            patch_id_bytes: Vec::new(),
+        }
+    }
+
+    /// Returns the version of the quilt.
+    pub fn version_enum(&self) -> Result<QuiltVersionEnum, QuiltError> {
+        QuiltVersionEnum::try_from(
+            *self
+                .patch_id_bytes
+                .first()
+                .ok_or_else(|| QuiltError::Other(String::from("Patch ID bytes are empty")))?,
+        )
+    }
+}
+
+impl Display for QuiltPatchId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Base64Display::new(&self.to_bytes(), &URL_SAFE_NO_PAD).fmt(f)
+    }
+}
+
+impl Debug for QuiltPatchId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "QuiltPatchId({}), patch_id_bytes({:?})",
+            self.quilt_id, self.patch_id_bytes
+        )
+    }
+}
+
+impl FromStr for QuiltPatchId {
+    type Err = BlobIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Decode from Base64.
+        let bytes = URL_SAFE_NO_PAD.decode(s).map_err(|_| BlobIdParseError)?;
+
+        // Must have at least BlobId.LENGTH + 1 bytes (quilt_id + version).
+        if bytes.len() < BlobId::LENGTH + 1 {
+            return Err(BlobIdParseError);
+        }
+
+        // Extract quilt_id (first 32 bytes).
+        let quilt_id = BlobId::try_from(&bytes[..BlobId::LENGTH])?;
+
+        // Extract patch_id (remaining bytes).
+        let patch_id_bytes = bytes[BlobId::LENGTH..].to_vec();
+
+        Ok(Self {
+            quilt_id,
+            patch_id_bytes,
+        })
     }
 }
 
@@ -671,76 +748,86 @@ by_axis::derive_try_from_trait!(
 #[error("the provided value is not a valid EncodingType")]
 pub struct InvalidEncodingType;
 
-/// Supported Walrus encoding types.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
-#[repr(u8)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub enum EncodingType {
-    /// Original RedStuff encoding using the RaptorQ erasure code.
-    RedStuffRaptorQ = 0,
-    /// RedStuff using the Reed-Solomon erasure code.
-    RS2 = 1,
-}
-
-impl From<EncodingType> for u8 {
-    fn from(value: EncodingType) -> Self {
-        value as u8
+// Defining the `EncodingType` in a separate module to be able to use `#[allow(deprecated)]` with
+// limited scope. Without this, the serde derivations would cause deprecation warnings.
+#[allow(deprecated)]
+mod encoding_type {
+    use super::*;
+    /// Supported Walrus encoding types.
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
+    #[repr(u8)]
+    #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+    pub enum EncodingType {
+        /// Original RedStuff encoding using the RaptorQ erasure code.
+        // This is no longer used or supported. It is kept only so BCS de-/encoding works correctly.
+        #[deprecated(
+            note = "the original RaptorQ-based encoding is no longer supported and is disabled on \
+            all public Walrus networks"
+        )]
+        #[serde(skip_serializing)]
+        RedStuffRaptorQ = 0,
+        /// RedStuff using the Reed-Solomon erasure code.
+        RS2 = 1,
     }
-}
 
-impl TryFrom<u8> for EncodingType {
-    type Error = InvalidEncodingType;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(EncodingType::RedStuffRaptorQ),
-            1 => Ok(EncodingType::RS2),
-            _ => Err(InvalidEncodingType),
-        }
-    }
-}
-
-impl FromStr for EncodingType {
-    type Err = InvalidEncodingType;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "redstuff/raptorq" | "raptorq" | "redstuffraptorq" => Ok(Self::RedStuffRaptorQ),
-            "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
-            _ => Err(InvalidEncodingType),
-        }
-    }
-}
-
-impl EncodingType {
-    /// Returns the required alignment of symbols for the encoding type.
-    pub fn required_alignment(&self) -> u64 {
-        match self {
-            EncodingType::RedStuffRaptorQ => 1,
-            EncodingType::RS2 => 2,
+    impl From<EncodingType> for u8 {
+        #[inline]
+        fn from(value: EncodingType) -> Self {
+            value as u8
         }
     }
 
-    /// Returns the maximum size of a symbol for the encoding type.
-    pub fn max_symbol_size(&self) -> u64 {
-        match self {
-            EncodingType::RedStuffRaptorQ => u16::MAX.into(),
-            // TODO (WAL-611): Probably we can support larger symbols for Reed-Solomon.
-            EncodingType::RS2 => (u16::MAX - 1).into(),
+    impl TryFrom<u8> for EncodingType {
+        type Error = InvalidEncodingType;
+
+        #[inline]
+        fn try_from(value: u8) -> Result<Self, Self::Error> {
+            match value {
+                1 => Ok(EncodingType::RS2),
+                _ => Err(InvalidEncodingType),
+            }
         }
     }
 
-    /// Returns `true` if the current build supports the encoding type.
-    pub fn is_supported(&self) -> bool {
-        SUPPORTED_ENCODING_TYPES.contains(self)
-    }
-}
+    impl FromStr for EncodingType {
+        type Err = InvalidEncodingType;
 
-impl Display for EncodingType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EncodingType::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
-            EncodingType::RS2 => write!(f, "RedStuff/Reed-Solomon"),
+        #[inline]
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s.trim().to_lowercase().as_str() {
+                "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
+                _ => Err(InvalidEncodingType),
+            }
+        }
+    }
+
+    impl EncodingType {
+        /// Returns the required alignment of symbols for the encoding type.
+        #[inline]
+        pub fn required_alignment(&self) -> u16 {
+            2
+        }
+
+        /// Returns the maximum size of a symbol for the encoding type.
+        #[inline]
+        pub fn max_symbol_size(&self) -> u16 {
+            u16::MAX - 1
+        }
+
+        /// Returns `true` if the current build supports the encoding type.
+        #[inline]
+        pub fn is_supported(&self) -> bool {
+            SUPPORTED_ENCODING_TYPES.contains(self)
+        }
+    }
+
+    impl Display for EncodingType {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
+                Self::RS2 => write!(f, "RedStuff/Reed-Solomon"),
+            }
         }
     }
 }
@@ -854,6 +941,19 @@ mod tests {
     use serde_test::{Configure as _, Token};
 
     use super::*;
+
+    #[test]
+    fn encoding_type_bcs_serialize() {
+        assert_eq!(bcs::to_bytes(&EncodingType::RS2).unwrap(), [1]);
+    }
+
+    #[test]
+    fn encoding_type_bcs_deserialize() {
+        assert_eq!(
+            bcs::from_bytes::<EncodingType>(&[1]).unwrap(),
+            EncodingType::RS2
+        );
+    }
 
     #[test]
     fn symbol_id_serde_compact() {

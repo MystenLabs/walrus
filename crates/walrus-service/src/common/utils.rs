@@ -48,49 +48,19 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_core::{PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
-    client::{SuiReadClient, retry_client::RetriableSuiClient},
+    client::{contract_config::ContractConfig, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
+use crate::node::config::MetricsPushConfig;
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
 pub const MAX_NODE_NAME_LENGTH: usize = 100;
-
-/// Defines a constant containing the version consisting of the package version and git revision.
-///
-/// We are using a macro as placing this logic into a library can result in unnecessary builds.
-#[macro_export]
-macro_rules! version {
-    () => {{
-        /// The Git revision obtained through `git describe` at compile time.
-        const GIT_REVISION: &str = {
-            if let Some(revision) = option_env!("GIT_REVISION") {
-                revision
-            } else {
-                let version = git_version::git_version!(
-                    args = ["--always", "--abbrev=12", "--dirty", "--exclude", "*"],
-                    fallback = ""
-                );
-                if version.is_empty() {
-                    panic!("unable to query git revision");
-                }
-                version
-            }
-        };
-
-        // The version consisting of the package version and Git revision.
-        walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
-    }};
-}
-pub use version;
-
-use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
@@ -206,8 +176,7 @@ where
     let name: String = Deserialize::deserialize(deserializer)?;
     if name.len() > MAX_NODE_NAME_LENGTH {
         return Err(D::Error::custom(format!(
-            "Node name must not exceed {} characters",
-            MAX_NODE_NAME_LENGTH
+            "Node name must not exceed {MAX_NODE_NAME_LENGTH} characters"
         )));
     }
     Ok(name)
@@ -219,7 +188,8 @@ pub struct MetricsAndLoggingRuntime {
     /// The Prometheus registry.
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
-    _tracing_handle: TracingHandle,
+    /// The tracing handle.
+    pub tracing_handle: Arc<TracingHandle>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Option<Runtime>,
@@ -260,7 +230,7 @@ impl MetricsAndLoggingRuntime {
             runtime,
             registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
+            tracing_handle: Arc::new(tracing_handle),
         })
     }
 }
@@ -372,8 +342,10 @@ async fn push_metrics(
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+        .expect("current time is definitely after the UNIX epoch")
+        .as_millis()
+        .try_into()
+        .expect("timestamp must fit into an i64");
 
     let mut metric_families = registry.gather();
     for mf in metric_families.iter_mut() {
@@ -526,7 +498,6 @@ pub async fn generate_sui_wallet(
         path.display()
     );
     let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
-    #[allow(deprecated)]
     let rpc_urls = &[wallet.get_rpc_url()?];
     let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None).await?;
 
@@ -587,18 +558,23 @@ impl FromStr for ByteCount {
             ("Ti", (1u64 << 40) as f64),
             ("Pi", (1u64 << 50) as f64),
         ];
-
         let error_context = || format!("invalid byte-count string: {original:?}");
+
         if let Some((value_str, scale)) = suffixes
             .into_iter()
             .find_map(|(suffix, scale)| Some((s.strip_suffix(suffix)?, scale)))
         {
-            f64::from_str(value_str.trim())
-                .map(|value| ByteCount((value * scale).floor() as u64))
-                .with_context(error_context)
+            let value = f64::from_str(value_str.trim()).with_context(error_context)?;
+            let byte_count = (value * scale).floor();
+            if byte_count > u64::MAX as f64 {
+                anyhow::bail!("provided byte-count is too large: {original:?}");
+            } else {
+                #[allow(clippy::cast_possible_truncation)] // truncation is fine here
+                Ok(ByteCount(byte_count as u64))
+            }
         } else {
-            // Otherwise, assume unittless.
-            // Bytes cannot have fractional components
+            // Otherwise, assume unitless.
+            // Bytes cannot have fractional components.
             u64::from_str(s.trim())
                 .map(ByteCount)
                 .with_context(error_context)
@@ -706,79 +682,6 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     Ok(guard)
 }
 
-/// Downloads event blobs for catchup purposes.
-///
-/// This function creates a client to download event blobs up to a specified
-/// checkpoint. The blobs are stored in the provided recovery path.
-#[cfg(feature = "client")]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    use walrus_sui::client::contract_config::ContractConfig;
-
-    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
-    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
-    let config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-
-    let walrus_client =
-        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
-            .await?;
-
-    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
-    let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path, metrics)
-        .await?;
-
-    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
-    Ok(blob_ids)
-}
-
-/// Placeholder function for when the client feature is not enabled.
-#[cfg(not(feature = "client"))]
-pub async fn collect_event_blobs_for_catchup(
-    sui_client: RetriableSuiClient,
-    staking_object_id: ObjectID,
-    system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
-    upto_checkpoint: Option<u64>,
-    recovery_path: &Path,
-    _metrics: Option<&EventProcessorMetrics>,
-) -> Result<Vec<BlobId>> {
-    Ok(vec![])
-}
-
-/// Returns whether a node cursor should be repositioned.
-///
-/// The node cursor should be repositioned if it is behind the actual event index and it is at
-/// the beginning of the event stream.
-///
-/// - `event_index`: The index of the next event the node needs to process.
-/// - `actual_event_index`: The index of the first event available in the current event stream.
-///
-/// Usually, these indices match up, meaning the node picks up processing right where it left
-/// off. However, there's a special case during node bootstrapping (when starting with no
-/// previous state) and event processor bootstrapping itself from event blobs:
-///
-/// When a node starts up for the first time, older event blobs might have expired due to the
-/// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
-/// 0).
-///
-/// In this case, the event stream can only provide events starting from index N. But the node,
-/// being brand new, wants to start processing from index 0. In this scenario, we actually want
-/// to reposition the node's cursor to index N. This is safe because those events are no longer
-/// available in the system anyway (they've expired), and marking them as completed prevents the
-/// event tracking system from flagging this natural gap as an error.
-pub fn should_reposition_cursor(event_index: u64, actual_event_index: u64) -> bool {
-    let is_behind = event_index < actual_event_index;
-    let is_at_beginning = event_index == 0;
-    is_behind && is_at_beginning
-}
-
 /// Wait for SIGINT and SIGTERM (unix only).
 #[tracing::instrument(skip_all)]
 pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
@@ -834,15 +737,40 @@ where
 
 /// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
 /// or resumes a panic if the function had panicked.
-pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::JoinError>>(
+    result: Result<Result<T, E>, JoinError>,
+) -> Result<T, E> {
     match result {
         Ok(value) => value,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic())
+            } else {
+                Err(error.into())
+            }
+        }
     }
+}
+
+/// Creates a new Walrus client with a refresher using the provided configuration
+/// and Sui read client.
+pub async fn create_walrus_client_with_refresher(
+    contract_config: ContractConfig,
+    sui_read_client: walrus_sui::client::SuiReadClient,
+) -> anyhow::Result<walrus_sdk::client::WalrusNodeClient<walrus_sui::client::SuiReadClient>> {
+    let client_config = crate::client::ClientConfig::new_from_contract_config(contract_config);
+    walrus_sdk::client::WalrusNodeClient::new_read_client_with_refresher(
+        client_config,
+        sui_read_client,
+    )
+    .await
+    .map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]
 mod tests {
+    // Allowing casts in tests.
+    #![allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
 
     use std::num::NonZeroU16;
 

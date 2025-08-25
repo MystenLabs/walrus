@@ -27,12 +27,12 @@ use walrus_core::{
     SliverType,
     bft,
     encoding::{
-        self,
         EncodingConfig,
         EncodingConfigTrait as _,
         GeneralRecoverySymbol,
         Primary,
         PrimaryRecoverySymbol,
+        RequiredSymbolsCount,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -298,7 +298,7 @@ async fn new_committee_unavailable_for_reads_until_transition_completes() -> Tes
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_and_verify_metadata(*expected_metadata.blob_id(), 0);
     let mut pending_request = std::pin::pin!(pending_request);
 
@@ -452,26 +452,21 @@ fn recovery_symbols_by_shard(
     let target_sliver_pair_index = target_sliver_index.to_pair_index::<Primary>(n_shards);
 
     let encoding_config = EncodingConfig::new(n_shards);
-    let (sliver_pairs, metadata) = encoding_config
-        .get_for_type(DEFAULT_ENCODING)
-        .encode_with_metadata(&blob)?;
+    let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
+    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
 
+    let RequiredSymbolsCount::Exact(n_symbols_for_recovery) =
+        encoding_config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = sliver_pairs
         .iter()
         .map(|pair| {
             let symbol = pair
                 .secondary
-                .recovery_symbol_for_sliver(
-                    target_sliver_pair_index,
-                    &encoding_config.get_for_type(metadata.metadata().encoding_type()),
-                )
+                .recovery_symbol_for_sliver(target_sliver_pair_index, &encoding_config_enum)
                 .unwrap();
             (pair.index(), symbol)
         })
-        .choose_multiple(
-            rng,
-            encoding::min_symbols_for_recovery::<Primary>(n_shards).into(),
-        );
+        .choose_multiple(rng, n_symbols_for_recovery);
 
     Ok((
         metadata,
@@ -544,7 +539,7 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request = committee_service.recover_sliver(
+    let pending_request = committee_service.recover_sliver(
         metadata.into(),
         target_sliver_index.into(),
         SliverType::Primary,
@@ -604,7 +599,7 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
             let attestation = node::sign_message(message, arbitrary_key_pair).await?;
 
             service_map.insert_ready(node.public_key.clone(), move |_request| {
-                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+                Ok(attestation.clone().into())
             });
         }
     }
@@ -621,7 +616,7 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
     let mut pending_request = std::pin::pin!(pending_request);
 
@@ -669,7 +664,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
             let attestation = node::sign_message(message, arbitrary_key_pair).await?;
 
             service_map.insert_ready(node.public_key.clone(), move |_request| {
-                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+                Ok(attestation.clone().into())
             });
         }
     }
@@ -686,7 +681,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
         .build_with_factory(committee_lookup, service_map)
         .await?;
 
-    let mut pending_request =
+    let pending_request =
         committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
     let mut pending_request = std::pin::pin!(pending_request);
 

@@ -12,11 +12,14 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
+bimap.workspace = true
 chrono.workspace = true
 enum_dispatch.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
+humantime.workspace = true
 indexmap.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
@@ -39,12 +42,13 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+url.workspace = true
 utoipa.workspace = true
-walrus-core.workspace = true
+walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-storage-node-client.workspace = true
-walrus-sui.workspace = true
+walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils.workspace = true
-walrus-utils.workspace = true
+walrus-utils = { workspace = true, features = ["log", "metrics"] }
 
 [lints]
 workspace = true

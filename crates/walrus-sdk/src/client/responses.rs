@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
 
-use super::resource::RegisterBlobOp;
+use super::{client_types::StoredQuiltPatch, resource::RegisterBlobOp};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -37,7 +37,7 @@ impl Display for EventOrObjectId {
                 )
             }
             EventOrObjectId::Object(object_id) => {
-                write!(f, "Owned Blob registration object ID: {}", object_id)
+                write!(f, "Owned Blob registration object ID: {object_id}")
             }
         }
     }
@@ -139,4 +139,14 @@ impl BlobStoreResult {
     pub fn is_not_stored(&self) -> bool {
         matches!(self, Self::MarkedInvalid { .. } | Self::Error { .. })
     }
+}
+
+/// Result when attempting to store a quilt.
+#[derive(Serialize, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltStoreResult {
+    /// The result of storing the quilt data as a blob.
+    pub blob_store_result: BlobStoreResult,
+    /// The structure of the quilt.
+    pub stored_quilt_blobs: Vec<StoredQuiltPatch>,
 }

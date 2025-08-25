@@ -31,7 +31,7 @@ echo "Deploying system contract"
 
 echo "Generating dry run configs"
 
-/opt/walrus/bin/walrus-deploy generate-dry-run-configs \
+RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-deploy generate-dry-run-configs \
   --working-dir /opt/walrus/outputs \
   --extra-client-wallets stress,staking \
   --admin-wallet-path /opt/walrus/outputs/sui_admin.yaml \

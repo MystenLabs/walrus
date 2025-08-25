@@ -19,7 +19,7 @@ use tokio::{
 use walrus_core::{BlobId, EpochCount, encoding::Primary};
 use walrus_sdk::{
     client::{
-        Client,
+        WalrusNodeClient,
         metrics::{self, ClientMetrics},
     },
     config::ClientConfig,
@@ -31,8 +31,10 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
+/// Minimum burst duration in milliseconds.
+const MIN_BURST_DURATION_MS: u64 = 100;
 /// Minimum burst duration.
-const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
+const MIN_BURST_DURATION: Duration = Duration::from_millis(MIN_BURST_DURATION_MS);
 /// Number of seconds per load period.
 const SECS_PER_LOAD_PERIOD: u64 = 60;
 
@@ -47,8 +49,8 @@ use write_client::WriteClient;
 pub struct LoadGenerator {
     write_client_pool: Receiver<WriteClient>,
     write_client_pool_tx: Sender<WriteClient>,
-    read_client_pool: Receiver<Client<SuiReadClient>>,
-    read_client_pool_tx: Sender<Client<SuiReadClient>>,
+    read_client_pool: Receiver<WalrusNodeClient<SuiReadClient>>,
+    read_client_pool_tx: Sender<WalrusNodeClient<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
     _refill_handles: RefillHandles,
 }
@@ -84,7 +86,7 @@ impl LoadGenerator {
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
         for read_client in try_join_all((0..n_clients).map(|_| {
-            Client::new_read_client(
+            WalrusNodeClient::new_read_client(
                 client_config.clone(),
                 refresher_handle.clone(),
                 sui_read_client.clone(),
@@ -388,7 +390,7 @@ fn burst_load(load: u64) -> (u64, Interval) {
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
     let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
         (
-            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION.as_millis() as u64),
+            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION_MS),
             MIN_BURST_DURATION,
         )
     } else {

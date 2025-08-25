@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::sync::Arc;
+use std::{num::NonZeroU16, sync::Arc};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
@@ -198,7 +198,7 @@ impl UrlEndpoints {
 
     fn recovery_symbol(&self, blob_id: &BlobId, symbol_id: SymbolId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id, &format!("recoverySymbols/{}", symbol_id)),
+            self.blob_resource(blob_id, &format!("recoverySymbols/{symbol_id}")),
             RECOVERY_SYMBOL_URL_TEMPLATE,
         )
     }
@@ -703,8 +703,9 @@ impl StorageNodeClient {
     )]
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
+        n_shards: NonZeroU16,
+        expected_symbol_size: usize,
         metadata: &VerifiedBlobMetadataWithId,
-        encoding_config: &EncodingConfig,
         remote_sliver_pair: SliverPairIndex,
         local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
@@ -715,12 +716,12 @@ impl StorageNodeClient {
                 local_sliver_pair,
             )
             .await?;
-
         symbol
             .verify(
+                n_shards,
+                expected_symbol_size,
                 metadata.as_ref(),
-                encoding_config,
-                local_sliver_pair.to_sliver_index::<A>(encoding_config.n_shards()),
+                local_sliver_pair.to_sliver_index::<A>(n_shards),
             )
             .map_err(NodeError::other)?;
 

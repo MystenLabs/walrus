@@ -17,8 +17,12 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
-use walrus_sdk::client::metrics::ClientMetrics;
+use walrus_sdk::client::{WalrusNodeClient, metrics::ClientMetrics};
 use walrus_service::client::{ClientConfig, Refiller};
+use walrus_stress::single_client_workload::{
+    SingleClientWorkload,
+    single_client_workload_arg::SingleClientWorkloadArgs,
+};
 use walrus_sui::{
     client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
     config::WalletConfig,
@@ -71,6 +75,8 @@ enum Commands {
     Stress(StressArgs),
     /// Deploy the Walrus system contract on the Sui network.
     Staking,
+    /// Run a single client with a specified workload.
+    SingleClient(SingleClientWorkloadArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -126,6 +132,8 @@ async fn main() -> anyhow::Result<()> {
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);
     let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
     let prometheus_registry = registry_service.default_registry();
+
+    // TODO(WAL-935): we should use different metrics in sdk::client and stress client.
     let metrics = Arc::new(ClientMetrics::new(&walrus_utils::metrics::Registry::new(
         prometheus_registry,
     )));
@@ -144,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
             run_stress(client_config, metrics, args.sui_network, stress_args).await
         }
         Commands::Staking => run_staking(client_config, metrics).await,
+        Commands::SingleClient(single_client_args) => {
+            run_single_client_workload(client_config, metrics, single_client_args).await
+        }
     }
 }
 
@@ -207,14 +218,14 @@ enum StakingModeAtEpoch {
 }
 
 async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyhow::Result<()> {
-    tracing::info!("Starting the staking stress runner.");
+    tracing::info!("starting the staking stress runner");
     // Start the re-staking machine.
     let restaking_period = Duration::from_secs(15);
     let wallet = WalletConfig::load_wallet(
         config.wallet_config.as_ref(),
         config.communication_config.sui_client_request_timeout,
     )
-    .context("Failed to load wallet context")?;
+    .context("failed to load wallet context")?;
     let contract_client: SuiContractClient = config.new_contract_client(wallet, None).await?;
 
     // The Staked Wal at any given time.
@@ -246,13 +257,16 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
                     // Allocate half the WAL to various nodes. This is a linear walk over all of the
                     // WAL which we're going to stake, just to simplify the algorithm. Each "stake"
                     // below is one unit of MIN_STAKING_THRESHOLD.
-                    let available_stakes = (wal_balance / MIN_STAKING_THRESHOLD) / 2;
+                    let available_stakes = usize::try_from(
+                        (wal_balance / MIN_STAKING_THRESHOLD) / 2,
+                    )
+                    .expect("this is at most 2.5B, which fits into a usize on 32-bit platforms");
                     let mut node_allocations = HashMap::<ObjectID, u64>::new();
                     for i in 0..available_stakes {
                         // Loop through the nodes in shuffled order until we've allocated all our
                         // stake.
                         node_allocations
-                            .entry(nodes[i as usize % nodes.len()].node_id)
+                            .entry(nodes[i % nodes.len()].node_id)
                             .and_modify(|x| *x += MIN_STAKING_THRESHOLD)
                             .or_insert(MIN_STAKING_THRESHOLD);
                     }
@@ -323,4 +337,52 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
             }
         }
     }
+}
+
+async fn run_single_client_workload(
+    client_config: ClientConfig,
+    metrics: Arc<ClientMetrics>,
+    args: SingleClientWorkloadArgs,
+) -> anyhow::Result<()> {
+    tracing::info!("starting the single client stress runner, args: {:?}", args);
+
+    if args.max_blobs_in_pool == 0 {
+        anyhow::bail!("max_blobs_in_pool must be greater than 0");
+    }
+
+    let data_size_config = args.workload_config.get_size_config();
+    let store_length_config = args.workload_config.get_store_length_config();
+    let request_type_distribution = args.request_type_distribution.to_config();
+
+    data_size_config.validate()?;
+    store_length_config.validate()?;
+    request_type_distribution.validate()?;
+
+    // Create the client to run the workload.
+    let wallet = WalletConfig::load_wallet(
+        client_config.wallet_config.as_ref(),
+        client_config
+            .communication_config
+            .sui_client_request_timeout,
+    )
+    .context("Failed to load wallet context")?;
+    let contract_client = client_config.new_contract_client(wallet, None).await?;
+    let client =
+        WalrusNodeClient::new_contract_client_with_refresher(client_config, contract_client)
+            .await?;
+
+    let single_client_workload = SingleClientWorkload::new(
+        client,
+        args.target_requests_per_minute,
+        args.check_read_result,
+        args.max_blobs_in_pool,
+        data_size_config,
+        store_length_config,
+        request_type_distribution,
+        metrics,
+    );
+
+    single_client_workload.run().await?;
+
+    Ok(())
 }

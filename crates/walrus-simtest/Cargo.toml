@@ -7,24 +7,31 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bcs.workspace = true
 futures.workspace = true
+itertools.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 # explicitly import reqwest in test to disable its system proxy cache. It causes indeterminism in simtest.
 reqwest = { version = "0.12.12", default-features = false, features = ["__internal_proxy_sys_no_cache", "http2", "json", "rustls-tls"] }
+rocksdb.workspace = true
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
 sui-rpc-api.workspace = true
 sui-types.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+typed-store.workspace = true
 walrus-core.workspace = true
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-sdk.workspace = true
-walrus-service = { workspace = true, features = ["test-utils"] }
+walrus-service = { workspace = true, features = ["node", "test-utils"] }
 walrus-storage-node-client.workspace = true
+walrus-stress.workspace = true
 walrus-sui.workspace = true
 walrus-test-utils.workspace = true
+walrus-utils.workspace = true
 
 [lints]
 workspace = true

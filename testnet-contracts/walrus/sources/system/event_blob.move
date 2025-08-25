@@ -85,7 +85,7 @@ public(package) fun create_with_empty_state(): EventBlobCertificationState {
     }
 }
 
-/// Returns the blob id of the latest certified event blob
+/// Returns the blob id of the latest certified event blob.
 public(package) fun get_latest_certified_blob_id(self: &EventBlobCertificationState): Option<u256> {
     self.latest_certified_blob.map!(|state| state.blob_id())
 }

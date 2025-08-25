@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::EpochCount;
 use walrus_service::{
     node::config::{
@@ -21,14 +21,15 @@ use walrus_service::{
         defaults::{METRICS_PORT, REST_API_PORT},
     },
     testbed,
-    utils::version,
 };
 use walrus_sui::{
     client::{UpgradeType, rpc_config::RpcFallbackConfigArgs},
     utils::SuiNetwork,
 };
 
-const VERSION: &str = version!();
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
+
 #[derive(Parser, Debug)]
 #[command(
     name = env!("CARGO_BIN_NAME"),
@@ -55,6 +56,8 @@ enum Commands {
     /// Upgrades the system contract with a quorum-based upgrade that has been voted for by
     /// a quorum of storage nodes by shard weight.
     Upgrade(UpgradeArgs),
+    /// Migrates the system and staking objects to a new package version.
+    Migrate(MigrateArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -150,9 +153,6 @@ struct DeploySystemContractArgs {
     /// file of the WAL contract. Otherwise, a new WAL token is created.
     #[arg(long)]
     use_existing_wal_token: bool,
-    /// If set, creates a subsidies package.
-    #[arg(long)]
-    with_subsidies: bool,
 }
 
 /// Configuration for epoch 0, either as a duration or as an absolute end time.
@@ -249,6 +249,34 @@ struct UpgradeArgs {
     /// The upgrade manager object ID.
     #[arg(long)]
     upgrade_manager_object_id: ObjectID,
+    /// Create and output a serialized unsigned transaction. Useful for an emergency upgrade
+    /// authorized by a multisig address.
+    #[arg(long)]
+    serialize_unsigned: bool,
+    /// The sender address to use to create the serialized unsigned transaction. If not specified,
+    /// the active address from the wallet is used.
+    #[arg(long, requires = "serialize_unsigned")]
+    sender: Option<SuiAddress>,
+    /// Also set the migration epoch on the staking object after upgrading the contract.
+    #[arg(long, conflicts_with = "serialize_unsigned")]
+    set_migration_epoch: bool,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct MigrateArgs {
+    /// The path to the wallet used to perform the upgrade. If not provided, the default
+    /// wallet path is used.
+    #[arg(long)]
+    wallet_path: Option<PathBuf>,
+    /// The staking object ID.
+    #[arg(long)]
+    staking_object_id: ObjectID,
+    /// The system object ID.
+    #[arg(long)]
+    system_object_id: ObjectID,
+    /// The package ID of the upgraded package.
+    #[arg(long)]
+    new_package_id: ObjectID,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -260,16 +288,19 @@ fn main() -> anyhow::Result<()> {
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
         Commands::EmergencyUpgrade(args) => commands::upgrade(args, UpgradeType::Emergency)?,
         Commands::Upgrade(args) => commands::upgrade(args, UpgradeType::Quorum)?,
+        Commands::Migrate(args) => commands::migrate(args)?,
     }
     Ok(())
 }
 
 mod commands {
+    use anyhow::anyhow;
     use config::NodeRegistrationParamsForThirdPartyRegistration;
+    use fastcrypto::encoding::Encoding;
     use itertools::Itertools as _;
     use testbed::ADMIN_CONFIG_PREFIX;
     use walrus_service::{
-        client::cli::HumanReadableFrost,
+        client::cli::{HumanReadableFrost, success},
         testbed::{
             DeployTestbedContractParameters,
             TestbedConfig,
@@ -281,8 +312,14 @@ mod commands {
         utils,
     };
     use walrus_sui::{
-        client::{SuiContractClient, UpgradeType, contract_config::ContractConfig},
+        client::{
+            SuiContractClient,
+            UpgradeType,
+            contract_config::ContractConfig,
+            transaction_builder::WalrusPtbBuilder,
+        },
         config::load_wallet_context_from_path,
+        system_setup::compile_package,
     };
     use walrus_utils::{backoff::ExponentialBackoffConfig, load_from_yaml};
 
@@ -322,7 +359,9 @@ mod commands {
             .await?;
         let node_ids = node_caps.iter().map(|cap| cap.node_id).collect::<Vec<_>>();
         println!(
-            "Successfully registered {count} storage nodes:\n{}",
+            "{} Registered {} storage nodes:\n{}",
+            success(),
+            count,
             node_ids.iter().map(|id| id.to_string()).join(", ")
         );
 
@@ -341,7 +380,8 @@ mod commands {
             .context("staking with newly registered nodes failed")?;
 
         println!(
-            "Successfully staked {} with each newly registered node (total: {}).",
+            "{} Staked {} with each newly registered node (total: {}).",
+            success(),
             HumanReadableFrost::from(stake_amount),
             HumanReadableFrost::from(
                 stake_amount * u64::try_from(count).expect("definitely fits into a u64")
@@ -372,7 +412,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -416,7 +455,6 @@ mod commands {
             do_not_copy_contracts,
             with_wal_exchange,
             use_existing_wal_token,
-            with_subsidies,
         })
         .await
         .context("Failed to deploy system contract")?;
@@ -477,7 +515,6 @@ mod commands {
             load_wallet_context_from_path(admin_wallet_path, sui_client_request_timeout)
                 .context("unable to load admin wallet")?;
 
-        #[allow(deprecated)]
         let rpc_urls = &[admin_wallet.get_rpc_url()?];
 
         let mut admin_contract_client = testbed_config
@@ -520,7 +557,14 @@ mod commands {
         }
 
         let committee_size =
-            NonZeroU16::new(testbed_config.nodes.len() as u16).expect("committee size must be > 0");
+            NonZeroU16::new(testbed_config.nodes.len().try_into().map_err(|_| {
+                anyhow!(
+                    "committee size is too large: {} > {}",
+                    testbed_config.nodes.len(),
+                    u16::MAX
+                )
+            })?)
+            .ok_or_else(|| anyhow!("committee size must be > 0"))?;
         let storage_node_configs = create_storage_node_configs(
             working_dir.as_path(),
             testbed_config,
@@ -539,13 +583,23 @@ mod commands {
             sui_client_request_timeout,
         )
         .await?;
+        assert!(
+            storage_node_configs.len() == usize::from(committee_size.get()),
+            "number of storage nodes ({}) does not match committee size ({})",
+            storage_node_configs.len(),
+            committee_size.get()
+        );
 
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
             let node_config_name = format!(
                 "{}.yaml",
-                testbed::node_config_name_prefix(i as u16, committee_size)
+                testbed::node_config_name_prefix(
+                    u16::try_from(i)
+                        .expect("we checked above that the number of configs is at most 2^16"),
+                    committee_size
+                )
             );
             let node_config_path = working_dir.join(node_config_name);
             fs::write(node_config_path, serialized_storage_node_config)
@@ -563,6 +617,9 @@ mod commands {
             staking_object_id,
             system_object_id,
             upgrade_manager_object_id,
+            sender,
+            serialize_unsigned,
+            set_migration_epoch,
         }: UpgradeArgs,
         upgrade_type: UpgradeType,
     ) -> anyhow::Result<()> {
@@ -572,19 +629,81 @@ mod commands {
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        #[allow(deprecated)]
+        let rpc_urls = &[wallet.get_rpc_url()?];
+
+        let contract_client =
+            SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
+                .await?;
+        if serialize_unsigned {
+            // Compile package
+            let chain_id = contract_client
+                .retriable_sui_client()
+                .get_chain_identifier()
+                .await
+                .ok();
+            let (compiled_package, _build_config) =
+                compile_package(contract_dir, Default::default(), chain_id).await?;
+
+            let sender = sender.unwrap_or(contract_client.address());
+            let mut pt_builder = WalrusPtbBuilder::new(contract_client.read_client, sender);
+
+            pt_builder
+                .custom_walrus_upgrade(upgrade_manager_object_id, compiled_package, upgrade_type)
+                .await?;
+
+            let tx_data = pt_builder.build_transaction_data(None).await?;
+            println!(
+                "{}",
+                fastcrypto::encoding::Base64::encode(bcs::to_bytes(&tx_data)?)
+            );
+        } else {
+            let new_package_id = contract_client
+                .upgrade(upgrade_manager_object_id, contract_dir, upgrade_type)
+                .await?;
+            println!(
+                "{} Upgraded the system contract:\npackage_id: {}",
+                success(),
+                new_package_id
+            );
+            if set_migration_epoch {
+                contract_client.set_migration_epoch(new_package_id).await?;
+                println!(
+                    "{} Set the migration epoch on the staking object for package_id: {}",
+                    success(),
+                    new_package_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(super) async fn migrate(
+        MigrateArgs {
+            wallet_path,
+            staking_object_id,
+            system_object_id,
+            new_package_id,
+        }: MigrateArgs,
+    ) -> anyhow::Result<()> {
+        utils::init_tracing_subscriber()?;
+
+        let wallet =
+            load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
+        let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let contract_client =
             SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
                 .await?;
 
-        let new_package_id = contract_client
-            .upgrade(upgrade_manager_object_id, contract_dir, upgrade_type)
-            .await?;
-
         contract_client.migrate_contracts(new_package_id).await?;
-        println!("Successfully upgraded the system contract:\npackage_id: {new_package_id}");
+        println!(
+            "{} Migrated the shared objects to package_id: {}",
+            success(),
+            new_package_id
+        );
         Ok(())
     }
 

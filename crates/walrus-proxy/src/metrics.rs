@@ -31,7 +31,7 @@ macro_rules! register_metric {
         let m = $metric;
         $crate::metrics::walrus_proxy_prom_registry()
             .register(Box::new(m.clone()))
-            .unwrap();
+            .expect("should be able to register metrics");
         m
     }};
 }
@@ -63,10 +63,13 @@ impl HealthCheck {
 fn uptime_metric(registry: &Registry) {
     // Define the uptime counter
     let opts = Opts::new("uptime_seconds", "Uptime in seconds");
-    let uptime_counter = IntCounter::with_opts(opts).unwrap();
+    let uptime_counter = IntCounter::with_opts(opts)
+        .expect("uptime counter creation cannot fail with valid options");
 
     // Register the counter with the registry
-    registry.register(Box::new(uptime_counter.clone())).unwrap();
+    registry
+        .register(Box::new(uptime_counter.clone()))
+        .expect("uptime counter registration cannot fail");
 
     // Spawn a background task to increment the uptime counter every second
     tokio::spawn(async move {
@@ -103,9 +106,14 @@ pub fn start_prometheus_server(listener: TcpListener) {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true).unwrap();
-        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-        axum::serve(listener, app).await.unwrap();
+        listener
+            .set_nonblocking(true)
+            .expect("listener is valid and supports non-blocking mode");
+        let listener = tokio::net::TcpListener::from_std(listener)
+            .expect("valid std listener can always be converted to tokio listener");
+        axum::serve(listener, app)
+            .await
+            .expect("failed to start metrics server");
     });
 }
 

@@ -53,13 +53,13 @@ jobs:
 
       - name: Install yamlfmt
         run: |
-          url="https://github.com/google/yamlfmt/releases/download/v0.14.0/yamlfmt_0.14.0_Linux_x86_64.tar.gz"
+          url="https://github.com/google/yamlfmt/releases/download/v0.17.0/yamlfmt_0.17.0_Linux_x86_64.tar.gz"
           curl -sSL "$url" | tar xvz yamlfmt
       - name: Check formatting of all YAML files
         run: ./yamlfmt -lint
 
       - name: Lint all markdown files
-        uses: DavidAnson/markdownlint-cli2-action@05f32210e84442804257b2a6f20b273450ec8265 # pin@v19.1.0
+        uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e # pin@v20.0.0
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.
@@ -83,7 +83,7 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: crate-ci/typos@3be83342e28b9421997e9f781f713f8dde8453d2 # pin@v1.31.2
+      - uses: crate-ci/typos@392b78fe18a52790c53f42456e46124f77346842 # pin@v1.34.0
 
   shellcheck:
     name: ShellCheck

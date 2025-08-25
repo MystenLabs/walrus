@@ -141,37 +141,38 @@ impl Claim {
         }
 
         if let Some(body_size_upper_hint) = body_size_hint.upper() {
-            if let Some(max_size) = self.max_size {
-                if body_size_upper_hint > max_size {
-                    tracing::debug!(
-                        max_size,
-                        body_size_upper_hint,
-                        "upload with body size greater than max_size"
-                    );
-                    return Err(PublisherAuthError::InvalidSize);
-                }
-            }
-            if let Some(size) = self.size {
-                if body_size_upper_hint < size {
-                    tracing::debug!(
-                        size,
-                        body_size_upper_hint,
-                        "body does not match the size specified in the JWT (upper hint mismatch)"
-                    );
-                    return Err(PublisherAuthError::InvalidSize);
-                }
-            }
-        }
-        let body_size_lower_hint = body_size_hint.lower();
-        if let Some(size) = self.size {
-            if body_size_lower_hint > 0 && body_size_lower_hint > size {
+            if let Some(max_size) = self.max_size
+                && body_size_upper_hint > max_size
+            {
                 tracing::debug!(
-                    size,
-                    body_size_lower_hint,
-                    "body does not match the size specified in the JWT (lower hint mismatch)"
+                    max_size,
+                    body_size_upper_hint,
+                    "upload with body size greater than max_size"
                 );
                 return Err(PublisherAuthError::InvalidSize);
             }
+            if let Some(size) = self.size
+                && body_size_upper_hint < size
+            {
+                tracing::debug!(
+                    size,
+                    body_size_upper_hint,
+                    "body does not match the size specified in the JWT (upper hint mismatch)"
+                );
+                return Err(PublisherAuthError::InvalidSize);
+            }
+        }
+        let body_size_lower_hint = body_size_hint.lower();
+        if let Some(size) = self.size
+            && body_size_lower_hint > 0
+            && body_size_lower_hint > size
+        {
+            tracing::debug!(
+                size,
+                body_size_lower_hint,
+                "body does not match the size specified in the JWT (lower hint mismatch)"
+            );
+            return Err(PublisherAuthError::InvalidSize);
         }
 
         if let Err(error) = self.check_epochs(query.epochs) {
@@ -503,7 +504,7 @@ mod tests {
     }
 
     fn correct_auth_header(token: String) -> Option<(String, String)> {
-        Some(("authorization".to_string(), format!("Bearer {}", token)))
+        Some(("authorization".to_string(), format!("Bearer {token}")))
     }
 
     // Test bodies.
@@ -583,7 +584,7 @@ mod tests {
             (
                 RequestHeadersAndData::new(
                     // The send_object_to field is does not match.
-                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    &format!("/v1/blobs?epochs=1&send_object_to={OTHER_ADDRESS}"),
                     correct_auth_header(token.clone()),
                     None,
                 ),
@@ -693,7 +694,7 @@ mod tests {
             ),
             (
                 RequestHeadersAndData::new(
-                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    &format!("/v1/blobs?epochs=1&send_object_to={OTHER_ADDRESS}"),
                     correct_auth_header(token_invalid_sig.clone()),
                     None,
                 ),

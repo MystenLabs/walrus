@@ -26,6 +26,9 @@ use routes::{
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
+    QUILT_PATCH_BY_ID_GET_ENDPOINT,
+    QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+    QUILT_PUT_ENDPOINT,
     STATUS_ENDPOINT,
     daemon_cors_layer,
 };
@@ -39,11 +42,25 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::Primary};
+use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EncodingType,
+    EpochCount,
+    QuiltPatchId,
+    encoding::{
+        Primary,
+        quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+    },
+};
 use walrus_sdk::{
-    client::{Client, responses::BlobStoreResult},
-    error::ClientResult,
-    store_when::StoreWhen,
+    client::{
+        StoreArgs,
+        WalrusNodeClient,
+        responses::{BlobStoreResult, QuiltStoreResult},
+    },
+    error::{ClientError, ClientResult},
+    store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
@@ -79,6 +96,35 @@ pub trait WalrusReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
+
+    /// Retrieves blobs from quilt by their patch IDs.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blobs_by_quilt_patch_ids(
+        &self,
+        _quilt_patch_ids: &[QuiltPatchId],
+    ) -> impl std::future::Future<Output = ClientResult<Vec<QuiltStoreBlob<'static>>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
+
+    /// Retrieves a blob from quilt by quilt ID and identifier.
+    /// Default implementation returns an error indicating quilt is not supported.
+    fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        _quilt_id: &BlobId,
+        _identifier: &str,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreBlob<'static>>> + Send {
+        async {
+            use walrus_sdk::error::ClientErrorKind;
+            Err(ClientError::from(ClientErrorKind::Other(
+                "quilt functionality not supported by this client".into(),
+            )))
+        }
+    }
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -89,16 +135,34 @@ pub trait WalrusWriteClient: WalrusReadClient {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
+
+    /// Constructs a quilt from blobs.
+    fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> impl std::future::Future<Output = ClientResult<V::Quilt>> + Send;
+
+    /// Writes a quilt to Walrus.
+    fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> impl std::future::Future<Output = ClientResult<QuiltStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
     fn default_post_store_action(&self) -> PostStoreAction;
 }
 
-impl<T: ReadClient> WalrusReadClient for Client<T> {
+impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         self.read_blob_retry_committees::<Primary>(blob_id).await
     }
@@ -109,30 +173,54 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
     ) -> ClientResult<BlobWithAttribute> {
         self.get_blob_by_object_id(blob_object_id).await
     }
+
+    async fn get_blobs_by_quilt_patch_ids(
+        &self,
+        quilt_patch_ids: &[QuiltPatchId],
+    ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
+        self.quilt_client().get_blobs_by_ids(quilt_patch_ids).await
+    }
+
+    async fn get_blob_by_quilt_id_and_identifier(
+        &self,
+        quilt_id: &BlobId,
+        identifier: &str,
+    ) -> ClientResult<QuiltStoreBlob<'static>> {
+        let blobs = self
+            .quilt_client()
+            .get_blobs_by_identifiers(quilt_id, &[identifier])
+            .await?;
+
+        blobs.into_iter().next().ok_or_else(|| {
+            use walrus_sdk::error::ClientErrorKind;
+            ClientError::from(ClientErrorKind::Other(
+                format!("blob with identifier '{identifier}' not found in quilt").into(),
+            ))
+        })
+    }
 }
 
-impl WalrusWriteClient for Client<SuiContractClient> {
+impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
     async fn write_blob(
         &self,
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
         let result = self
-            .reserve_and_store_blobs_retry_committees(
-                &[blob],
-                encoding_type,
-                epochs_ahead,
-                store_when,
-                persistence,
-                post_store,
-                None,
-            )
+            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
             .await?;
 
         Ok(result
@@ -141,9 +229,54 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .expect("there is only one blob, as store was called with one blob"))
     }
 
+    async fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> ClientResult<V::Quilt> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        // TODO(WAL-927): Make QuiltConfig part of ClientConfig.
+        self.quilt_client()
+            .construct_quilt::<V>(blobs, encoding_type)
+            .await
+    }
+
+    async fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        let store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            store_optimizations,
+            persistence,
+            post_store,
+        );
+        self.quilt_client()
+            .reserve_and_store_quilt::<V>(&quilt, &store_args)
+            .await
+    }
+
     fn default_post_store_action(&self) -> PostStoreAction {
         PostStoreAction::Keep
     }
+}
+
+/// Configuration for the response headers of the aggregator.
+#[derive(Debug, Clone, Default)]
+pub struct AggregatorResponseHeaderConfig {
+    /// The headers that are allowed to be returned in the response.
+    pub allowed_headers: HashSet<String>,
+    /// If true, the tags of the quilt patch will be returned in the response headers.
+    pub allow_quilt_patch_tags_in_response: bool,
 }
 
 /// The client daemon.
@@ -156,7 +289,7 @@ pub struct ClientDaemon<T> {
     network_address: SocketAddr,
     metrics: MetricsMiddlewareState,
     router: Router<Arc<T>>,
-    allowed_headers: Arc<HashSet<String>>,
+    response_header_config: Arc<AggregatorResponseHeaderConfig>,
 }
 
 impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
@@ -166,9 +299,14 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         network_address: SocketAddr,
         registry: &Registry,
         allowed_headers: Vec<String>,
+        allow_quilt_patch_tags_in_response: bool,
     ) -> Self {
-        Self::new::<AggregatorApiDoc>(client, network_address, registry)
-            .with_aggregator(allowed_headers)
+        Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator(
+            AggregatorResponseHeaderConfig {
+                allowed_headers: allowed_headers.into_iter().collect(),
+                allow_quilt_patch_tags_in_response,
+            },
+        )
     }
 
     /// Creates a new [`ClientDaemon`], which serves requests at the provided `network_address` and
@@ -184,21 +322,34 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),
-            allowed_headers: Arc::new(HashSet::new()),
+            response_header_config: Arc::new(AggregatorResponseHeaderConfig::default()),
         }
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
-        self.with_allowed_headers(allowed_headers);
-        tracing::info!("Aggregator allowed headers: {:?}", self.allowed_headers);
+    fn with_aggregator(mut self, response_header_config: AggregatorResponseHeaderConfig) -> Self {
+        self.response_header_config = Arc::new(response_header_config);
+        tracing::info!(
+            "Aggregator response header config: {:?}",
+            self.response_header_config
+        );
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_by_object_id)
-                    .with_state((self.client.clone(), self.allowed_headers.clone())),
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
+            )
+            .route(
+                QUILT_PATCH_BY_ID_GET_ENDPOINT,
+                get(routes::get_blob_by_quilt_patch_id)
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
+            )
+            .route(
+                QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
+                get(routes::get_blob_by_quilt_id_and_identifier)
+                    .with_state((self.client.clone(), self.response_header_config.clone())),
             );
         self
     }
@@ -236,18 +387,17 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     pub fn new_publisher(
         client: T,
         auth_config: Option<AuthConfig>,
-        network_address: SocketAddr,
-        max_body_limit: usize,
+        args: &PublisherArgs,
         registry: &Registry,
-        max_request_buffer_size: usize,
-        max_concurrent_requests: usize,
     ) -> Self {
-        Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
-            auth_config,
-            max_body_limit,
-            max_request_buffer_size,
-            max_concurrent_requests,
-        )
+        Self::new::<PublisherApiDoc>(client, args.daemon_args.bind_address, registry)
+            .with_publisher(
+                auth_config,
+                args.max_body_size(),
+                args.max_request_buffer_size,
+                args.max_concurrent_requests,
+                args.max_quilt_body_size(),
+            )
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
@@ -259,12 +409,21 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         aggregator_args: &AggregatorArgs,
     ) -> Self {
         Self::new::<DaemonApiDoc>(client, publisher_args.daemon_args.bind_address, registry)
-            .with_aggregator(aggregator_args.allowed_headers.clone())
+            .with_aggregator(AggregatorResponseHeaderConfig {
+                allowed_headers: aggregator_args
+                    .allowed_headers
+                    .clone()
+                    .into_iter()
+                    .collect(),
+                allow_quilt_patch_tags_in_response: aggregator_args
+                    .allow_quilt_patch_tags_in_response,
+            })
             .with_publisher(
                 auth_config,
                 publisher_args.max_body_size_kib,
                 publisher_args.max_request_buffer_size,
                 publisher_args.max_concurrent_requests,
+                publisher_args.max_quilt_body_size(),
             )
     }
 
@@ -275,6 +434,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_body_limit: usize,
         max_request_buffer_size: usize,
         max_concurrent_requests: usize,
+        max_quilt_body_limit: usize,
     ) -> Self {
         tracing::debug!(
             %max_body_limit,
@@ -293,30 +453,41 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(
-                    ServiceBuilder::new()
-                        .layer(axum::middleware::from_fn_with_state(
-                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                            auth_layer,
-                        ))
-                        .layer(base_layers),
-                ),
-            );
+
+            let auth_layers = ServiceBuilder::new()
+                .layer(axum::middleware::from_fn_with_state(
+                    (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                    auth_layer,
+                ))
+                .layer(base_layers.clone());
+
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(auth_layers.clone()),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(auth_layers),
+                );
         } else {
-            self.router = self.router.route(
-                BLOB_PUT_ENDPOINT,
-                put(routes::put_blob).route_layer(base_layers),
-            );
+            self.router = self
+                .router
+                .route(
+                    BLOB_PUT_ENDPOINT,
+                    put(routes::put_blob).route_layer(base_layers.clone()),
+                )
+                .route(
+                    QUILT_PUT_ENDPOINT,
+                    put(routes::put_quilt)
+                        .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
+                        .route_layer(base_layers),
+                );
         }
         self
-    }
-}
-
-impl<T> ClientDaemon<T> {
-    fn with_allowed_headers(&mut self, allowed_headers: Vec<String>) {
-        self.allowed_headers = Arc::new(allowed_headers.into_iter().collect());
     }
 }
 

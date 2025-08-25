@@ -6,7 +6,7 @@
 use std::{
     collections::HashMap,
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -37,28 +37,44 @@ use crate::{
     wallet::Wallet,
 };
 
-const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
+/// The default value for the maximum number of epochs for which blobs can be stored.
+pub const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 53;
+
 const ONE_WAL: u64 = 1_000_000_000;
 const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 
+/// Default buyer subsidy rate (5%) in credits object.
+const DEFAULT_BUYER_CREDITS_RATE: u16 = 500;
+/// Default system subsidy rate (6%) in credits object.
+const DEFAULT_SYSTEM_CREDITS_RATE: u16 = 600;
+/// Default initial credits funds amount
+const DEFAULT_CREDITS_FUNDS: u64 = MEGA_WAL;
+
+/// Default system subsidy rate (50%) in walrus subsidies object.
+const DEFAULT_SYSTEM_SUBSIDY_RATE: u32 = 5_000;
+/// Default base subsidy in walrus subsidies object.
+const DEFAULT_BASE_SUBSIDY: u64 = ONE_WAL;
+/// Default subsidy per shard in walrus subsidies object.
+const DEFAULT_SUBSIDY_PER_SHARD: u64 = ONE_WAL / 10;
+/// Default initial subsidies funds amount
+const DEFAULT_SUBSIDIES_FUNDS: u64 = MEGA_WAL;
+
 /// Provides the path of the latest development contracts directory.
 pub fn development_contract_dir() -> anyhow::Result<PathBuf> {
-    Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("contracts"))
+    Ok(project_root_dir()?.join("contracts"))
 }
 
 /// Provides the path of the testnet contracts directory.
 pub fn testnet_contract_dir() -> anyhow::Result<PathBuf> {
+    Ok(project_root_dir()?.join("testnet-contracts"))
+}
+
+fn project_root_dir() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("testnet-contracts"))
+        .and_then(Path::parent)
+        .expect("the directory structure guarantees this exists")
+        .to_owned())
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -74,10 +90,14 @@ pub struct SystemContext {
     pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
-    /// The ID of the subsidies Object.
-    pub subsidies_object: Option<ObjectID>,
-    /// The ID of the subsidies package.
-    pub subsidies_pkg_id: Option<ObjectID>,
+    /// The ID of the credits Object.
+    pub credits_object: Option<ObjectID>,
+    /// The ID of the credits package.
+    pub credits_pkg_id: Option<ObjectID>,
+    /// The ID of the walrus subsidies object.
+    pub walrus_subsidies_object: Option<ObjectID>,
+    /// The ID of the walrus subsidies package.
+    pub walrus_subsidies_pkg_id: Option<ObjectID>,
 }
 
 impl SystemContext {
@@ -102,11 +122,12 @@ impl SystemContext {
 
     /// Returns the contract config for the system.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new_with_subsidies(
-            self.system_object,
-            self.staking_object,
-            self.subsidies_object,
-        )
+        ContractConfig {
+            system_object: self.system_object,
+            staking_object: self.staking_object,
+            credits_object: self.credits_object,
+            walrus_subsidies_object: self.walrus_subsidies_object,
+        }
     }
 }
 
@@ -116,15 +137,15 @@ impl SystemContext {
 /// Returns the package id and the object IDs of the system object and the staking object.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_and_init_system_for_test(
-    admin_wallet: &mut Wallet,
+    admin_wallet: Wallet,
     n_shards: NonZeroU16,
     epoch_zero_duration: Duration,
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,
-    with_subsidies: bool,
+    with_credits: bool,
     deploy_directory: Option<PathBuf>,
     contract_dir: Option<PathBuf>,
-) -> Result<SystemContext> {
+) -> Result<(SystemContext, SuiContractClient)> {
     let temp_dir; // make sure the temp_dir is in scope until the end of the function
     let deploy_directory = if deploy_directory.is_none() {
         temp_dir = tempfile::tempdir()?;
@@ -148,7 +169,8 @@ pub async fn create_and_init_system_for_test(
             deploy_directory,
             with_wal_exchange: true,
             use_existing_wal_token: false,
-            with_subsidies,
+            with_credits,
+            with_walrus_subsidies: true,
         },
         None,
     )
@@ -158,36 +180,34 @@ pub async fn create_and_init_system_for_test(
 /// Publishes the contracts and initializes the system with the provided parameters.
 ///
 /// Returns a `SystemContext` containing the package ID and object IDs for the system, staking,
-/// upgrade manager, and optionally subsidies and WAL exchange objects.
+/// upgrade manager, and optionally credits and walrus subsidies objects, as well as an initialized
+/// walrus client with the admin wallet.
 ///
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
 pub async fn create_and_init_system(
-    admin_wallet: &mut Wallet,
+    mut admin_wallet: Wallet,
     init_system_params: InitSystemParams,
     gas_budget: Option<u64>,
-) -> Result<SystemContext> {
+) -> Result<(SystemContext, SuiContractClient)> {
     let init_system_params_cloned = init_system_params.clone();
     let PublishSystemPackageResult {
         walrus_pkg_id,
         init_cap_id,
         upgrade_cap_id,
         wal_exchange_pkg_id,
-        subsidies_pkg_id,
+        credits_pkg_id,
+        walrus_subsidies_pkg_id,
     } = system_setup::publish_coin_and_system_package(
-        admin_wallet,
-        init_system_params_cloned.contract_dir,
-        init_system_params_cloned.deploy_directory,
-        init_system_params_cloned.with_wal_exchange,
-        init_system_params_cloned.use_existing_wal_token,
-        init_system_params_cloned.with_subsidies,
+        &mut admin_wallet,
+        init_system_params_cloned,
         gas_budget,
     )
     .await?;
 
     let (system_object, staking_object, upgrade_manager_object) =
         system_setup::create_system_and_staking_objects(
-            admin_wallet,
+            &mut admin_wallet,
             walrus_pkg_id,
             init_cap_id,
             upgrade_cap_id,
@@ -196,15 +216,76 @@ pub async fn create_and_init_system(
         )
         .await?;
 
-    Ok(SystemContext {
-        walrus_pkg_id,
-        system_object,
-        staking_object,
-        upgrade_manager_object,
-        subsidies_object: None,
-        wal_exchange_pkg_id,
-        subsidies_pkg_id,
-    })
+    let contract_config = ContractConfig::new(system_object, staking_object);
+
+    let rpc_urls = &[admin_wallet.get_rpc_url()?];
+    let admin_contract_client = SuiContractClient::new(
+        admin_wallet,
+        rpc_urls,
+        &contract_config,
+        ExponentialBackoffConfig::default(),
+        gas_budget,
+    )
+    .await?;
+
+    // Create credits object if enabled.
+    let credits_object = if let Some(pkg_id) = credits_pkg_id {
+        let credits_object_id = admin_contract_client
+            .create_and_fund_credits(
+                pkg_id,
+                DEFAULT_BUYER_CREDITS_RATE,
+                DEFAULT_SYSTEM_CREDITS_RATE,
+                DEFAULT_CREDITS_FUNDS,
+            )
+            .await?
+            .object_id;
+
+        admin_contract_client
+            .read_client()
+            .set_credits_object(credits_object_id)
+            .await?;
+        Some(credits_object_id)
+    } else {
+        None
+    };
+
+    // Create walrus subsidies object if enabled.
+    let walrus_subsidies_object = if let Some(pkg_id) = walrus_subsidies_pkg_id {
+        let walrus_subsidies_object_id = admin_contract_client
+            .create_walrus_subsidies(
+                pkg_id,
+                DEFAULT_SYSTEM_SUBSIDY_RATE,
+                DEFAULT_BASE_SUBSIDY,
+                DEFAULT_SUBSIDY_PER_SHARD,
+            )
+            .await?
+            .object_id;
+        admin_contract_client
+            .read_client()
+            .set_walrus_subsidies_object(walrus_subsidies_object_id)
+            .await?;
+        admin_contract_client
+            .fund_walrus_subsidies(DEFAULT_SUBSIDIES_FUNDS)
+            .await?;
+        Some(walrus_subsidies_object_id)
+    } else {
+        None
+    };
+
+    Ok((
+        SystemContext {
+            walrus_pkg_id,
+            system_object,
+            staking_object,
+            upgrade_manager_object,
+            credits_object,
+            wal_exchange_pkg_id,
+            credits_pkg_id,
+            walrus_subsidies_pkg_id,
+            walrus_subsidies_object,
+        },
+        admin_contract_client,
+    ))
 }
 
 /// Registers the nodes based on the provided parameters, distributes WAL to each contract client,
@@ -330,7 +411,8 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 /// they have equal weight in the committee.
 pub async fn initialize_contract_and_wallet_for_testing(
     epoch_duration: Duration,
-    with_subsidies: bool,
+    with_credits: bool,
+    subsidy_rate: u16,
     n_nodes: usize,
 ) -> anyhow::Result<(
     Arc<tokio::sync::Mutex<TestClusterHandle>>,
@@ -351,15 +433,12 @@ pub async fn initialize_contract_and_wallet_for_testing(
     let result = admin_wallet
         .and_then_async(
             async |admin_wallet| -> anyhow::Result<(SystemContext, SuiContractClient)> {
-                #[allow(deprecated)]
-                let rpc_urls = &[admin_wallet.get_rpc_url()?];
-
                 publish_with_default_system_with_epoch_duration(
                     admin_wallet,
-                    rpc_urls,
                     &bls_keys,
                     epoch_duration,
-                    with_subsidies,
+                    with_credits,
+                    subsidy_rate,
                 )
                 .await
             },
@@ -387,19 +466,19 @@ pub async fn initialize_contract_and_wallet_for_testing(
 /// Returns the system context and the contract client with the admin wallet that
 /// also holds the node caps for all nodes.
 async fn publish_with_default_system_with_epoch_duration(
-    mut admin_wallet: Wallet,
-    rpc_urls: &[String],
+    admin_wallet: Wallet,
     bls_keys: &[ProtocolKeyPair],
     epoch_duration: Duration,
-    with_subsidies: bool,
+    with_credits: bool,
+    subsidy_rate: u16,
 ) -> anyhow::Result<(SystemContext, SuiContractClient)> {
-    let system_context = create_and_init_system_for_test(
-        &mut admin_wallet,
+    let (system_context, contract_client) = create_and_init_system_for_test(
+        admin_wallet,
         NonZeroU16::new(1000).expect("1000 is not 0"),
         Duration::from_secs(0),
         epoch_duration,
         None,
-        with_subsidies,
+        with_credits,
         None,
         None,
     )
@@ -420,22 +499,15 @@ async fn publish_with_default_system_with_epoch_duration(
         })
         .collect();
 
-    // Create admin contract client
-    let contract_client = system_context
-        .new_contract_client(admin_wallet, rpc_urls, Default::default(), None)
-        .await?;
-
-    // We only care about gas cost, so the actual subsidy rate can be zero to make it cheap to fund.
-    let subsidy_rate = 0;
-
-    if let Some(subsidies_pkg_id) = system_context.subsidies_pkg_id {
-        let (subsidies_object_id, _admin_cap_id) = contract_client
-            .create_and_fund_subsidies(subsidies_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
-            .await?;
+    if let Some(credits_pkg_id) = system_context.credits_pkg_id {
+        let credits_object_id = contract_client
+            .create_and_fund_credits(credits_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
+            .await?
+            .object_id;
 
         contract_client
             .read_client()
-            .set_subsidies_object(subsidies_object_id)
+            .set_credits_object(credits_object_id)
             .await?;
     }
 

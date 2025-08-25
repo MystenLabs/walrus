@@ -3,9 +3,11 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
+use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType, encoding::QuiltError};
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
+
+use crate::client::upload_relay_client::UploadRelayClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -47,8 +49,9 @@ pub type ClientResult<T> = Result<T, ClientError>;
 #[error(transparent)]
 pub struct ClientError {
     /// The inner kind of the error.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error.
     #[from]
-    kind: ClientErrorKind,
+    kind: Box<ClientErrorKind>,
 }
 
 impl ClientError {
@@ -63,34 +66,34 @@ impl ClientError {
         E: std::error::Error + Send + Sync + 'static,
     {
         ClientError {
-            kind: ClientErrorKind::Other(err.into()),
+            kind: Box::new(ClientErrorKind::Other(err.into())),
         }
     }
 
     /// Constructs a [`ClientError`] with `kind` [`ClientErrorKind::StoreBlobInternal`].
     pub fn store_blob_internal(err: String) -> Self {
         ClientError {
-            kind: ClientErrorKind::StoreBlobInternal(err),
+            kind: Box::new(ClientErrorKind::StoreBlobInternal(err)),
         }
     }
 
     /// Whether the error is an out-of-gas error.
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
-            &self.kind,
+            self.kind.as_ref(),
             ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
         )
     }
 
     /// Returns `true` if the error is a `NoValidStatusReceived` error.
     pub fn is_no_valid_status_received(&self) -> bool {
-        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
+        matches!(self.kind.as_ref(), ClientErrorKind::NoValidStatusReceived)
     }
 
     /// Returns `true` if the error may have been caused by epoch change.
     pub fn may_be_caused_by_epoch_change(&self) -> bool {
         matches!(
-            &self.kind,
+            self.kind.as_ref(),
             // Cannot get confirmations.
             ClientErrorKind::NotEnoughConfirmations(_, _)
                 // Cannot certify the blob on chain.
@@ -104,6 +107,38 @@ impl ClientError {
                 // The client was notified that the committee has changed.
                 | ClientErrorKind::CommitteeChangeNotified
         )
+    }
+
+    /// Returns `true` if the error indicates that a blob is not available to read.
+    ///
+    /// Reading a blob that is being uploaded or being expired can result in different errors,
+    /// depending on the state of the blob.
+    pub fn is_blob_not_available_to_read_error(&self) -> bool {
+        matches!(
+            self.kind.as_ref(),
+            // Blob does not exist in the system.
+            ClientErrorKind::BlobIdDoesNotExist
+                // Blob may be exist, but we do not have enough slivers to reconstruct it.
+                | ClientErrorKind::NotEnoughSlivers
+                // Blob may be exist, but no metadata is uploaded yet
+                | ClientErrorKind::NoMetadataReceived
+                // Blob does not have a valid status in all storage nodes.
+                | ClientErrorKind::NoValidStatusReceived
+        )
+    }
+}
+
+impl From<QuiltError> for ClientError {
+    fn from(value: QuiltError) -> Self {
+        ClientError {
+            kind: ClientErrorKind::from(value).into(),
+        }
+    }
+}
+
+impl From<ClientErrorKind> for ClientError {
+    fn from(kind: ClientErrorKind) -> Self {
+        Box::new(kind).into()
     }
 }
 
@@ -119,7 +154,7 @@ impl From<SuiClientError> for ClientError {
             }
             error => ClientErrorKind::Other(error.into()),
         };
-        Self { kind }
+        kind.into()
     }
 }
 
@@ -203,4 +238,10 @@ pub enum ClientErrorKind {
     /// An internal error occurred while storing a blob, usually indicating a bug.
     #[error("store blob internal error: {0}")]
     StoreBlobInternal(String),
+    /// An error when storing/retrieving a quilt.
+    #[error("quilt error: {0}")]
+    QuiltError(#[from] QuiltError),
+    /// An error occurred while uploading a blob to the upload relay.
+    #[error("upload relay error: {0}")]
+    UploadRelayError(#[from] UploadRelayClientError),
 }

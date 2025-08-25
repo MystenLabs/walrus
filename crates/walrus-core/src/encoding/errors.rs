@@ -6,7 +6,7 @@ use core::num::NonZeroU16;
 
 use thiserror::Error;
 
-use crate::SliverIndex;
+use crate::{SliverIndex, merkle::MerkleProofError};
 
 /// Error indicating that the data is too large to be encoded/decoded.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
@@ -138,8 +138,8 @@ pub enum SymbolVerificationError {
     #[error("the symbol size does not match the metadata")]
     SymbolSizeMismatch,
     /// The verification of the Merkle proof failed.
-    #[error("verification of the Merkle proof failed")]
-    InvalidProof,
+    #[error("verification of the Merkle proof failed: {0}")]
+    InvalidProof(#[from] MerkleProofError),
     /// The provided metadata is itself invalid.
     #[error("the metadata is invalid")]
     InvalidMetadata,
@@ -153,8 +153,8 @@ pub enum SymbolVerificationError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QuiltError {
     /// The blob is not found in the quilt.
-    #[error("the blob is not found in the quilt: {0}")]
-    BlobNotFoundInQuilt(String),
+    #[error("the blobs are not found in the quilt: {}", .0.join(", "))]
+    BlobsNotFoundInQuilt(Vec<String>),
     /// The quilt version does not match the expected version.
     #[error("the quilt version does not match the expected version: {0}, expected: {1}")]
     QuiltVersionMismatch(u8, u8),
@@ -166,7 +166,7 @@ pub enum QuiltError {
     FailedToExtractQuiltIndexSize,
     /// Failed to decode the quilt index.
     #[error("failed to decode the quilt index: {0}")]
-    QuiltIndexSerDerError(String),
+    QuiltIndexSerDerError(#[from] bcs::Error),
     /// Missing slivers.
     #[error("missing slivers: {0:?}")]
     MissingSlivers(Vec<SliverIndex>),
@@ -185,6 +185,18 @@ pub enum QuiltError {
     /// Empty input.
     #[error("{0} is empty")]
     EmptyInput(String),
+    /// Invalid identifier.
+    #[error("invalid identifier: {0}")]
+    InvalidIdentifier(String),
+    /// Duplicate identifier found.
+    #[error("duplicate identifier found: {0}")]
+    DuplicateIdentifier(String),
+    /// Failed to decode extension.
+    #[error("failed to decode extension {0}: {1}")]
+    FailedToDecodeExtension(String, bcs::Error),
+    /// QuiltPatchId is invalid.
+    #[error("QuiltPatchId: {0} is invalid")]
+    QuiltPatchIdParseError(String),
     /// Other error.
     #[error("other error: {0}")]
     Other(String),

@@ -107,8 +107,12 @@ def git(*args):
     return subprocess.check_output(["git"] + list(args)).decode().strip()
 
 def parse_notes(pr, notes):
-    # # Find the release notes section
     result = {}
+    # verify notes param
+    if not isinstance(notes, (str, bytes)) or not notes:
+        return pr, result
+
+    # Find the release notes section
     match = RE_HEADING.search(notes)
     if not match:
         return pr, result
@@ -199,7 +203,7 @@ def extract_notes_for_commit(commit):
     # Execute the curl command
     result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     json_data = json.loads(result.stdout)
-    message = json_data[0].get("body")
+    message = json_data[0].get("body") if json_data else ""
 
     # Get PR number
     url = f"https://api.github.com/repos/MystenLabs/walrus/commits/{commit}/pulls"
@@ -213,7 +217,7 @@ def extract_notes_for_commit(commit):
     # Execute the curl command
     result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     json_data = json.loads(result.stdout)
-    pr = json_data[0].get("number")
+    pr = json_data[0].get("number") if json_data else ""
     return parse_notes(pr, message)
 
 def print_changelog(pr, log):

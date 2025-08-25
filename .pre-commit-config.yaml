@@ -1,20 +1,21 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
+        exclude: "crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml"
       - id: check-symlinks
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: "3.2.1"
+    rev: "3.4.0"
     hooks:
       - id: editorconfig-checker
         alias: ec
   - repo: https://github.com/google/yamlfmt
-    rev: v0.15.0
+    rev: v0.17.2
     hooks:
       - id: yamlfmt
   - repo: https://github.com/notken12/licensesnip
@@ -24,18 +25,18 @@ repos:
         args: []
         pass_filenames: false
   - repo: https://github.com/crate-ci/typos
-    rev: v1.31.1
+    rev: v1.35.4
     hooks:
       - id: typos
         pass_filenames: false
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.17.2
+    rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
         args: ["--fix"]
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.18.2
+    rev: 0.18.4
     hooks:
       - id: cargo-deny
         args: ["--all-features", "check", "--hide-inclusion-graph"]
@@ -59,7 +60,7 @@ repos:
         language: python
         types: [shell]
         require_serial: true # shellcheck can detect sourcing this way
-        additional_dependencies: ["shellcheck-py==0.10.0.1"]
+        additional_dependencies: ["shellcheck-py==0.11.0.1"]
       - id: cargo-fmt
         name: cargo-fmt
         entry: cargo fmt
@@ -68,56 +69,62 @@ repos:
           - "--config"
           - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
         language: rust
-        types: [rust]
+        files: &rust-files-pattern ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
         pass_filenames: false
       - id: cargo-test
         name: cargo-test
         entry: cargo nextest run
         language: rust
-        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
+        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml|rust-toolchain\.toml$)
         pass_filenames: false
         verbose: true
       - id: cargo-doctests
         name: cargo-doctests
         entry: cargo test --doc
         language: rust
-        files: (^crates/|Cargo\.(toml|lock)$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: clippy-with-tests
         name: clippy-with-tests
         entry: cargo clippy
         args: ["--all-features", "--tests", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: clippy
         name: clippy
         entry: cargo clippy
         args: ["--all-features", "--", "-D", "warnings"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: *rust-files-pattern
         pass_filenames: false
       - id: cargo-doc
         name: cargo-doc
         entry: env RUSTDOCFLAGS="-D warnings" cargo doc
         args: ["--workspace", "--no-deps"]
         language: rust
-        files: ^(crates/|Cargo\.(toml|lock)$)
+        files: *rust-files-pattern
         pass_filenames: false
-      - id: move-test
-        name: move-test
-        entry: scripts/move_coverage.sh
-        args: ["-t"]
+      - id: move-tests
+        name: move-tests
+        entry: scripts/move_tests.sh
         language: system
         files: "contracts/.*"
+        pass_filenames: false
+      - id: move-tests-testnet
+        name: move-tests-testnet
+        entry: scripts/move_tests.sh
+        args: ["-d", "testnet-contracts"]
+        language: system
+        files: "testnet-contracts/.*"
         pass_filenames: false
       - id: move-format
         name: move-format
         entry: prettier-move -w
         language: node
         additional_dependencies:
-          - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.3.0"
+          - "prettier@3.6.2"
+          - "@mysten/prettier-plugin-move@0.3.1"
         files: "^contracts/.*\\.move"
       - id: mdBook
         name: Build docs if mdBook is installed

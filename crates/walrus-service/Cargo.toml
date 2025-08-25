@@ -38,6 +38,7 @@ backup = [
 ]
 client = [
   "dep:colored",
+  "dep:object_store",
   "dep:prettytable",
 ]
 default = ["client", "deploy", "node"]
@@ -53,6 +54,7 @@ node = [
   "dep:tokio-stream",
   "dep:tokio-util",
   "dep:typed-store",
+  "dep:x509-cert",
 ]
 test-utils = [
   "client",
@@ -76,12 +78,13 @@ axum = { workspace = true, features = [
   "tower-log",
   "tracing",
 ] }
-axum-extra = { workspace = true, features = ["query", "typed-header"] }
+axum-extra = { workspace = true, features = ["multipart", "query", "typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 bincode = { workspace = true, optional = true }
 byteorder.workspace = true
 bytes = { workspace = true, optional = true }
+bytesize.workspace = true
 checkpoint-downloader = { workspace = true, optional = true }
 chrono.workspace = true
 clap.workspace = true
@@ -94,7 +97,6 @@ enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true
 futures-util.workspace = true
-git-version.workspace = true
 home.workspace = true
 hostname.workspace = true
 http-body = "1.0.1"
@@ -145,7 +147,7 @@ telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
-tokio-metrics = "0.4.2"
+tokio-metrics.workspace = true
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, features = ["buffer", "limit", "load-shed", "util"] }
@@ -165,11 +167,13 @@ walrus-storage-node-client.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "log", "metrics", "tokio-metrics"] }
+x509-cert = { workspace = true, optional = true }
 
 [dev-dependencies]
 hex.workspace = true
 http-body-util.workspace = true
 mockall.workspace = true
+rcgen = { workspace = true, features = ["pem"] }
 ring = "0.17.14"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }

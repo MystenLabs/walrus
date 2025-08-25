@@ -43,7 +43,8 @@ use walrus_sui::types::{
 use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
-    node::events::EventProcessorConfig,
+    event::event_processor::config::EventProcessorConfig,
+    node::db_checkpoint::DbCheckpointConfig,
 };
 
 /// Configuration for the config synchronizer.
@@ -164,7 +165,7 @@ pub struct StorageNodeConfig {
     /// The number of uncertified blobs before the node will reset the local
     /// state in event blob writer.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
-    pub num_uncertified_blob_threshold: Option<u32>,
+    pub num_uncertified_blob_threshold: Option<usize>,
     /// Configuration for background SUI balance checks and alerting.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub balance_check: BalanceCheckConfig,
@@ -174,6 +175,23 @@ pub struct StorageNodeConfig {
     /// Configuration for the consistency check.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub consistency_check: StorageNodeConsistencyCheckConfig,
+    /// Configuration for the checkpointing task.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub checkpoint_config: DbCheckpointConfig,
+    /// Admin socket path.
+    ///
+    /// config example:
+    /// ```yaml
+    /// admin_socket_path: /var/run/walrus/admin.sock
+    /// ```
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub admin_socket_path: Option<PathBuf>,
+    /// Configuration for node recovery.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub node_recovery_config: NodeRecoveryConfig,
+    /// Configuration for the blob event processor.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub blob_event_processor_config: BlobEventProcessorConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -213,6 +231,10 @@ impl Default for StorageNodeConfig {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             consistency_check: Default::default(),
+            checkpoint_config: Default::default(),
+            admin_socket_path: None,
+            node_recovery_config: Default::default(),
+            blob_event_processor_config: Default::default(),
         }
     }
 }
@@ -355,14 +377,13 @@ impl StorageNodeConfig {
         commission_rate_data: &CommissionRateData,
         local_commission_rate: u16,
     ) -> Option<u16> {
-        let projected_commission_rate = commission_rate_data
-            .pending_commission_rate
-            .last()
-            .map_or(commission_rate_data.commission_rate as u64, |&(_, rate)| {
-                rate
-            });
-        assert!(projected_commission_rate < u16::MAX as u64);
-        (projected_commission_rate != local_commission_rate as u64).then_some(local_commission_rate)
+        let projected_commission_rate = commission_rate_data.pending_commission_rate.last().map_or(
+            u64::from(commission_rate_data.commission_rate),
+            |&(_, rate)| rate,
+        );
+        assert!(projected_commission_rate < u64::from(u16::MAX));
+        (projected_commission_rate != u64::from(local_commission_rate))
+            .then_some(local_commission_rate)
     }
 
     /// Compares the current node parameters with the passed-in parameters and generates the
@@ -540,6 +561,10 @@ pub struct BlobRecoveryConfig {
     /// Configuration of the committee service timeouts and retries
     #[serde(flatten)]
     pub committee_service_config: CommitteeServiceConfig,
+    /// The interval at which to monitor ongoing blob syncs.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "monitor_interval_secs")]
+    pub monitor_interval: Duration,
 }
 
 impl Default for BlobRecoveryConfig {
@@ -549,6 +574,18 @@ impl Default for BlobRecoveryConfig {
             max_concurrent_sliver_syncs: 2_000,
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
+            monitor_interval: Duration::from_secs(60),
+        }
+    }
+}
+
+impl BlobRecoveryConfig {
+    /// Returns a default configuration with a shorter monitor interval for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            monitor_interval: Duration::from_secs(5),
+            ..Default::default()
         }
     }
 }
@@ -572,7 +609,7 @@ pub struct CommitteeServiceConfig {
     pub metadata_request_timeout: Duration,
     /// The number of concurrent metadata requests
     pub max_concurrent_metadata_requests: NonZeroUsize,
-    /// The timeout when requesting slivers from a storage node.
+    /// The timeout when requesting recovery symbols for slivers from a storage node.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "sliver_request_timeout_secs")]
     pub sliver_request_timeout: Duration,
@@ -595,9 +632,9 @@ impl Default for CommitteeServiceConfig {
             retry_interval_min: Duration::from_secs(1),
             retry_interval_max: Duration::from_secs(3600),
             metadata_request_timeout: Duration::from_secs(5),
-            sliver_request_timeout: Duration::from_secs(300),
+            sliver_request_timeout: Duration::from_secs(45),
             invalidity_sync_timeout: Duration::from_secs(300),
-            max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
+            max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
         }
@@ -653,6 +690,41 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
         }
+    }
+}
+
+/// Configuration for node recovery.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct NodeRecoveryConfig {
+    /// The maximum number of blobs to recover in parallel.
+    /// Different from `BlobRecoveryConfig::max_concurrent_blob_syncs`, this is to control the
+    /// number of blob recover tasks initiated by node recovery logic.
+    pub max_concurrent_blob_syncs_during_recovery: usize,
+}
+
+impl Default for NodeRecoveryConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_blob_syncs_during_recovery: 1000,
+        }
+    }
+}
+
+/// Configuration for the blob event processor.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct BlobEventProcessorConfig {
+    /// The number of workers to process blob events in parallel.
+    /// When set to 0, the node will process all blob events sequentially.
+    pub num_workers: usize,
+}
+
+impl Default for BlobEventProcessorConfig {
+    fn default() -> Self {
+        Self { num_workers: 10 }
     }
 }
 
@@ -959,10 +1031,17 @@ pub struct RestServerConfig {
     /// Configuration for incoming HTTP/2 connections.
     #[serde(flatten, skip_serializing_if = "defaults::is_default")]
     pub http2_config: Http2Config,
+
+    /// The maximum number of active requests that will be served on the recovery symbols endpoint.
+    ///
+    /// An unset value means it is unlimited.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub experimental_max_active_recovery_symbols_requests: Option<usize>,
 }
 
 /// Configuration of the HTTP/2 connections established by the REST API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Http2Config {
     /// The maximum number of concurrent streams that a client can open
     /// over a connection to the server.
@@ -1061,11 +1140,10 @@ mod tests {
         const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);
-        let contract_config = ContractConfig {
-            system_object: ObjectID::random_from_rng(&mut rng),
-            staking_object: ObjectID::random_from_rng(&mut rng),
-            subsidies_object: None,
-        };
+        let contract_config = ContractConfig::new(
+            ObjectID::random_from_rng(&mut rng),
+            ObjectID::random_from_rng(&mut rng),
+        );
         let config = StorageNodeConfig {
             sui: Some(SuiConfig {
                 rpc: "https://fullnode.testnet.sui.io:443".to_string(),
@@ -1401,7 +1479,7 @@ mod tests {
                 voting_params: old_voting_params.clone(),
                 metadata: old_metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64)],
+                    pending_commission_rate: vec![(32, u64::from(config.commission_rate))],
                     commission_rate: 20,
                 },
             },
@@ -1465,7 +1543,10 @@ mod tests {
                 voting_params: config.voting_params.clone(),
                 metadata: config.metadata.clone(),
                 commission_rate_data: CommissionRateData {
-                    pending_commission_rate: vec![(32, config.commission_rate as u64), (33, 110)],
+                    pending_commission_rate: vec![
+                        (32, u64::from(config.commission_rate)),
+                        (33, 110),
+                    ],
                     commission_rate: config.commission_rate,
                 },
             },

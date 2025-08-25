@@ -129,5 +129,6 @@ faucet](https://discord.com/channels/916379725201563759/1037811694564560966).
 
 ## One more thing …
 
+<!-- markdownlint-disable descriptive-link-text -->
 The Walrus Sites website, the Walrus docs, and this very blog are hosted on Walrus. To learn more
 about Walrus Sites and how you can deploy your own, [click here](../walrus-sites/intro.md).

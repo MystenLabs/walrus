@@ -4,15 +4,18 @@
 //! The arguments to the Walrus client binary.
 
 use std::{
+    collections::BTreeMap,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
@@ -21,6 +24,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    QuiltPatchId,
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
 };
@@ -29,8 +33,9 @@ use walrus_sui::{
     types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
+use walrus_utils::read_blob_from_file;
 
-use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -204,46 +209,43 @@ pub enum CliCommands {
         #[arg(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
-        /// The epoch argument to specify either the number of epochs to store the blob, or the
-        /// end epoch, or the earliest expiry time in rfc3339 format.
-        ///
+        /// Common options shared between store and store-quilt commands.
         #[command(flatten)]
         #[serde(flatten)]
-        epoch_arg: EpochArg,
-        /// Perform a dry-run of the store without performing any actions on chain.
+        common_options: CommonStoreOptions,
+    },
+    /// Store files as a quilt.
+    #[command(alias("write-quilt"))]
+    StoreQuilt {
+        /// Paths to files to include in the quilt.
         ///
-        /// This assumes `--force`; i.e., it does not check the current status of the blob.
-        #[arg(long)]
-        #[serde(default)]
-        dry_run: bool,
-        /// Do not check for the blob status before storing it.
+        /// If a path is a directory, all the files in the directory will be included
+        /// in the quilt, recursively.
+        /// If a path is a file, the file will be included in the quilt.
+        /// The filenames are used as the identifiers of the quilt patches.
+        /// Note duplicate filenames are not allowed.
+        /// Custom identifiers and tags are NOT supported for quilt patches.
+        /// Use `--blobs` to specify custom identifiers and tags.
+        #[arg(long, num_args = 0..)]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        paths: Vec<PathBuf>,
+        /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
-        /// This will create a new blob even if the blob is already certified for a sufficient
-        /// duration.
-        #[arg(long)]
+        /// Example:
+        ///   walrus store-quilt --epochs 10
+        ///     --blobs '{"path":"/path/to/food-locations.pdf","identifier":"paper-v2",\
+        ///     "tags":{"author":"Walrus","project":"food","status":"final-review"}}' \
+        ///     '{"path":"/path/to/water-locations.pdf","identifier":"water-v3",\
+        ///     "tags":{"author":"Walrus","project":"water","status":"draft"}}'
+        /// Note if identifier is not specified, the filename will be used as the identifier,
+        /// and duplicate identifiers are not allowed.
+        #[arg(long, num_args = 0.., conflicts_with = "paths")]
         #[serde(default)]
-        force: bool,
-        /// Ignore the storage resources owned by the wallet.
-        ///
-        /// The client will not check if it can reuse existing resources, and just check the blob
-        /// status on chain.
-        #[arg(long)]
-        #[serde(default)]
-        ignore_resources: bool,
-        /// Mark the blob as deletable.
-        ///
-        /// Deletable blobs can be removed from Walrus before their expiration time.
-        #[arg(long)]
-        #[serde(default)]
-        deletable: bool,
-        /// Whether to put the blob into a shared blob object.
-        #[arg(long)]
-        #[serde(default)]
-        share: bool,
-        /// The encoding type to use for encoding the files.
-        #[arg(long, hide = true)]
-        #[serde(default)]
-        encoding_type: Option<EncodingType>,
+        blobs: Vec<QuiltBlobInput>,
+        /// Common options shared between store and store-quilt commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -260,6 +262,45 @@ pub enum CliCommands {
             deserialize_with = "walrus_utils::config::resolve_home_dir_option"
         )]
         out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// Read quilt patches (blobs) from Walrus.
+    #[command(override_usage = "walrus read-quilt ARGUMENTS [OPTIONS]")]
+    ReadQuilt {
+        /// The quilt patch query.
+        #[command(flatten)]
+        #[serde(flatten)]
+        quilt_patch_query: QuiltPatchQuery,
+        /// The directory path where to write the quilt patches.
+        /// The blobs are written to the directory with the same name as the identifier.
+        /// The user-defined metadata of the quilt patches, including identifiers and tags are
+        /// printed to the stdout.
+        ///
+        /// If unset, prints the quilt patches raw data to stdout, while the metadata of the quilt
+        /// patches are ignored.
+        //
+        // TODO(WAL-900): Provide more flexible options to specify the file names.
+        #[arg(long)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
+        out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
+        #[command(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+    },
+    /// List the blobs in a quilt.
+    #[command(alias("resolve-quilt"))]
+    ListPatchesInQuilt {
+        /// The quilt ID to be inspected.
+        #[serde_as(as = "DisplayFromStr")]
+        #[arg(allow_hyphen_values = true, value_parser = parse_blob_id)]
+        quilt_id: BlobId,
         /// The URL of the Sui RPC node to use.
         #[command(flatten)]
         #[serde(flatten)]
@@ -333,6 +374,10 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         sort: SortBy<HealthSortBy>,
+        /// Number of concurrent requests to send to the storage nodes.
+        #[arg(long, default_value_t = default::concurrent_requests_for_health())]
+        #[serde(default = "default::concurrent_requests_for_health")]
+        concurrent_requests: usize,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -549,12 +594,45 @@ pub enum CliCommands {
     },
     /// Administration subcommands for storage node operators.
     NodeAdmin {
-        #[arg(long, global = true, required = false)]
-        /// The ID of the node for which the operation should be performed.
-        node_id: ObjectID,
         /// The specific node admin command to run.
         #[command(subcommand)]
         command: NodeAdminCommands,
+    },
+    /// Pull all blobs (filtered by optional prefix specifier) from Google Cloud Storage down into
+    /// the specified backfill_dir.
+    PullArchiveBlobs {
+        /// The Google Cloud Storage bucket to pull from.
+        #[arg(long)]
+        gcs_bucket: String,
+        /// Optional object name prefix filter.
+        #[arg(long)]
+        prefix: Option<String>,
+        /// The directory to pull into.
+        #[arg(long)]
+        backfill_dir: String,
+        /// Durable list of objects already pulled.
+        ///
+        /// This is loaded at script initialization and used to avoid pulling redundant objects.
+        /// Note that looking in the backfill_dir is not a complete solution because the disk space
+        /// needs to be reclaimed after the archival blobs have been pushed up to the network. So,
+        /// this `pulled_state` file is ensuring we don't have to start from the beginning in the
+        /// event that we need to stop and restart the backfill.
+        #[arg(long)]
+        pulled_state: PathBuf,
+    },
+    /// Upload blob slivers and metadata from a specified directory to the listed storage nodes.
+    BlobBackfill {
+        /// The subdirectory when blob-backfill can find blobs.
+        ///
+        /// Blobs in this directory must be named with their blob id. Any files that exist in this
+        /// directory that do not have a conforming blob id name will be skipped.
+        #[arg(long)]
+        backfill_dir: PathBuf,
+        /// The file where successfully pushed blob IDs will be stored.
+        #[arg(long)]
+        pushed_state: PathBuf,
+        /// The nodes to backfill with slivers and blob metadata.
+        node_ids: Vec<ObjectID>,
     },
 }
 
@@ -595,9 +673,16 @@ pub enum InfoCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum NodeAdminCommands {
     /// Collect the commission.
-    CollectCommission,
+    CollectCommission {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
+    },
     /// Vote for a contract upgrade.
     VoteForUpgrade {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         /// The upgrade manager object ID.
         #[arg(long)]
         upgrade_manager_object_id: ObjectID,
@@ -607,15 +692,27 @@ pub enum NodeAdminCommands {
     },
     /// Set the authorized entity for governance operations.
     SetGovernanceAuthorized {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
     },
     /// Set the authorized entity for commission operations.
     SetCommissionAuthorized {
+        #[arg(long)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
         #[command(flatten)]
         /// The object or address to set as authorized entity.
         object_or_address: ObjectOrAddress,
+    },
+    /// Outputs the package digest of a sui package.
+    PackageDigest {
+        /// The path to the package directory.
+        #[arg(long)]
+        package_path: PathBuf,
     },
 }
 
@@ -717,6 +814,12 @@ pub struct AggregatorArgs {
     #[arg(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
+    /// Whether to allow quilt patch tags to be returned in the response headers.
+    /// If true, the tags will be returned in the response headers, regardless of the allowed
+    /// headers.
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub allow_quilt_patch_tags_in_response: bool,
 }
 
 /// The arguments for the publisher service.
@@ -731,6 +834,10 @@ pub struct PublisherArgs {
     #[arg(long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
     pub max_body_size_kib: usize,
+    /// The maximum body size of quilt PUT requests in KiB.
+    #[arg(long = "max-quilt-body-size", default_value_t = default::max_quilt_body_size_kib())]
+    #[serde(default = "default::max_quilt_body_size_kib")]
+    pub max_quilt_body_size_kib: usize,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones.
     #[arg(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
@@ -839,6 +946,10 @@ impl PublisherArgs {
         self.max_body_size_kib << 10
     }
 
+    pub(crate) fn max_quilt_body_size(&self) -> usize {
+        self.max_quilt_body_size_kib << 10
+    }
+
     fn format_max_body_size(&self) -> String {
         format!(
             "{}",
@@ -915,6 +1026,75 @@ pub struct DaemonArgs {
     pub(crate) blocklist: Option<PathBuf>,
 }
 
+/// Common options shared between store and store-quilt commands.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommonStoreOptions {
+    /// The epoch argument to specify either the number of epochs to store the blob, or the
+    /// end epoch, or the earliest expiry time in rfc3339 format.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub epoch_arg: EpochArg,
+    /// Perform a dry-run of the store without performing any actions on chain.
+    ///
+    /// This assumes `--force`; i.e., it does not check the current status of the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Do not check for the blob/quilt status before storing it.
+    ///
+    /// This will create a new blob/quilt even if it is already certified for a sufficient
+    /// duration.
+    #[arg(long)]
+    #[serde(default)]
+    pub force: bool,
+    /// Ignore the storage resources owned by the wallet.
+    ///
+    /// The client will not check if it can reuse existing resources, and just check the blob/quilt
+    /// status on chain.
+    #[arg(long)]
+    #[serde(default)]
+    pub ignore_resources: bool,
+    // TODO(WAL-911): Change the docstrings when the default behavior changes.
+    /// Mark the blob/quilt as deletable.
+    ///
+    /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
+    ///
+    /// *This will become the default behavior in v1.33.*
+    #[arg(long, conflicts_with = "permanent")]
+    #[serde(default)]
+    pub deletable: bool,
+    /// Mark the blob/quilt as permanent.
+    ///
+    /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
+    /// beneficial if strong availability guarantees are required.
+    ///
+    /// This is currently the default behavior; but *blobs will be deletable by
+    /// default starting with v1.33*.
+    #[arg(long)]
+    #[serde(default)]
+    pub permanent: bool,
+    /// Whether to put the blob/quilt into a shared object.
+    #[arg(long)]
+    #[serde(default)]
+    pub share: bool,
+    /// The encoding type to use for encoding the files.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub encoding_type: Option<EncodingType>,
+    /// Walrus Upload Relay URL to use for storing the blob/quilt.
+    #[arg(long)]
+    #[serde(default)]
+    pub upload_relay: Option<Url>,
+    /// Skip the tip confirmation prompt when using the upload relay.
+    ///
+    /// If specified, the client will not ask for a tip confirmation and proceed with the upload
+    /// relay store operation.
+    #[arg(long)]
+    #[serde(default)]
+    pub skip_tip_confirmation: bool,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -960,6 +1140,153 @@ impl FileOrBlobId {
     }
 }
 
+/// Represents a blob to be stored in a quilt, together with its identifier and tags.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltBlobInput {
+    /// The path to the blob.
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
+    pub(crate) path: PathBuf,
+    /// The identifier of the blob.
+    ///
+    /// If not provided, the file name will be used as the identifier.
+    #[serde(default)]
+    pub(crate) identifier: Option<String>,
+    /// The tags of the blob.
+    #[serde(default)]
+    pub(crate) tags: BTreeMap<String, String>,
+}
+
+impl FromStr for QuiltBlobInput {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
+}
+
+/// Query to read quilt patches.
+#[serde_as]
+#[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[group(required = true)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchQuery {
+    /// The quilt ID, which is the BlobID of the quilt.
+    ///
+    /// It is required unless `--quilt-patch-id` is used.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[arg(
+        long,
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        conflicts_with = "quilt_patch_ids",
+        required_unless_present = "quilt_patch_ids",
+        help_heading = "Arguments",
+    )]
+    quilt_id: Option<BlobId>,
+
+    /// The identifiers to read from the quilt.
+    ///
+    /// It is required to be used with `--quilt-id`.
+    #[arg(
+        long = "identifiers",
+        alias = "identifier",
+        conflicts_with = "tag",
+        conflicts_with = "quilt_patch_ids",
+        num_args = 1..,
+        help_heading = "Arguments"
+    )]
+    #[serde(default)]
+    identifiers: Vec<String>,
+
+    /// The tag key and value.
+    ///
+    /// It is required to be used with `--quilt-id`.
+    #[arg(
+        long,
+        conflicts_with = "quilt_patch_ids",
+        value_names = &["KEY", "VALUE"],
+        num_args = 2,
+        action = clap::ArgAction::Append,
+        help_heading = "Arguments"
+    )]
+    #[serde(default)]
+    tag: Vec<String>,
+
+    /// The quilt patch IDs.
+    ///
+    /// It should be used alone without other arguments.
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[arg(
+        long = "quilt-patch-ids",
+        aliases = ["quilt-patch-id", "patch-ids"],
+        num_args = 1..,
+        value_terminator = "--",
+        allow_hyphen_values = true,
+        value_parser = parse_quilt_patch_id,
+        help_heading = "Arguments",
+    )]
+    #[serde(default)]
+    quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+impl QuiltPatchQuery {
+    /// Returns a QuiltPatchSelector from the command line arguments.
+    pub fn into_selector(mut self) -> Result<QuiltPatchSelector> {
+        match (
+            !self.identifiers.is_empty(),
+            !self.tag.is_empty(),
+            !self.quilt_patch_ids.is_empty(),
+            self.quilt_id,
+        ) {
+            // quilt_id and identifiers provided.
+            (true, false, false, Some(quilt_id)) => {
+                Ok(QuiltPatchSelector::ByIdentifier(QuiltPatchByIdentifier {
+                    quilt_id,
+                    identifiers: self.identifiers,
+                }))
+            }
+
+            // quilt_id and tags provided.
+            (false, true, false, Some(quilt_id)) => {
+                if self.tag.len() != 2 {
+                    return Err(anyhow!("Only one tag is supported for now."));
+                }
+                let value = self.tag.pop().expect("value should be present");
+                let tag = self.tag.pop().expect("tag should be present");
+                Ok(QuiltPatchSelector::ByTag(QuiltPatchByTag {
+                    quilt_id,
+                    tag,
+                    value,
+                }))
+            }
+
+            // quilt_patch_ids provided.
+            (false, false, true, None) => Ok(QuiltPatchSelector::ByPatchId(QuiltPatchByPatchId {
+                quilt_patch_ids: self.quilt_patch_ids,
+            })),
+
+            // Only quilt_id provided.
+            (false, false, false, Some(quilt_id)) => Ok(QuiltPatchSelector::All(quilt_id)),
+
+            // All other combinations are invalid
+            _ => Err(Self::invalid_query_error()),
+        }
+    }
+
+    /// Returns an error message for an invalid query.
+    fn invalid_query_error() -> anyhow::Error {
+        anyhow!(
+            "Exactly one query pattern must be specified. Valid query patterns are:\n\
+            - quiltId + identifiers: {{\"quiltId\": \"<ID>\", \
+            \"identifiers\": [\"<IDENTIFIER>\", ...]}}\n\
+            - quiltId + tag: {{\"quiltId\": \"<ID>\", \"tag\": [\"<KEY>\", \"<VALUE>\"]}}\n\
+            - quiltPatchIds: {{\"quiltPatchIds\": [\"<PATCH_ID>\", ...]}}\n\
+            - quiltId only: {{\"quiltId\": \"<ID>\"}}"
+        )
+    }
+}
+
 /// Represents a blob.
 #[serde_as]
 #[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -976,7 +1303,7 @@ impl std::fmt::Display for BlobIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut identity = String::new();
         if let Some(blob_id) = &self.blob_id {
-            identity = format!("blob ID: {}", blob_id);
+            identity = format!("blob ID: {blob_id}");
         }
         if let Some(file) = &self.file {
             if !identity.is_empty() {
@@ -988,10 +1315,53 @@ impl std::fmt::Display for BlobIdentity {
             if !identity.is_empty() {
                 identity.push(' ');
             }
-            identity.push_str(&format!("object ID: {}", object_id));
+            identity.push_str(&format!("object ID: {object_id}"));
         }
-        write!(f, "{}", identity)
+        write!(f, "{identity}")
     }
+}
+
+/// Query for quilt patches by identifier.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByIdentifier {
+    /// The quilt ID, which is the BlobID of the quilt.
+    pub quilt_id: BlobId,
+    /// The identifiers to read from the quilt.
+    pub identifiers: Vec<String>,
+}
+
+/// Query for quilt patches by tag.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByTag {
+    /// The quilt ID, which is the BlobID of the quilt.
+    pub quilt_id: BlobId,
+    /// The tag key.
+    pub tag: String,
+    /// The tag value.
+    pub value: String,
+}
+
+/// Query for quilt patches by patch ID.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuiltPatchByPatchId {
+    /// The quilt patch IDs.
+    pub quilt_patch_ids: Vec<QuiltPatchId>,
+}
+
+/// Selector for quilt patches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuiltPatchSelector {
+    /// Patches by quilt_id and identifier.
+    ByIdentifier(QuiltPatchByIdentifier),
+    /// Patches by quilt_id and tag.
+    ByTag(QuiltPatchByTag),
+    /// Patches by quilt_patch_id.
+    ByPatchId(QuiltPatchByPatchId),
+    /// Read 'em all.
+    All(BlobId),
 }
 
 #[serde_as]
@@ -1299,6 +1669,10 @@ pub(crate) mod default {
         10_240
     }
 
+    pub(crate) fn max_quilt_body_size_kib() -> usize {
+        102_400 // 100MB default for quilts.
+    }
+
     pub(crate) fn max_concurrent_requests() -> usize {
         8
     }
@@ -1377,6 +1751,10 @@ pub(crate) mod default {
             "link".to_string(),
         ]
     }
+
+    pub(crate) fn concurrent_requests_for_health() -> usize {
+        60
+    }
 }
 
 #[cfg(test)]
@@ -1399,9 +1777,8 @@ mod tests {
         format!(
             r#"{{
                 "config": "path/to/client_config.yaml",
-                "command": {}
-            }}"#,
-            command
+                "command": {command}
+            }}"#
         )
     }
 
@@ -1409,17 +1786,22 @@ mod tests {
     fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epoch_arg: EpochArg {
-                epochs: Some(epochs),
-                earliest_expiry_time: None,
-                end_epoch: None,
+            common_options: CommonStoreOptions {
+                epoch_arg: EpochArg {
+                    epochs: Some(epochs),
+                    earliest_expiry_time: None,
+                    end_epoch: None,
+                },
+                dry_run: false,
+                force: false,
+                ignore_resources: false,
+                deletable: false,
+                permanent: false,
+                share: false,
+                encoding_type: Default::default(),
+                upload_relay: None,
+                skip_tip_confirmation: false,
             },
-            dry_run: false,
-            force: false,
-            ignore_resources: false,
-            deletable: false,
-            share: false,
-            encoding_type: Default::default(),
         })
     }
 
@@ -1443,6 +1825,7 @@ mod tests {
                     blocklist: None,
                 },
                 max_body_size_kib: default::max_body_size_kib(),
+                max_quilt_body_size_kib: default::max_quilt_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
                 max_concurrent_requests: default::max_concurrent_requests(),
                 refill_interval: default::refill_interval(),
@@ -1460,6 +1843,7 @@ mod tests {
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
+                allow_quilt_patch_tags_in_response: false,
             },
         })
     }

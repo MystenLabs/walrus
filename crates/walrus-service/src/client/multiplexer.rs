@@ -13,17 +13,22 @@ use std::{
 
 use sui_sdk::{sui_client_config::SuiEnv, types::base_types::SuiAddress};
 use sui_types::base_types::ObjectID;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    EpochCount,
+    encoding::quilt_encoding::{QuiltStoreBlob, QuiltVersion},
+};
 use walrus_sdk::{
     client::{
-        Client,
+        WalrusNodeClient,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
-        responses::BlobStoreResult,
+        responses::{BlobStoreResult, QuiltStoreResult},
     },
     config::ClientConfig,
     error::ClientResult,
-    store_when::StoreWhen,
+    store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
     client::{
@@ -49,7 +54,7 @@ use crate::client::refill::should_refill;
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
-    read_client: Client<SuiReadClient>,
+    read_client: WalrusNodeClient<SuiReadClient>,
     _refill_handles: RefillHandles,
     default_post_store_action: PostStoreAction,
 }
@@ -66,7 +71,7 @@ impl ClientMultiplexer {
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
         let main_address = contract_client.address();
 
-        let sui_client = contract_client.sui_client().clone();
+        let sui_client = contract_client.retriable_sui_client().clone();
         let sui_read_client = (*contract_client.read_client).clone();
 
         // Start the refresher here, so that all the clients can share it.
@@ -74,7 +79,7 @@ impl ClientMultiplexer {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let read_client = Client::new_read_client(
+        let read_client = WalrusNodeClient::new_read_client(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
@@ -135,7 +140,7 @@ impl ClientMultiplexer {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
@@ -147,7 +152,7 @@ impl ClientMultiplexer {
                 blob,
                 encoding_type,
                 epochs_ahead,
-                store_when,
+                store_optimizations,
                 persistence,
                 post_store,
             )
@@ -176,7 +181,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         blob: &[u8],
         encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
-        store_when: StoreWhen,
+        store_optimizations: StoreOptimizations,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
@@ -184,11 +189,49 @@ impl WalrusWriteClient for ClientMultiplexer {
             blob,
             encoding_type,
             epochs_ahead,
-            store_when,
+            store_optimizations,
             persistence,
             post_store,
         )
         .await
+    }
+
+    async fn construct_quilt<V: QuiltVersion>(
+        &self,
+        blobs: &[QuiltStoreBlob<'_>],
+        encoding_type: Option<EncodingType>,
+    ) -> ClientResult<V::Quilt> {
+        let client = self.client_pool.next_client().await;
+        tracing::debug!("submitting construct quilt request to client in pool");
+
+        let result = client.construct_quilt::<V>(blobs, encoding_type).await?;
+        Ok(result)
+    }
+
+    async fn write_quilt<V: QuiltVersion>(
+        &self,
+        quilt: V::Quilt,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        store_optimizations: StoreOptimizations,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<QuiltStoreResult> {
+        let client = self.client_pool.next_client().await;
+        tracing::debug!("submitting write quilt request to client in pool");
+
+        let result = client
+            .write_quilt::<V>(
+                quilt,
+                encoding_type,
+                epochs_ahead,
+                store_optimizations,
+                persistence,
+                post_store,
+            )
+            .await?;
+
+        Ok(result)
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {
@@ -225,7 +268,7 @@ impl WriteClientPoolConfig {
 
 /// A pool of temporary write clients that are rotated.
 pub struct WriteClientPool {
-    pool: Vec<Arc<Client<SuiContractClient>>>,
+    pool: Vec<Arc<WalrusNodeClient<SuiContractClient>>>,
     cur_idx: AtomicUsize,
 }
 
@@ -265,16 +308,13 @@ impl WriteClientPool {
     }
 
     /// Returns the next client in the pool.
-    pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
+    pub async fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
-        let client = self
-            .pool
+        self.pool
             .get(cur_idx)
             .expect("the index is computed modulo the length and clients cannot be removed")
-            .clone();
-
-        client
+            .clone()
     }
 }
 
@@ -312,7 +352,7 @@ impl<'a> SubClientLoader<'a> {
         &self,
         n_clients: usize,
         refresh_handle: CommitteesRefresherHandle,
-    ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
+    ) -> anyhow::Result<Vec<Arc<WalrusNodeClient<SuiContractClient>>>> {
         let mut clients = Vec::with_capacity(n_clients);
 
         for idx in 0..n_clients {
@@ -330,7 +370,7 @@ impl<'a> SubClientLoader<'a> {
         &self,
         sub_wallet_idx: usize,
         refresh_handle: CommitteesRefresherHandle,
-    ) -> anyhow::Result<Client<SuiContractClient>> {
+    ) -> anyhow::Result<WalrusNodeClient<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
             .await?;
@@ -343,7 +383,8 @@ impl<'a> SubClientLoader<'a> {
         sui_client.merge_coins().await?;
 
         let client =
-            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
+            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)
+                .await?;
         Ok(client)
     }
 
@@ -357,8 +398,8 @@ impl<'a> SubClientLoader<'a> {
     fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<Wallet> {
         let wallet_config_path = self
             .sub_wallets_dir
-            .join(format!("sui_client_{}.yaml", sub_wallet_idx));
-        let keystore_filename = format!("sui_{}.keystore", sub_wallet_idx);
+            .join(format!("sui_client_{sub_wallet_idx}.yaml"));
+        let keystore_filename = format!("sui_{sub_wallet_idx}.keystore");
 
         if wallet_config_path.exists() {
             tracing::debug!(?wallet_config_path, "loading sub-wallet from file");
@@ -387,7 +428,6 @@ impl<'a> SubClientLoader<'a> {
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
 
-        #[allow(deprecated)]
         let rpc_urls = &[wallet.get_rpc_url()?];
 
         let sui_client = RetriableSuiClient::new_for_rpc_urls(

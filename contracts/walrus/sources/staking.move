@@ -6,7 +6,7 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
@@ -24,9 +24,14 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
+/// The migration epoch is not set or has not started yet.
+const EInvalidMigrationEpoch: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
+
+/// The key for the migration epoch.
+const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";
 
 /// The one and only staking object.
 public struct Staking has key {
@@ -162,6 +167,11 @@ public(package) fun check_governance_authorization(
 /// Returns the current node weight for the given node id.
 public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16 {
     staking.inner().get_current_node_weight(node_id)
+}
+
+/// Get the current committee.
+public fun committee(staking: &Staking): &Committee {
+    staking.inner().committee()
 }
 
 /// Computes the committee for the next epoch.
@@ -305,6 +315,15 @@ public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
 }
 
+/// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+public fun add_commission_to_pools(
+    staking: &mut Staking,
+    node_ids: vector<ID>,
+    commissions: vector<Balance<WAL>>,
+) {
+    staking.inner_mut().add_commission_to_pools(node_ids, commissions)
+}
+
 // === Accessors ===
 
 public(package) fun package_id(staking: &Staking): ID {
@@ -354,6 +373,16 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
     staking.new_package_id = option::some(new_package_id);
 }
 
+/// Sets the epoch in which the staking and system objects can be migrated after an upgrade.
+entry fun set_migration_epoch(staking: &mut Staking) {
+    assert!(staking.version < VERSION, EInvalidMigration);
+    if (df::exists_(&staking.id, MIGRATION_EPOCH_KEY)) {
+        return
+    };
+    let migration_epoch = staking.inner_without_version_check().epoch() + 1;
+    df::add(&mut staking.id, MIGRATION_EPOCH_KEY, migration_epoch);
+}
+
 /// Migrate the staking object to the new package id.
 ///
 /// This function sets the new package id and version and can be modified in future versions
@@ -361,7 +390,17 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
 public(package) fun migrate(staking: &mut Staking) {
     assert!(staking.version < VERSION, EInvalidMigration);
 
-    // Move the old system state inner to the new version.
+    // Check that the migration epoch is set and that the current epoch is greater than or equal to
+    // the migration epoch.
+    let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
+        abort EInvalidMigrationEpoch,
+    );
+    assert!(
+        staking.inner_without_version_check().epoch() >= migration_epoch,
+        EInvalidMigrationEpoch,
+    );
+
+    // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
     df::add(&mut staking.id, VERSION, staking_inner);
     staking.version = VERSION;
@@ -385,11 +424,15 @@ fun inner(staking: &Staking): &StakingInnerV1 {
     df::borrow(&staking.id, VERSION)
 }
 
+/// Get an immutable reference to `StakingInner` from the `Staking` without checking the version.
+fun inner_without_version_check(staking: &Staking): &StakingInnerV1 {
+    df::borrow(&staking.id, staking.version)
+}
+
 // === Tests ===
 
 #[test_only]
 use sui::clock;
-
 #[test_only]
 public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
     staking.inner()
@@ -422,4 +465,9 @@ fun new_id(ctx: &mut TxContext): ID {
 #[test_only]
 public(package) fun new_package_id(staking: &Staking): Option<ID> {
     staking.new_package_id
+}
+
+#[test_only]
+public fun pool_commission(staking: &Staking, node_id: ID): u64 {
+    staking.inner().pool_commission(node_id)
 }

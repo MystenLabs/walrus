@@ -3,6 +3,8 @@
 
 //! Walrus Storage Node entry point.
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fmt::Display,
     fs,
@@ -18,8 +20,12 @@ use clap::{Parser, Subcommand, ValueEnum as _};
 use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::{ObjectID, SuiAddress};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     runtime::{self, Runtime},
     sync::oneshot,
     task::JoinHandle,
@@ -30,15 +36,16 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_service::{
+    DbCheckpointManager,
     SyncNodeConfigError,
-    common::config::SuiConfig,
+    common::{config::SuiConfig, telemetry::WalrusTracingHandle},
+    event::event_processor::runtime::EventProcessorRuntime,
     node::{
         ConfigLoader,
         StorageNode,
         StorageNodeConfigLoader,
         config::{self, StorageNodeConfig, defaults::REST_API_PORT},
         dbtool::DbToolCommands,
-        events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
     },
@@ -49,7 +56,6 @@ use walrus_service::{
         MAX_NODE_NAME_LENGTH,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
-        version,
         wait_until_terminated,
     },
 };
@@ -60,7 +66,8 @@ use walrus_sui::{
 };
 use walrus_utils::load_from_yaml;
 
-const VERSION: &str = version!();
+// Define the `GIT_REVISION` and `VERSION` consts
+walrus_utils::bin_version!();
 
 /// Manage and run a Walrus storage node.
 #[derive(Debug, Parser)]
@@ -68,6 +75,17 @@ const VERSION: &str = version!();
 struct Args {
     #[command(subcommand)]
     command: Commands,
+}
+
+/// A wrapper around the necessary components required by the admin commands.
+#[derive(Debug, Clone)]
+struct AdminArgs {
+    /// Checkpoint manager.
+    checkpoint_manager: Option<Arc<DbCheckpointManager>>,
+    /// Admin socket path.
+    admin_socket_path: Option<PathBuf>,
+    /// Tracing handle.
+    tracing_handle: WalrusTracingHandle,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -152,6 +170,80 @@ enum Commands {
     /// Hidden command for emergency use only.
     #[command(hide = true)]
     Catchup(CatchupArgs),
+
+    /// Restore the database from a checkpoint.
+    Restore(RestoreArgs),
+
+    /// Local admin commands for managing a running node.
+    LocalAdmin {
+        /// Admin subcommand to execute.
+        #[command(subcommand)]
+        command: AdminCommands,
+        /// Path to the admin socket.
+        #[arg(long)]
+        socket_path: PathBuf,
+    },
+}
+
+/// Admin subcommands for remote node management.
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+enum AdminCommands {
+    /// Checkpoint management.
+    Checkpoint {
+        /// Subcommand to execute.
+        #[command(subcommand)]
+        command: CheckpointCommands,
+    },
+    /// Log level management.
+    /// It also supports log directive like `walrus-service=debug`
+    /// to set the log level for a specific component. Use it like this:
+    /// `walrus-node local-admin --socket-path admin log-level --level "walrus_service=debug"`
+    LogLevel {
+        /// The log level to set.
+        #[arg(long)]
+        level: String,
+    },
+}
+
+/// Standard response format for admin commands.
+#[derive(Serialize, Deserialize)]
+struct AdminCommandResponse {
+    /// Whether the command was successful.
+    success: bool,
+    /// A message describing the command.
+    message: String,
+}
+
+/// Commands for checkpoint management.
+///
+/// Note the checkpoint command works only on the Walrus main DB.
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[command(rename_all = "kebab-case")]
+enum CheckpointCommands {
+    /// Create a new checkpoint.
+    // TODO(WAL-953): Add a flag to make this non-blocking.
+    Create {
+        /// The path where the checkpoint will be created. If not specified, the checkpoint will be
+        /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
+        #[arg(long)]
+        #[serde(default)]
+        path: Option<PathBuf>,
+        /// The delay before creating the checkpoint.
+        #[arg(long)]
+        delay_secs: Option<u64>,
+    },
+
+    /// List existing checkpoints.
+    List {
+        /// The path to the checkpoint directory. If not provided, the directory configured in
+        /// [`StorageNodeConfig::checkpoint_config`] will be used. If none of these are provided an
+        /// error will be returned.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+
+    /// Cancel an ongoing checkpoint creation.
+    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -346,30 +438,52 @@ struct PathArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct CatchupArgs {
-    #[arg(long)]
     /// Path to the RocksDB database directory.
+    #[arg(long)]
     db_path: PathBuf,
-    #[arg(long)]
     /// Object ID of the Walrus system object.
+    #[arg(long)]
     system_object_id: ObjectID,
-    #[arg(long)]
     /// Object ID of the Walrus staking object.
-    staking_object_id: ObjectID,
-    #[arg(long, default_value = "http://localhost:9000")]
-    /// The Sui RPC URL to use for catchup.
-    sui_rpc_url: String,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
-    /// The timeout for each request to the Sui RPC node.
-    checkpoint_request_timeout: Duration,
-    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
-    /// The duration to run the event processor for.
-    runtime_duration: Duration,
     #[arg(long)]
+    staking_object_id: ObjectID,
+    /// The Sui RPC URL to use for catchup.
+    #[arg(long, default_value = "http://localhost:9000")]
+    sui_rpc_url: String,
+    /// The timeout for each request to the Sui RPC node.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    checkpoint_request_timeout: Duration,
+    /// The duration to run the event processor for.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
+    runtime_duration: Duration,
     /// The minimum checkpoint lag to use for event stream catchup.
+    #[arg(long)]
     event_stream_catchup_min_checkpoint_lag: u64,
-    #[command(flatten)]
     /// The config for RPC fallback.
+    #[command(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
+    /// The interval at which to sample high-frequency tracing logs.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "30s")]
+    sampled_tracing_interval: Duration,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct RestoreArgs {
+    /// The path where the checkpoint is stored. Note, it will not be defaulted to the
+    /// checkpoint dir in the config file.
+    #[arg(long)]
+    db_checkpoint_path: PathBuf,
+    /// The path where the database will be restored.
+    #[arg(long)]
+    db_path: PathBuf,
+    /// The path where the WAL will be restored. If not specified, the WAL will be restored in
+    /// the same directory as the database.
+    #[arg(long)]
+    wal_path: Option<PathBuf>,
+    /// The ID of the checkpoint to restore. If not specified, the latest checkpoint will be
+    /// restored.
+    #[arg(long)]
+    checkpoint_id: Option<u32>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -447,12 +561,18 @@ fn main() -> anyhow::Result<()> {
         Commands::DbTool { command } => command.execute()?,
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
+
+        Commands::Restore(restore_args) => commands::restore(restore_args)?,
+
+        Commands::LocalAdmin {
+            command,
+            socket_path,
+        } => commands::handle_admin_command(command, socket_path)?,
     }
     Ok(())
 }
 
 mod commands {
-    use checkpoint_downloader::AdaptiveDownloaderConfig;
     use config::{
         LoadsFromPath,
         MetricsPushConfig,
@@ -466,14 +586,11 @@ mod commands {
         keys::{SupportedKeyPair, TaggedKeyPair},
     };
     use walrus_service::{
-        node::{
-            DatabaseConfig,
-            config::TlsConfig,
-            events::{
-                EventProcessorConfig,
-                event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-            },
+        event::event_processor::{
+            config::{EventProcessorConfig, EventProcessorRuntimeConfig, SystemConfig},
+            processor::EventProcessor,
         },
+        node::{DatabaseConfig, config::TlsConfig},
         utils,
     };
     use walrus_sui::{
@@ -514,7 +631,7 @@ mod commands {
         metrics_runtime
             .runtime
             .as_ref()
-            .expect("Storage node requires metrics to have their own runtime")
+            .expect("storage node requires metrics to have their own runtime")
             .spawn(async move {
                 registry_clone
                     .register(mysten_metrics::uptime_metric(
@@ -522,7 +639,7 @@ mod commands {
                         VERSION,
                         "walrus",
                     ))
-                    .unwrap();
+                    .expect("metrics defined at compile time must be valid");
             });
 
         tracing::info!(version = VERSION, "Walrus binary version");
@@ -579,7 +696,7 @@ mod commands {
                 .sui
                 .as_ref()
                 .map(|config| config.into())
-                .expect("SUI configuration must be present"),
+                .expect("Sui configuration must be present"),
             config.event_processor_config.clone(),
             config.use_legacy_event_provider,
             &config.storage_path,
@@ -617,7 +734,7 @@ mod commands {
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
-        monitor_runtime.block_on(async {
+        monitor_runtime.block_on(async move {
             tokio::spawn(async move {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
@@ -844,7 +961,6 @@ mod commands {
             );
             let wallet = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
-            #[allow(deprecated)]
             wallet
                 .get_rpc_url()
                 .context("Unable to get the wallet's active environment")?
@@ -936,13 +1052,14 @@ mod commands {
             runtime_duration,
             event_stream_catchup_min_checkpoint_lag,
             rpc_fallback_config_args,
+            sampled_tracing_interval,
         }: CatchupArgs,
     ) -> anyhow::Result<()> {
         let event_processor_config = EventProcessorConfig {
-            pruning_interval: Duration::from_secs(3600),
             checkpoint_request_timeout,
-            adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
             event_stream_catchup_min_checkpoint_lag,
+            sampled_tracing_interval,
+            ..Default::default()
         };
 
         // Since this is a manual catchup, we use a single RPC address.
@@ -975,12 +1092,41 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
         tokio::spawn(async move {
-            event_processor.start(cancel_token_clone).await.unwrap();
+            event_processor
+                .start(cancel_token_clone)
+                .await
+                .expect("event processor should not fail");
         });
 
         tokio::time::sleep(runtime_duration).await;
 
         cancel_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(crate) async fn restore(
+        RestoreArgs {
+            db_checkpoint_path,
+            db_path,
+            wal_path,
+            checkpoint_id,
+        }: RestoreArgs,
+    ) -> anyhow::Result<()> {
+        DbCheckpointManager::restore_from_backup(
+            &db_checkpoint_path,
+            &db_path,
+            wal_path.as_deref(),
+            checkpoint_id,
+        )
+        .await?;
+
+        let target_checkpoint = checkpoint_id.map_or("latest".to_string(), |id| id.to_string());
+        println!(
+            "Restored from {target_checkpoint} successfully. The node must be restarted for \
+            changes to take effect."
+        );
+
         Ok(())
     }
 
@@ -1036,10 +1182,7 @@ mod commands {
         let wallet_address =
             utils::generate_sui_wallet(sui_network, &wallet_config, use_faucet, faucet_timeout)
                 .await?;
-        println!(
-            "Successfully generated a new Sui wallet with address {}",
-            wallet_address
-        );
+        println!("Successfully generated a new Sui wallet with address {wallet_address}");
 
         let mut config = generate_config(
             PathArgs {
@@ -1113,6 +1256,57 @@ mod commands {
         ))?;
         Ok(())
     }
+
+    /// Handle local admin commands.
+    #[tokio::main]
+    #[cfg(unix)]
+    pub(crate) async fn handle_admin_command(
+        command: AdminCommands,
+        socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
+        // Connect to the socket.
+        let socket = UnixStream::connect(&socket_path).await.context(format!(
+            "failed to connect to local admin socket at '{}'",
+            socket_path.display()
+        ))?;
+        let (reader, mut writer) = tokio::io::split(socket);
+
+        // Serialize and send the AdminCommands.
+        let cmd_json = serde_json::to_string(&command)?;
+        writer.write_all(cmd_json.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+
+        // Wait for response.
+        let mut buf_reader = BufReader::new(reader);
+        let mut response = String::new();
+        buf_reader.read_line(&mut response).await?;
+
+        // Parse and print response.
+        match serde_json::from_str::<AdminCommandResponse>(&response) {
+            Ok(resp) => {
+                if resp.success {
+                    println!("{}", resp.message);
+                } else {
+                    eprintln!("Error: {}", resp.message);
+                    std::process::exit(1);
+                }
+            }
+            Err(_) => {
+                eprintln!("Error: Invalid response format");
+                std::process::exit(1);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn handle_admin_command(
+        _command: AdminCommands,
+        _socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Admin commands via Unix domain sockets are not supported on Windows")
+    }
 }
 
 /// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
@@ -1132,6 +1326,8 @@ struct StorageNodeRuntime {
     metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
+    /// Path to the local admin socket.
+    local_admin_socket_handle: Option<JoinHandle<()>>,
 }
 
 impl StorageNodeRuntime {
@@ -1150,7 +1346,7 @@ impl StorageNodeRuntime {
             .build()
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
-
+        let tracing_handle = WalrusTracingHandle(metrics_runtime.tracing_handle.clone());
         let walrus_node = Arc::new(
             runtime.block_on(
                 StorageNode::builder()
@@ -1171,13 +1367,19 @@ impl StorageNodeRuntime {
                     "unable to notify that the node has exited, but shutdown is not in progress?"
                 )
             }
-            if let Err(ref error) = result {
+            if let Err(ref error) = result
+                && error.downcast_ref::<SyncNodeConfigError>().is_none()
+            {
+                // Only log an error if it is not due to to the config sync (as those are handled
+                // separately).
                 tracing::error!(?error, "storage node exited with an error");
             }
 
             result
         });
 
+        let checkpoint_manager = walrus_node.checkpoint_manager();
+        let admin_cancel_token = cancel_token.child_token();
         let rest_api = RestApiServer::new(
             walrus_node,
             cancel_token.child_token(),
@@ -1199,9 +1401,19 @@ impl StorageNodeRuntime {
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
+        let local_admin_socket_handle = Self::start_admin_socket(
+            AdminArgs {
+                checkpoint_manager,
+                admin_socket_path: node_config.admin_socket_path.clone(),
+                tracing_handle,
+            },
+            admin_cancel_token,
+        )?;
+
         Ok(Self {
             walrus_node_handle,
             rest_api_handle,
+            local_admin_socket_handle,
             metrics_runtime,
             runtime,
         })
@@ -1212,11 +1424,188 @@ impl StorageNodeRuntime {
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
         let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
-        // Shutdown the metrics runtime
+        if let Some(handle) = self.local_admin_socket_handle.take() {
+            handle.abort();
+        }
+
+        // Shutdown the metrics runtime.
         if let Some(runtime) = self.metrics_runtime.runtime.take() {
             runtime.shutdown_background();
         }
+
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn start_admin_socket(
+        admin_args: AdminArgs,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        if admin_args.checkpoint_manager.is_none() {
+            tracing::warn!("checkpoint manager is not initialized, skipping local admin socket");
+            return Ok(None);
+        }
+        let Some(socket_path) = admin_args.admin_socket_path.clone() else {
+            tracing::warn!("local admin socket path is not specified, skipping local admin socket");
+            return Ok(None);
+        };
+
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path)?;
+
+        // Set the permissions to 600 to ensure only the owner can access the socket.
+        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+
+        let handle = tokio::spawn(async move {
+            tracing::info!("local admin socket listening on {}", socket_path.display());
+
+            loop {
+                tokio::select! {
+                    result = listener.accept() => {
+                        if let Ok((stream, _)) = result {
+                            let args = admin_args.clone();
+                            tokio::spawn(async move {
+                                handle_connection(stream, args).await;
+                            });
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            let _ = std::fs::remove_file(socket_path);
+            tracing::info!("local admin socket stopped");
+        });
+
+        Ok(Some(handle))
+    }
+
+    #[cfg(windows)]
+    fn start_admin_socket(
+        _admin_args: AdminArgs,
+        _cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        tracing::warn!("Unix domain sockets are not supported on Windows");
+        Ok(None)
+    }
+}
+
+/// Handle log level commands from admin socket.
+async fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminCommandResponse {
+    match args.tracing_handle.update_log(level.as_str()) {
+        Ok(_) => AdminCommandResponse {
+            success: true,
+            message: format!("Log level updated successfully to: {level}"),
+        },
+        Err(e) => AdminCommandResponse {
+            success: false,
+            message: format!("Failed to update log level: {e}"),
+        },
+    }
+}
+
+/// Handle checkpoint commands from admin socket.
+async fn handle_checkpoint_command(
+    command: CheckpointCommands,
+    args: &AdminArgs,
+) -> AdminCommandResponse {
+    let Some(manager) = args.checkpoint_manager.as_ref() else {
+        return AdminCommandResponse {
+            success: false,
+            message: "Checkpoint manager is not initialized".to_string(),
+        };
+    };
+    match command {
+        CheckpointCommands::Create { path, delay_secs } => {
+            match manager
+                .schedule_and_wait_for_db_checkpoint_creation(
+                    path.as_deref(),
+                    delay_secs.map(std::time::Duration::from_secs),
+                )
+                .await
+            {
+                Ok(_) => AdminCommandResponse {
+                    success: true,
+                    message: "Checkpoint created successfully".to_string(),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to create checkpoint: {e:?}"),
+                },
+            }
+        }
+        CheckpointCommands::List { path } => {
+            let result = manager.list_db_checkpoints(path.as_deref());
+            match result {
+                Ok(db_checkpoints) => AdminCommandResponse {
+                    success: true,
+                    message: format!(
+                        "Backups:\n{}",
+                        db_checkpoints
+                            .iter()
+                            .map(|b| format!("  {b}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to list db checkpoints: {e}"),
+                },
+            }
+        }
+        CheckpointCommands::Cancel => {
+            let result = manager.cancel_db_checkpoint_creation().await;
+            match result {
+                Ok(true) => AdminCommandResponse {
+                    success: true,
+                    message: "Checkpoint creation cancelled".to_string(),
+                },
+                Ok(false) => AdminCommandResponse {
+                    success: true,
+                    message: "No backup was in progress".to_string(),
+                },
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to cancel checkpoint creation: {e}"),
+                },
+            }
+        }
+    }
+}
+
+/// Handles a connection to the admin socket.
+#[cfg(unix)]
+async fn handle_connection(stream: UnixStream, args: AdminArgs) {
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
+
+    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+        let response = match serde_json::from_str::<AdminCommands>(&line) {
+            Ok(AdminCommands::Checkpoint { command }) => {
+                handle_checkpoint_command(command, &args).await
+            }
+            Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
+            Err(e) => AdminCommandResponse {
+                success: false,
+                message: format!("Failed to parse command: {e}"),
+            },
+        };
+
+        // Serialize and send response.
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = writer.write_all((json + "\n").as_bytes()).await;
+        }
+
+        line.clear();
     }
 }
 

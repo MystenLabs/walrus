@@ -95,26 +95,49 @@ Storing one or multiple blobs on Walrus can be achieved through the following co
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-A mandatory CLI argument must be set to specify the end epoch for the blob.
-The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
-corresponding to two years. In addition to a positive integer,
-you can also use `--epochs max` to store the blob for the maximum number of epochs.
+A mandatory CLI argument must be set to specify the lifetime for the blob. There are currently three
+ways for this:
 
-Moreover, the end epoch for the stored blob can be provided through other options. The
-`--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
-(e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
-the blob expires after that date if possible. Finally, the `--end-epoch <END_EPOCH>` option takes
-a specific end epoch for the blob.
+1. The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be stored for.
+   There is an upper limit on the number of epochs a blob can be stored for, which is 53, corresponding
+   to two years. In addition to a positive integer, you can also use `--epochs max` to store the blob
+   for the maximum number of epochs. Note that the end epoch is defined as the current epoch plus the
+   specified number of epochs.
+1. The `--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
+   (e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+   the blob expires after that date if possible.
+1. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
+
+```admonish warning title="End epoch"
+A blob expires *at the beginning of its end epoch*. For example, a blob with end epoch `314` will
+become unavailable at the beginning of epoch `314`. One consequence of this is that when storing a
+blob with `--epochs 1` immediately before an epoch change, it will expire and become unavailable
+almost immediately. Note that blobs can be [extended](#extending-the-lifetime-of-a-blob) only if
+they have not expired.
+```
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
 in the current directory.
 
-By default, the command will store the blob as a *permanent* blob. See the [section on deletable
-blobs](#reclaiming-space-via-deletable-blobs) for more details on deletable blobs. Also, by default
-an owned `Blob` object is created. It is possible to wrap this into a shared object, which can be
-funded and extended by anyone, see the [shared blobs section](#shared-blobs).
+You can specify whether a newly stored blob is *deletable* or *permanent* through the `--deletable`
+and `--permanent` option, respectively:
+
+- A permanent blob remains available until its expiry epoch. Not even the uploader may delete it
+  beforehand.
+- In contrast, a deletable blob can be deleted at any point during its lifetime by the owner of the
+  corresponding Sui object. See the [section on deletable blobs](#reclaiming-space-via-deletable-blobs)
+  for more details.
+
+```admonish warning title="Change of default blob persistence"
+Up to (including) version 1.32, the CLI and [publisher](./web-api.md) store blobs as *permanent* by
+default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make
+sure to use the appropriate flag.
+```
+
+By default an owned `Blob` object is created. It is possible to wrap this into a shared object,
+which can be funded and extended by anyone, see the [shared blobs section](#shared-blobs).
 
 When storing a blob, the client performs a number of automatic optimizations, including the
 following:
@@ -127,10 +150,37 @@ following:
   of buying a new one.
 - If the blob is already certified on Walrus but as a *deletable* blob or not for a sufficient
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
-  collects the availability certificate
+  collects the availability certificate.
 
 ```admonish tip title="Costs"
 We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
+```
+
+### Using a Walrus upload relay
+
+```admonish note title="Minimum CLI version"
+The Walrus upload relay functionality is only available in the Walrus CLI version *v1.29* or higher.
+```
+
+A Walrus upload relay is a third party service that can help clients with limited bandwidth and
+networking capabilities (a browser, for example) in storing blobs on Walrus.
+
+The asset management on chain (buying storage, registering and certifying blobs) still happens on
+the client; the upload relay just takes the unencoded blob, encodes it, and sends the slivers to the
+storage nodes, finally returning the certificate. See in-depth details in the [Walrus upload relay
+section](../operator-guide/upload-relay.md) of these docs.
+
+When storing blobs with the `walrus store` command (and also when [storing
+quilts](#storing-blobs-as-a-quilt)) you can use the `--upload-relay` flag with a URL to specify an
+upload relay server be used by the CLI.
+
+```admonish tip title="Tipping"
+The upload relay is a third party service that may require a fee, or "tip". This tip may be a
+constant SUI amount per blob stored, or dependent on the size of the blob being stored. The Walrus CLI will show you
+how much tip the upload relay requires, and will ask for confirmation before continuing.
+
+The technical details on how the tip is computed and paid are
+[here](../operator-guide/upload-relay.md).
 ```
 
 ## Querying blob status
@@ -162,13 +212,26 @@ By default the blob data is written to the standard output. The `--out <OUT>` CL
 can be used to specify an output file name. The `--rpc-url <URL>` may be used to specify
 a Sui RPC node to use instead of the one set in the wallet configuration or the default one.
 
+## Extending the lifetime of a blob
+
+Recall that when you stored your blob, it was necessary to specify its [end epoch](#storing-blobs).
+By specifying the end epoch you ensured that the blob would be available via `walrus read` (or other
+SDK access to Walrus) until that end epoch is reached.
+
+Walrus blob lifetimes can be extended *as long as the blobs are not expired* using the
+`walrus extend --blob-obj-id <blob object id> ...` command. Both regular single-address owned blobs
+and [shared blobs](#shared-blobs) may be extended. Shared blobs may be extended by anyone, but owned
+blobs may only be extended by their owner. When extending a shared blob, you will need to supply the
+`--shared` flag to inform the command that the blob is shared.
+
+Note that the blob's *object ID* will be needed in order to extend it, the blob ID is not needed.
+See `walrus extend --help` for more information on blob extension.
+
 ## Reclaiming space via deletable blobs
 
-By default `walrus store` uploads a permanent blob available until after its expiry
-epoch. Not even the uploader may delete it beforehand. However, optionally, the store command
-may be invoked with the `--deletable` flag, to indicate the blob may be deleted before its expiry
-by the owner of the Sui blob object representing the blob. Deletable blobs are indicated as such
-in the Sui events that certify them, and should not be relied upon for availability by others.
+A blob that was created as *deletable* may be deleted before its expiry by the owner of the Sui blob
+object representing the blob. Deletable blobs are indicated as such in the Sui events that certify
+them, and should not be relied upon for availability by others.
 
 A deletable blob may be deleted with the command:
 
@@ -196,7 +259,7 @@ public blob may be cached or downloaded by users, and these copies are not delet
 
 ```admonish danger title="Delete reclaims space only"
 **All blobs stored in Walrus are public and discoverable by all.** The `delete` command will
-not delete slivers if other copies of the blob are stored on Walrus possibly by other users.
+not delete slivers if other copies of the blob are stored on Walrus, possibly by other users.
 It does not delete blobs from caches, slivers from past storage nodes, or copies
 that could have been made by users before the blob was deleted.
 ```
@@ -218,8 +281,104 @@ The resulting shared blob can be directly funded by adding an `--amount`, or you
 existing shared blob with the `walrus fund-shared-blob` command. Additionally, you can immediately
 share a newly created blob by adding the `--share` option to the `walrus store` command.
 
-You can use the `walrus extend` command to extend the lifetime of a shared blob object. Shared blobs
-can only contain permanent blobs and cannot be deleted before their expiry.
+Shared blobs can only contain permanent blobs and as such cannot be deleted before their expiry.
+
+See [this section](#extending-the-lifetime-of-a-blob) for more on blob extension.
+
+## Batch-storing blobs with quilts
+
+ **Note:** The *quilt* feature is only available in Walrus version *v1.29* or higher.
+
+```admonish warning
+- Blobs within a quilt are retrieved by a `QuiltPatchId`, not their standard `BlobId`. This ID
+  is generated based on all blobs in the quilt, so a blob's `QuiltPatchId` will change if it's
+  moved to a different quilt.
+- Standard blob operations like `delete`, `extend`, or `share` cannot target individual blobs
+  inside a quilt; they must be applied to the entire quilt.
+```
+
+For efficiently storing large numbers of small blobs, Walrus provides the Quilt. It batches
+multiple blobs into a single storage unit, significantly reducing overhead and cost. You can find
+a more detailed overview of the feature [Quilt](./quilt.md).
+
+You can interact with quilts using a dedicated set of `walrus` subcommands.
+
+### Storing Blobs as a Quilt
+
+To batch-store multiple files as a single quilt, use the `store-quilt` command. You can specify
+the files to include in two ways:
+
+```admonish warning
+You must ensure that all the identifiers are unique within a quilt, the operation will fail otherwise.
+Identifiers are the unique names used to retrieve individual blobs from within a quilt.
+```
+
+#### Using `--paths`
+
+To store all files from one or more directories recursively. The filename of each file will be
+used as its unique identifier within the quilt. Regular expressions are supported for uploading from
+multiple paths, same as the `walrus store` command.
+
+Like the regular `store` command, you can specify the storage duration using `--epochs`,
+`--earliest-expiry-time`, or `--end-epoch`.
+
+```sh
+walrus store-quilt --epochs <EPOCHS> --paths <path-to-directory-1> <path-to-directory-2> <path-to-blob>
+```
+
+#### Using `--blobs`
+
+To specify a list of blobs as JSON objects. This gives you more control, allowing you to set a
+custom `identifier` and `tags` for each file. If `identifier` is `null` or omitted, the file's
+name is used instead.
+
+```sh
+walrus store-quilt \
+  --blobs '{"path":"<path-to-blob-1>","identifier":"walrus","tags":{"color":"grey","size":"medium"}}' \
+          '{"path":"<path-to_blob-2>","identifier":"seal","tags":{"color":"grey","size":"small"}}' \
+  --epochs <EPOCHS>
+```
+
+### Reading Blobs from a Quilt
+
+You can retrieve individual blobs (formally "patches") from a quilt without downloading the
+entire quilt. The `read-quilt` command allows you to query for specific blobs by their identifier,
+tags, or unique patch ID.
+
+To read blobs by their identifiers, use the `--identifiers` flag:
+
+```sh
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --identifiers walrus.jpg another-walrus.jpg
+```
+
+Blobs within a quilt can be accessed and filtered based on their tags. For instance, if you have a
+collection of animal images stored in a quilt, each labeled with a species tag such as "species=cat,"
+you can download **all** images labeled as cats with the following command:
+
+```sh
+# Read all blobs with tag "size: medium"
+walrus read-quilt --out <download dir> \
+  --quilt-id 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik --tag species cat
+```
+
+You can also read a blob using its QuiltPatchId, which can be retrieved using
+[`list-patches-in-quilt`](#list-patches-in-a-quilt).
+
+```sh
+walrus read-quilt --out <download dir> \
+  --quilt-patch-ids GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBuQG8AQ \
+  GRSuRSQ_hLYR9nyo7mlBlS7MLQVSSXRrfPVOxF6n6XcBwgHHAQ
+```
+
+### List patches in a Quilt
+
+To see all the patches contained within a quilt, along with their identifiers and QuiltPatchIds, use
+the `list-patches-in-quilt` command.
+
+```sh
+walrus list-patches-in-quilt 057MX9PAaUIQLliItM_khR_cp5jPHzJWf-CuJr1z1ik
+```
 
 ## Blob object and blob ID utilities
 
