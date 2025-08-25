@@ -26,6 +26,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # ← important: don't inject GITHUB_TOKEN
 
       - name: Get testnet version, if not provided
         if: ${{ env.NEW_TAG == '' }}
