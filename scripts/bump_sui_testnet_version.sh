@@ -71,9 +71,9 @@ else
   for f in "${TARGETS[@]}"; do
     sed -i -E \
       "s/(rev = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-       s/(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-       s/(SUI_TAG: )testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-       s/(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
+      s/(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
+      s/(SUI_TAG: )testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
+      s/(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
   done
 fi
 
