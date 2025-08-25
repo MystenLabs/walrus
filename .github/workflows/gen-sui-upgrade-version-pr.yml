@@ -9,6 +9,9 @@ on:
         required: false
         type: string
 
+  repository_dispatch:
+    types: [update-walrus-sui-testnet-tag]
+
 concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 
 permissions:
@@ -16,7 +19,7 @@ permissions:
   pull-requests: write
 
 env:
-  NEW_TAG: ${{ inputs.new_tag || '' }}
+  NEW_TAG: ${{ github.event.client_payload.new_tag || inputs.new_tag || '' }}
 
 jobs:
   bump:
