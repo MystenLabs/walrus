@@ -196,6 +196,11 @@ jobs:
       SUI_BIN: "/home/runner/.cargo/bin/sui"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+
+      - name: Get Sui tag
+        shell: bash
+        run: |
+          
       - name: Restore cached sui binary
         id: cache-sui-restore
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
