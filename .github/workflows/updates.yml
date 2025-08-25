@@ -46,8 +46,6 @@ jobs:
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: |
-          export SUI_TAG=$(grep '^sui-config' ./Cargo.toml | grep 'github.com/MystenLabs/sui' \
-            | sed -nE 's/.*tag = "(testnet-v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p')
           cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
