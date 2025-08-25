@@ -89,7 +89,7 @@ done
 
 # Staged all changes
 echo "Staging all changed files..."
-git add -u
+git add -u . ':!/.github/workflows'
 
 # Commit, push, and create PR.
 git config user.name "github-actions[bot]"
