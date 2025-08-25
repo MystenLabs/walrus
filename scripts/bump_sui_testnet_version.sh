@@ -102,9 +102,9 @@ git config user.email \
 
 git commit -m "chore: bump Sui version to ${NEW_TAG}"
 # git push -u origin "$BRANCH"
-# git push https://"${GITHUB_ACTOR}":"${GH_PAT}"@github.com/MystenLabs/walrus HEAD:"${BRANCH}"
-
-git -c http.extraheader="AUTHORIZATION: bearer $GH_PAT" push -u origin HEAD:"$BRANCH"
+set +x
+git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/MystenLabs/walrus.git"
+set -x
 
 # Generate PR body
 BODY=$(cat <<-EOF
