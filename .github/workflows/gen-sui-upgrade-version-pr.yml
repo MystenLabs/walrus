@@ -19,7 +19,7 @@ permissions:
   pull-requests: write
 
 env:
-  NEW_TAG: ${{ inputs.new_tag || '' }}
+  NEW_TAG: ${{ github.event.client_payload.new_tag || inputs.new_tag || '' }}
 
 jobs:
   bump:
