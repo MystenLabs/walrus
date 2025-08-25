@@ -10,7 +10,7 @@ on:
         type: string
 
   repository_dispatch:
-    types: [update-walrus-sui-testnet-tag]        
+    types: [update-walrus-sui-testnet-tag]
 
 concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 
