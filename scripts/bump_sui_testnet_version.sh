@@ -47,9 +47,6 @@ FILES=(
   "docker/walrus-antithesis/sui_version.toml"
   "Cargo.toml"
   "testnet-contracts/**/Move.toml"
-  ".github/workflows/code.yml"
-  ".github/workflows/updates.yml"
-  ".github/workflows/scheduled_reports.yml"
 )
 
 # Expand patterns into actual file paths.
@@ -72,7 +69,6 @@ else
     sed -i -E \
       "s/(rev = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
       s/(tag = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
-      s/(SUI_TAG: )testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g; \
       s/(SUI_VERSION = \")testnet-v[0-9]+\.[0-9]+\.[0-9]+/\1${NEW_TAG}/g" "$f"
   done
 fi
@@ -101,10 +97,7 @@ git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
 git commit -m "chore: bump Sui version to ${NEW_TAG}"
-# git push -u origin "$BRANCH"
-set +x
-git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/MystenLabs/walrus.git"
-set -x
+git push -u origin "$BRANCH"
 
 # Generate PR body
 BODY=$(cat <<-EOF
