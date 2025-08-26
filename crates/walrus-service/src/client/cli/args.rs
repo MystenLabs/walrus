@@ -227,7 +227,10 @@ pub enum CliCommands {
         /// Custom identifiers and tags are NOT supported for quilt patches.
         /// Use `--blobs` to specify custom identifiers and tags.
         #[arg(long, num_args = 0..)]
-        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_vec"
+        )]
         paths: Vec<PathBuf>,
         /// Blobs to include in the quilt, each blob is specified as a JSON string.
         ///
