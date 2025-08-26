@@ -1212,15 +1212,16 @@ impl ClientCommandRunner {
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
-        let auth_config = args.generate_auth_config()?;
-
-        let client = get_contract_client(
-            self.config?,
-            self.wallet,
+        let client = ClientMultiplexer::new(
+            self.wallet?,
+            &self.config?,
             self.gas_budget,
-            &args.daemon_args.blocklist,
+            registry,
+            &args,
         )
         .await?;
+        let auth_config = args.generate_auth_config()?;
+
         ClientDaemon::new_daemon(client, auth_config, registry, &args, &aggregator_args)
             .run()
             .await?;
