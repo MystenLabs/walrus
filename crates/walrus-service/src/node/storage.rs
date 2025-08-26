@@ -26,6 +26,7 @@ use typed_store::{
 use walrus_core::{
     BlobId,
     Epoch,
+    QuiltPatchId,
     ShardIndex,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
@@ -45,6 +46,7 @@ use self::{
     constants::{
         metadata_cf_name,
         node_status_cf_name,
+        octopus_index_cf_name,
         pending_recover_slivers_column_family_name,
         primary_slivers_column_family_name,
         secondary_slivers_column_family_name,
@@ -53,12 +55,14 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    octopus_index::{IndexMutation, MutationSet, SecondaryIndexValue, TargetBlob, WalrusIndexData},
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
 use crate::utils;
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
+pub(crate) mod octopus_index;
 
 mod database_config;
 pub use database_config::DatabaseConfig;
@@ -88,6 +92,10 @@ pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
 
 pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
     db_config.node_status().to_options()
+}
+
+pub(crate) fn octopus_index_options(db_config: &DatabaseConfig) -> Options {
+    db_config.octopus_index().to_options()
 }
 
 /// The status of the node.
@@ -190,6 +198,8 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
+    #[allow(dead_code)]
+    octopus_index: DBMap<String, WalrusIndexData>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -264,6 +274,8 @@ impl Storage {
         let node_status_options = node_status_options(&db_config);
         let metadata_options = metadata_options(&db_config);
         let metadata_cf_name = metadata_cf_name();
+        let octopus_index_cf_name = octopus_index_cf_name();
+        let octopus_index_options = octopus_index_options(&db_config);
         let blob_info_column_families = BlobInfoTable::options(&db_config);
         let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
 
@@ -273,6 +285,7 @@ impl Storage {
             .chain([
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
+                (octopus_index_cf_name, octopus_index_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
             .chain(blob_info_column_families)
@@ -302,6 +315,13 @@ impl Storage {
             false,
         )?;
 
+        let octopus_index = DBMap::reopen(
+            &database,
+            Some(octopus_index_cf_name),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
@@ -320,6 +340,7 @@ impl Storage {
             metadata,
             blob_info,
             event_cursor,
+            octopus_index,
             shards,
             config: db_config,
             metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
@@ -333,6 +354,157 @@ impl Storage {
     /// Returns a reference to the database.
     pub(crate) fn get_db(&self) -> Arc<RocksDB> {
         self.database.clone()
+    }
+
+    /// Returns a reference to the octopus index DBMap.
+    #[allow(dead_code)]
+    pub(crate) fn octopus_index(&self) -> &DBMap<String, WalrusIndexData> {
+        &self.octopus_index
+    }
+
+    /// Applies index mutations to the octopus index storage.
+    /// This handles both primary and secondary index updates.
+    #[allow(dead_code)]
+    pub(crate) fn apply_index_mutations(
+        &self,
+        mutation_sets: Vec<MutationSet>,
+    ) -> Result<(), TypedStoreError> {
+        let mut batch = self.octopus_index.batch();
+
+        for mutation_set in mutation_sets {
+            let bucket_id = mutation_set.bucket_id.to_string();
+
+            for mutation in mutation_set.mutations {
+                match mutation {
+                    IndexMutation::Insert {
+                        primary_key,
+                        target,
+                        secondary_indices,
+                    } => {
+                        // Build the full primary key: <bucket_id>/<primary_key>
+                        let full_primary_key = format!("{}/{}", bucket_id, primary_key);
+
+                        // Check if there's an existing entry to clean up old secondary indices
+                        if let Ok(Some(old_data)) = self.octopus_index.get(&full_primary_key) {
+                            // Delete old secondary index entries
+                            for (index_name, index_value) in &old_data.secondary_indices {
+                                self.delete_secondary_index_entries(
+                                    &mut batch,
+                                    &bucket_id,
+                                    index_name,
+                                    index_value,
+                                    &old_data.target,
+                                )?;
+                            }
+                        }
+
+                        // Create the new index data
+                        let index_data = WalrusIndexData::with_indices(
+                            target.clone(),
+                            secondary_indices.clone(),
+                        );
+
+                        // Insert primary index entry
+                        batch
+                            .insert_batch(&self.octopus_index, [(full_primary_key, index_data)])?;
+
+                        // Insert secondary index entries
+                        for (index_name, index_value) in &secondary_indices {
+                            self.insert_secondary_index_entries(
+                                &mut batch,
+                                &bucket_id,
+                                index_name,
+                                index_value,
+                                &target,
+                            )?;
+                        }
+                    }
+                    IndexMutation::Delete { primary_key } => {
+                        // Build the full primary key: <bucket_id>/<primary_key>
+                        let full_primary_key = format!("{}/{}", bucket_id, primary_key);
+
+                        // Get the existing data to clean up secondary indices
+                        if let Ok(Some(existing_data)) = self.octopus_index.get(&full_primary_key) {
+                            // Delete all secondary index entries
+                            for (index_name, index_value) in &existing_data.secondary_indices {
+                                self.delete_secondary_index_entries(
+                                    &mut batch,
+                                    &bucket_id,
+                                    index_name,
+                                    index_value,
+                                    &existing_data.target,
+                                )?;
+                            }
+
+                            // Delete the primary index entry
+                            batch.delete_batch(&self.octopus_index, [full_primary_key])?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply all mutations atomically
+        batch.write()
+    }
+
+    /// Helper method to insert secondary index entries
+    #[allow(dead_code)]
+    fn insert_secondary_index_entries(
+        &self,
+        batch: &mut typed_store::rocks::DBBatch,
+        bucket_id: &str,
+        index_name: &str,
+        index_value: &SecondaryIndexValue,
+        target: &TargetBlob,
+    ) -> Result<(), TypedStoreError> {
+        // For each value in the secondary index, create an entry
+        let entries: Vec<_> = index_value
+            .as_vec()
+            .into_iter()
+            .map(|value| {
+                // Format: <bucket_id>/<index_name>/<index_value>/<target_id>
+                let target_id = match target {
+                    TargetBlob::BlobId(blob_id) => blob_id.to_string(),
+                    TargetBlob::QuiltPatchId(patch_id) => patch_id.to_string(),
+                };
+                let secondary_key = format!("{}/{}/{}/{}", bucket_id, index_name, value, target_id);
+                // For secondary indices, we just need to mark presence
+                let empty_data = WalrusIndexData::new(target.clone());
+                (secondary_key, empty_data)
+            })
+            .collect();
+
+        batch.insert_batch(&self.octopus_index, entries)?;
+        Ok(())
+    }
+
+    /// Helper method to delete secondary index entries
+    #[allow(dead_code)]
+    fn delete_secondary_index_entries(
+        &self,
+        batch: &mut typed_store::rocks::DBBatch,
+        bucket_id: &str,
+        index_name: &str,
+        index_value: &SecondaryIndexValue,
+        target: &TargetBlob,
+    ) -> Result<(), TypedStoreError> {
+        // For each value in the secondary index, delete the entry
+        let keys: Vec<_> = index_value
+            .as_vec()
+            .into_iter()
+            .map(|value| {
+                // Format: <bucket_id>/<index_name>/<index_value>/<target_id>
+                let target_id = match target {
+                    TargetBlob::BlobId(blob_id) => blob_id.to_string(),
+                    TargetBlob::QuiltPatchId(patch_id) => patch_id.to_string(),
+                };
+                format!("{}/{}/{}/{}", bucket_id, index_name, value, target_id)
+            })
+            .collect();
+
+        batch.delete_batch(&self.octopus_index, keys)?;
+        Ok(())
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {

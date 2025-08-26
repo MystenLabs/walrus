@@ -268,6 +268,6 @@ pub(crate) mod default {
 
     /// This corresponds to 100Mb, i.e., 1 second on a 100 Mbps connection.
     pub fn max_data_in_flight() -> usize {
-        12_500_000
+        12_500_000_000
     }
 }
