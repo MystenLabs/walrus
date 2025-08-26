@@ -457,6 +457,11 @@ you need to use the <code>--config</code> option when running the <code>walrus</
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
 
+# You can specify a list of Sui RPC URLs for reads. If none is provided, the RPC URL in the Sui
+# wallet is used.
+rpc_urls:
+  - https://fullnode.mainnet.sui.io:443
+
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
 # directory), or the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order. Both
@@ -472,50 +477,13 @@ wallet_config:
   # configuration file.
   active_address: 0x...
 
-# The following parameters can be used to tune the networking behavior of the client. There is no
-# risk in playing around with these values. In the worst case, you may not be able to store/read
-# blob due to timeouts or other networking errors.
-- https://fullnode.testnet.sui.io:443
-communication_config:
-  max_concurrent_writes: null
-  max_concurrent_sliver_reads: null
-  max_concurrent_metadata_reads: 3
-  max_concurrent_status_reads: null
-  max_data_in_flight: null
-  reqwest_config:
-    total_timeout_millis: 30000
-    pool_idle_timeout_millis: null
-    http2_keep_alive_timeout_millis: 5000
-    http2_keep_alive_interval_millis: 30000
-    http2_keep_alive_while_idle: true
-  request_rate_config:
-    max_node_connections: 10
-    backoff_config:
-      min_backoff_millis: 1000
-      max_backoff_millis: 30000
-      max_retries: 5
-  disable_proxy: false
-  disable_native_certs: false
-  sliver_write_extra_time:
-    factor: 0.5
-    base_millis: 500
-  registration_delay_millis: 200
-  max_total_blob_size: 1073741824
-  committee_change_backoff:
-    min_backoff_millis: 1000
-    max_backoff_millis: 5000
-    max_retries: 5
-  sui_client_request_timeout_millis: null
-refresh_config:
-  refresh_grace_period_secs: 10
-  max_auto_refresh_interval_secs: 30
-  min_auto_refresh_interval_secs: 5
-  epoch_change_distance_threshold_secs: 300
-  refresher_channel_size: 100
-quilt_client_config:
-  max_retrieve_slivers_attempts: 2
-  timeout_secs: 10
+# [...]
 </code></pre>
+<p>There are some additional parameters that can be used to tune the networking behavior of the client,
+see the <a href="../setup/client_config_example.yaml">full example client configuration</a>. If you experience
+excessively slow uploads, it may be worth experimenting with these values. There is no risk in
+playing around with these values; in the worst case, you may not be able to store/read blob due to
+timeouts or other networking errors.</p>
 
                     </main>
 
