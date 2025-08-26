@@ -26,7 +26,6 @@ use typed_store::{
 use walrus_core::{
     BlobId,
     Epoch,
-    QuiltPatchId,
     ShardIndex,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
@@ -55,7 +54,6 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
-    octopus_index::{IndexMutation, MutationSet, SecondaryIndexValue, TargetBlob, WalrusIndexData},
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
 use crate::utils;
@@ -199,7 +197,7 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     #[allow(dead_code)]
-    octopus_index: DBMap<String, WalrusIndexData>,
+    octopus_index: octopus_index::OctopusIndexStore,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -315,12 +313,13 @@ impl Storage {
             false,
         )?;
 
-        let octopus_index = DBMap::reopen(
+        let octopus_index_db = DBMap::reopen(
             &database,
             Some(octopus_index_cf_name),
             &ReadWriteOptions::default(),
             false,
         )?;
+        let octopus_index = octopus_index::OctopusIndexStore::new(octopus_index_db);
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
@@ -356,155 +355,10 @@ impl Storage {
         self.database.clone()
     }
 
-    /// Returns a reference to the octopus index DBMap.
+    /// Returns a reference to the octopus index.
     #[allow(dead_code)]
-    pub(crate) fn octopus_index(&self) -> &DBMap<String, WalrusIndexData> {
+    pub(crate) fn octopus_index(&self) -> &octopus_index::OctopusIndexStore {
         &self.octopus_index
-    }
-
-    /// Applies index mutations to the octopus index storage.
-    /// This handles both primary and secondary index updates.
-    #[allow(dead_code)]
-    pub(crate) fn apply_index_mutations(
-        &self,
-        mutation_sets: Vec<MutationSet>,
-    ) -> Result<(), TypedStoreError> {
-        let mut batch = self.octopus_index.batch();
-
-        for mutation_set in mutation_sets {
-            let bucket_id = mutation_set.bucket_id.to_string();
-
-            for mutation in mutation_set.mutations {
-                match mutation {
-                    IndexMutation::Insert {
-                        primary_key,
-                        target,
-                        secondary_indices,
-                    } => {
-                        // Build the full primary key: <bucket_id>/<primary_key>
-                        let full_primary_key = format!("{}/{}", bucket_id, primary_key);
-
-                        // Check if there's an existing entry to clean up old secondary indices
-                        if let Ok(Some(old_data)) = self.octopus_index.get(&full_primary_key) {
-                            // Delete old secondary index entries
-                            for (index_name, index_value) in &old_data.secondary_indices {
-                                self.delete_secondary_index_entries(
-                                    &mut batch,
-                                    &bucket_id,
-                                    index_name,
-                                    index_value,
-                                    &old_data.target,
-                                )?;
-                            }
-                        }
-
-                        // Create the new index data
-                        let index_data = WalrusIndexData::with_indices(
-                            target.clone(),
-                            secondary_indices.clone(),
-                        );
-
-                        // Insert primary index entry
-                        batch
-                            .insert_batch(&self.octopus_index, [(full_primary_key, index_data)])?;
-
-                        // Insert secondary index entries
-                        for (index_name, index_value) in &secondary_indices {
-                            self.insert_secondary_index_entries(
-                                &mut batch,
-                                &bucket_id,
-                                index_name,
-                                index_value,
-                                &target,
-                            )?;
-                        }
-                    }
-                    IndexMutation::Delete { primary_key } => {
-                        // Build the full primary key: <bucket_id>/<primary_key>
-                        let full_primary_key = format!("{}/{}", bucket_id, primary_key);
-
-                        // Get the existing data to clean up secondary indices
-                        if let Ok(Some(existing_data)) = self.octopus_index.get(&full_primary_key) {
-                            // Delete all secondary index entries
-                            for (index_name, index_value) in &existing_data.secondary_indices {
-                                self.delete_secondary_index_entries(
-                                    &mut batch,
-                                    &bucket_id,
-                                    index_name,
-                                    index_value,
-                                    &existing_data.target,
-                                )?;
-                            }
-
-                            // Delete the primary index entry
-                            batch.delete_batch(&self.octopus_index, [full_primary_key])?;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Apply all mutations atomically
-        batch.write()
-    }
-
-    /// Helper method to insert secondary index entries
-    #[allow(dead_code)]
-    fn insert_secondary_index_entries(
-        &self,
-        batch: &mut typed_store::rocks::DBBatch,
-        bucket_id: &str,
-        index_name: &str,
-        index_value: &SecondaryIndexValue,
-        target: &TargetBlob,
-    ) -> Result<(), TypedStoreError> {
-        // For each value in the secondary index, create an entry
-        let entries: Vec<_> = index_value
-            .as_vec()
-            .into_iter()
-            .map(|value| {
-                // Format: <bucket_id>/<index_name>/<index_value>/<target_id>
-                let target_id = match target {
-                    TargetBlob::BlobId(blob_id) => blob_id.to_string(),
-                    TargetBlob::QuiltPatchId(patch_id) => patch_id.to_string(),
-                };
-                let secondary_key = format!("{}/{}/{}/{}", bucket_id, index_name, value, target_id);
-                // For secondary indices, we just need to mark presence
-                let empty_data = WalrusIndexData::new(target.clone());
-                (secondary_key, empty_data)
-            })
-            .collect();
-
-        batch.insert_batch(&self.octopus_index, entries)?;
-        Ok(())
-    }
-
-    /// Helper method to delete secondary index entries
-    #[allow(dead_code)]
-    fn delete_secondary_index_entries(
-        &self,
-        batch: &mut typed_store::rocks::DBBatch,
-        bucket_id: &str,
-        index_name: &str,
-        index_value: &SecondaryIndexValue,
-        target: &TargetBlob,
-    ) -> Result<(), TypedStoreError> {
-        // For each value in the secondary index, delete the entry
-        let keys: Vec<_> = index_value
-            .as_vec()
-            .into_iter()
-            .map(|value| {
-                // Format: <bucket_id>/<index_name>/<index_value>/<target_id>
-                let target_id = match target {
-                    TargetBlob::BlobId(blob_id) => blob_id.to_string(),
-                    TargetBlob::QuiltPatchId(patch_id) => patch_id.to_string(),
-                };
-                format!("{}/{}/{}/{}", bucket_id, index_name, value, target_id)
-            })
-            .collect();
-
-        batch.delete_batch(&self.octopus_index, keys)?;
-        Ok(())
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
@@ -1949,6 +1803,98 @@ pub(crate) mod tests {
             assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_octopus_index_operations() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        
+        // Test basic shard storage and retrieval
+        let blob_id = BlobId([1; 32]);
+        let shard_index = 5;
+        let shard_data = b"test shard data";
+        
+        // Store a shard
+        storage.octopus_index.put_shard(&blob_id, shard_index, shard_data)?;
+        
+        // Retrieve the shard
+        let retrieved = storage.octopus_index.get_shard(&blob_id, shard_index)?;
+        assert_eq!(retrieved, Some(shard_data.to_vec()));
+        
+        // Test non-existent shard
+        let non_existent = storage.octopus_index.get_shard(&blob_id, 999)?;
+        assert_eq!(non_existent, None);
+        
+        // Test multiple shards for same blob
+        let shard_data_2 = b"another shard";
+        storage.octopus_index.put_shard(&blob_id, 10, shard_data_2)?;
+        
+        // Verify both shards exist
+        assert_eq!(
+            storage.octopus_index.get_shard(&blob_id, shard_index)?,
+            Some(shard_data.to_vec())
+        );
+        assert_eq!(
+            storage.octopus_index.get_shard(&blob_id, 10)?,
+            Some(shard_data_2.to_vec())
+        );
+        
+        // Test deletion
+        storage.octopus_index.delete_shard(&blob_id, shard_index)?;
+        assert_eq!(storage.octopus_index.get_shard(&blob_id, shard_index)?, None);
+        assert_eq!(
+            storage.octopus_index.get_shard(&blob_id, 10)?,
+            Some(shard_data_2.to_vec())
+        );
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_octopus_index_batch_operations() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        
+        let blob_id = BlobId([2; 32]);
+        let shards = vec![
+            (1, b"shard 1".to_vec()),
+            (2, b"shard 2".to_vec()),
+            (3, b"shard 3".to_vec()),
+        ];
+        
+        // Store multiple shards in batch
+        storage.octopus_index.put_shards(&blob_id, shards.clone())?;
+        
+        // Verify all shards were stored
+        for (index, data) in &shards {
+            assert_eq!(
+                storage.octopus_index.get_shard(&blob_id, *index)?,
+                Some(data.clone())
+            );
+        }
+        
+        // Get multiple shards at once
+        let indices = vec![1, 2, 3, 4]; // 4 doesn't exist
+        let retrieved = storage.octopus_index.get_shards(&blob_id, indices)?;
+        assert_eq!(retrieved.len(), 3);
+        assert_eq!(retrieved.get(&1), Some(&b"shard 1".to_vec()));
+        assert_eq!(retrieved.get(&2), Some(&b"shard 2".to_vec()));
+        assert_eq!(retrieved.get(&3), Some(&b"shard 3".to_vec()));
+        assert_eq!(retrieved.get(&4), None);
+        
+        // Test exists check
+        assert!(storage.octopus_index.has_shard(&blob_id, 1)?);
+        assert!(storage.octopus_index.has_shard(&blob_id, 2)?);
+        assert!(!storage.octopus_index.has_shard(&blob_id, 99)?);
+        
+        // Delete all shards for blob
+        storage.octopus_index.delete_blob(&blob_id)?;
+        assert!(!storage.octopus_index.has_shard(&blob_id, 1)?);
+        assert!(!storage.octopus_index.has_shard(&blob_id, 2)?);
+        assert!(!storage.octopus_index.has_shard(&blob_id, 3)?);
+        
         Ok(())
     }
 
