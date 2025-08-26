@@ -1310,10 +1310,9 @@ impl StorageNode {
         };
 
         tracing::debug!(
-            "checking the first contract event if we're severely lagging, \
-            first new event epoch: {}, epoch at start: {}",
             first_new_event_epoch,
-            epoch_at_start
+            epoch_at_start,
+            "checking the first contract event if we're severely lagging"
         );
 
         // Clear the starting epoch, so that we won't make this check again in the current run.
@@ -1335,15 +1334,14 @@ impl StorageNode {
         // new epoch. This helps prevent a race condition where the node enters recovery mode
         // before the epoch change execution, and the node may be recovering to an epoch that is
         // 2 or more epochs behind the latest epoch.
-        match event {
-            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(
-                EpochChangeStart { .. },
-            )) => {}
-            _ => self
-                .inner
+        if !matches!(
+            event,
+            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_))
+        ) {
+            self.inner
                 .latest_event_epoch_sender
-                .send(Some(first_new_event_epoch))?,
-        };
+                .send(Some(first_new_event_epoch))?;
+        }
 
         Ok(())
     }

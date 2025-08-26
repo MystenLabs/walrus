@@ -585,9 +585,9 @@ impl BlobSynchronizer {
             .owned_shards_at_epoch(latest_event_epoch)
             .unwrap_or_else(|error| {
                 tracing::error!(
-                    "shard assignment must be found at the certified epoch {}, error: {:?}",
-                    latest_event_epoch,
-                    error
+                    certified_epoch = latest_event_epoch,
+                    ?error,
+                    "shard assignment must be found at the certified epoch",
                 );
                 panic!(
                     "shard assignment must be found at the certified epoch {latest_event_epoch}, \
