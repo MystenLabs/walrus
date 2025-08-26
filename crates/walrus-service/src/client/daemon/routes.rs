@@ -80,7 +80,7 @@ pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{q
 pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
 /// The path to list patches in a quilt.
-pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/patches-by-id/{quilt_id}";
+pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
