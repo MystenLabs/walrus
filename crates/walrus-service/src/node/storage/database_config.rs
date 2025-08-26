@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use rocksdb::{DBCompressionType, Options};
+use rocksdb::{DBCompressionType, Options, statistics::StatsLevel};
 use serde::{Deserialize, Serialize};
 use typed_store::rocks::get_block_options;
 
@@ -282,6 +282,8 @@ pub struct GlobalDatabaseOptions {
     pub wal_ttl_seconds: Option<u64>,
     /// The size limit for the WAL in MB.
     pub wal_size_limit_mb: Option<u64>,
+    /// Whether to enable statistics.
+    pub enable_statistics: bool,
 }
 
 impl Default for GlobalDatabaseOptions {
@@ -292,6 +294,7 @@ impl Default for GlobalDatabaseOptions {
             keep_log_file_num: Some(50),
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
+            enable_statistics: false,
         }
     }
 }
@@ -318,6 +321,11 @@ impl From<&GlobalDatabaseOptions> for Options {
 
         if let Some(wal_size_limit_mb) = value.wal_size_limit_mb {
             options.set_wal_size_limit_mb(wal_size_limit_mb);
+        }
+
+        if value.enable_statistics {
+            options.enable_statistics();
+            options.set_statistics_level(StatsLevel::ExceptHistogramOrTimers);
         }
 
         options

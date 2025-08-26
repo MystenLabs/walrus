@@ -954,6 +954,34 @@ impl<K, V> DBMap<K, V> {
                     .db_options
                     .get_ticker_count(Ticker::BloomFilterPrefixTruePositive) as i64,
             );
+        db_metrics
+            .op_metrics
+            .rocksdb_compaction_num_bytes_written
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::CompactWriteBytes) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_compaction_num_bytes_read
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(
+                rocksdb
+                    .db_options
+                    .get_ticker_count(Ticker::CompactReadBytes) as i64,
+            );
+        db_metrics
+            .op_metrics
+            .rocksdb_num_bytes_read
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(rocksdb.db_options.get_ticker_count(Ticker::BytesRead) as i64);
+        db_metrics
+            .op_metrics
+            .rocksdb_num_bytes_written
+            .with_label_values(&[&rocksdb.db_name()])
+            .set(rocksdb.db_options.get_ticker_count(Ticker::BytesWritten) as i64);
     }
 
     /// Create a checkpoint of the database
