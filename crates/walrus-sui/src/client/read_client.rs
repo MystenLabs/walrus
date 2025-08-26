@@ -73,8 +73,6 @@ use crate::{
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
-            SystemStateInnerV1Enum,
-            SystemStateInnerV1Testnet,
             WalrusSubsidies,
             WalrusSubsidiesForDeserialization,
             WalrusSubsidiesInner,
@@ -356,7 +354,7 @@ impl SuiReadClient {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
         &self.sui_client
     }
 
@@ -533,37 +531,37 @@ impl SuiReadClient {
         self.sui_client.get_sui_object(node_id).await
     }
 
-    fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
+    fn walrus_package_id(&self) -> RwLockReadGuard<'_, ObjectID> {
         self.walrus_package_id
             .read()
             .expect("mutex should not be poisoned")
     }
 
-    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<ObjectID> {
+    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<'_, ObjectID> {
         self.walrus_package_id
             .write()
             .expect("mutex should not be poisoned")
     }
 
     /// Returns a mutable reference to the credits object.
-    fn credits_mut(&self) -> RwLockWriteGuard<Option<SharedObjectWithPkgConfig>> {
+    fn credits_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
         self.credits.write().expect("mutex should not be poisoned")
     }
 
     /// Returns a mutable reference to the walrus subsidies object.
-    fn walrus_subsidies_mut(&self) -> RwLockWriteGuard<Option<SharedObjectWithPkgConfig>> {
+    fn walrus_subsidies_mut(&self) -> RwLockWriteGuard<'_, Option<SharedObjectWithPkgConfig>> {
         self.walrus_subsidies
             .write()
             .expect("mutex should not be poisoned")
     }
 
-    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
+    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .read()
             .expect("mutex should not be poisoned")
     }
 
-    fn type_origin_map_mut(&self) -> RwLockWriteGuard<TypeOriginMap> {
+    fn type_origin_map_mut(&self) -> RwLockWriteGuard<'_, TypeOriginMap> {
         self.type_origin_map
             .write()
             .expect("mutex should not be poisoned")
@@ -622,7 +620,11 @@ impl SuiReadClient {
     /// Returns the digest of the package at `package_path` for the currently active sui network.
     pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
         // Compile package to get the digest.
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
         tracing::info!(?chain_id, "chain identifier");
         let (compiled_package, _build_config) =
             compile_package(package_path, Default::default(), chain_id).await?;
@@ -771,27 +773,14 @@ impl SuiReadClient {
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
         }
-        let inner = if let Ok(inner) = self
+        let inner = self
             .sui_client
             .get_dynamic_field::<u64, SystemStateInnerV1>(
                 self.system_object_id,
                 TypeTag::U64,
                 version,
             )
-            .await
-        {
-            SystemStateInnerV1Enum::V1(inner)
-        } else {
-            let inner = self
-                .sui_client
-                .get_dynamic_field::<u64, SystemStateInnerV1Testnet>(
-                    self.system_object_id,
-                    TypeTag::U64,
-                    version,
-                )
-                .await?;
-            SystemStateInnerV1Enum::V1Testnet(inner)
-        };
+            .await?;
         Ok(SystemObject {
             id,
             version,

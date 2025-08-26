@@ -375,11 +375,11 @@ impl Future for EpochChangeDriverInner<'_> {
         });
 
         tracing::info_span!("scheduled_process_subsidies").in_scope(|| {
-            if let Some(subsidies) = this.subsidies_future.as_mut() {
-                if let Poll::Ready(()) = subsidies.poll_unpin(cx) {
-                    tracing::trace!("subsidies future completed");
-                    this.subsidies_future = None;
-                }
+            if let Some(subsidies) = this.subsidies_future.as_mut()
+                && let Poll::Ready(()) = subsidies.poll_unpin(cx)
+            {
+                tracing::trace!("subsidies future completed");
+                this.subsidies_future = None;
             }
         });
 

@@ -307,7 +307,7 @@ impl BlobInfoTable {
         &self,
         before_epoch: Epoch,
         starting_blob_id_bound: Bound<BlobId>,
-    ) -> BlobInfoIterator {
+    ) -> BlobInfoIterator<'_> {
         BlobInfoIter::new(
             Box::new(
                 self.aggregate_blob_info
@@ -325,7 +325,7 @@ impl BlobInfoTable {
         &self,
         before_epoch: Epoch,
         starting_object_id_bound: Bound<ObjectID>,
-    ) -> PerObjectBlobInfoIterator {
+    ) -> PerObjectBlobInfoIterator<'_> {
         BlobInfoIter::new(
             Box::new(
                 self.per_object_blob_info
@@ -478,7 +478,7 @@ pub(super) trait ToBytes: Serialize + Sized {
         bcs::to_bytes(self).expect("value must be BCS-serializable")
     }
 }
-pub(super) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
+trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
     type MergeOperand: Debug + DeserializeOwned + ToBytes;
 
     /// Updates the existing blob info with the provided merge operand and returns the result.
@@ -767,30 +767,28 @@ impl ValidBlobInfoV1 {
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
         }) = self.permanent_certified.as_ref()
+            && *end_epoch > current_epoch
         {
-            if *end_epoch > current_epoch {
-                return BlobStatus::Permanent {
-                    end_epoch: *end_epoch,
-                    is_certified: true,
-                    status_event: *event,
-                    deletable_counts,
-                    initial_certified_epoch,
-                };
-            }
+            return BlobStatus::Permanent {
+                end_epoch: *end_epoch,
+                is_certified: true,
+                status_event: *event,
+                deletable_counts,
+                initial_certified_epoch,
+            };
         }
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
         }) = self.permanent_total.as_ref()
+            && *end_epoch > current_epoch
         {
-            if *end_epoch > current_epoch {
-                return BlobStatus::Permanent {
-                    end_epoch: *end_epoch,
-                    is_certified: false,
-                    status_event: *event,
-                    deletable_counts,
-                    initial_certified_epoch,
-                };
-            }
+            return BlobStatus::Permanent {
+                end_epoch: *end_epoch,
+                is_certified: false,
+                status_event: *event,
+                deletable_counts,
+                initial_certified_epoch,
+            };
         }
 
         if deletable_counts != Default::default() {
@@ -1380,7 +1378,8 @@ impl BlobInfo {
     ) -> Self {
         let blob_info = match status {
             BlobCertificationStatus::Invalid => BlobInfoV1::Invalid {
-                epoch: invalidated_epoch.unwrap(),
+                epoch: invalidated_epoch
+                    .expect("invalidated_epoch must be provided for Invalid status"),
                 event: current_status_event,
             },
 
@@ -1655,7 +1654,7 @@ where
     skip(existing_val, operands),
     fields(existing_val = existing_val.is_some())
 )]
-pub(crate) fn merge_mergeable<T: Mergeable>(
+fn merge_mergeable<T: Mergeable>(
     key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,

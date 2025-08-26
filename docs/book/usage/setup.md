@@ -217,6 +217,11 @@ The configuration file currently supports the following parameters for each of t
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
 staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
 
+# You can specify a list of Sui RPC URLs for reads. If none is provided, the RPC URL in the Sui
+# wallet is used.
+rpc_urls:
+  - https://fullnode.mainnet.sui.io:443
+
 # You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
 # (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
 # directory), or the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order. Both
@@ -232,8 +237,11 @@ wallet_config:
   # configuration file.
   active_address: 0x...
 
-# The following parameters can be used to tune the networking behavior of the client. There is no
-# risk in playing around with these values. In the worst case, you may not be able to store/read
-# blob due to timeouts or other networking errors.
-{{ #include ../setup/client_config_example.yaml:8: }}
+# [...]
 ```
+
+There are some additional parameters that can be used to tune the networking behavior of the client,
+see the [full example client configuration](../setup/client_config_example.yaml). If you experience
+excessively slow uploads, it may be worth experimenting with these values. There is no risk in
+playing around with these values; in the worst case, you may not be able to store/read blob due to
+timeouts or other networking errors.

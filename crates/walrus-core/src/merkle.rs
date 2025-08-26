@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::Level;
 
+use crate::ensure;
+
 /// The length of the digests used in the merkle tree.
 pub const DIGEST_LEN: usize = 32;
 
@@ -17,10 +19,19 @@ const LEAF_PREFIX: [u8; 1] = [0];
 const INNER_PREFIX: [u8; 1] = [1];
 const EMPTY_NODE: [u8; DIGEST_LEN] = [0; DIGEST_LEN];
 
-/// Returned if the specified index is out of bounds for a Merkle tree or proof.
-#[derive(Error, Debug, PartialEq, Eq)]
-#[error("index {0} is too large")]
-pub struct LeafIndexOutOfBounds(usize);
+/// Errors that can occur when generating or verifying a Merkle proof.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MerkleProofError {
+    /// The proof's path length is larger than the maximum allowed path length.
+    #[error("the proof's path length is larger than the maximum path length")]
+    PathLengthTooLarge,
+    /// The leaf index is too large.
+    #[error("index {0} is too large")]
+    LeafIndexOutOfBounds(usize),
+    /// The root hash does not match the computed root.
+    #[error("the root hash does not match the computed root")]
+    RootMismatch,
+}
 
 /// A node in the Merkle tree.
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -66,14 +77,28 @@ impl AsRef<[u8]> for Node {
 pub trait MerkleAuth: Clone + alloc::fmt::Debug {
     /// Verifies the proof given a Merkle root and the leaf data.
     #[tracing::instrument(level = Level::DEBUG, skip(self, leaf))]
-    fn verify_proof(&self, root: &Node, leaf: &[u8], leaf_index: usize) -> bool {
-        self.compute_root(leaf, leaf_index).as_ref() == Some(root)
+    fn verify_proof(
+        &self,
+        root: &Node,
+        leaf_count: usize,
+        leaf: &[u8],
+        leaf_index: usize,
+    ) -> Result<(), MerkleProofError> {
+        self.check_path_length(path_length(leaf_count))?;
+        ensure!(
+            self.compute_root(leaf, leaf_index)? == *root,
+            MerkleProofError::RootMismatch
+        );
+        Ok(())
     }
+
+    /// Checks that the proof's path length is not larger than the maximum path length.
+    fn check_path_length(&self, max_path_length: usize) -> Result<(), MerkleProofError>;
 
     /// Recomputes the Merkle root from the proof and the provided leaf data.
     ///
     /// Returns `None` if the provided index is too large.
-    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Option<Node>;
+    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Result<Node, MerkleProofError>;
 }
 
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
@@ -122,9 +147,9 @@ impl<T> MerkleAuth for MerkleProof<T>
 where
     T: HashFunction<DIGEST_LEN>,
 {
-    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Option<Node> {
+    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Result<Node, MerkleProofError> {
         if leaf_index >> self.path.len() != 0 {
-            return None;
+            return Err(MerkleProofError::LeafIndexOutOfBounds(leaf_index));
         }
         let mut current_hash = leaf_hash::<T>(leaf);
         let mut level_index = leaf_index;
@@ -140,7 +165,15 @@ where
             // Update to the level index one level up in the tree
             level_index /= 2;
         }
-        Some(current_hash)
+        Ok(current_hash)
+    }
+
+    fn check_path_length(&self, max_path_length: usize) -> Result<(), MerkleProofError> {
+        if self.path.len() > max_path_length {
+            Err(MerkleProofError::PathLengthTooLarge)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -245,15 +278,13 @@ where
     /// Get the [`MerkleProof`] for the leaf at `leaf_index` consisting
     /// of all sibling hashes on the path from the leaf to the root.
     #[tracing::instrument(skip_all, level = Level::DEBUG, fields(n_leaves = self.n_leaves))]
-    pub fn get_proof(&self, leaf_index: usize) -> Result<MerkleProof<T>, LeafIndexOutOfBounds> {
+    pub fn get_proof(&self, leaf_index: usize) -> Result<MerkleProof<T>, MerkleProofError> {
         tracing::trace!("computing Merkle proof");
         if leaf_index >= self.n_leaves {
             tracing::warn!("leaf index out of bounds");
-            return Err(LeafIndexOutOfBounds(leaf_index));
+            return Err(MerkleProofError::LeafIndexOutOfBounds(leaf_index));
         }
-        let mut path = Vec::with_capacity(
-            usize::try_from(self.n_leaves.ilog2()).expect("this is smaller than `n_leaves`") + 1,
-        );
+        let mut path = Vec::with_capacity(path_length(self.n_leaves));
         let mut level_index = leaf_index;
         let mut n_level = self.n_leaves;
         let mut level_base_index = 0;
@@ -311,8 +342,18 @@ fn n_nodes(n_leaves: usize) -> usize {
     tot_nodes + lvl_nodes
 }
 
+/// Returns the path length of a Merkle tree with `n_leaves` leaves.
+fn path_length(n_leaves: usize) -> usize {
+    if n_leaves <= 1 {
+        return 0;
+    }
+    usize::try_from((n_leaves - 1).ilog2()).expect("this is smaller than `n_leaves`") + 1
+}
+
 #[cfg(test)]
 mod test {
+    use walrus_test_utils::param_test;
+
     use super::*;
 
     const TEST_INPUT: [&[u8]; 9] = [
@@ -360,15 +401,15 @@ mod test {
 
     #[test]
     fn test_get_path_out_of_bounds() {
-        let test_inp: Vec<_> = [
+        let test_input: Vec<_> = [
             "foo", "bar", "fizz", "baz", "buzz", "fizz", "foobar", "walrus", "fizz",
         ]
         .iter()
         .map(|x| x.as_bytes())
         .collect();
-        for i in 0..test_inp.len() {
-            let mt: MerkleTree = MerkleTree::build(&test_inp[..i]);
-            match mt.get_proof(i.next_power_of_two()) {
+        for leaf_count in 0..test_input.len() {
+            let mt: MerkleTree = MerkleTree::build(&test_input[..leaf_count]);
+            match mt.get_proof(leaf_count.next_power_of_two()) {
                 Err(_) => {}
                 Ok(_) => panic!("Expected an error"),
             }
@@ -377,23 +418,49 @@ mod test {
 
     #[test]
     fn test_merkle_path_verify() {
-        for i in 0..TEST_INPUT.len() {
-            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..i]);
-            for (index, leaf_data) in TEST_INPUT[..i].iter().enumerate() {
+        for leaf_count in 0..TEST_INPUT.len() {
+            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..leaf_count]);
+            for (index, leaf_data) in TEST_INPUT[..leaf_count].iter().enumerate() {
                 let proof = mt.get_proof(index).unwrap();
-                assert!(proof.verify_proof(&mt.root(), leaf_data, index));
+                assert!(
+                    proof
+                        .verify_proof(&mt.root(), leaf_count, leaf_data, index)
+                        .is_ok()
+                );
             }
         }
     }
 
     #[test]
     fn test_merkle_path_verify_fails_for_wrong_index() {
-        for i in 0..TEST_INPUT.len() {
-            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..i]);
-            for (index, leaf_data) in TEST_INPUT[..i].iter().enumerate() {
+        for leaf_count in 0..TEST_INPUT.len() {
+            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..leaf_count]);
+            for (index, leaf_data) in TEST_INPUT[..leaf_count].iter().enumerate() {
                 let proof = mt.get_proof(index).unwrap();
-                assert!(!proof.verify_proof(&mt.root(), leaf_data, index + 1));
+                assert!(
+                    proof
+                        .verify_proof(&mt.root(), leaf_count, leaf_data, index + 1)
+                        .is_err()
+                );
             }
         }
+    }
+
+    param_test! {
+        test_path_length: [
+            zero: (0, 0),
+            one: (1, 0),
+            two: (2, 1),
+            three: (3, 2),
+            four: (4, 2),
+            five: (5, 3),
+            six: (6, 3),
+            seven: (7, 3),
+            eight: (8, 3),
+            nine: (9, 4),
+        ]
+    }
+    fn test_path_length(n_leaves: usize, expected_path_length: usize) {
+        assert_eq!(path_length(n_leaves), expected_path_length);
     }
 }

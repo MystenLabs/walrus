@@ -637,7 +637,7 @@ mod commands {
         if serialize_unsigned {
             // Compile package
             let chain_id = contract_client
-                .sui_client()
+                .retriable_sui_client()
                 .get_chain_identifier()
                 .await
                 .ok();

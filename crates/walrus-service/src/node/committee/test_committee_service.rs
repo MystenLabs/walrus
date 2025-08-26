@@ -27,12 +27,12 @@ use walrus_core::{
     SliverType,
     bft,
     encoding::{
-        self,
         EncodingConfig,
         EncodingConfigTrait as _,
         GeneralRecoverySymbol,
         Primary,
         PrimaryRecoverySymbol,
+        RequiredSymbolsCount,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -452,26 +452,21 @@ fn recovery_symbols_by_shard(
     let target_sliver_pair_index = target_sliver_index.to_pair_index::<Primary>(n_shards);
 
     let encoding_config = EncodingConfig::new(n_shards);
-    let (sliver_pairs, metadata) = encoding_config
-        .get_for_type(DEFAULT_ENCODING)
-        .encode_with_metadata(&blob)?;
+    let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
+    let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
 
+    let RequiredSymbolsCount::Exact(n_symbols_for_recovery) =
+        encoding_config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = sliver_pairs
         .iter()
         .map(|pair| {
             let symbol = pair
                 .secondary
-                .recovery_symbol_for_sliver(
-                    target_sliver_pair_index,
-                    &encoding_config.get_for_type(metadata.metadata().encoding_type()),
-                )
+                .recovery_symbol_for_sliver(target_sliver_pair_index, &encoding_config_enum)
                 .unwrap();
             (pair.index(), symbol)
         })
-        .choose_multiple(
-            rng,
-            encoding::min_symbols_for_recovery::<Primary>(n_shards).into(),
-        );
+        .choose_multiple(rng, n_symbols_for_recovery);
 
     Ok((
         metadata,

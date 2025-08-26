@@ -30,7 +30,6 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.53.1
 
 jobs:
   diff:
@@ -196,21 +195,31 @@ jobs:
       SUI_BIN: "/home/runner/.cargo/bin/sui"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+
+      - name: Get Sui tag
+        shell: bash
+        run: |
+          export SUI_TAG=$(grep '^sui-config' ./Cargo.toml | grep 'github.com/MystenLabs/sui' \
+            | sed -nE 's/.*tag = "(testnet-v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p')
+          echo "SUI_TAG=${SUI_TAG}" >> $GITHUB_ENV
+
       - name: Restore cached sui binary
         id: cache-sui-restore
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
+
       - name: Install correct Rust toolchain
         run: rustup update && rustup toolchain install
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
           sui
       - name: Run Move tests and check coverage
-        run: bash ./scripts/move_coverage.sh
+        run: bash ./scripts/move_tests.sh -c
       - name: Cache sui binary
         if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # pin@v4
@@ -233,7 +242,8 @@ jobs:
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
-            done if the Testnet contracts are updated.
+            done as part of a version bump of Sui dependencies or if the Testnet contracts are
+            actually updated.
 
             cc @karlwuest @mlegner
 

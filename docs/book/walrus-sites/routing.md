@@ -3,7 +3,7 @@
 In its base configuration, Walrus Sites serves static assets through a portal. However, many modern
 web applications require more advanced features, such as custom headers and client-side routing.
 
-Therefore, the site-builder can read a `ws-resource.json` configuration file, in which you can
+Therefore, the site-builder can read a `ws-resources.json` configuration file, in which you can
 directly specify resource headers and routing rules.
 
 ## The `ws-resources.json` file

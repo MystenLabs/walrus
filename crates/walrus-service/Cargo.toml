@@ -79,7 +79,6 @@ axum = { workspace = true, features = [
   "tracing",
 ] }
 axum-extra = { workspace = true, features = ["multipart", "query", "typed-header"] }
-
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 bincode = { workspace = true, optional = true }
@@ -148,7 +147,7 @@ telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
-tokio-metrics = "0.4.2"
+tokio-metrics.workspace = true
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, features = ["buffer", "limit", "load-shed", "util"] }

@@ -1,9 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO(WAL-869): Remove this attribute and fix corresponding warnings.
-#![allow(clippy::unwrap_used)]
-
 //! The walrus-proxy service acts as a relay for nodes to push metrics to and we
 //! in turn push them to a mimir cluster.
 
@@ -65,9 +62,11 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(config.listen_address)
         .await
-        .unwrap();
-    let histogram_listener = std::net::TcpListener::bind(config.histogram_address).unwrap();
-    let metrics_listener = std::net::TcpListener::bind(config.metrics_address).unwrap();
+        .map_err(|e| anyhow::anyhow!("failed to bind address: {}", e))?;
+    let histogram_listener = std::net::TcpListener::bind(config.histogram_address)
+        .map_err(|e| anyhow::anyhow!("failed to bind histogram port: {}", e))?;
+    let metrics_listener = std::net::TcpListener::bind(config.metrics_address)
+        .map_err(|e| anyhow::anyhow!("failed to bind metrics port: {}", e))?;
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
     let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);
@@ -106,6 +105,8 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    admin::server(listener, app).await.unwrap();
+    admin::server(listener, app)
+        .await
+        .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
     Ok(())
 }

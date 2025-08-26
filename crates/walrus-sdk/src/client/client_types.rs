@@ -18,7 +18,10 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult};
+use walrus_sui::{
+    client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
+    types::move_structs::BlobAttribute,
+};
 
 use super::{
     ClientError,
@@ -99,7 +102,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn ready_to_extend(&self) -> bool;
 
     /// Returns the parameters for certifying and extending the blob.
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError>;
+    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError>;
 
     /// Transitions the blob to the next state based on the encoding result.
     ///
@@ -186,11 +189,20 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
     pub fn default_unencoded_blobs_from_slice(
         blobs: &'a [&[u8]],
+        attributes: &[BlobAttribute],
     ) -> Vec<WalrusStoreBlob<'a, String>> {
+        // TODO(WAL-962): Remove this assertion once we have a better struct to represent a blob.
+        assert!(attributes.is_empty() || attributes.len() == blobs.len());
         blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{i:06}")))
+            .map(|(i, blob)| {
+                WalrusStoreBlob::new_unencoded(
+                    blob,
+                    format!("blob_{i:06}"),
+                    attributes.get(i).cloned().unwrap_or_default(),
+                )
+            })
             .collect()
     }
 
@@ -200,7 +212,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Creates a new unencoded blob.
-    pub fn new_unencoded(blob: &'a [u8], identifier: T) -> Self {
+    pub fn new_unencoded(blob: &'a [u8], identifier: T, attribute: BlobAttribute) -> Self {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
             "store_blob_tracing",
@@ -212,6 +224,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             blob,
             identifier,
             span,
+            attribute,
         })
     }
 
@@ -278,6 +291,8 @@ pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
     pub identifier: T,
     /// The span for this blob's lifecycle.
     pub span: Span,
+    /// The attribute of the blob.
+    pub attribute: BlobAttribute,
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
@@ -341,7 +356,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
         Err(ClientError::store_blob_internal(format!(
             "Invalid operation for blob {self:?}",
         )))
@@ -455,6 +470,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for UnencodedBlob<'_, T> {
         f.debug_struct("UnencodedBlob")
             .field("identifier", &self.identifier)
             .field("blob_len", &self.blob.len())
+            .field("attribute", &self.attribute)
             .finish()
     }
 }
@@ -531,7 +547,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
+    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
         Err(invalid_operation_for_blob(
             &self,
             "get_certify_and_extend_params".to_string(),
@@ -722,7 +738,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
+    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
         Err(ClientError::store_blob_internal(format!(
             "Invalid operation for blob {self:?}",
         )))
@@ -986,7 +1002,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         matches!(operation, RegisterBlobOp::ReuseAndExtend { .. })
     }
 
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
         if let StoreOp::RegisterNew {
             operation:
                 RegisterBlobOp::ReuseAndExtend {
@@ -997,6 +1013,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         {
             Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: &self.input_blob.attribute,
                 certificate: None,
                 epochs_extended: Some(*epochs_extended),
             })
@@ -1242,7 +1259,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return Err(invalid_operation_for_blob(
                 &self,
@@ -1258,6 +1275,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 epochs_extended, ..
             } => Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: &self.input_blob.attribute,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: Some(*epochs_extended),
             }),
@@ -1265,6 +1283,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
             | RegisterBlobOp::ReuseStorage { .. }
             | RegisterBlobOp::ReuseRegistration { .. } => Ok(CertifyAndExtendBlobParams {
                 blob,
+                attribute: &self.input_blob.attribute,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: None,
             }),
@@ -1463,7 +1482,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams<'_>> {
         Err(invalid_operation_for_blob(
             &self,
             "get_certify_and_extend_params".to_string(),
@@ -1631,7 +1650,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
+    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams<'_>, ClientError> {
         Err(ClientError::store_blob_internal(format!(
             "Invalid operation for blob {self:?}",
         )))
@@ -1751,7 +1770,7 @@ mod tests {
 
         // Wrap it in the WalrusStoreBlob enum
         let walrus_blob: WalrusStoreBlob<String> =
-            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone());
+            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone(), BlobAttribute::default());
 
         // Import the trait directly to bring the methods into scope
         use super::WalrusStoreBlobApi;

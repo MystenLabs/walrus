@@ -197,9 +197,7 @@ impl StoreOp {
                     StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
                         blob_id: blob.blob_id,
                         event_or_object: EventOrObjectId::Object(blob.id),
-                        end_epoch: blob
-                            .certified_epoch
-                            .expect("certified blob must have a certified epoch"),
+                        end_epoch: blob.storage.end_epoch,
                     })
                 } else {
                     StoreOp::RegisterNew {

@@ -29,7 +29,7 @@ mod tests {
     use tokio::sync::RwLock;
     use walrus_core::EpochCount;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::client::{Client, StoreArgs, metrics::ClientMetrics};
+    use walrus_sdk::client::{StoreArgs, WalrusNodeClient, metrics::ClientMetrics};
     use walrus_service::{
         client::ClientCommunicationConfig,
         event::event_processor::config::EventProcessorConfig,
@@ -1070,7 +1070,7 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
+            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
             .await?;
 
         let last_certified_event_blob =
@@ -1102,14 +1102,14 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &store_args)
+            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
             .await?;
 
         Ok(())
     }
 
     async fn wait_for_event_blob_writer_to_make_progress(
-        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         last_certified_event_blob: EventBlob,
     ) {
         loop {

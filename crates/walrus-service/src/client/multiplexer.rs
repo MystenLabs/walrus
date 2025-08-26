@@ -21,7 +21,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     client::{
-        Client,
+        WalrusNodeClient,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
         responses::{BlobStoreResult, QuiltStoreResult},
@@ -54,7 +54,7 @@ use crate::client::refill::should_refill;
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
-    read_client: Client<SuiReadClient>,
+    read_client: WalrusNodeClient<SuiReadClient>,
     _refill_handles: RefillHandles,
     default_post_store_action: PostStoreAction,
 }
@@ -71,7 +71,7 @@ impl ClientMultiplexer {
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
         let main_address = contract_client.address();
 
-        let sui_client = contract_client.sui_client().clone();
+        let sui_client = contract_client.retriable_sui_client().clone();
         let sui_read_client = (*contract_client.read_client).clone();
 
         // Start the refresher here, so that all the clients can share it.
@@ -79,7 +79,7 @@ impl ClientMultiplexer {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let read_client = Client::new_read_client(
+        let read_client = WalrusNodeClient::new_read_client(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
@@ -268,7 +268,7 @@ impl WriteClientPoolConfig {
 
 /// A pool of temporary write clients that are rotated.
 pub struct WriteClientPool {
-    pool: Vec<Arc<Client<SuiContractClient>>>,
+    pool: Vec<Arc<WalrusNodeClient<SuiContractClient>>>,
     cur_idx: AtomicUsize,
 }
 
@@ -308,7 +308,7 @@ impl WriteClientPool {
     }
 
     /// Returns the next client in the pool.
-    pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
+    pub async fn next_client(&self) -> Arc<WalrusNodeClient<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
         self.pool
@@ -352,7 +352,7 @@ impl<'a> SubClientLoader<'a> {
         &self,
         n_clients: usize,
         refresh_handle: CommitteesRefresherHandle,
-    ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
+    ) -> anyhow::Result<Vec<Arc<WalrusNodeClient<SuiContractClient>>>> {
         let mut clients = Vec::with_capacity(n_clients);
 
         for idx in 0..n_clients {
@@ -370,7 +370,7 @@ impl<'a> SubClientLoader<'a> {
         &self,
         sub_wallet_idx: usize,
         refresh_handle: CommitteesRefresherHandle,
-    ) -> anyhow::Result<Client<SuiContractClient>> {
+    ) -> anyhow::Result<WalrusNodeClient<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
             .await?;
@@ -383,7 +383,8 @@ impl<'a> SubClientLoader<'a> {
         sui_client.merge_coins().await?;
 
         let client =
-            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
+            WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)
+                .await?;
         Ok(client)
     }
 

@@ -789,12 +789,13 @@ pub struct PublisherQuery {
     /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
     pub epochs: EpochCount,
+    // TODO(WAL-911): Change the docstrings when the default behavior changes.
     /// If true, the publisher creates a deletable blob instead of a permanent one. *This will
-    /// become the default behavior in the future.*
+    /// become the default behavior starting with v1.33.*
     #[serde(default)]
     pub deletable: bool,
     /// If true, the publisher creates a permanent blob. This is currently the default behavior;
-    /// but *in the future, blobs will be deletable by default*.
+    /// but *blobs will be deletable by default starting with v1.33*.
     #[serde(default)]
     pub permanent: bool,
     /// If true, the publisher will always store the blob, creating a new Blob object.

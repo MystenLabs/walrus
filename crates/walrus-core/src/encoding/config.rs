@@ -109,6 +109,12 @@ pub trait EncodingConfigTrait {
         }
     }
 
+    /// Returns the number of valid symbols required to recover a sliver of [`EncodingAxis`] `T`.
+    #[inline]
+    fn n_symbols_for_recovery<T: EncodingAxis>(&self) -> RequiredSymbolsCount {
+        RequiredSymbolsCount::Exact(self.n_source_symbols::<T::OrthogonalAxis>().get().into())
+    }
+
     /// Returns the number of shards as a `usize`.
     #[inline]
     fn n_shards_as_usize(&self) -> usize {
@@ -235,6 +241,20 @@ pub trait EncodingConfigTrait {
     }
 }
 
+/// The number of symbols required to recover a sliver.
+///
+/// For our current RS2 encoding, which is based on Reed-Solomon codes, the number of symbols
+/// required to recover a sliver is exactly the number of source symbols. This could be different
+/// for future encodings that use other types of erasure codes.
+// Important: Currently, quite some code assumes that the number of symbols required to recover a
+// sliver is an exact number. This code needs to be changed if this enum is extended in the future.
+// By explicitly matching on `Exact`, we ensure that the compiler will warn us in that case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequiredSymbolsCount {
+    /// An exact number of symbols required to recover a sliver.
+    Exact(usize),
+}
+
 /// Configuration parameters for the encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingConfig {
@@ -279,7 +299,7 @@ impl EncodingConfig {
 
     /// Returns the encoding config for the given encoding type wrapped as an
     /// [`EncodingConfigEnum`].
-    pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
+    pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum<'_> {
         match encoding_type {
             EncodingType::RS2 => EncodingConfigEnum::ReedSolomon(&self.reed_solomon),
             _ => panic!("unsupported encoding type: {:?}", encoding_type),
@@ -443,7 +463,7 @@ impl ReedSolomonEncodingConfig {
     pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<ReedSolomonDecoder, E>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<'_, ReedSolomonDecoder, E>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
     }
 }

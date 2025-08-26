@@ -9,10 +9,10 @@
 extern crate alloc;
 extern crate std;
 
-use alloc::vec::Vec;
 #[allow(unused)]
 #[cfg(feature = "utoipa")]
-use alloc::{format, string::String};
+use alloc::format;
+use alloc::{string::String, vec::Vec};
 use core::{
     fmt::{self, Debug, Display},
     num::NonZeroU16,

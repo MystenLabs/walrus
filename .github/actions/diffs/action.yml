@@ -46,7 +46,7 @@ runs:
         filters: |
           isMove:
             - 'contracts/**'
-            - 'scripts/move_coverage.sh'
+            - 'scripts/move_tests.sh'
             - '.github/workflows/code.yml'
           isRust:
             - 'crates/**'

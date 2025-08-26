@@ -30,6 +30,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The source of a checkpoint download"]
         checkpoint_download_source: IntCounterVec["download_source"],
+
+        #[help = "The source of a successful checkpoint download"]
+        checkpoint_download_success_source: IntCounterVec["download_source"],
     }
 }
 
@@ -81,6 +84,13 @@ impl SuiClientMetricSet {
     /// Records the source of a checkpoint download.
     pub fn record_checkpoint_download_source(&self, source: &str) {
         self.checkpoint_download_source
+            .with_label_values(&[source])
+            .inc();
+    }
+
+    /// Records the source of a successful checkpoint download.
+    pub fn record_checkpoint_download_success_source(&self, source: &str) {
+        self.checkpoint_download_success_source
             .with_label_values(&[source])
             .inc();
     }

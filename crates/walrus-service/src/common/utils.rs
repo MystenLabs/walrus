@@ -757,11 +757,14 @@ pub(crate) fn unwrap_or_resume_unwind<T, E: std::convert::From<tokio::task::Join
 pub async fn create_walrus_client_with_refresher(
     contract_config: ContractConfig,
     sui_read_client: walrus_sui::client::SuiReadClient,
-) -> anyhow::Result<walrus_sdk::client::Client<walrus_sui::client::SuiReadClient>> {
+) -> anyhow::Result<walrus_sdk::client::WalrusNodeClient<walrus_sui::client::SuiReadClient>> {
     let client_config = crate::client::ClientConfig::new_from_contract_config(contract_config);
-    walrus_sdk::client::Client::new_read_client_with_refresher(client_config, sui_read_client)
-        .await
-        .map_err(anyhow::Error::from)
+    walrus_sdk::client::WalrusNodeClient::new_read_client_with_refresher(
+        client_config,
+        sui_read_client,
+    )
+    .await
+    .map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]

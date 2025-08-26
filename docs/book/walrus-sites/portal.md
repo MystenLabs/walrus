@@ -181,7 +181,7 @@ docker build -f portal/docker/server/Dockerfile -t server-portal . --build-arg E
 Finally, run the Docker container:
 
 ```sh
-docker run -p 3000:3000 server-portal --env-file ./portal/server/.env.local
+docker run --env-file ./portal/server/.env.local -p 3000:3000 server-portal
 ```
 
 Browse the sites at `localhost:3000`.

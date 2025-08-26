@@ -39,7 +39,7 @@ static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
             ),
             &["operation", "status"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 
@@ -52,7 +52,7 @@ static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
             ),
             &["header", "value"]
         )
-        .unwrap()
+        .expect("metric creation cannot fail with valid parameters")
     )
 });
 

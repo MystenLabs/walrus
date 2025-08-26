@@ -239,6 +239,8 @@ impl SuiClientError {
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
     pub blob: &'a Blob,
+    /// The attribute of the blob.
+    pub attribute: &'a BlobAttribute,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
@@ -373,7 +375,7 @@ impl BlobPersistence {
                 // releases.
                 tracing::warn!(
                     "blob is marked as neither deletable nor permanent; blobs are currently \
-                    permanent by default, but this behavior will change in the future; use \
+                    permanent by default, but this behavior will change starting with v1.33; use \
                     `--deletable` or `--permanent` to explicitly specify the desired behavior"
                 );
                 Ok(Self::Permanent)
@@ -559,8 +561,8 @@ impl SuiContractClient {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Returns the active address of the client.
@@ -636,7 +638,7 @@ impl SuiContractClient {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         self.retry_on_wrong_version(|| async {
@@ -1489,8 +1491,8 @@ impl SuiContractClientInner {
     }
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetriableSuiClient {
-        self.read_client.sui_client()
+    pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
+        self.read_client.retriable_sui_client()
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
@@ -1548,7 +1550,9 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -1576,7 +1580,9 @@ impl SuiContractClientInner {
             storage_id.len()
         );
 
-        self.sui_client().get_sui_object(storage_id[0]).await
+        self.retriable_sui_client()
+            .get_sui_object(storage_id[0])
+            .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -1628,7 +1634,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -1745,7 +1753,9 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(&blob_obj_ids).await
+        self.retriable_sui_client()
+            .get_sui_objects(&blob_obj_ids)
+            .await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -1754,17 +1764,26 @@ impl SuiContractClientInner {
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     pub async fn certify_blobs(
         &mut self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
+        blobs_with_certificates: &[(&BlobWithAttribute, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let mut pt_builder = self.transaction_builder()?;
-        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+        for (i, (blob_with_attr, certificate)) in blobs_with_certificates.iter().enumerate() {
+            let blob = &blob_with_attr.blob;
             tracing::debug!(
                 blob_id = %blob.blob_id,
                 count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
+
+            // Add attributes if provided.
+            if let Some(ref attribute) = blob_with_attr.attribute {
+                pt_builder
+                    .add_blob_attribute(blob.id.into(), attribute.clone())
+                    .await?;
+            }
+
             Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
@@ -1787,7 +1806,7 @@ impl SuiContractClientInner {
             &res,
             blobs_with_certificates
                 .iter()
-                .map(|(blob, _)| blob.blob_id)
+                .map(|(blob_with_attr, _)| blob_with_attr.blob.blob_id)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
@@ -1861,7 +1880,7 @@ impl SuiContractClientInner {
             cap_id.len()
         );
 
-        self.sui_client().get_sui_object(cap_id[0]).await
+        self.retriable_sui_client().get_sui_object(cap_id[0]).await
     }
 
     /// Registers candidate nodes, sending the resulting capability objects to the specified
@@ -1907,7 +1926,7 @@ impl SuiContractClientInner {
             cap_ids.len(),
         );
 
-        self.sui_client().get_sui_objects(&cap_ids).await
+        self.retriable_sui_client().get_sui_objects(&cap_ids).await
     }
 
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
@@ -1947,7 +1966,9 @@ impl SuiContractClientInner {
             count
         );
 
-        self.sui_client().get_sui_objects(&staked_wal).await
+        self.retriable_sui_client()
+            .get_sui_objects(&staked_wal)
+            .await
     }
 
     /// Call to request withdrawal of stake from StakedWal object.
@@ -2020,7 +2041,7 @@ impl SuiContractClientInner {
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         let node_capability: StorageNodeCap = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(node_capability_object_id)
             .await?;
 
@@ -2076,7 +2097,11 @@ impl SuiContractClientInner {
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
         // Compile package
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let chain_id = self
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await
+            .ok();
         let (compiled_package, build_config) =
             compile_package(package_path, Default::default(), chain_id).await?;
 
@@ -2320,7 +2345,7 @@ impl SuiContractClientInner {
 
         // Execute the transaction and wait for response
         let response = self
-            .sui_client()
+            .retriable_sui_client()
             .execute_transaction(signed_transaction, method)
             .await?;
 
@@ -2348,9 +2373,12 @@ impl SuiContractClientInner {
     pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
         let mut tx_builder = self.transaction_builder()?;
         let address = self.wallet.active_address()?;
-        let sui_balance = self.sui_client().get_balance(address, None).await?;
+        let sui_balance = self
+            .retriable_sui_client()
+            .get_balance(address, None)
+            .await?;
         let wal_balance = self
-            .sui_client()
+            .retriable_sui_client()
             .get_balance(address, Some(self.read_client().wal_coin_type().to_owned()))
             .await?;
 
@@ -2467,7 +2495,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2506,7 +2534,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2531,7 +2559,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
@@ -2693,39 +2721,36 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
         let mut pt_builder = self.transaction_builder()?;
         for blob_params in blobs_with_certificates {
+            let blob = blob_params.blob;
+
             if let Some(certificate) = blob_params.certificate.as_ref() {
-                pt_builder
-                    .certify_blob(blob_params.blob.id.into(), certificate)
-                    .await?;
+                pt_builder.certify_blob(blob.id.into(), certificate).await?;
             }
+
+            // Add attributes if provided.
+            pt_builder
+                .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
+                .await?;
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
                 // TODO(WAL-835): buy single storage resource to extend multiple blobs
                 if with_credits {
                     pt_builder
                         .extend_blob_with_credits(
-                            blob_params.blob.id.into(),
+                            blob.id.into(),
                             epochs_extended,
-                            blob_params.blob.storage.storage_size,
+                            blob.storage.storage_size,
                         )
                         .await?;
                 } else {
                     pt_builder
-                        .extend_blob(
-                            blob_params.blob.id.into(),
-                            epochs_extended,
-                            blob_params.blob.storage.storage_size,
-                        )
+                        .extend_blob(blob.id.into(), epochs_extended, blob.storage.storage_size)
                         .await?;
                 }
             }
 
-            SuiContractClientInner::apply_post_store_action(
-                &mut pt_builder,
-                blob_params.blob.id,
-                post_store,
-            )
-            .await?;
+            SuiContractClientInner::apply_post_store_action(&mut pt_builder, blob.id, post_store)
+                .await?;
         }
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2837,7 +2862,7 @@ impl SuiContractClientInner {
         );
 
         let shared_blobs = self
-            .sui_client()
+            .retriable_sui_client()
             .get_sui_objects::<SharedBlob>(&object_ids)
             .await?;
 
@@ -2872,7 +2897,7 @@ impl SuiContractClientInner {
             // Fetch all SharedBlob objects and collect them as a mapping from blob object ID
             // to shared blob object ID.
             let shared_blobs = self
-                .sui_client()
+                .retriable_sui_client()
                 .get_sui_objects::<SharedBlob>(&object_ids)
                 .await?;
             Ok(shared_blobs

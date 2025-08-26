@@ -17,7 +17,7 @@ mod tests {
     use typed_store::rocks::be_fix_int_ser;
     use walrus_core::{BlobId, test_utils};
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
+    use walrus_sdk::{client::WalrusNodeClient, config::ClientCommunicationConfig};
     use walrus_service::{
         node::{DatabaseConfig, event_blob_writer::CertifiedEventBlobMetadata},
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
@@ -27,7 +27,7 @@ mod tests {
     use walrus_test_utils::WithTempDir;
 
     async fn wait_for_certification_stuck(
-        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
     ) -> EventBlob {
         let start = Instant::now();
         let mut last_blob_time = Instant::now();
@@ -63,7 +63,7 @@ mod tests {
 
     async fn wait_for_event_blob_writer_to_fork(
         walrus_cluster: &mut TestCluster<SimStorageNodeHandle>,
-        client: &Arc<WithTempDir<Client<SuiContractClient>>>,
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         node_index: usize,
     ) -> Result<(), anyhow::Error> {
         let node = &walrus_cluster.nodes[node_index];

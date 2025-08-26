@@ -626,7 +626,7 @@ impl SystemContractService for SuiSystemContractService {
     ) -> Result<StorageNodeCap, SuiClientError> {
         let node_capability = if let Some(node_cap) = node_capability_object_id {
             self.read_client
-                .sui_client()
+                .retriable_sui_client()
                 .get_sui_object(node_cap)
                 .await?
         } else {

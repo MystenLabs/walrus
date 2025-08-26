@@ -62,7 +62,7 @@ utoipa = { workspace = true, optional = true, features = ["axum_extras", "macros
 walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "log", "metrics"] }
 
 [dev-dependencies]
 clap.workspace = true

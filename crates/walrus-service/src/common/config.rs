@@ -51,7 +51,7 @@ pub struct SuiConfig {
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
     /// Additional RPC endpoints to use for the event processor.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub additional_rpc_endpoints: Vec<String>,
     /// The request timeout for communicating with Sui network.
     #[serde(default, skip_serializing_if = "defaults::is_none")]

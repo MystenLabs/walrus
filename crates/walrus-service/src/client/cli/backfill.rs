@@ -46,7 +46,7 @@ use object_store::{
     gcp::{GoogleCloudStorage, GoogleCloudStorageBuilder},
 };
 use walrus_core::{BlobId, EncodingType};
-use walrus_sdk::{ObjectID, client::Client, config::ClientConfig};
+use walrus_sdk::{ObjectID, client::WalrusNodeClient, config::ClientConfig};
 use walrus_sui::client::{SuiReadClient, retry_client::RetriableSuiClient};
 
 const TOMBSTONE_FILENAME: &str = "tombstone";
@@ -251,7 +251,7 @@ async fn pull_archive_blob(
     Ok(())
 }
 
-async fn get_backfill_client(config: ClientConfig) -> Result<Client<SuiReadClient>> {
+async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<SuiReadClient>> {
     tracing::debug!(?config, "loaded client config");
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
         &config.rpc_urls,
@@ -264,7 +264,7 @@ async fn get_backfill_client(config: ClientConfig) -> Result<Client<SuiReadClien
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    Ok(Client::new_read_client(config, refresh_handle, sui_read_client).await?)
+    Ok(WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?)
 }
 
 /// Runs the blob backfill process.
@@ -379,7 +379,7 @@ pub(crate) async fn run_blob_backfill(
 /// Processes the file at the given path, extracting the blob ID and backfilling
 /// the blob to the nodes.
 async fn process_file_and_backfill(
-    client: &Client<SuiReadClient>,
+    client: &WalrusNodeClient<SuiReadClient>,
     node_ids: &[ObjectID],
     blob_filename: &Path,
     pushed_blobs: &mut HashSet<BlobId>,
@@ -431,7 +431,7 @@ fn blob_id_from_path(blob_path: &Path) -> Result<BlobId> {
 }
 
 async fn backfill_blob(
-    client: &Client<SuiReadClient>,
+    client: &WalrusNodeClient<SuiReadClient>,
     node_ids: &[ObjectID],
     blob_id: BlobId,
     blob: &[u8],

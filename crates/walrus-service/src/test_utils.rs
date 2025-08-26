@@ -2030,6 +2030,7 @@ impl TestClusterBuilder {
 
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
+        assert!(!self.storage_node_configs.is_empty());
         let committee_members: Vec<_> = self
             .storage_node_configs
             .iter()
@@ -2461,7 +2462,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 /// A module for creating a Walrus test cluster.
 #[cfg(all(feature = "client", feature = "node"))]
 pub mod test_cluster {
-    use std::sync::OnceLock;
+    use std::{iter::once, sync::OnceLock};
 
     use futures::future;
     use tokio::sync::Mutex as TokioMutex;
@@ -2547,7 +2548,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<StorageNodeHandle>,
-            WithTempDir<client::Client<SuiContractClient>>,
+            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
         )> {
             self.build_generic().await
@@ -2562,7 +2563,7 @@ pub mod test_cluster {
         ) -> anyhow::Result<(
             Arc<TokioMutex<TestClusterHandle>>,
             TestCluster<T>,
-            WithTempDir<client::Client<SuiContractClient>>,
+            WithTempDir<client::WalrusNodeClient<SuiContractClient>>,
             SystemContext,
         )> {
             #[cfg(not(msim))]
@@ -2576,8 +2577,7 @@ pub mod test_cluster {
 
             let sui_rpc_urls: Vec<String> = {
                 let cluster = sui_cluster.lock().await;
-                vec![cluster.rpc_url().to_string()]
-                    .into_iter()
+                once(cluster.rpc_url().to_string())
                     .chain(cluster.additional_rpc_urls().into_iter())
                     .collect()
             };
@@ -2784,7 +2784,10 @@ pub mod test_cluster {
 
             let client = admin_contract_client
                 .and_then_async(|contract_client| {
-                    client::Client::new_contract_client_with_refresher(config, contract_client)
+                    client::WalrusNodeClient::new_contract_client_with_refresher(
+                        config,
+                        contract_client,
+                    )
                 })
                 .await?;
 

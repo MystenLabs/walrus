@@ -19,7 +19,12 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_sdk::{
-    client::{Client, StoreArgs, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
+    client::{
+        StoreArgs,
+        WalrusNodeClient,
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
+    },
     error::ClientError,
     store_optimizations::StoreOptimizations,
 };
@@ -33,6 +38,7 @@ use walrus_sui::{
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     test_utils::temp_dir_wallet,
+    types::move_structs::BlobWithAttribute,
     utils::SuiNetwork,
     wallet::Wallet,
 };
@@ -43,7 +49,7 @@ use super::blob::{BlobData, WriteBlobConfig};
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
-    client: WithTempDir<Client<SuiContractClient>>,
+    client: WithTempDir<WalrusNodeClient<SuiContractClient>>,
     blob: BlobData,
     metrics: Arc<ClientMetrics>,
 }
@@ -107,7 +113,7 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_committees(&[blob], &store_args)
+            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
             .await?
             .first()
             .expect("should have one blob store result")
@@ -222,10 +228,14 @@ impl WriteClient {
             )
             .await?;
 
+        let blob_with_attr = BlobWithAttribute {
+            blob: blob_sui_object,
+            attribute: None,
+        };
         self.client
             .as_ref()
             .sui_client()
-            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
+            .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Burn)
             .await?;
 
         Ok(blob_id)
@@ -239,7 +249,7 @@ async fn new_client(
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
     refiller: Refiller,
-) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
+) -> anyhow::Result<WithTempDir<WalrusNodeClient<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
     let rpc_urls = &[wallet.as_ref().get_rpc_url()?];
@@ -263,7 +273,7 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
+            WalrusNodeClient::new_contract_client(config.clone(), refresher_handle, contract_client)
         })
         .await?;
     Ok(client)

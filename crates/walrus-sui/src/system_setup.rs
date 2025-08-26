@@ -293,7 +293,7 @@ fn copy_recursively_inner_blocking(
 /// If `use_existing_wal_token` is set, skips the deployment of the `wal` package. This requires
 /// the package address to be set in the `wal/Move.lock` file for the current network.
 #[tracing::instrument(err, skip(wallet))]
-pub async fn publish_coin_and_system_package(
+pub(crate) async fn publish_coin_and_system_package(
     wallet: &mut Wallet,
     InitSystemParams {
         contract_dir,

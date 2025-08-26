@@ -59,7 +59,12 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
+    types::{
+        Blob,
+        BlobEvent,
+        StakedWal,
+        move_structs::{BlobAttribute, BlobWithAttribute},
+    },
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
@@ -149,7 +154,7 @@ impl<E: EncodingAxis> SliverSelector<E> {
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
-pub struct Client<T> {
+pub struct WalrusNodeClient<T> {
     config: ClientConfig,
     sui_client: T,
     communication_limits: CommunicationLimits,
@@ -161,7 +166,7 @@ pub struct Client<T> {
     communication_factory: NodeCommunicationFactory,
 }
 
-impl Client<()> {
+impl WalrusNodeClient<()> {
     /// Creates a new Walrus client without a Sui client.
     pub async fn new(
         config: ClientConfig,
@@ -214,8 +219,8 @@ impl Client<()> {
         })
     }
 
-    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
-    pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
+    /// Converts `self` to a [`WalrusNodeClient<C>`] by adding the `sui_client`.
+    pub async fn with_client<C>(self, sui_client: C) -> WalrusNodeClient<C> {
         let Self {
             config,
             sui_client: _,
@@ -225,7 +230,7 @@ impl Client<()> {
             blocklist,
             communication_factory: node_client_factory,
         } = self;
-        Client::<C> {
+        WalrusNodeClient::<C> {
             config,
             sui_client,
             committees_handle,
@@ -237,14 +242,14 @@ impl Client<()> {
     }
 }
 
-impl<T: ReadClient> Client<T> {
+impl<T: ReadClient> WalrusNodeClient<T> {
     /// Creates a new read client starting from a config file.
     pub async fn new_read_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -265,7 +270,7 @@ impl<T: ReadClient> Client<T> {
             .build_refresher_and_run(sui_read_client.clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -666,9 +671,9 @@ impl<T: ReadClient> Client<T> {
 
     /// Retrieves specific slivers from storage nodes based on their indices.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn retrieve_slivers<'a, E: EncodingAxis>(
+    async fn retrieve_slivers<E: EncodingAxis>(
         &self,
-        metadata: &'a VerifiedBlobMetadataWithId,
+        metadata: &VerifiedBlobMetadataWithId,
         sliver_selector: &SliverSelector<E>,
         certified_epoch: Epoch,
         timeout_duration: Duration,
@@ -818,14 +823,14 @@ impl<T: ReadClient> Client<T> {
     }
 }
 
-impl Client<SuiContractClient> {
+impl WalrusNodeClient<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_client)
             .await)
@@ -843,7 +848,7 @@ impl Client<SuiContractClient> {
             .build_refresher_and_run(sui_client.read_client().clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        Ok(WalrusNodeClient::new(config, committees_handle)
             .await?
             .with_client(sui_client)
             .await)
@@ -854,10 +859,11 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
+        attributes: &[BlobAttribute],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
         let start = Instant::now();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
@@ -894,7 +900,7 @@ impl Client<SuiContractClient> {
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
@@ -936,7 +942,7 @@ impl Client<SuiContractClient> {
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
@@ -952,51 +958,6 @@ impl Client<SuiContractClient> {
             .into_iter()
             .filter_map(|blob| blob.get_result())
             .collect())
-    }
-
-    /// Encodes multiple blobs into sliver pairs and metadata.
-    ///
-    /// Returns a list of sliver pairs and metadata for each blob.
-    ///
-    /// Failed blobs are filtered out.
-    pub fn encode_blobs_to_pairs_and_metadata(
-        &self,
-        blobs: &[&[u8]],
-        encoding_type: EncodingType,
-    ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
-
-        let encoded_blobs = self.encode_blobs(walrus_store_blobs, encoding_type)?;
-
-        debug_assert_eq!(
-            encoded_blobs.len(),
-            blobs.len(),
-            "the number of encoded blobs and the number of blobs must be the same"
-        );
-
-        // Failed blobs are filtered out.
-        let result = encoded_blobs
-            .into_iter()
-            .filter_map(|encoded_blob| {
-                if encoded_blob.is_failed() {
-                    None
-                } else {
-                    Some((
-                        encoded_blob
-                            .get_sliver_pairs()
-                            .expect("sliver pairs are present on an encoded blob")
-                            .clone(),
-                        encoded_blob
-                            .get_metadata()
-                            .expect("metadata is present on an encoded blob")
-                            .clone(),
-                    ))
-                }
-            })
-            .collect();
-
-        Ok(result)
     }
 
     /// Encodes multiple blobs.
@@ -1460,7 +1421,7 @@ impl Client<SuiContractClient> {
     }
 
     /// Creates a resource manager for the client.
-    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager {
+    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager<'_> {
         ResourceManager::new(&self.sui_client, committees.write_committee().epoch)
     }
 
@@ -1541,7 +1502,7 @@ impl Client<SuiContractClient> {
     }
 }
 
-impl<T> Client<T> {
+impl<T> WalrusNodeClient<T> {
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.

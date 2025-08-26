@@ -127,22 +127,22 @@ impl ClientConfig {
         context: Option<&str>,
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
-        match walrus_utils::load_from_yaml(path)? {
-            MultiClientConfig::SingletonConfig(config) => {
+        match walrus_utils::load_from_yaml(path) {
+            Ok(MultiClientConfig::SingletonConfig(config)) => {
                 if let Some(context) = context {
                     bail!(
                         "cannot specify context when using a single-context configuration file \
-                    [config_filename='{}', specified_context='{}']",
+                        [config_filename='{}', specified_context='{}']",
                         path.display(),
                         context,
                     )
                 }
                 Ok((config, None))
             }
-            MultiClientConfig::MultiConfig {
+            Ok(MultiClientConfig::MultiConfig {
                 contexts,
                 default_context,
-            } => {
+            }) => {
                 let target_context = context.unwrap_or(&default_context);
                 Ok((
                     contexts.get(target_context).cloned().ok_or_else(|| {
@@ -157,6 +157,12 @@ impl ClientConfig {
                     Some(target_context.to_string()),
                 ))
             }
+            Err(e) => bail!(
+                "unable to parse the client config file: [config_filename='{}', error='{}']\n\
+                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
+                path.display(),
+                e
+            ),
         }
     }
 
@@ -389,7 +395,7 @@ mod tests {
             wallet_config: path/to/wallet
             communication_config:
                 max_concurrent_writes: 42
-                max_data_in_flight: 1000
+                max_data_in_flight: null
                 reqwest_config:
                     total_timeout_millis: 30000
                     http2_keep_alive_while_idle: false

@@ -9,14 +9,18 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
-COVERAGE=true
-COVERAGE_ARG="--coverage"
+COVERAGE=false
+COVERAGE_ARG=""
+ROOT_DIR="contracts"
 
-while getopts "t" arg; do
+while getopts "cd:" arg; do
     case "${arg}" in
-        t)
-            COVERAGE=false
-            COVERAGE_ARG=""
+        c)
+            COVERAGE=true
+            COVERAGE_ARG="--coverage"
+            ;;
+        d)
+            ROOT_DIR="$OPTARG"
             ;;
         *)
             exit 1
@@ -26,14 +30,14 @@ done
 
 # 1) Run tests and record coverage
 error=0
-for dir in contracts/*/; do
+for dir in $ROOT_DIR/*/; do
     if [ -f "$dir/Move.toml" ]; then
       echo -e "\nTesting $dir..."
       cd $dir
       sui move build
       sui move test $COVERAGE_ARG
       [ $? -ne 0 ] && error=1
-      cd ../..
+      cd -
     fi
 done
 
@@ -48,7 +52,7 @@ fi
 
 # 2) Check coverage and print summaries
 error=0
-for dir in contracts/*; do
+for dir in $ROOT_DIR/*; do
     if [ -f "$dir/Move.toml" ]; then
       cd $dir
       coverage_summary=$(sui move coverage summary)
@@ -65,7 +69,7 @@ for dir in contracts/*; do
               Contract $dir has a coverage of ${GREEN}$coverage_percentage%${NORMAL}, \
               which is above the minimal acceptable coverage of $MIN_COVERAGE%.
       fi
-      cd ../..
+      cd -
     fi
 done
 

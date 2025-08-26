@@ -1,0 +1,24 @@
+name: "Mark and close stale PRs"
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Runs on Monday at 9:00 AM
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # pin@v9
+        with:
+          stale-pr-message: >
+            This PR is stale because it has been open 14 days with no activity.
+            It will be closed in 7 days unless you remove the `stale` label,
+            add the `do-not-close` label, or comment on it.
+          close-pr-message: >
+            This PR was closed because it has not seen any activity since being marked as stale.
+          days-before-stale: 14
+          days-before-close: 6 # use 6 here because this is only run once per week
+          exempt-pr-labels: "do-not-close"

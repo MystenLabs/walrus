@@ -490,6 +490,8 @@ impl Storage {
     }
 
     /// Store the verified metadata.
+    ///
+    /// This must *not* be called for a blob that is not tracked in the blob-info table.
     #[tracing::instrument(skip_all)]
     pub async fn put_verified_metadata(
         &self,
@@ -499,6 +501,7 @@ impl Storage {
             .await
     }
 
+    // Important: This must *not* be called for a blob that is not tracked in the blob-info table.
     async fn put_metadata(
         &self,
         blob_id: &BlobId,
@@ -528,7 +531,10 @@ impl Storage {
 
     /// Returns the blob info for `blob_id`.
     #[tracing::instrument(skip_all)]
-    pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
+    pub(crate) fn get_blob_info(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
     }
 
@@ -773,7 +779,10 @@ impl Storage {
     }
 
     /// Returns an iterator over the certified blob info before the specified epoch.
-    pub(crate) fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
+    pub(crate) fn certified_blob_info_iter_before_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> BlobInfoIterator<'_> {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
@@ -782,7 +791,7 @@ impl Storage {
     pub(crate) fn certified_per_object_blob_info_iter_before_epoch(
         &self,
         epoch: Epoch,
-    ) -> PerObjectBlobInfoIterator {
+    ) -> PerObjectBlobInfoIterator<'_> {
         self.blob_info
             .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }

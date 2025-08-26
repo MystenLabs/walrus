@@ -21,6 +21,8 @@ PUBLISHER=https://publisher.walrus-testnet.walrus.space
 ```admonish tip title="API specification"
 Walrus aggregators and publishers expose their API specifications at the path `/v1/api`. You can
 view this in the browser, for example, at <https://aggregator.walrus-testnet.walrus.space/v1/api>.
+The latest version of these specifications are also available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service)
+in HTML and YAML format.
 ```
 
 ### Store
@@ -31,13 +33,46 @@ You can interact with the daemon through simple HTTP PUT requests. For example, 
 ```sh
 # store the string `some string` for 1 storage epoch
 curl -X PUT "$PUBLISHER/v1/blobs" -d "some string"
-# store file `some/file` for 5 storage epochs
-curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
-# store file `some/file` and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
-# store file `some/file` as a deletable blob, instead of a permanent one and send the blob object to $ADDRESS
-curl -X PUT "$PUBLISHER/v1/blobs?deletable=true&send_object_to=$ADDRESS" --upload-file "some/file"
+# store file `some/file` for 1 storage epoch
+curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 ```
+
+You can control how the new blob should be created through several query parameters, which can be
+combined and are all documented in the [OpenAPI specification mentioned above](#http-api-usage):
+
+- The lifetime of the blob can be specified through the `epochs` parameter. If the parameter is
+  omitted, blobs are stored for one epoch.
+
+  ```sh
+  # store file `some/file` for 5 storage epochs
+  curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+  ```
+
+- Similar to the CLI, the publisher API allows you to specify whether a blob should be stored as
+  permanent or deletable through a query parameter `permanent=true` or `deletable=true`,
+  respectively:
+
+  ```sh
+  # store file `some/file` as a deletable blob
+  curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
+  # store file `some/file` as a permanent blob
+  curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+  ```
+
+  ```admonish warning title="Change of default blob persistence"
+  Up to (including) version 1.32, the CLI and [publisher](./web-api.md) store blobs as *permanent*
+  by default, requiring the user to explicitly specify a blob to be deletable. Starting with version
+  1.33, newly stored blobs are *deletable* by default. If you care about the blob persistence, make
+  sure to use the appropriate flag.
+  ```
+
+- You can specify an address to which the resulting `Blob` object should be sent through the
+  `send-object-to` parameter:
+
+  ```sh
+  # store file `some/file` and send the blob object to $ADDRESS
+  curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+  ```
 
 The store HTTP API end points return information about the blob stored in JSON format. When a blob
 is stored for the first time, a `newlyCreated` field contains information about the
@@ -271,6 +306,12 @@ SUI and WAL.
 See the following subsections for [public aggregators on Mainnet](#mainnet) and public
 [aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. We also
 provide the [operator lists in JSON format](../assets/operators.json).
+
+```admonish tip
+The operator list in JSON format includes additional info about aggregators, namely whether they are
+deployed with caching functionality and whether they are found to be functional. The list is updated
+once per week.
+```
 
 <!-- markdownlint-disable proper-names -->
 ### Mainnet

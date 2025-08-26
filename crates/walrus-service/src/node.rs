@@ -880,7 +880,7 @@ impl StorageNode {
         event_blob_writer_cursor: EventStreamCursor,
         storage_node_cursor: EventStreamCursor,
         event_blob_writer: &mut Option<EventBlobWriter>,
-    ) -> anyhow::Result<EventStreamWithStartingIndices> {
+    ) -> anyhow::Result<EventStreamWithStartingIndices<'_>> {
         let event_cursor = storage_node_cursor.min(event_blob_writer_cursor);
         let lowest_needed_event_index = event_cursor.element_index;
         let processing_starting_index = storage_node_cursor.element_index;
@@ -1195,13 +1195,12 @@ impl StorageNode {
             if let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeStart(EpochChangeStart { epoch, .. }),
             )) = &stream_element.element
+                && *epoch >= first_complete_epoch
             {
-                if *epoch >= first_complete_epoch {
-                    // Processing the `EpochChangeStart` event for the first complete epoch will set
-                    // the `current_event_epoch` to `epoch`, such that we will take the previous
-                    // if-statement and return `false` for all future events.
-                    return Ok(false);
-                }
+                // Processing the `EpochChangeStart` event for the first complete epoch will set
+                // the `current_event_epoch` to `epoch`, such that we will take the previous
+                // if-statement and return `false` for all future events.
+                return Ok(false);
             }
         }
 
@@ -1310,7 +1309,11 @@ impl StorageNode {
             return Ok(());
         };
 
-        tracing::debug!("checking the first contract event if we're severely lagging");
+        tracing::debug!(
+            first_new_event_epoch,
+            epoch_at_start,
+            "checking the first contract event if we're severely lagging"
+        );
 
         // Clear the starting epoch, so that we won't make this check again in the current run.
         *maybe_epoch_at_start = None;
@@ -1327,18 +1330,18 @@ impl StorageNode {
         }
 
         // Set the initial current event epoch. Note that if the first event is an epoch change
-        // start event, the current event epoch is the previous epoch, since the epoch change has
-        // not been executed yet.
-        let current_event_epoch = match event {
-            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(
-                EpochChangeStart { .. },
-            )) => first_new_event_epoch - 1,
-            _ => first_new_event_epoch,
-        };
-
-        self.inner
-            .latest_event_epoch_sender
-            .send(Some(current_event_epoch))?;
+        // start event, we don't set it here since the epoch change execution will set it to the
+        // new epoch. This helps prevent a race condition where the node enters recovery mode
+        // before the epoch change execution, and the node may be recovering to an epoch that is
+        // 2 or more epochs behind the latest epoch.
+        if !matches!(
+            event,
+            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_))
+        ) {
+            self.inner
+                .latest_event_epoch_sender
+                .send(Some(first_new_event_epoch))?;
+        }
 
         Ok(())
     }
@@ -1411,7 +1414,8 @@ impl StorageNode {
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
 
-        match epoch_change_event {
+        // Log the event reception with appropriate level
+        match &epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
                 tracing::debug!(
                     ?epoch_change_event,
@@ -1427,17 +1431,13 @@ impl StorageNode {
                 );
             }
         }
+
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
                 let _scope = monitored_scope::monitored_scope(
                     "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
                 );
-                self.epoch_change_driver
-                    .cancel_scheduled_voting_end(event.next_epoch);
-                self.epoch_change_driver.schedule_initiate_epoch_change(
-                    NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
-                );
-                self.epoch_change_driver.schedule_process_subsidies();
+                self.handle_epoch_parameters_selected(event);
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
@@ -1471,6 +1471,23 @@ impl StorageNode {
         Ok(())
     }
 
+    /// Handles the epoch parameters selected event.
+    ///
+    /// This function cancels the scheduled voting end and initiates the epoch change.
+    /// It also schedules the process subsidies and marks the event as complete.
+    #[tracing::instrument(skip_all)]
+    fn handle_epoch_parameters_selected(
+        &self,
+        event: walrus_sdk::sui::types::EpochParametersSelected,
+    ) {
+        self.epoch_change_driver
+            .cancel_scheduled_voting_end(event.next_epoch);
+        self.epoch_change_driver.schedule_initiate_epoch_change(
+            NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
+        );
+        self.epoch_change_driver.schedule_process_subsidies();
+    }
+
     #[tracing::instrument(skip_all)]
     async fn process_package_event(
         &self,
@@ -1497,15 +1514,6 @@ impl StorageNode {
             _ => bail!("unknown package event type: {:?}", package_event),
         }
         Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
-    fn next_event_index(&self) -> anyhow::Result<u64> {
-        Ok(self
-            .inner
-            .storage
-            .get_event_cursor_and_next_index()?
-            .map_or(0, |e| e.next_event_index()))
     }
 
     #[tracing::instrument(skip_all)]
@@ -1547,20 +1555,18 @@ impl StorageNode {
             self.inner.storage.get_latest_handled_event_index()? >= event_handle.index();
         if self.inner.consistency_check_config.enable_consistency_check
             && !node_is_reprocessing_events
-        {
-            if let Err(err) = consistency_check::schedule_background_consistency_check(
+            && let Err(err) = consistency_check::schedule_background_consistency_check(
                 self.inner.clone(),
                 self.blob_sync_handler.clone(),
                 event.epoch,
             )
             .await
-            {
-                tracing::warn!(
-                    ?err,
-                    epoch = %event.epoch,
-                    "failed to schedule background blob info consistency check"
-                );
-            }
+        {
+            tracing::warn!(
+                ?err,
+                epoch = %event.epoch,
+                "failed to schedule background blob info consistency check"
+            );
         }
 
         // During epoch change, we need to lock the read access to shard map until all the new
@@ -2125,6 +2131,7 @@ impl StorageNode {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
         &self.inner
     }
@@ -2565,6 +2572,21 @@ impl StorageNodeInner {
 
         worker.call(request).map_err(convert_error).await
     }
+
+    /// Common validation for blob operations
+    fn validate_blob_access<E>(
+        &self,
+        blob_id: &BlobId,
+        forbidden_error: E,
+        unavailable_error: E,
+    ) -> Result<(), E>
+    where
+        E: From<anyhow::Error>,
+    {
+        ensure!(!self.is_blocked(blob_id), forbidden_error);
+        ensure!(self.is_blob_registered(blob_id)?, unavailable_error,);
+        Ok(())
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -2727,12 +2749,11 @@ impl ServiceState for StorageNodeInner {
             }
         }
 
-        ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
-
-        ensure!(
-            self.is_blob_registered(blob_id)?,
+        self.validate_blob_access(
+            blob_id,
+            RetrieveMetadataError::Forbidden,
             RetrieveMetadataError::Unavailable,
-        );
+        )?;
 
         self.storage
             .get_metadata(blob_id)
@@ -2812,12 +2833,11 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<Sliver, RetrieveSliverError> {
         self.check_index(sliver_pair_index)?;
 
-        ensure!(!self.is_blocked(blob_id), RetrieveSliverError::Forbidden);
-
-        ensure!(
-            self.is_blob_registered(blob_id)?,
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
             RetrieveSliverError::Unavailable,
-        );
+        )?;
 
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
@@ -2879,7 +2899,7 @@ impl ServiceState for StorageNodeInner {
         ensure!(
             self.is_stored_at_all_shards_at_latest_epoch(blob_id)
                 .await
-                .context("database error when checkingstorage status")?,
+                .context("database error when checking storage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
@@ -3717,7 +3737,8 @@ mod tests {
             let attestation = node
                 .as_ref()
                 .verify_inconsistency_proof(&blob_id, inconsistency_proof)
-                .await?;
+                .await
+                .context("failed to verify inconsistency proof")?;
 
             // The proof should be valid and we should receive a valid signature
             node.as_ref()

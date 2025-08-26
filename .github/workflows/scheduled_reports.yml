@@ -30,14 +30,31 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.53.1
 
 jobs:
+  set-sui-tag:
+    name: Set sui testnet tag
+    runs-on: ubuntu-latest
+    outputs:
+      sui_tag: ${{ steps.sui.outputs.sui_tag }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Set Sui tag
+        id: sui
+        shell: bash
+        run: |
+          export sui_tag=$(grep '^sui-config' ./Cargo.toml | grep 'github.com/MystenLabs/sui' \
+            | sed -nE 's/.*tag = "(testnet-v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p')
+          echo "sui_tag=${sui_tag}" >> "$GITHUB_OUTPUT"
+
   test-coverage:
     name: Run all Rust tests and report coverage
     runs-on: ubuntu-ghcloud
+    needs: set-sui-tag
     env:
       RUSTC_BOOTSTRAP: 1
+      SUI_TAG: ${{ needs.set-sui-tag.outputs.sui_tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/run_tarpaulin
@@ -45,8 +62,10 @@ jobs:
   simtests:
     name: Run all simtests
     runs-on: ubuntu-ghcloud
+    needs: set-sui-tag
     env:
       MSIM_TEST_NUM: 30
+      SUI_TAG: ${{ needs.set-sui-tag.outputs.sui_tag }}
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -58,6 +77,9 @@ jobs:
   dependencies:
     name: Check dependencies (including vulnerabilities)
     runs-on: ubuntu-latest
+    needs: set-sui-tag
+    env:
+      SUI_TAG: ${{ needs.set-sui-tag.outputs.sui_tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13

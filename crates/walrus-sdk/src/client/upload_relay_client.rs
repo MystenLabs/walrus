@@ -31,7 +31,7 @@ use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, Exponenti
 use super::{WalrusStoreBlob, WalrusStoreBlobApi};
 use crate::{
     ObjectID,
-    client::Client as WalrusClient,
+    client::WalrusNodeClient,
     config::{ClientConfig as WalrusConfig, load_configuration},
     core::{
         BlobId,
@@ -107,8 +107,9 @@ pub enum UploadRelayClientError {
 /// A client to communicate with the Walrus Upload Relay.
 #[derive(Debug, Clone)]
 pub struct UploadRelayClient {
-    /// The owner of the upload relay client.
-    owner_address: SuiAddress,
+    /// The user of the upload relay client. This is the account that will own the blob, and pay for
+    /// its registration, etc.
+    user_address: SuiAddress,
     /// The number of shards for this network.
     n_shards: NonZeroU16,
     /// The upload relay url.
@@ -127,7 +128,7 @@ impl UploadRelayClient {
     /// Fetches the tip configuration from the upload relay and creates a new upload relay tip
     /// client.
     pub async fn new(
-        owner_address: SuiAddress,
+        user_address: SuiAddress,
         n_shards: NonZeroU16,
         upload_relay: Url,
         gas_budget: Option<u64>,
@@ -140,7 +141,7 @@ impl UploadRelayClient {
         let http_client = reqwest::Client::new();
         let tip_config = Self::get_tip_config_with_client(&http_client, &upload_relay).await?;
         Ok(Self {
-            owner_address,
+            user_address,
             n_shards,
             upload_relay,
             tip_config,
@@ -207,7 +208,7 @@ impl UploadRelayClient {
             pt_builder.finish(),
             gas_price,
             sui_client.read_client(),
-            self.owner_address,
+            self.user_address,
             self.gas_budget,
             0, // No additional gas budget.
             tip_amount,
