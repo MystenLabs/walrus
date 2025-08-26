@@ -78,7 +78,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
     ) -> Result<Self> {
         let (committees, last_price_computation, epoch_state) =
             Self::get_latest(&sui_client).await?;
-        // Get the epoch duration, this time only only.
+        // Get the epoch duration, this time only.
         let epoch_duration = sui_client.fixed_system_parameters().await?.epoch_duration;
 
         Ok(Self {

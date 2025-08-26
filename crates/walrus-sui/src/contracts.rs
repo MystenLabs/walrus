@@ -79,6 +79,13 @@ pub trait AssociatedContractStruct: DeserializeOwned {
     }
 }
 
+/// A trait for types that store the latest package ID. This is helpful to enable some generic
+/// functions.
+pub(crate) trait AssociatedContractStructWithPkgId: AssociatedContractStruct {
+    /// Returns the package ID of the contract.
+    fn package_id(&self) -> ObjectID;
+}
+
 /// A trait for types that correspond to a Sui event.
 ///
 /// Implementors of this trait are convertible from [SuiEvent]s and can

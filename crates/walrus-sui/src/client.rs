@@ -3064,6 +3064,10 @@ impl ReadClient for SuiContractClient {
     async fn system_object_version(&self) -> SuiClientResult<u64> {
         self.read_client.system_object_version().await
     }
+
+    async fn flush_cache(&self) {
+        self.read_client.flush_cache().await;
+    }
 }
 
 impl fmt::Debug for SuiContractClient {

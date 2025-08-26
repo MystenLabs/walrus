@@ -3,9 +3,19 @@
 
 //! Module for the configuration of contract packages and shared objects.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
+use serde_with::{DurationSeconds, serde_as};
 use sui_types::base_types::ObjectID;
 
+/// The default TTL for caching system and staking objects.
+///
+/// The TTL is chosen such that during typical individual client actions, the system and staking
+/// objects are only fetched a single time, while at the same time making sure they are fresh.
+pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(10);
+
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 /// Configuration for the contract packages and shared objects.
 pub struct ContractConfig {
@@ -19,6 +29,10 @@ pub struct ContractConfig {
     /// Object ID of the walrus subsidies object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub walrus_subsidies_object: Option<ObjectID>,
+    /// The TTL for cached system and staking objects.
+    #[serde(default = "defaults::default_cache_ttl", rename = "cache_ttl_secs")]
+    #[serde_as(as = "DurationSeconds")]
+    pub cache_ttl: Duration,
 }
 
 impl ContractConfig {
@@ -29,6 +43,15 @@ impl ContractConfig {
             staking_object,
             credits_object: None,
             walrus_subsidies_object: None,
+            cache_ttl: DEFAULT_CACHE_TTL,
         }
+    }
+}
+
+mod defaults {
+    use super::*;
+
+    pub fn default_cache_ttl() -> Duration {
+        DEFAULT_CACHE_TTL
     }
 }

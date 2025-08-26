@@ -1657,6 +1657,10 @@ impl SystemContractService for StubContractService {
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
+
+    async fn flush_cache(&self) {
+        // No-op
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -2421,6 +2425,10 @@ where
 
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         self.as_ref().inner.last_walrus_subsidies_call().await
+    }
+
+    async fn flush_cache(&self) {
+        self.as_ref().inner.flush_cache().await;
     }
 }
 

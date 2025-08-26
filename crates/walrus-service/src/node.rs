@@ -1414,6 +1414,9 @@ impl StorageNode {
     ) -> anyhow::Result<()> {
         let _scope = monitored_scope::monitored_scope("ProcessEvent::EpochChangeEvent");
 
+        // Make sure we get the latest contract data from the RPC node.
+        self.inner.contract_service.flush_cache().await;
+
         // Log the event reception with appropriate level
         match &epoch_change_event {
             EpochChangeEvent::ShardsReceived(_) => {
@@ -6547,6 +6550,7 @@ mod tests {
         contract_service
             .expect_last_certified_event_blob()
             .returning(|| Ok(None));
+        contract_service.expect_flush_cache().return_const(());
         let node = StorageNodeHandle::builder()
             .with_system_event_provider(vec![ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeStart(EpochChangeStart {

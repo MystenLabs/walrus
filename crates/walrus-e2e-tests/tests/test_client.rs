@@ -886,7 +886,8 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 
     assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
-    client.delete_owned_blob(&blob_id).await?;
+    let count_deleted = client.delete_owned_blob(&blob_id).await?;
+    assert_eq!(count_deleted, 1, "should have deleted one blob");
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client

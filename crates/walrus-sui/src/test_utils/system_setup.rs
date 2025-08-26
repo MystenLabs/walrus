@@ -30,7 +30,7 @@ use crate::{
         SuiClientError,
         SuiClientResult,
         SuiContractClient,
-        contract_config::ContractConfig,
+        contract_config::{ContractConfig, DEFAULT_CACHE_TTL},
     },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
@@ -127,6 +127,7 @@ impl SystemContext {
             staking_object: self.staking_object,
             credits_object: self.credits_object,
             walrus_subsidies_object: self.walrus_subsidies_object,
+            cache_ttl: DEFAULT_CACHE_TTL,
         }
     }
 }
@@ -242,7 +243,7 @@ pub async fn create_and_init_system(
 
         admin_contract_client
             .read_client()
-            .set_credits_object(credits_object_id)
+            .set_credits_object(Some(credits_object_id))
             .await?;
         Some(credits_object_id)
     } else {
@@ -262,7 +263,7 @@ pub async fn create_and_init_system(
             .object_id;
         admin_contract_client
             .read_client()
-            .set_walrus_subsidies_object(walrus_subsidies_object_id)
+            .set_walrus_subsidies_object(Some(walrus_subsidies_object_id))
             .await?;
         admin_contract_client
             .fund_walrus_subsidies(DEFAULT_SUBSIDIES_FUNDS)
@@ -507,7 +508,7 @@ async fn publish_with_default_system_with_epoch_duration(
 
         contract_client
             .read_client()
-            .set_credits_object(credits_object_id)
+            .set_credits_object(Some(credits_object_id))
             .await?;
     }
 
