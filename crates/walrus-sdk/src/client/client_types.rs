@@ -664,6 +664,17 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for EncodedBlob<'_, T> {
     }
 }
 
+/// Data to be stored in the Walrus storage node for a blob.
+#[derive(Debug, Clone)]
+pub struct BlobData {
+    /// The encoded sliver pairs.
+    pub pairs: Arc<Vec<SliverPair>>,
+    /// The verified metadata associated with the blob.
+    pub metadata: Arc<VerifiedBlobMetadataWithId>,
+    /// The current known status of the blob in the system.
+    pub status: Option<BlobStatus>,
+}
+
 /// Encoded blob with status information.
 #[derive(Clone)]
 pub struct BlobWithStatus<'a, T: Debug + Clone + Send + Sync> {

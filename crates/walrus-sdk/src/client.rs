@@ -4,7 +4,7 @@
 //! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     marker::PhantomData,
     num::NonZeroU16,
@@ -16,7 +16,14 @@ use std::{
 
 use anyhow::anyhow;
 use bimap::BiMap;
-pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
+pub use client_types::{
+    BlobData,
+    BlobWithStatus,
+    EncodedBlob,
+    UnencodedBlob,
+    WalrusStoreBlob,
+    WalrusStoreBlobApi,
+};
 pub use communication::NodeCommunicationFactory;
 use futures::{
     Future,
@@ -26,7 +33,7 @@ use futures::{
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
-pub use store_args::StoreArgs;
+pub use store_args::{StoreArgs, UploadMethod};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
@@ -50,7 +57,10 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
+use walrus_storage_node_client::{
+    api::{BlobStatus, MultiPutBundle},
+    error::NodeError,
+};
 use walrus_sui::{
     client::{
         CertifyAndExtendBlobParams,
@@ -86,6 +96,9 @@ pub use crate::{
     blocklist::Blocklist,
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
+
+/// Result type for certificate confirmations, mapping blob IDs to their individual results.
+pub type CertificateConfirmationResult = HashMap<BlobId, ClientResult<ConfirmationCertificate>>;
 
 pub mod client_types;
 pub mod communication;
@@ -869,8 +882,20 @@ impl WalrusNodeClient<SuiContractClient> {
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
         let mut results = self
-            .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
             })
             .await?;
 
@@ -905,8 +930,20 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut completed_blobs = self
-            .retry_if_error_epoch_change(|| {
-                self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
             })
             .await?;
 
@@ -947,7 +984,21 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
         let mut results = self
-            .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
+            .retry_if_error_epoch_change(|| async {
+                match store_args.upload_method {
+                    UploadMethod::Parallel => {
+                        self.reserve_and_store_encoded_blobs_parallel(
+                            encoded_blobs.clone(),
+                            store_args,
+                        )
+                        .await
+                    }
+                    UploadMethod::Sequential => {
+                        self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                            .await
+                    }
+                }
+            })
             .await?;
 
         debug_assert_eq!(results.len(), blobs.len());
@@ -1244,6 +1295,292 @@ impl WalrusNodeClient<SuiContractClient> {
         Ok(final_result)
     }
 
+    /// Parallel version of reserve_and_store_encoded_blobs that performs registration and
+    /// sliver upload in parallel.
+    ///
+    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if, during the registration or
+    /// store operations, the client is notified that the committee has changed.
+    async fn reserve_and_store_encoded_blobs_parallel<'a, T: Debug + Clone + Send + Sync + 'a>(
+        &'a self,
+        encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
+        store_args: &StoreArgs,
+    ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
+        tracing::info!(
+            "storing {} sliver pairs with metadata (parallel)",
+            encoded_blobs.len()
+        );
+        let status_start_timer = Instant::now();
+        let committees = self.get_committees().await?;
+        let num_encoded_blobs = encoded_blobs.len();
+
+        // Retrieve the blob status, checking if the committee has changed in the meantime.
+        // This operation can be safely interrupted as it does not require a wallet.
+        let encoded_blobs_with_status = self
+            .await_while_checking_notification(self.get_blob_statuses(encoded_blobs))
+            .await?;
+
+        let num_encoded_blobs_with_status = encoded_blobs_with_status.len();
+        debug_assert_eq!(
+            num_encoded_blobs_with_status, num_encoded_blobs,
+            "the number of blob statuses and the number of blobs to store must be the same"
+        );
+        let status_timer_duration = status_start_timer.elapsed();
+        tracing::info!(
+            duration = ?status_timer_duration,
+            "retrieved {} blob statuses",
+            num_encoded_blobs_with_status
+        );
+        store_args.maybe_observe_checking_blob_status(status_timer_duration);
+
+        let store_op_timer = Instant::now();
+
+        // Filter out completed blobs before registration
+        let mut completed_blobs: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
+        let mut blobs_to_register: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
+
+        for blob in encoded_blobs_with_status {
+            let blob = if store_args.store_optimizations.should_check_status()
+                && !store_args.persistence.is_deletable()
+            {
+                blob.try_complete_if_certified_beyond_epoch(
+                    committees.write_committee().epoch + store_args.epochs_ahead,
+                )?
+            } else {
+                blob
+            };
+
+            if blob.is_completed() {
+                completed_blobs.push(blob);
+            } else {
+                blobs_to_register.push(blob);
+            }
+        }
+
+        // If no blobs to register, return early
+        if blobs_to_register.is_empty() {
+            return Ok(completed_blobs);
+        }
+
+        let num_to_register = blobs_to_register.len();
+        tracing::info!(
+            num_blobs = ?num_encoded_blobs,
+            num_to_register = ?num_to_register,
+            "Registering blobs that are not yet complete (parallel)"
+        );
+
+        // Extract BlobData for pre-registration upload
+        let mut blob_data_list = Vec::new();
+        for blob in &blobs_to_register {
+            if let (Some(pairs), Some(metadata), Some(status)) = (
+                blob.get_sliver_pairs(),
+                blob.get_metadata(),
+                blob.get_status(),
+            ) {
+                blob_data_list.push(BlobData {
+                    pairs: Arc::new(pairs.to_vec()),
+                    metadata: Arc::new(metadata.clone()),
+                    status: Some(*status),
+                });
+            }
+        }
+
+        // Create resource manager before parallel operations
+        let resource_mgr = self.resource_manager(&committees).await;
+
+        // Run registration and pre-registration upload in parallel
+        let (registered_blobs, pre_registration_result) = tokio::join!(
+            resource_mgr.register_walrus_store_blobs(
+                blobs_to_register,
+                store_args.epochs_ahead,
+                store_args.persistence,
+                store_args.store_optimizations,
+            ),
+            self.store_blob_data_pre_registration(blob_data_list, store_args)
+        );
+
+        let registered_blobs = registered_blobs?;
+        let mut cert_map = pre_registration_result?;
+
+        let store_op_duration = store_op_timer.elapsed();
+        tracing::info!(
+            duration = ?store_op_duration,
+            "{} blob resources obtained (parallel)\n{}",
+            registered_blobs.len(),
+            registered_blobs
+                .iter()
+                .map(|blob| format!("{:?}", blob.get_operation()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let num_registered_blobs = registered_blobs.len();
+        debug_assert_eq!(
+            num_registered_blobs + completed_blobs.len(),
+            num_encoded_blobs,
+            "the number of registered blobs and the number of blobs to store must be the same \
+            (num_registered_blobs = {num_registered_blobs}, num_encoded_blobs = \
+            {num_encoded_blobs})"
+        );
+        store_args.maybe_observe_store_operation(store_op_duration);
+
+        let mut final_result: Vec<WalrusStoreBlob<'_, T>> =
+            Vec::with_capacity(num_encoded_blobs + completed_blobs.len());
+        final_result.extend(completed_blobs);
+        let mut to_be_extended: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
+        let mut blobs_with_certificates: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
+
+        // Process registered blobs and attach certificates where available
+        for registered_blob in registered_blobs {
+            if registered_blob.is_completed() {
+                final_result.push(registered_blob);
+            } else if registered_blob.ready_to_extend() {
+                to_be_extended.push(registered_blob);
+            } else if registered_blob.ready_to_store_to_nodes() {
+                // Check if we have a certificate from pre-registration
+                if let Some(blob_id) = registered_blob.get_blob_id() {
+                    match cert_map.get(&blob_id) {
+                        Some(Ok(certificate)) => {
+                            // Success case: clone the certificate, keep it in the map for reuse
+                            let cert_result_for_use = Ok(certificate.clone());
+
+                            // Transform to WithCertificate variant using the cloned result
+                            let blob_with_cert =
+                                registered_blob.with_get_certificate_result(cert_result_for_use)?;
+                            blobs_with_certificates.push(blob_with_cert);
+                        }
+                        Some(Err(_)) => {
+                            // Error case: remove from map so it's not reused, then take ownership
+                            if let Some(cert_result) = cert_map.remove(&blob_id) {
+                                let blob_with_cert =
+                                    registered_blob.with_get_certificate_result(cert_result)?;
+                                blobs_with_certificates.push(blob_with_cert);
+                            } else {
+                                // This should not happen, but handle it gracefully
+                                let error_blob = registered_blob
+                                    .with_error(ClientError::store_blob_internal(
+                                        "Pre-registration failed: certificate error removed concurrently"
+                                            .to_string()
+                                    ))?;
+                                final_result.push(error_blob);
+                            }
+                        }
+                        None => {
+                            // Fail the blob if no certificate found in pre-registration
+                            tracing::warn!(
+                                blob_id = %blob_id,
+                                "Pre-registration failed: no certificate found for blob {blob_id}"
+                            );
+                            let error_blob = registered_blob.with_error(
+                                ClientError::store_blob_internal(format!(
+                                    "Pre-registration failed: no certificate found for blob \
+                                     {blob_id}"
+                                )),
+                            )?;
+                            final_result.push(error_blob);
+                        }
+                    }
+                } else {
+                    return Err(ClientError::store_blob_internal(format!(
+                        "Missing blob ID for registered blob: {registered_blob:?}"
+                    )));
+                }
+            } else {
+                return Err(ClientError::store_blob_internal(format!(
+                    "unexpected blob state {registered_blob:?}"
+                )));
+            }
+        }
+
+        let num_with_certificates = blobs_with_certificates.len();
+        debug_assert_eq!(
+            num_with_certificates + to_be_extended.len() + final_result.len(),
+            num_registered_blobs,
+            "the number of blobs with certificates, to extend, and final must match registered"
+        );
+
+        // Check if the committee has changed while registering the blobs.
+        if are_current_previous_different(
+            committees.as_ref(),
+            self.get_committees().await?.as_ref(),
+        ) {
+            tracing::warn!("committees have changed while registering blobs");
+            return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
+        }
+
+        // Move completed blobs to final_result and keep only non-completed ones
+        let (completed_from_certs, to_be_certified): (Vec<_>, Vec<_>) = blobs_with_certificates
+            .into_iter()
+            .partition(|blob| blob.is_completed());
+
+        final_result.extend(completed_from_certs);
+
+        let cert_and_extend_params: Vec<CertifyAndExtendBlobParams> = to_be_extended
+            .iter()
+            .chain(to_be_certified.iter())
+            .map(|blob| {
+                blob.get_certify_and_extend_params()
+                    .expect("should be a CertifyAndExtendBlobParams")
+            })
+            .collect();
+
+        // Certify all blobs on Sui.
+        let sui_cert_timer = Instant::now();
+        let cert_and_extend_results = self
+            .sui_client
+            .certify_and_extend_blobs(&cert_and_extend_params, store_args.post_store)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    "failure occurred while certifying and extending blobs on Sui"
+                );
+                ClientError::from(ClientErrorKind::CertificationFailed(error))
+            })?;
+        let sui_cert_timer_duration = sui_cert_timer.elapsed();
+        tracing::info!(
+            duration = ?sui_cert_timer_duration,
+            "certified {} blobs on Sui (parallel)",
+            cert_and_extend_params.len()
+        );
+        store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
+
+        // Build map from BlobId to CertifyAndExtendBlobResult
+        let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
+            .into_iter()
+            .map(|result| (result.blob_object_id, result))
+            .collect();
+
+        // Get price computation for completing blobs
+        let price_computation = self.get_price_computation().await?;
+
+        // Complete to_be_extended blobs.
+        for blob in to_be_extended {
+            let Some(object_id) = blob.get_object_id() else {
+                panic!("Invalid blob state {blob:?}");
+            };
+            if let Some(result) = result_map.get(&object_id) {
+                final_result
+                    .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
+            } else {
+                panic!("Invalid blob state {blob:?}");
+            }
+        }
+
+        // Complete to_be_certified blobs.
+        for blob in to_be_certified {
+            let Some(object_id) = blob.get_object_id() else {
+                panic!("Invalid blob state {blob:?}");
+            };
+            if let Some(result) = result_map.get(&object_id) {
+                final_result
+                    .push(blob.with_certify_and_extend_result(result.clone(), &price_computation)?);
+            } else {
+                panic!("Invalid blob state {blob:?}");
+            }
+        }
+
+        Ok(final_result)
+    }
+
     /// Fetches the status of each blob.
     ///
     /// Input: a vector of WalrusStoreBlob::Encoded.
@@ -1362,6 +1699,7 @@ impl WalrusNodeClient<SuiContractClient> {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // If the blob is already certified on chain and there is no committee change in
                 // progress, all nodes already have the slivers.
+                // TODO(heliu): Can we skip this certification collection, and extend the blob?
                 self.get_certificate_standalone(
                     &blob_object.blob_id,
                     certified_epoch,
@@ -1567,10 +1905,10 @@ impl<T> WalrusNodeClient<T> {
             multi_pb.add(pb)
         });
 
-        let mut requests = WeightedFutures::new(comms.iter().map({
-            let progress_bar = progress_bar.clone();
-
-            move |n| {
+        // Create requests using the existing individual store approach
+        let futures = comms
+            .iter()
+            .map(|n| {
                 let fut = n.store_metadata_and_pairs(
                     metadata,
                     pairs_per_node
@@ -1590,8 +1928,11 @@ impl<T> WalrusNodeClient<T> {
                     }
                     result
                 }
-            }
-        }));
+                .boxed()
+            })
+            .collect::<Vec<_>>();
+
+        let mut requests = WeightedFutures::new(futures.into_iter());
 
         let start = Instant::now();
 
@@ -1673,6 +2014,240 @@ impl<T> WalrusNodeClient<T> {
 
         self.confirmations_to_certificate(results, &committees)
             .await
+    }
+
+    /// Groups blobs' slivers by target node to create batched requests.
+    async fn assemble_bundles_by_node(
+        &self,
+        blob_data_list: &[BlobData],
+        blob_persistence_type: walrus_core::messages::BlobPersistenceType,
+        committees: &ActiveCommittees,
+    ) -> ClientResult<HashMap<usize, Vec<MultiPutBundle>>> {
+        // Track processed blob_ids to avoid duplicates.
+        let mut processed_blob_ids = HashSet::new();
+
+        // Group all blobs' slivers by target node to create batched requests.
+        let mut bundles_by_node: HashMap<usize, Vec<MultiPutBundle>> = HashMap::new();
+
+        for blob_data in blob_data_list {
+            let blob_id = *blob_data.metadata.blob_id();
+
+            // Skip if we've already processed this blob_id.
+            if !processed_blob_ids.insert(blob_id) {
+                continue;
+            }
+
+            let metadata = &blob_data.metadata;
+            let pairs = &blob_data.pairs;
+            let pairs_per_node = self.pairs_per_node(&blob_id, pairs, committees).await;
+
+            for (node_index, node_pairs) in pairs_per_node {
+                let bundle = MultiPutBundle {
+                    blob_id,
+                    metadata: Some(metadata.as_ref().clone()),
+                    sliver_pairs: node_pairs.into_iter().cloned().collect(),
+                    blob_persistence: blob_persistence_type.into(),
+                };
+                bundles_by_node.entry(node_index).or_default().push(bundle);
+            }
+        }
+
+        Ok(bundles_by_node)
+    }
+
+    /// Stores blob data (metadata and sliver pairs) for multiple blobs before registration.
+    /// This function enables parallel registration and sliver upload by sending the encoded data
+    /// to storage nodes immediately, which will cache the data and return confirmations even if
+    /// the blobs are not yet registered on-chain.
+    ///
+    /// Takes a vector of BlobData containing the metadata and sliver pairs for each blob.
+    ///
+    /// The function groups all blobs' slivers by their target storage nodes to minimize the
+    /// number of HTTP requests, significantly improving upload latency for multi-blob operations.
+    ///
+    /// Returns a HashMap mapping blob IDs to their individual certificate results, allowing
+    /// per-blob error handling.
+    #[tracing::instrument(skip_all)]
+    pub async fn store_blob_data_pre_registration(
+        &self,
+        blob_data_list: Vec<BlobData>,
+        _store_args: &StoreArgs,
+    ) -> ClientResult<CertificateConfirmationResult> {
+        if blob_data_list.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        tracing::info!(
+            blob_count = blob_data_list.len(),
+            "starting parallel upload for multiple blobs without registration"
+        );
+
+        let committees = self.get_committees().await?;
+
+        // For pre-registration uploads, we always use Permanent type.
+        // The actual persistence type (with correct object ID for deletable blobs).
+        // will be set during the actual registration process.
+        let blob_persistence_type = walrus_core::messages::BlobPersistenceType::Permanent;
+
+        let bundles_by_node = self
+            .assemble_bundles_by_node(&blob_data_list, blob_persistence_type, &committees)
+            .await?;
+
+        // Use the number of shards as the concurrent write limit.
+        let sliver_write_limit = self.encoding_config.n_shards().get() as usize;
+
+        tracing::debug!(
+            blob_count = blob_data_list.len(),
+            node_count = bundles_by_node.len(),
+            communication_limits = sliver_write_limit,
+            "establishing batched node communications for pre-registration upload"
+        );
+
+        let comms = self
+            .communication_factory
+            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+
+        // Create weighted futures for quorum-based multi_put requests
+        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+            let node_bundles = bundles_by_node
+                .get(&n.node_index)
+                .cloned()
+                .unwrap_or_default();
+
+            // Always use multi_put for pre-registration uploads to enable caching
+            if !node_bundles.is_empty() {
+                n.multi_put(node_bundles).boxed()
+            } else {
+                futures::future::ready(NodeResult::new(
+                    n.committee_epoch,
+                    1, // Use weight 1 for empty requests
+                    n.node_index,
+                    Ok(vec![]),
+                ))
+                .boxed()
+            }
+        }));
+
+        // Execute requests and wait for quorum (like send_blob_data_and_get_certificate)
+        tracing::info!(
+            "Starting pre-registration multi_put requests to {} nodes",
+            comms.len()
+        );
+        requests
+            .execute_weight(
+                &|weight| {
+                    let is_enough = committees
+                        .write_committee()
+                        .is_at_least_min_n_correct(weight);
+                    tracing::debug!(
+                        "Pre-registration weight check: weight={}, min_n_correct={}, is_enough={}",
+                        weight,
+                        committees.min_n_correct(),
+                        is_enough
+                    );
+                    is_enough
+                },
+                committees.n_shards().get().into(),
+            )
+            .await;
+
+        let results = requests.into_results();
+
+        tracing::info!(
+            "Completed pre-registration upload to {} nodes",
+            results.len()
+        );
+
+        // Group confirmations by blob_id.
+        let mut confirmations_by_blob: HashMap<
+            BlobId,
+            Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
+        > = HashMap::new();
+
+        // Process results from successful nodes and aggregate confirmations by blob_id
+        let mut successful_nodes = 0;
+        let mut failed_nodes = 0;
+
+        for node_result in results {
+            match node_result.result {
+                Ok(blob_responses) => {
+                    successful_nodes += 1;
+                    tracing::info!(
+                        "Node {} succeeded with {} blob responses, weight={}",
+                        node_result.node,
+                        blob_responses.len(),
+                        node_result.weight
+                    );
+
+                    for response in blob_responses {
+                        match response.result {
+                            Ok(confirmation) => {
+                                tracing::debug!(
+                                    "Got confirmation for blob {} from node {}",
+                                    response.blob_id,
+                                    node_result.node
+                                );
+                                confirmations_by_blob
+                                    .entry(response.blob_id)
+                                    .or_default()
+                                    .push(NodeResult::new(
+                                        node_result.committee_epoch,
+                                        node_result.weight,
+                                        node_result.node,
+                                        Ok(confirmation),
+                                    ));
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Confirmation error for blob {} from node {}: {:?}",
+                                    response.blob_id,
+                                    node_result.node,
+                                    e
+                                );
+                                confirmations_by_blob
+                                    .entry(response.blob_id)
+                                    .or_default()
+                                    .push(NodeResult::new(
+                                        node_result.committee_epoch,
+                                        node_result.weight,
+                                        node_result.node,
+                                        Err(StoreError::Confirmation(e)),
+                                    ));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    failed_nodes += 1;
+                    // Log node failure but don't create fake entries - the quorum handling
+                    // will collect confirmations from working nodes
+                    tracing::warn!(
+                        "Node {} failed during pre-registration upload (weight={}): {:?}",
+                        node_result.node,
+                        node_result.weight,
+                        e
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Pre-registration results: {} successful nodes, {} failed nodes",
+            successful_nodes,
+            failed_nodes
+        );
+
+        // Generate certificates for each unique blob_id.
+        let mut certificates: CertificateConfirmationResult = HashMap::new();
+
+        for (blob_id, confirmations) in confirmations_by_blob {
+            let certificate_result = self
+                .confirmations_to_certificate(confirmations, &committees)
+                .await;
+            certificates.insert(blob_id, certificate_result);
+        }
+
+        Ok(certificates)
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
