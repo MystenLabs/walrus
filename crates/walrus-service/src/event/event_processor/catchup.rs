@@ -3,7 +3,7 @@
 
 //! Catchup module for catching up the event processor with the network.
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 use sui_types::{
     committee::Committee,
@@ -22,6 +22,7 @@ use crate::event::{
     event_blob::EventBlob,
     event_processor::{
         config::{SuiClientSet, SystemConfig},
+        coordination::CatchupCoordinationState,
         db::EventProcessorStores,
     },
     events::{IndexedStreamEvent, InitState},
@@ -57,6 +58,17 @@ impl std::fmt::Debug for DownloadedBlob {
     }
 }
 
+/// Configuration for runtime catchup coordination.
+#[derive(Clone, Debug)]
+pub struct CatchupRuntimeConfig {
+    /// The coordination state for the catchup process.
+    pub coordination_state: Arc<CatchupCoordinationState>,
+    /// The timeout for the coordination process.
+    pub coordination_timeout: Duration,
+    /// The timeout for the processing process.
+    pub processing_timeout: Duration,
+}
+
 /// Manages the catchup process for events in the event processor using event blobs.
 ///
 /// This manager handles the process of catching up the local event store with the network state.
@@ -71,6 +83,7 @@ pub struct EventBlobCatchupManager {
     system_config: SystemConfig,
     recovery_path: PathBuf,
     metrics: EventCatchupManagerMetrics,
+    catchup_runtime_config: CatchupRuntimeConfig,
 }
 
 impl std::fmt::Debug for EventBlobCatchupManager {
@@ -91,6 +104,7 @@ impl EventBlobCatchupManager {
         system_config: SystemConfig,
         recovery_path: PathBuf,
         registry: &Registry,
+        catchup_runtime_config: CatchupRuntimeConfig,
     ) -> Self {
         let metrics = EventCatchupManagerMetrics::new(registry);
         Self {
@@ -99,6 +113,7 @@ impl EventBlobCatchupManager {
             system_config,
             recovery_path,
             metrics,
+            catchup_runtime_config,
         }
     }
 
@@ -184,6 +199,13 @@ impl EventBlobCatchupManager {
         Ok(lag)
     }
 
+    /// Gets the current lag between the local store and the network
+    pub async fn get_current_lag(&self) -> anyhow::Result<u64> {
+        let current_checkpoint = self.get_current_checkpoint()?;
+        let latest_checkpoint = self.get_latest_network_checkpoint().await;
+        self.calculate_lag(current_checkpoint, latest_checkpoint)
+    }
+
     /// Performs the catchup operation using event blobs
     pub async fn perform_catchup(&self) -> anyhow::Result<()> {
         match self.catchup_using_event_blobs().await {
@@ -221,24 +243,84 @@ impl EventBlobCatchupManager {
     async fn catchup_using_event_blobs(&self) -> anyhow::Result<()> {
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_catchup_using_event_blobs_start");
+        let coordination_state_clone = self.catchup_runtime_config.coordination_state.clone();
 
         let next_checkpoint = self.get_next_checkpoint()?;
         tracing::info!(next_checkpoint, "starting event catchup using event blobs");
         self.ensure_recovery_directory()?;
 
-        let blobs = self
-            .collect_event_blobs_for_catchup(next_checkpoint)
-            .await?;
+        let blobs = match self.collect_event_blobs_for_catchup(next_checkpoint).await {
+            Ok(blobs) => blobs,
+            Err(e) => {
+                tracing::error!(error = ?e, "failed to collect event blobs for catchup");
+                // Since we are not able to collect event blobs, we can't proceed with catchup.
+                // We return Ok(()) because it is still safe to continue with the event processor.
+                return Ok(());
+            }
+        };
+
+        if let Err(e) = coordination_state_clone
+            .start_catchup_processing_phase()
+            .await
+        {
+            tracing::error!(
+                error = ?e,
+                "failed to send stop message to checkpoint tailing"
+            );
+            return Err(anyhow::anyhow!(
+                "failed to send stop message to checkpoint tailing"
+            ));
+        }
+
+        // Wait for tailing to fully stop (or timeout) before proceeding to processing
+        if !coordination_state_clone
+            .wait_for_tailing_stopped(self.catchup_runtime_config.coordination_timeout)
+            .await
+        {
+            tracing::error!(
+                timeout_secs = self.catchup_runtime_config.coordination_timeout.as_secs(),
+                "timed out waiting for checkpoint tailing to stop"
+            );
+            // We return Err(anyhow::anyhow!("timed out waiting for checkpoint tailing to stop"))
+            // because it is not safe to continue with the event processor anymore as we have
+            // already sent the stop message to checkpoint tailing.
+            return Err(anyhow::anyhow!(
+                "timed out waiting for checkpoint tailing to stop"
+            ));
+        }
+
         let next_event_index = self.get_next_event_index()?;
+        let processing_result = tokio::time::timeout(
+            self.catchup_runtime_config.processing_timeout,
+            self.process_event_blobs(blobs, next_event_index),
+        )
+        .await;
 
-        self.process_event_blobs(blobs, next_event_index).await?;
+        match processing_result {
+            Ok(Ok(num_events_recovered)) => {
+                tracing::info!("successfully processed {} events", num_events_recovered);
+            }
+            Ok(Err(e)) => {
+                tracing::error!(error = ?e, "failed to process event blobs");
+            }
+            Err(_) => {
+                tracing::error!("processing event blobs timed out");
+            }
+        }
 
-        Ok(())
+        if let Err(e) = coordination_state_clone.complete_catchup().await {
+            tracing::error!(error = ?e, "failed to send restart message to checkpoint tailing");
+            Err(anyhow::anyhow!(
+                "failed to send restart message to checkpoint tailing"
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Gets the next checkpoint sequence number that is after the latest checkpoint in the
     /// checkpoint store.
-    fn get_next_checkpoint(&self) -> Result<Option<u64>, TypedStoreError> {
+    pub fn get_next_checkpoint(&self) -> Result<Option<u64>, TypedStoreError> {
         Ok(self
             .stores
             .checkpoint_store
@@ -249,7 +331,7 @@ impl EventBlobCatchupManager {
     }
 
     /// Gets the next event index that is after the latest event index in the event store.
-    fn get_next_event_index(&self) -> Result<Option<u64>, TypedStoreError> {
+    pub fn get_next_event_index(&self) -> Result<Option<u64>, TypedStoreError> {
         Ok(self
             .stores
             .event_store
@@ -260,7 +342,7 @@ impl EventBlobCatchupManager {
     }
 
     /// Ensures the recovery directory exists
-    fn ensure_recovery_directory(&self) -> anyhow::Result<()> {
+    pub fn ensure_recovery_directory(&self) -> anyhow::Result<()> {
         if !self.recovery_path.exists() {
             fs::create_dir_all(&self.recovery_path)?;
         }
@@ -281,7 +363,7 @@ impl EventBlobCatchupManager {
     /// This function creates a client to download event blobs up to a specified
     /// checkpoint. The blobs are stored in the provided recovery path.
     #[cfg(feature = "client")]
-    async fn collect_event_blobs_for_catchup(
+    pub async fn collect_event_blobs_for_catchup(
         &self,
         starting_checkpoint_to_process: Option<u64>,
     ) -> anyhow::Result<Vec<BlobId>> {
@@ -313,11 +395,18 @@ impl EventBlobCatchupManager {
         Ok(blob_ids)
     }
 
-    async fn process_event_blobs(
+    /// Processes event blobs and stores them in the event store.
+    ///
+    /// This function performs the following steps:
+    /// 1. Iterates through the event blobs in reverse order (oldest to newest).
+    /// 2. Processes each blob:
+    ///    - Collects relevant events that maintain a continuous sequence with the local store.
+    ///    - Stores the events in the event store.
+    pub async fn process_event_blobs(
         &self,
         blobs: Vec<BlobId>,
         next_event_index: Option<u64>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
         tracing::info!("starting to process event blobs");
 
         let mut num_events_recovered = 0;
@@ -372,7 +461,7 @@ impl EventBlobCatchupManager {
         }
 
         tracing::info!("recovered {} events from event blobs", num_events_recovered);
-        Ok(())
+        Ok(num_events_recovered)
     }
 
     async fn process_single_blob(
