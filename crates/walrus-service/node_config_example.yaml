@@ -115,6 +115,7 @@ sui:
     max_retries: 5
   gas_budget: null
   rpc_fallback_config: null
+  additional_rpc_endpoints: []
   request_timeout: null
 blob_recovery:
   max_concurrent_blob_syncs: 100
