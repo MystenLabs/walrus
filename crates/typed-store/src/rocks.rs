@@ -104,6 +104,8 @@ macro_rules! retry_transaction {
             match status {
                 Err(TypedStoreError::RetryableTransactionError) => {
                     retries += 1;
+                    let metrics = $crate::metrics::DBMetrics::get();
+                    metrics.op_metrics.rocksdb_optimistic_tx_retries_total.inc();
                     // Randomized delay to help racing transactions get out of each other's way.
                     let delay = {
                         let mut rng = ThreadRng::default();
@@ -127,7 +129,15 @@ macro_rules! retry_transaction {
                     }
                     sleep(delay).await;
                 }
-                _ => break status,
+                _ => {
+                    // Observe per-transaction retries in a histogram (0 if no retries).
+                    let metrics = $crate::metrics::DBMetrics::get();
+                    metrics
+                        .op_metrics
+                        .rocksdb_optimistic_tx_retries_per_tx
+                        .observe(f64::from(retries));
+                    break status;
+                }
             }
         }
     }};
@@ -474,59 +484,6 @@ impl RocksDB {
                     .map_err(typed_store_err_from_rocks_err)
             }
         )
-    }
-
-    /// Create a new transaction without a snapshot.
-    /// This can only be called when the engine is an `OptimisticTransactionDB`.
-    ///
-    /// Panics if called on a standard `RocksDB` engine.
-    ///
-    /// Consistency:
-    /// - No snapshot is taken, so keys are not pinned to a stable view.
-    ///   If a snapshot has not been set, the transaction guarantees that keys.
-    ///   have not been modified since the time each key was first written.
-    ///   (or fetched via `get_for_update`).
-    pub fn transaction_without_snapshot(
-        &self,
-    ) -> Result<Transaction<'_, rocksdb::OptimisticTransactionDB>, TypedStoreError> {
-        match self {
-            Self::OptimisticTransactionDB(db) => Ok(db.underlying.transaction()),
-            Self::DB(d) => panic!(
-                "transaction_without_snapshot requires OptimisticTransactionDB; \
-                called on standard RocksDB. db_path={:?}, db_name={}",
-                d.db_path, d.metric_conf.db_name
-            ),
-        }
-    }
-
-    /// Create a new transaction with a snapshot.
-    /// This can only be called when the engine is an `OptimisticTransactionDB`.
-    ///
-    /// Panics if called on a standard `RocksDB` engine.
-    ///
-    /// Consistency:
-    /// - Sets a snapshot on the transaction, providing a consistent view for.
-    ///   all reads during the transaction (repeatable reads across column.
-    ///   families). This is the safer choice when your write decisions depend.
-    ///   on what you read.
-    pub fn transaction(
-        &self,
-    ) -> Result<Transaction<'_, rocksdb::OptimisticTransactionDB>, TypedStoreError> {
-        match self {
-            Self::OptimisticTransactionDB(db) => {
-                let mut tx_opts = OptimisticTransactionOptions::new();
-                tx_opts.set_snapshot(true);
-
-                Ok(db
-                    .underlying
-                    .transaction_opt(&WriteOptions::default(), &tx_opts))
-            }
-            Self::DB(d) => panic!(
-                "transaction requires OptimisticTransactionDB; \
-                called on standard RocksDB. db_path={:?}, db_name={}",
-                d.db_path, d.metric_conf.db_name
-            ),
-        }
     }
 
     /// Get a raw iterator for a specific column family.
@@ -1512,7 +1469,7 @@ impl DBBatch {
 
     /// Deletes a range of keys between `from` (inclusive) and `to` (non-inclusive)
     /// by writing a range delete tombstone in the db map.
-    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// If the DBMap is configured with ignore_range_deletions set to false,
     /// the effect of this write will be visible immediately i.e. you won't.
     /// see old values when you do a lookup or scan. But if it is configured.
     /// with ignore_range_deletions set to true, the old value are visible until.
@@ -1677,7 +1634,7 @@ where
     fn contains_key(&self, key: &K) -> Result<bool, TypedStoreError> {
         let start = std::time::Instant::now();
         let key_buf = be_fix_int_ser(key)?;
-        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,.
+        // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
         // but no false negatives. We use it to short-circuit the absent case.
         let readopts = self.opts.readopts();
         let may_exist = self
@@ -1874,7 +1831,7 @@ where
     }
 
     /// Writes a range delete tombstone to delete all entries in the db map.
-    /// If the DBMap is configured with ignore_range_deletions set to false,.
+    /// If the DBMap is configured with ignore_range_deletions set to false,
     /// the effect of this write will be visible immediately i.e. you won't.
     /// see old values when you do a lookup or scan. But if it is configured.
     /// with ignore_range_deletions set to true, the old value are visible until.
@@ -2109,7 +2066,7 @@ impl fmt::Debug for DBOptions {
 pub fn default_db_options() -> DBOptions {
     let mut opt = rocksdb::Options::default();
 
-    // One common issue when running tests on Mac is that the default ulimit is too low,.
+    // One common issue when running tests on Mac is that the default ulimit is too low,
     // leading to I/O errors such as "Too many open files". Raising fdlimit to bypass it.
     if let Ok(outcome) = fdlimit::raise_fd_limit() {
         let limit = match outcome {

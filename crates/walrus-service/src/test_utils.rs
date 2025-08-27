@@ -3037,7 +3037,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             .try_into()
             .expect("should be able to find an unused socket address"),
             storage_path: temp_dir.path().to_path_buf(),
-            db_config: Default::default(),
+            db_config: DatabaseConfig::default_for_test(),
             rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
