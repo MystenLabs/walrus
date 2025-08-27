@@ -110,6 +110,12 @@ macro_rules! retry_transaction {
             match status {
                 Err(TypedStoreError::RetryableTransactionError) => {
                     retries += 1;
+                    let metrics = $crate::metrics::DBMetrics::get();
+                    metrics
+                        .op_metrics
+                        .rocksdb_optimistic_tx_retries_total
+                        .with_label_values(&["typed_store"])
+                        .inc();
                     // Randomized delay to help racing transactions get out of each other's way.
                     let delay = {
                         let mut rng = ThreadRng::default();
