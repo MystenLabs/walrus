@@ -115,21 +115,41 @@ pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltErro
 /// assert!(validate_quilt_identifier("test\r").is_err());
 /// assert!(validate_quilt_identifier("test   ").is_err());
 /// ```
+///
+/// Invalid identifiers - contains control characters:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("te\x08st").is_err());  // Backspace in middle
+/// assert!(validate_quilt_identifier("\x1Btest").is_err());  // ESC at start
+/// assert!(validate_quilt_identifier("test\x00").is_err());  // Null at end
+/// assert!(validate_quilt_identifier("test\x01").is_err());  // SOH at end
+/// assert!(validate_quilt_identifier("test\x1F").is_err());  // US (Unit Separator) at end
+/// assert!(validate_quilt_identifier("test\x7F").is_err());  // DEL at end
+/// assert!(validate_quilt_identifier("test\u{0080}").is_err());  // PAD (C1 control) at end
+/// assert!(validate_quilt_identifier("test\u{0081}").is_err());  // HOP (C1 control) at end
+/// assert!(validate_quilt_identifier("test\u{009F}").is_err());  // APC (C1 control) at end
+/// ```
 pub fn validate_quilt_identifier(identifier: &str) -> Result<(), QuiltError> {
     if identifier.len() > MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
         return Err(QuiltError::InvalidIdentifier(format!(
-            "Identifier too long: {}",
+            "identifier too long: {}",
             identifier.len()
         )));
     }
     if identifier.is_empty() {
         return Err(QuiltError::InvalidIdentifier(
-            "Identifier is empty".to_string(),
+            "identifier is empty".to_string(),
         ));
     }
     if identifier.trim_end() != identifier {
         return Err(QuiltError::InvalidIdentifier(format!(
-            "Identifier contains trailing whitespace: {}",
+            "identifier contains trailing whitespace: {}",
+            identifier
+        )));
+    }
+    if identifier.chars().any(|c| c.is_control()) {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "identifier contains control characters: {}",
             identifier
         )));
     }
