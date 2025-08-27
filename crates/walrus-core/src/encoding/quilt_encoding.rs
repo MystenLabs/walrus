@@ -74,6 +74,68 @@ pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltErro
     QuiltVersionEnum::try_from(utils::get_quilt_version_byte(data)?)
 }
 
+/// Returns if an identifier is valid.
+///
+/// Validates that:
+/// - The identifier is not empty
+/// - The identifier is not too long (max length enforced)
+/// - The identifier has no trailing whitespace
+///
+/// # Examples
+///
+/// Valid identifiers:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("test").is_ok());
+/// assert!(validate_quilt_identifier("test123").is_ok());
+/// assert!(validate_quilt_identifier("123test").is_ok());
+/// assert!(validate_quilt_identifier("a").is_ok());
+/// assert!(validate_quilt_identifier("A123").is_ok());
+/// assert!(validate_quilt_identifier("_test").is_ok());
+/// assert!(validate_quilt_identifier("-test").is_ok());
+/// assert!(validate_quilt_identifier(".test").is_ok());
+/// assert!(validate_quilt_identifier("test blob").is_ok());
+/// assert!(validate_quilt_identifier("test-blob").is_ok());
+/// assert!(validate_quilt_identifier("test_blob").is_ok());
+/// assert!(validate_quilt_identifier("test.blob").is_ok());
+/// ```
+///
+/// Invalid identifier - empty:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("").is_err());
+/// ```
+///
+/// Invalid identifiers - has trailing whitespace:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("test ").is_err());
+/// assert!(validate_quilt_identifier("test\t").is_err());
+/// assert!(validate_quilt_identifier("test\n").is_err());
+/// assert!(validate_quilt_identifier("test\r").is_err());
+/// assert!(validate_quilt_identifier("test   ").is_err());
+/// ```
+pub fn validate_quilt_identifier(identifier: &str) -> Result<(), QuiltError> {
+    if identifier.len() > MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "Identifier too long: {}",
+            identifier.len()
+        )));
+    }
+    if identifier.is_empty() {
+        return Err(QuiltError::InvalidIdentifier(
+            "Identifier is empty".to_string(),
+        ));
+    }
+    if identifier.trim_end() != identifier {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "Identifier contains trailing whitespace: {}",
+            identifier
+        )));
+    }
+    Ok(())
+}
+
 /// The version of the quilt.
 pub trait QuiltVersion: Sized {
     /// The type of the quilt config.
@@ -478,63 +540,10 @@ pub struct QuiltStoreBlob<'a> {
 }
 
 impl<'a> QuiltStoreBlob<'a> {
-    /// Returns if an identifier is valid.
-    ///
-    /// Note an empty identifier is not valid.
-    ///
-    /// # Examples
-    ///
-    /// Valid identifiers:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test123").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("123test").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("a").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("A123").is_ok());
-    /// ```
-    ///
-    /// Invalid identifiers - doesn't start with alphanumeric:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("_test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("-test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier(" test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier(".test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("").is_err());
-    /// ```
-    ///
-    /// Invalid identifiers - has trailing whitespace:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test ").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\t").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\n").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\r").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test   ").is_err());
-    /// ```
-    ///
-    /// Valid identifiers with spaces/special chars in the middle:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test-blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test_blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test.blob").is_ok());
-    /// ```
-    pub fn check_identifier(identifier: impl AsRef<str>) -> Result<(), QuiltError> {
-        let id = identifier.as_ref();
-        if id.starts_with(|c: char| c.is_alphanumeric()) && id == id.trim_end() {
-            Ok(())
-        } else {
-            Err(QuiltError::InvalidIdentifier(id.to_string()))
-        }
-    }
-
     /// Creates a new `QuiltStoreBlob` from a borrowed blob and an identifier.
     pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Result<Self, QuiltError> {
         let identifier = identifier.into();
-        Self::check_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             blob: Cow::Borrowed(blob),
@@ -551,7 +560,7 @@ impl<'a> QuiltStoreBlob<'a> {
     /// Creates a new `QuiltStoreBlob` from an owned blob and an identifier.
     pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Result<Self, QuiltError> {
         let identifier = identifier.into();
-        Self::check_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             blob: Cow::Owned(blob),
