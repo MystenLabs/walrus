@@ -382,6 +382,8 @@ pub struct OperationMetrics {
     pub rocksdb_batch_commit_bytes: HistogramVec,
     /// Number of active db handles
     pub rocksdb_num_active_db_handles: IntGaugeVec,
+    /// Number of times we retried an optimistic transaction due to write conflict
+    pub rocksdb_optimistic_tx_retries_total: IntCounterVec,
     /// Number of batch writes that took more than 1 second
     pub rocksdb_very_slow_batch_writes_count: IntCounterVec,
     /// Total duration of batch writes that took more than 1 second
@@ -420,6 +422,13 @@ impl OperationMetrics {
                 "Rocksdb iter latency in seconds",
                 &["cf_name"],
                 LATENCY_SEC_BUCKETS.to_vec(),
+                registry,
+            )
+            .unwrap(),
+            rocksdb_optimistic_tx_retries_total: register_int_counter_vec_with_registry!(
+                "rocksdb_optimistic_tx_retries_total",
+                "Number of times we retried an optimistic transaction due to write conflict",
+                &["db_name"],
                 registry,
             )
             .unwrap(),

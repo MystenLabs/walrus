@@ -282,6 +282,10 @@ pub struct GlobalDatabaseOptions {
     pub wal_ttl_seconds: Option<u64>,
     /// The size limit for the WAL in MB.
     pub wal_size_limit_mb: Option<u64>,
+    /// If true, open databases using OptimisticTransactionDB instead of the standard DB.
+    /// This enables optimistic transactions for write paths that need transactional semantics.
+    /// Defaults to false.
+    pub use_optimistic_transaction_db: bool,
 }
 
 impl Default for GlobalDatabaseOptions {
@@ -292,6 +296,16 @@ impl Default for GlobalDatabaseOptions {
             keep_log_file_num: Some(50),
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
+            use_optimistic_transaction_db: {
+                #[cfg(any(test, feature = "test-utils"))]
+                {
+                    true
+                }
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    false
+                }
+            },
         }
     }
 }
@@ -400,6 +414,11 @@ impl DatabaseConfig {
     /// Returns the global database options.
     pub fn global(&self) -> GlobalDatabaseOptions {
         self.global.clone()
+    }
+
+    /// Returns true if the storage node should use OptimisticTransactionDB.
+    pub fn use_optimistic_transaction_db(&self) -> bool {
+        self.global.use_optimistic_transaction_db
     }
 
     fn standard(&self) -> DatabaseTableOptions {
