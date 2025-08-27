@@ -33,7 +33,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-pub use storage::{DatabaseConfig, NodeStatus, Storage};
+pub use storage::{DatabaseConfig, DatabaseTableOptionsFactory, NodeStatus, Storage};
 use storage::{StorageShardLock, blob_info::PerObjectBlobInfoApi};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
