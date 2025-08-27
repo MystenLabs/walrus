@@ -790,6 +790,14 @@ impl QuiltClient<'_, SuiContractClient> {
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();
+
+        if blob_store_result.is_not_stored() {
+            return Ok(QuiltStoreResult {
+                blob_store_result,
+                stored_quilt_blobs: Vec::new(),
+            });
+        }
+
         let blob_id = blob_store_result
             .blob_id()
             .expect("the blob should have an id");

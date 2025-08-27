@@ -868,12 +868,16 @@ impl WalrusNodeClient<SuiContractClient> {
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
 
+        let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
+            encoded_blobs.into_iter().partition(|blob| blob.is_failed());
+
         let mut results = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
             })
             .await?;
 
+        results.extend(failed_blobs);
         debug_assert_eq!(results.len(), blobs.len());
 
         // A trick to make sure the output order is the same as the input order.
@@ -903,12 +907,16 @@ impl WalrusNodeClient<SuiContractClient> {
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
+            encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
             })
             .await?;
+
+        completed_blobs.extend(failed_blobs);
 
         assert_eq!(completed_blobs.len(), blobs_with_paths.len());
         completed_blobs.sort_by_key(|blob| blob.get_identifier().to_string());
@@ -945,11 +953,14 @@ impl WalrusNodeClient<SuiContractClient> {
             WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
+        let (failed_blobs, encoded_blobs): (Vec<_>, Vec<_>) =
+            encoded_blobs.into_iter().partition(|blob| blob.is_failed());
 
         let mut results = self
             .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
             .await?;
 
+        results.extend(failed_blobs);
         debug_assert_eq!(results.len(), blobs.len());
 
         results.sort_by_key(|blob| blob.get_identifier().to_string());
