@@ -1528,6 +1528,10 @@ impl StorageNode {
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
 
+        self.blob_event_processor
+            .wait_for_all_events_to_be_processed()
+            .await;
+
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
@@ -6380,6 +6384,94 @@ mod tests {
                     .blob_sync_in_progress()
                     .is_empty()
             );
+
+            clear_fail_point("fail_point_process_blob_certified_event");
+            Ok(())
+        }
+
+        // Tests that the blob event processor waits for all events to be processed.
+        #[walrus_simtest]
+        async fn test_blob_event_processor_wait_for_all_events_to_be_processed() -> TestResult {
+            let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+            let test_shard = ShardIndex(1);
+
+            // Add delay between checking if a blob needs to recover and actual starting the
+            // recover process. This window is where other events can break event processing order.
+            let blocking_notify = Arc::new(Notify::new());
+            let unblock_notify = Arc::new(Notify::new());
+            let blocking_notify_clone = blocking_notify.clone();
+            let unblock_notify_clone = unblock_notify.clone();
+
+            register_fail_point_async("fail_point_process_blob_certified_event", move || {
+                let blocking_notify_clone = blocking_notify_clone.clone();
+                let unblock_notify_clone = unblock_notify_clone.clone();
+                async move {
+                    // Notify the test body that we are blocking.
+                    blocking_notify_clone.notify_one();
+                    // Wait for the test body to unblock.
+                    unblock_notify_clone.notified().await;
+                }
+            });
+
+            let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+            // Randomly generated blob.
+            let random_blob = walrus_test_utils::random_data_list(10, 1);
+
+            let config = cluster.encoding_config();
+            let blob = EncodedBlob::new(&random_blob[0], config);
+
+            let object_id = ObjectID::random();
+
+            // Do not store the sliver in the first node.
+            events.send(
+                BlobRegistered {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobRegistered::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+            store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
+
+            let node = cluster.nodes[0].storage_node.clone();
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect("wait for all events to be processed should succeed");
+
+            // Sends certified event followed by delete event.
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobCertified::for_testing(*blob.blob_id()).into()
+                }
+                .into(),
+            )?;
+
+            blocking_notify.notified().await;
+
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect_err("wait for all events to be processed should timeout");
+
+            unblock_notify.notify_one();
+
+            tokio::time::timeout(
+                Duration::from_secs(20),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect("wait for all events to be processed should succeed");
 
             clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())

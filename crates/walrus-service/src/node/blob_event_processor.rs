@@ -1,7 +1,13 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use sui_macros::fail_point_async;
 use tokio::{
@@ -24,6 +30,7 @@ struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
     event_receiver: UnboundedReceiver<(EventHandle, BlobEvent)>,
+    pending_event_count: Arc<AtomicU64>,
 }
 
 impl BackgroundEventProcessor {
@@ -31,11 +38,13 @@ impl BackgroundEventProcessor {
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
         event_receiver: UnboundedReceiver<(EventHandle, BlobEvent)>,
+        pending_event_count: Arc<AtomicU64>,
     ) -> Self {
         Self {
             node,
             blob_sync_handler,
             event_receiver,
+            pending_event_count,
         }
     }
 
@@ -53,6 +62,14 @@ impl BackgroundEventProcessor {
                 // should propagate the error to the node and exit the process if necessary.
                 tracing::error!(?error, "error processing blob event");
             }
+
+            let current_pending_event_count =
+                self.pending_event_count.fetch_sub(1, Ordering::SeqCst) - 1;
+            walrus_utils::with_label!(
+                self.node.metrics.pending_processing_blob_event_in_queue,
+                &worker_index.to_string()
+            )
+            .set(current_pending_event_count as i64);
         }
     }
 
@@ -219,6 +236,11 @@ pub struct BlobEventProcessor {
     // this processor. This is to keep the same behavior as before BackgroundEventProcessor.
     // INVARIANT: sequential_processor must be Some if background_processor_senders is empty.
     sequential_processor: Option<Arc<BackgroundEventProcessor>>,
+
+    // The number of events that are pending to be processed in each background processor.
+    // Use per processor count to avoid high contention on the Atomic variable when tracking the
+    // total number of pending processed events.
+    background_per_processor_pending_event_count: Vec<Arc<AtomicU64>>,
 }
 
 impl BlobEventProcessor {
@@ -229,11 +251,18 @@ impl BlobEventProcessor {
     ) -> Self {
         let mut senders = Vec::with_capacity(num_workers);
         let mut workers = Vec::with_capacity(num_workers);
+        let mut background_per_processor_pending_event_count = Vec::with_capacity(num_workers);
         for worker_index in 0..num_workers {
             let (tx, rx) = mpsc::unbounded_channel();
             senders.push(tx);
-            let mut background_processor =
-                BackgroundEventProcessor::new(node.clone(), blob_sync_handler.clone(), rx);
+            let pending_event_count = Arc::new(AtomicU64::new(0));
+            background_per_processor_pending_event_count.push(pending_event_count.clone());
+            let mut background_processor = BackgroundEventProcessor::new(
+                node.clone(),
+                blob_sync_handler.clone(),
+                rx,
+                pending_event_count.clone(),
+            );
             // TODO(WAL-876): gracefully shut down the background processor when the node is
             // shutting down.
             workers.push(Arc::new(tokio::spawn(async move {
@@ -249,6 +278,7 @@ impl BlobEventProcessor {
                 node.clone(),
                 blob_sync_handler.clone(),
                 rx,
+                Arc::new(AtomicU64::new(0)),
             )))
         } else {
             None
@@ -259,6 +289,7 @@ impl BlobEventProcessor {
             background_processor_senders: senders,
             _background_processors: workers,
             sequential_processor,
+            background_per_processor_pending_event_count,
         }
     }
 
@@ -310,11 +341,24 @@ impl BlobEventProcessor {
             let processor_index = blob_event.blob_id().first_two_bytes() as usize
                 % self.background_processor_senders.len();
 
+            let current_pending_event_count = self.background_per_processor_pending_event_count
+                [processor_index]
+                .fetch_add(1, Ordering::SeqCst)
+                + 1;
+
             walrus_utils::with_label!(
                 self.node.metrics.pending_processing_blob_event_in_queue,
                 &processor_index.to_string()
             )
             .inc();
+
+            walrus_utils::with_label!(
+                self.node
+                    .metrics
+                    .pending_processing_blob_event_in_background_processors,
+                &processor_index.to_string()
+            )
+            .set(current_pending_event_count as i64);
 
             self.background_processor_senders[processor_index]
                 .send((event_handle, blob_event))
@@ -323,5 +367,28 @@ impl BlobEventProcessor {
                 })?;
         }
         Ok(())
+    }
+
+    /// Waits for all events to be processed in the background processors.
+    pub async fn wait_for_all_events_to_be_processed(&self) {
+        tracing::info!("ZZZZ waiting for all events to be processed 1");
+        if self.background_processor_senders.is_empty() {
+            tracing::info!("ZZZZ waiting for all events to be processed 2");
+            return;
+        }
+
+        tracing::info!("ZZZZ waiting for all events to be processed 3");
+
+        // Check if any of the background processors still have pending events.
+        while self
+            .background_per_processor_pending_event_count
+            .iter()
+            .any(|c| c.load(Ordering::SeqCst) > 0)
+        {
+            tracing::info!("ZZZZ waiting for all events to be processed 4");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        tracing::info!("ZZZZ waiting for all events to be processed 5");
     }
 }

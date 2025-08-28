@@ -173,6 +173,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of blob events pending processing in the queue."]
         pending_processing_blob_event_in_queue: IntGaugeVec["worker_index"],
+
+        #[help = "The number of blob events pending processing in the background processors."]
+        pending_processing_blob_event_in_background_processors: IntGaugeVec["worker_index"],
     }
 }
 
