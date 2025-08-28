@@ -2319,7 +2319,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         None,
     )?;
     let env = cluster_wallet.get_active_env()?.to_owned();
-    let mut wallet = test_utils::temp_dir_wallet(None, env)?;
+    let mut wallet = test_utils::temp_dir_wallet(None, env).await?;
 
     let sui = |sui: u64| (sui * 1_000_000_000);
 

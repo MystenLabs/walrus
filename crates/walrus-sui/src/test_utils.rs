@@ -384,7 +384,7 @@ pub mod using_tokio {
 }
 
 /// Creates a wallet for testing in a temporary directory.
-pub fn temp_dir_wallet(
+pub async fn temp_dir_wallet(
     request_timeout: Option<Duration>,
     env: SuiEnv,
 ) -> anyhow::Result<WithTempDir<Wallet>> {
@@ -394,7 +394,8 @@ pub fn temp_dir_wallet(
         env,
         None,
         request_timeout,
-    )?;
+    )
+    .await?;
 
     Ok(WithTempDir {
         inner: wallet,
@@ -526,7 +527,8 @@ pub async fn wallet_for_testing(
         funding_wallet.get_active_env()?.to_owned(),
         None,
         None,
-    )?;
+    )
+    .await?;
 
     if funded {
         fund_addresses(funding_wallet, vec![wallet.active_address()?], None).await?;
@@ -572,7 +574,7 @@ pub async fn fund_addresses(
     );
     #[allow(deprecated)]
     funding_wallet
-        .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction))
+        .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction).await)
         .await?;
 
     Ok(())

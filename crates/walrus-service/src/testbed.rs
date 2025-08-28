@@ -363,7 +363,8 @@ pub async fn deploy_walrus_contract(
             sui_network.env(),
             Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
             None,
-        )?;
+        )
+        .await?;
 
         // Print the wallet address.
         println!("Admin wallet address:");
@@ -480,7 +481,8 @@ pub async fn create_client_config(
         sui_network.env(),
         Some(&format!("{wallet_name}.keystore")),
         sui_client_request_timeout,
-    )?;
+    )
+    .await?;
 
     let client_address = sui_client_wallet_context.active_address()?;
 
@@ -839,18 +841,19 @@ async fn create_storage_node_wallets(
     sui_amount: u64,
 ) -> anyhow::Result<Vec<Wallet>> {
     // Create wallets for the storage nodes
-    let mut storage_node_wallets = (0..n_nodes.get())
-        .map(|index| {
-            let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
-            create_wallet(
-                &wallet_path,
-                sui_network.env(),
-                Some(&format!("{name}.keystore")),
-                None,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut storage_node_wallets = Vec::with_capacity(n_nodes.get() as usize);
+    for index in 0..n_nodes.get() {
+        let name = node_config_name_prefix(index, n_nodes);
+        let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
+        let wallet = create_wallet(
+            &wallet_path,
+            sui_network.env(),
+            Some(&format!("{name}.keystore")),
+            None,
+        )
+        .await?;
+        storage_node_wallets.push(wallet);
+    }
 
     print_wallet_addresses(&mut storage_node_wallets)?;
 

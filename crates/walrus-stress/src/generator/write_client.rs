@@ -288,7 +288,8 @@ pub async fn wallet_for_testing_from_refill(
     let mut wallet = temp_dir_wallet(
         config.communication_config.sui_client_request_timeout,
         network.env(),
-    )?;
+    )
+    .await?;
     let address = wallet.as_mut().active_address()?;
     refiller.send_gas_request(address).await?;
     refiller.send_wal_request(address).await?;

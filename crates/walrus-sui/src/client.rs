@@ -20,12 +20,7 @@ use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJ
 use serde::{Deserialize, Serialize};
 use sui_package_management::LockCommand;
 use sui_sdk::{
-    rpc_types::{
-        SuiExecutionStatus,
-        SuiTransactionBlockEffectsAPI,
-        SuiTransactionBlockResponse,
-        get_new_package_obj_from_response,
-    },
+    rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::base_types::ObjectID,
 };
 use sui_types::{TypeTag, base_types::SuiAddress, event::EventID, transaction::TransactionData};
@@ -2341,7 +2336,7 @@ impl SuiContractClientInner {
         method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         // Sign the transaction with the wallet's keys
-        let signed_transaction = self.wallet.sign_transaction(&transaction);
+        let signed_transaction = self.wallet.sign_transaction(&transaction).await;
 
         // Execute the transaction and wait for response
         let response = self
@@ -2936,7 +2931,8 @@ impl SuiContractClientInner {
         response: &SuiTransactionBlockResponse,
         build_config: MoveBuildConfig,
     ) -> SuiClientResult<ObjectID> {
-        let new_package_id = get_new_package_obj_from_response(response)
+        let new_package_id = response
+            .get_new_package_obj()
             .ok_or_else(|| {
                 anyhow!(
                     "no new package ID found in the transaction response: {:?}",
