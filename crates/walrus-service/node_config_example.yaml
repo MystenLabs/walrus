@@ -8,6 +8,7 @@ db_config:
     keep_log_file_num: 50
     wal_ttl_seconds: 172800
     wal_size_limit_mb: 10240
+    enable_statistics: false
   standard:
     enable_blob_files: false
     min_blob_size: 0

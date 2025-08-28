@@ -143,14 +143,12 @@ pub fn validate_quilt_identifier(identifier: &str) -> Result<(), QuiltError> {
     }
     if identifier.trim_end() != identifier {
         return Err(QuiltError::InvalidIdentifier(format!(
-            "identifier contains trailing whitespace: {}",
-            identifier
+            "identifier contains trailing whitespace: {identifier}",
         )));
     }
     if identifier.chars().any(|c| c.is_control()) {
         return Err(QuiltError::InvalidIdentifier(format!(
-            "identifier contains control characters: {}",
-            identifier
+            "identifier contains control characters: {identifier}",
         )));
     }
     Ok(())
