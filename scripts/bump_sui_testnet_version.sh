@@ -61,7 +61,7 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
   echo "No matching files found for update."
   exit 0
 else
-  echo "Updating testnet tags in:"g 
+  echo "Updating testnet tags in:"
   printf '  - %s\n' "${TARGETS[@]}"
 
   for f in "${TARGETS[@]}"; do
