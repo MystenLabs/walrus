@@ -24,7 +24,7 @@ use walrus_core::{
         EncodingAxis,
         EncodingConfig,
         EncodingConfigEnum,
-        EncodingConfigTrait,
+        EncodingFactory,
         GeneralRecoverySymbol,
         RecoverySymbolError,
         SliverData,
@@ -265,7 +265,7 @@ mod tests {
     use walrus_core::{
         SliverId,
         SliverIndex,
-        encoding::{EncodingConfigTrait, PrimarySliver, SliverPair},
+        encoding::{EncodingFactory, PrimarySliver, SliverPair},
         metadata::VerifiedBlobMetadataWithId,
     };
     use walrus_test_utils::{Result as TestResult, async_param_test};

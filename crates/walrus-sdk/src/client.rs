@@ -41,7 +41,7 @@ use walrus_core::{
     encoding::{
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         RequiredCount,
         SliverData,
         SliverPair,

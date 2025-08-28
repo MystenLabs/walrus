@@ -29,7 +29,7 @@ use walrus_core::{
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},

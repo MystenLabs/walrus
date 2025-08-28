@@ -29,7 +29,7 @@ use crate::{
     encoding::{
         self,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         PrimaryRecoverySymbol,
         PrimarySliver,

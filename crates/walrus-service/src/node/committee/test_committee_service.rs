@@ -28,7 +28,7 @@ use walrus_core::{
     bft,
     encoding::{
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         GeneralRecoverySymbol,
         Primary,
         PrimaryRecoverySymbol,

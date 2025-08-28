@@ -16,7 +16,7 @@ use super::{
     EncodingAxis,
     EncodingConfig,
     EncodingConfigEnum,
-    EncodingConfigTrait as _,
+    EncodingFactory as _,
     Primary,
     RecoverySymbol,
     RecoverySymbolError,

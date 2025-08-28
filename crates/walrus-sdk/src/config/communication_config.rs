@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DefaultOnNull, DurationMilliSeconds, serde_as};
 use walrus_core::{
     EncodingType,
-    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
+    encoding::{EncodingConfig, EncodingFactory as _, Primary},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 

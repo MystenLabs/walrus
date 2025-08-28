@@ -25,7 +25,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
     QuiltPatchId,
-    encoding::{EncodingConfig, EncodingConfigTrait},
+    encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
 use walrus_sui::{

@@ -3192,7 +3192,7 @@ mod tests {
     use tokio::sync::{Mutex, broadcast::Sender};
     use walrus_core::{
         DEFAULT_ENCODING,
-        encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
+        encoding::{EncodingFactory as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
     };

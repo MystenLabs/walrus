@@ -9,7 +9,7 @@
 use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{EncodingConfigTrait as _, ReedSolomonEncodingConfig};
+use walrus_core::encoding::{EncodingFactory as _, ReedSolomonEncodingConfig};
 use walrus_test_utils::{random_data, random_subset};
 
 const N_SHARDS: u16 = 1000;

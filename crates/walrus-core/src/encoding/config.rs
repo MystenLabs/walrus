@@ -32,19 +32,13 @@ use crate::{
 /// Reed-Solomon). This is dictated by [`reed_solomon_simd::engine::GF_ORDER`].
 pub const MAX_SOURCE_SYMBOLS: u16 = u16::MAX;
 
-// TODO (WAL-621): Maybe rename this module and the structs/enums/traits; these now take on similar
-// roles as "factories".
-
-/// Trait for encoding configurations.
-///
-/// This trait provides a common interface for encoding configurations for different types of
-/// encodings.
+/// Trait for encoding functionality, including configuration, encoding, and decoding.
 #[enum_dispatch]
-pub trait EncodingConfigTrait {
-    /// The encoding type associated with this encoding config.
+pub trait EncodingFactory {
+    /// The encoding type associated with this factory.
     fn encoding_type(&self) -> EncodingType;
 
-    /// The maximum symbol size associated with this encoding config.
+    /// The maximum symbol size associated with this factory.
     fn max_symbol_size(&self) -> u16 {
         self.encoding_type().max_symbol_size()
     }
@@ -376,7 +370,7 @@ impl EncodingConfig {
     }
 }
 
-#[enum_dispatch(EncodingConfigTrait)]
+#[enum_dispatch(EncodingFactory)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A wrapper around the encoding config for different encoding types.
 pub enum EncodingConfigEnum<'a> {
@@ -524,7 +518,7 @@ impl ReedSolomonEncodingConfig {
     }
 }
 
-impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
+impl EncodingFactory for &ReedSolomonEncodingConfig {
     #[inline]
     fn n_primary_source_symbols(&self) -> NonZeroU16 {
         self.source_symbols_primary
@@ -595,6 +589,10 @@ impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
         Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
     }
 
+    /// Returns the symbol at the given index.
+    ///
+    /// If the index corresponds to a source symbol, the function directly returns the corresponding
+    /// data slice without performing any encoding.
     fn encode_symbol<E: EncodingAxis>(
         &self,
         data: &[u8],
@@ -629,7 +627,7 @@ impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
     }
 }
 
-impl EncodingConfigTrait for ReedSolomonEncodingConfig {
+impl EncodingFactory for ReedSolomonEncodingConfig {
     fn encoding_type(&self) -> EncodingType {
         (&self).encoding_type()
     }

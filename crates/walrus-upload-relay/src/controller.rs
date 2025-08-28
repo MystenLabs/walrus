@@ -39,7 +39,7 @@ use walrus_sdk::{
     core::{
         BlobId,
         EncodingType,
-        encoding::EncodingConfigTrait as _,
+        encoding::EncodingFactory as _,
         messages::{BlobPersistenceType, ConfirmationCertificate},
     },
     core_utils::metrics::Registry,

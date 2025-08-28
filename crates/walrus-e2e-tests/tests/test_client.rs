@@ -33,7 +33,7 @@ use walrus_core::{
     SliverPairIndex,
     encoding::{
         BLOB_TYPE_ATTRIBUTE_KEY,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         QUILT_TYPE_VALUE,
         encoded_blob_length_for_n_shards,

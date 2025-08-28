@@ -36,7 +36,7 @@ use crate::{
         EncodingAxis,
         QuiltError,
         blob_encoding::BlobEncoder,
-        config::EncodingConfigTrait as _,
+        config::EncodingFactory as _,
     },
     metadata::{
         QuiltIndex,

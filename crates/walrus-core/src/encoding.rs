@@ -26,7 +26,7 @@ mod config;
 pub use config::{
     EncodingConfig,
     EncodingConfigEnum,
-    EncodingConfigTrait,
+    EncodingFactory,
     MAX_SOURCE_SYMBOLS,
     ReedSolomonEncodingConfig,
     RequiredCount,

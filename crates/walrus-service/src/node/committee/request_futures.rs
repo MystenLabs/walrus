@@ -34,7 +34,7 @@ use walrus_core::{
     encoding::{
         self,
         EncodingAxis,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         GeneralRecoverySymbol,
         Primary,
         RecoverySymbol as RecoverySymbolData,

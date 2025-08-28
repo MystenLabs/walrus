@@ -14,7 +14,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     EpochCount,
     SliverPairIndex,
-    encoding::EncodingConfigTrait as _,
+    encoding::EncodingFactory as _,
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
 };

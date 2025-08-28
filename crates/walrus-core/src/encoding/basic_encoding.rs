@@ -7,7 +7,7 @@ use core::{fmt, num::NonZeroU16};
 use reed_solomon_simd;
 use tracing::Level;
 
-use super::{DecodingSymbol, EncodingAxis, EncodingConfigTrait};
+use super::{DecodingSymbol, EncodingAxis, EncodingFactory};
 use crate::{
     EncodingType,
     encoding::{DecodeError, EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, utils},
@@ -22,7 +22,7 @@ pub const QUILT_TYPE_VALUE: &str = "quilt";
 /// Trait implemented for all basic (1D) decoders.
 pub trait Decoder: Sized {
     /// The type of the associated encoding configuration.
-    type Config: EncodingConfigTrait;
+    type Config: EncodingFactory;
 
     /// Creates a new `Decoder`.
     ///

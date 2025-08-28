@@ -25,7 +25,7 @@ use crate::{
     BlobId,
     SliverIndex,
     SliverPairIndex,
-    encoding::config::EncodingConfigTrait as _,
+    encoding::config::EncodingFactory as _,
     merkle::{MerkleTree, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };

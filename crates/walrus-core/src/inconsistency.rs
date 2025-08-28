@@ -53,7 +53,7 @@ use crate::{
     encoding::{
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         RecoverySymbol,
         RequiredCount,
