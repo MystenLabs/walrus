@@ -112,4 +112,6 @@ PR_URL=$(gh pr create \
   --body "$BODY" \
   2>&1 | grep -Eo 'https://github.com/[^ ]+')
 
+# Setting the PR to auto merge
+gh pr merge --auto --squash --delete-branch "$BRANCH"
 echo "Pull request created: $PR_URL"
