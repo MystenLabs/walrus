@@ -129,7 +129,7 @@ telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "test
 tempfile = "3.21.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.54.0" }
 thiserror = "2.0.16"
-tokio = { version = "=1.46.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-metrics = { version = "0.4.2", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
