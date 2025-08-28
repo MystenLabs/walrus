@@ -599,7 +599,7 @@ mod tests {
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 
     #[test]
-    fn keep_example_config_in_sync() {
+    fn check_and_update_example_config() {
         let config = WalrusUploadRelayConfig {
             tip_config: TipConfig::SendTip {
                 address: SuiAddress::from_bytes([42; 32]).expect("valid bytes"),
@@ -621,7 +621,7 @@ mod tests {
     /// This test ensures that the files `upload_relay_openapi.yaml` and
     /// `upload_relay_openapi.html` are kept in sync with changes to the spec.
     #[test]
-    fn upload_relay_check_and_update_openapi_spec() {
+    fn check_and_update_openapi_spec() {
         let label = "upload_relay";
         let spec_path = format!("{label}_openapi.yaml");
         let html_path = format!("{label}_openapi.html");
