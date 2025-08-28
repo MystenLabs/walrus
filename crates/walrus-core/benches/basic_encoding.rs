@@ -100,7 +100,8 @@ fn basic_decoding(c: &mut Criterion) {
                                 (*symbol_count).try_into().unwrap(),
                                 N_SHARDS.try_into().unwrap(),
                                 (*symbol_size).try_into().unwrap(),
-                            );
+                            )
+                            .unwrap();
                             let decoded_data = &decoder.decode(symbols).unwrap();
                             assert_eq!(data.len(), decoded_data.len());
                             assert_eq!(&data, decoded_data);

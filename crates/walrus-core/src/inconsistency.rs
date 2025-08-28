@@ -180,7 +180,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
             symbol_size,
             &encoding_config.get_for_type(metadata.encoding_type()),
         )
-        .ok_or(InconsistencyVerificationError::RecoveryFailure)?;
+        .map_err(|_| InconsistencyVerificationError::RecoveryFailure)?;
         match sliver.verify(encoding_config, metadata) {
             Ok(()) => Err(InconsistencyVerificationError::SliverNotInconsistent),
             Err(SliverVerificationError::MerkleRootMismatch) => Ok(()),

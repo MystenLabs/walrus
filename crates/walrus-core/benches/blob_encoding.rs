@@ -84,7 +84,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let decoded_blob = config.decode(*blob_size, slivers).unwrap().unwrap();
+                        let decoded_blob = config.decode(*blob_size, slivers).unwrap();
                         assert_eq!(blob.len(), decoded_blob.len());
                         assert_eq!(blob, decoded_blob);
                     },
@@ -102,8 +102,6 @@ fn blob_decoding(c: &mut Criterion) {
                     |slivers| {
                         let (decoded_blob, _metadata) = config
                             .decode_and_verify(blob_id, *blob_size, slivers)
-                            .unwrap()
-                            .unwrap()
                             .unwrap();
                         assert_eq!(blob.len(), decoded_blob.len());
                         assert_eq!(blob, decoded_blob);

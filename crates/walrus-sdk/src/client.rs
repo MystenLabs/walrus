@@ -1854,15 +1854,15 @@ impl<T> WalrusNodeClient<T> {
                         metadata.metadata().unencoded_length(),
                         slivers,
                     )
-                    .map_err(ClientError::other)?
-                    .map_err(ClientError::other)?
-                    .ok_or(ClientErrorKind::Other(
-                        anyhow::anyhow!(
-                            "unable to decode blob from a sufficient number of slivers; \
-                            this should not happen"
+                    .map_err(|e| {
+                        ClientErrorKind::Other(
+                            anyhow::anyhow!(
+                                "unable to decode blob from a sufficient number of slivers: {e}; \
+                                this should not happen"
+                            )
+                            .into(),
                         )
-                        .into(),
-                    ))?;
+                    })?;
                 Ok(blob)
             }
             CompletedReasonWeight::FuturesConsumed(weight) => {

@@ -45,6 +45,34 @@ pub enum EncodeError {
     IncompatibleParameters(#[from] reed_solomon_simd::Error),
 }
 
+/// Error type returned when decoding fails.
+#[derive(Debug, Error, PartialEq, Clone)]
+pub enum DecodeError {
+    /// The blob size is too large to be decoded.
+    #[error("the blob size is too large to be decoded")]
+    DataTooLarge,
+    /// The parameters are incompatible with the Reed-Solomon decoder.
+    #[error("the parameters are incompatible with the Reed-Solomon decoder: {0}")]
+    IncompatibleParameters(reed_solomon_simd::Error),
+    /// An error occurred while decoding.
+    #[error("an error occurred in the underlying Reed-Solomon decoder: {0}")]
+    DecoderError(#[from] reed_solomon_simd::Error),
+    /// The decoding was unsuccessful. Most likely not enough symbols/slivers were provided.
+    #[error("decoding was unsuccessful; most likely not enough symbols/slivers were provided")]
+    DecodingUnsuccessful,
+    /// Error returned when the verification of a reconstructed blob fails. Verification failure
+    /// occurs when the provided blob ID does not match the blob ID computed from the reconstructed
+    /// blob.
+    #[error("decoding verification failed: the blob ID does not match the provided metadata")]
+    VerificationError,
+}
+
+impl From<DataTooLargeError> for DecodeError {
+    fn from(_value: DataTooLargeError) -> Self {
+        Self::DataTooLarge
+    }
+}
+
 /// Error type returned when computing recovery symbols fails.
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum RecoverySymbolError {
@@ -95,12 +123,6 @@ impl From<DataTooLargeError> for SliverRecoveryOrVerificationError {
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("the size of the symbols provided does not match the size of the existing symbols")]
 pub struct WrongSymbolSizeError;
-
-/// Error returned when the verification of a reconstructed blob fails. Verification failure occurs
-/// when the provided blob ID does not match the blob ID computed from the reconstructed blob.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
-#[error("decoding verification failed because the blob ID does not match the provided metadata")]
-pub struct DecodingVerificationError;
 
 /// Error returned when trying to extract the wrong variant (primary or secondary) of
 /// [`Sliver`][super::SliverData] from it.

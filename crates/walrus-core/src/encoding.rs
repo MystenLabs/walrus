@@ -42,7 +42,7 @@ pub use config::{
 mod errors;
 pub use errors::{
     DataTooLargeError,
-    DecodingVerificationError,
+    DecodeError,
     EncodeError,
     InvalidDataSizeError,
     QuiltError,

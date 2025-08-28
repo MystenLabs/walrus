@@ -29,7 +29,7 @@ use super::{
 use crate::{
     SliverIndex,
     SliverPairIndex,
-    encoding::RequiredCount,
+    encoding::{DecodeError, RequiredCount},
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
@@ -217,7 +217,6 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. Returns a
     /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
-    ///
     pub fn decoding_symbol_for_sliver(
         &self,
         target_pair_index: SliverPairIndex,
@@ -227,19 +226,12 @@ impl<T: EncodingAxis> SliverData<T> {
         let target_sliver_index =
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
 
-        let is_source_target = usize::from(target_sliver_index.get()) < self.symbols.len();
-        let symbol_bytes = if is_source_target {
-            self.symbols[target_sliver_index.as_usize()].to_vec()
-        } else {
+        Ok(DecodingSymbol::<T::OrthogonalAxis>::new(
+            self.index.get(),
             config.encode_symbol::<T::OrthogonalAxis>(
                 self.symbols.data(),
                 target_sliver_index.into(),
-            )?
-        };
-
-        Ok(DecodingSymbol::<T::OrthogonalAxis>::new(
-            self.index.get(),
-            symbol_bytes,
+            )?,
         ))
     }
 
@@ -254,7 +246,7 @@ impl<T: EncodingAxis> SliverData<T> {
         target_index: SliverIndex,
         symbol_size: NonZeroU16,
         config: &EncodingConfigEnum,
-    ) -> Option<Self>
+    ) -> Result<Self, DecodeError>
     where
         I: IntoIterator,
         I::IntoIter: Iterator<Item = RecoverySymbol<T, U>> + ExactSizeIterator,
@@ -267,7 +259,7 @@ impl<T: EncodingAxis> SliverData<T> {
         let RequiredCount::Exact(n_symbols_required) = config.n_symbols_for_recovery::<T>();
         if recovery_symbols.len() < n_symbols_required {
             // We don't even have to attempt decoding if we don't have enough recovery symbols.
-            return None;
+            return Err(DecodeError::DecodingUnsuccessful);
         }
 
         config
@@ -319,7 +311,7 @@ impl<T: EncodingAxis> SliverData<T> {
             symbol_size,
             &config_enum,
         )
-        .ok_or(SliverRecoveryError::DecodingFailure)?;
+        .map_err(|_| SliverRecoveryError::DecodingFailure)?;
 
         match sliver.verify(encoding_config, metadata) {
             Ok(()) => Ok(sliver.into()),
@@ -609,7 +601,7 @@ mod tests {
             symbol_size.try_into().unwrap(),
             &(&config).into(),
         );
-        assert_eq!(recovered, None);
+        assert!(recovered.is_err());
     }
 
     param_test! {

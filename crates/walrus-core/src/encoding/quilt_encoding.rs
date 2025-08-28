@@ -2373,9 +2373,7 @@ mod tests {
                     .map(|s| s.secondary.clone())
                     .collect::<Vec<_>>(),
             )
-            .expect("data is not too large")
-            .expect("should decode and verify quilt")
-            .expect("should decode quilt");
+            .expect("should decode and verify quilt");
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 
