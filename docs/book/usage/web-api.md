@@ -178,7 +178,7 @@ All the query parameters available for storing regular blobs (see [Store](#store
 also be used when storing quilts.
 ```
 
-Use the following publisher API to store multiple blobs as a quilt:
+Use the following publisher API to store multiple files as a quilt:
 
 ```sh
 # Store two files `document.pdf` and `image.png`, with custom identifiers `contract-v2` and
@@ -187,7 +187,7 @@ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "contract-v2=@document.pdf" \
   -F "logo-2024=@image.png"
 
-# Store two files with Walrus-native metadata. The metadata are assigned to the blob with
+# Store two files with Walrus-native metadata. The metadata are assigned to the file with
 # the same identifier. Note: `_metadata` must be used as the field name for Walrus-native metadata.
 curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "quilt-manual=@document.pdf" \
@@ -209,7 +209,7 @@ metadata and won't conflict with user-defined identifiers. See
 ```
 
 The quilt store API returns a JSON response with information about the stored quilt, including
-the quilt ID (blobId) and individual blob patch IDs that can be used to retrieve specific blobs
+the quilt ID (blobId) and individual patch IDs that can be used to retrieve specific file
 later. The following example shows the command and response (the actual JSON output is returned
 as a single line; it's formatted here for readability):
 
@@ -259,42 +259,42 @@ $ curl -X PUT "http://127.0.0.1:31415/v1/quilts?epochs=1" \
 
 #### Reading quilts
 
-There are two ways to retrieve blobs from a quilt via the aggregator APIs:
+There are two ways to retrieve files from a quilt via the aggregator APIs:
 
 ```admonish info
-Currently, only one blob can be retrieved per request. Bulk retrieval of multiple blobs from a
+Currently, only one file can be retrieved per request. Bulk retrieval of multiple files from a
 quilt in a single request is not yet supported.
 ```
 
 ##### By quilt patch ID
 
-Each blob in a quilt has a unique patch ID. You can retrieve a specific blob using its patch ID:
+Each file in a quilt has a unique patch ID. You can retrieve a specific file using its patch ID:
 
 ```sh
-# Retrieve a blob using its quilt patch ID.
+# Retrieve a file using its quilt patch ID.
 curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
 ```admonish tip
 QuiltPatchIds can be obtained from the store quilt output (as shown above) or by using the
-[`list-patches-in-quilt`](./client-cli.md#batch-storing-blobs-with-quilt) CLI command.
+[`list-patches-in-quilt`](./client-cli.md#batch-storing-files-with-quilt) CLI command.
 ```
 
 ##### By quilt ID and identifier
 
-You can also retrieve a blob using the quilt ID and the blob's identifier:
+You can also retrieve a file using the quilt ID and the file's identifier:
 
 ```sh
-# Retrieve a blob with identifier `walrus.jpg` from the quilt.
+# Retrieve a file with identifier `walrus.jpg` from the quilt.
 curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKo/walrus.jpg" \
 ```
 
-Both methods return the raw blob bytes in the response body. Metadata such as the blob identifier
+Both methods return the raw file bytes in the response body. Metadata such as the file identifier
 and tags are returned as HTTP headers:
 
-- `X-Quilt-Patch-Identifier`: The identifier of the blob within the quilt
+- `X-Quilt-Patch-Identifier`: The identifier of the file within the quilt
 - `ETag`: The patch ID or quilt ID for caching purposes
-- Additional custom headers from blob tags (if configured)
+- Additional custom headers from tags (if configured)
 
 ## Using a public aggregator or publisher {#public-services}
 

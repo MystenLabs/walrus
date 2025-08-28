@@ -218,6 +218,23 @@ where
         std::mem::take(&mut self.results)
     }
 
+    /// Takes the remaining futures that have not been executed yet.
+    /// This includes both futures that are not yet started and those currently being executed.
+    #[allow(dead_code)]
+    pub fn take_remaining_futures(&mut self) -> (Vec<Fut>, FuturesUnordered<Fut>)
+    where
+        I: Iterator<Item = Fut>,
+    {
+        // Take the unstarted futures and collect them
+        let mut unstarted = Vec::new();
+        while let Some(fut) = self.futures.next() {
+            unstarted.push(fut);
+        }
+        // Take the futures that are being executed
+        let being_executed = std::mem::take(&mut self.being_executed);
+        (unstarted, being_executed)
+    }
+
     /// Gets all the `Ok` results in the struct, returning `T::Inner`, while discarding the errors
     /// and emptying `self.results`.
     #[allow(dead_code)]

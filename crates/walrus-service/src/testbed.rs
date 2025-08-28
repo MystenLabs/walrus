@@ -526,6 +526,7 @@ pub async fn create_client_config(
         },
         refresh_config: Default::default(),
         quilt_client_config: Default::default(),
+        async_upload: Default::default(),
     };
 
     Ok(client_config)

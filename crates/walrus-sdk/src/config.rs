@@ -28,12 +28,14 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, config::path_or_defaults_i
 
 use crate::client::quilt_client::QuiltClientConfig;
 
+mod async_upload_config;
 mod committees_refresh_config;
 mod communication_config;
 mod reqwest_config;
 mod sliver_write_extra_time;
 
 pub use self::{
+    async_upload_config::AsyncUploadConfig,
     committees_refresh_config::CommitteesRefreshConfig,
     communication_config::{ClientCommunicationConfig, CommunicationLimits},
     reqwest_config::RequestRateConfig,
@@ -103,6 +105,9 @@ pub struct ClientConfig {
     /// The configuration of the QuiltClient.
     #[serde(default)]
     pub quilt_client_config: QuiltClientConfig,
+    /// Configuration for async blob upload feature.
+    #[serde(default)]
+    pub async_upload: AsyncUploadConfig,
 }
 
 impl ClientConfig {
@@ -117,6 +122,7 @@ impl ClientConfig {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            async_upload: Default::default(),
         }
     }
 
@@ -274,6 +280,7 @@ mod tests {
             communication_config: Default::default(),
             refresh_config: Default::default(),
             quilt_client_config: Default::default(),
+            async_upload: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

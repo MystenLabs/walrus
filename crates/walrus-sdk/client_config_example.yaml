@@ -46,3 +46,8 @@ refresh_config:
 quilt_client_config:
   max_retrieve_slivers_attempts: 2
   timeout_secs: 10
+async_upload:
+  enabled: false  # Disabled by default for safety
+  max_concurrent_tasks: 10
+  task_timeout_secs: 300  # 5 minutes
+  wait_on_shutdown: true

@@ -15,6 +15,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use async_upload_wrapper::AsyncUploadWrapper;
 use bimap::BiMap;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
@@ -28,7 +29,10 @@ use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 pub use store_args::StoreArgs;
 use sui_types::base_types::ObjectID;
-use tokio::{sync::Semaphore, time::Duration};
+use tokio::{
+    sync::{Semaphore, oneshot},
+    time::Duration,
+};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
     BlobId,
@@ -87,6 +91,8 @@ pub use crate::{
     config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
+pub mod async_upload_test;
+pub mod async_upload_wrapper;
 pub mod client_types;
 pub mod communication;
 pub mod metrics;
@@ -1409,6 +1415,8 @@ impl WalrusNodeClient<SuiContractClient> {
                             .await
                             .map_err(|error| ClientErrorKind::UploadRelayError(error).into())
                     } else {
+                        // Always use the standard method for now
+                        // TODO: Async upload requires Clone + Send + Sync bounds on the client type
                         self.send_blob_data_and_get_certificate(
                             metadata,
                             pairs,
@@ -1550,6 +1558,24 @@ impl<T> WalrusNodeClient<T> {
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: Option<&MultiProgress>,
     ) -> ClientResult<ConfirmationCertificate> {
+        self.send_blob_data_and_get_certificate_original(
+            metadata,
+            pairs,
+            blob_persistence_type,
+            multi_pb,
+        )
+        .await
+    }
+
+    /// Original synchronous version that waits for all uploads to complete.
+    #[tracing::instrument(skip_all)]
+    async fn send_blob_data_and_get_certificate_original(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
+        multi_pb: Option<&MultiProgress>,
+    ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let committees = self.get_committees().await?;
         let mut pairs_per_node = self
@@ -1684,6 +1710,157 @@ impl<T> WalrusNodeClient<T> {
 
         self.confirmations_to_certificate(results, &committees)
             .await
+    }
+
+    /// Version that sends certificate immediately when quorum is reached and continues in background.
+    #[tracing::instrument(skip_all)]
+    async fn send_blob_data_and_get_certificate_with_early_return(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
+        multi_pb: Option<&MultiProgress>,
+        cert_sender: oneshot::Sender<ClientResult<ConfirmationCertificate>>,
+    ) -> ClientResult<()> {
+        tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes (async upload)");
+        let committees = self.get_committees().await?;
+        let mut pairs_per_node = self
+            .pairs_per_node(metadata.blob_id(), pairs, &committees)
+            .await;
+        let sliver_write_limit = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                metadata.metadata().unencoded_length(),
+                &self.encoding_config,
+                metadata.metadata().encoding_type(),
+            );
+        tracing::debug!(
+            blob_id = %metadata.blob_id(),
+            communication_limits = sliver_write_limit,
+            "establishing node communications"
+        );
+
+        let comms = self
+            .communication_factory
+            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
+
+        let progress_bar = multi_pb.map(|multi_pb| {
+            let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
+            pb.set_message(format!("sending slivers ({})", metadata.blob_id()));
+            multi_pb.add(pb)
+        });
+
+        let mut requests = WeightedFutures::new(comms.iter().map({
+            let progress_bar = progress_bar.clone();
+
+            move |n| {
+                let fut = n.store_metadata_and_pairs(
+                    metadata,
+                    pairs_per_node
+                        .remove(&n.node_index)
+                        .expect("there are shards for each node"),
+                    blob_persistence_type,
+                );
+
+                let progress_bar = progress_bar.clone();
+                async move {
+                    let result = fut.await;
+                    if result.is_ok()
+                        && let Some(value) = progress_bar
+                        && !value.is_finished()
+                    {
+                        value.inc(result.weight.try_into().expect("the weight fits a usize"))
+                    }
+                    result
+                }
+            }
+        }));
+
+        let start = Instant::now();
+
+        // We do not limit the number of concurrent futures awaited here, because the number of
+        // connections is limited through a semaphore depending on the [`max_data_in_flight`][]
+        if let CompletedReasonWeight::FuturesConsumed(weight) = requests
+            .execute_weight(
+                &|weight| {
+                    committees
+                        .write_committee()
+                        .is_at_least_min_n_correct(weight)
+                },
+                committees.n_shards().get().into(),
+            )
+            .await
+        {
+            tracing::debug!(
+                elapsed_time = ?start.elapsed(),
+                executed_weight = weight,
+                responses = ?requests.into_results(),
+                blob_id = %metadata.blob_id(),
+                "all futures consumed before reaching a threshold of successful responses"
+            );
+            let error = self
+                .not_enough_confirmations_error(weight, &committees)
+                .await;
+            let _ = cert_sender.send(Err(error));
+            return Ok(());
+        }
+
+        tracing::debug!(
+            elapsed_time = ?start.elapsed(),
+            blob_id = %metadata.blob_id(),
+            "stored metadata and slivers onto a quorum of nodes (async upload)"
+        );
+
+        progress_bar.inspect(|progress_bar| {
+            progress_bar.finish_with_message(format!("slivers sent ({})", metadata.blob_id()))
+        });
+
+        // Generate certificate from current results and send it immediately
+        let current_results = requests.take_results();
+        let certificate_result = self
+            .confirmations_to_certificate(current_results, &committees)
+            .await;
+
+        // Send the certificate via channel - this is the early return!
+        match cert_sender.send(certificate_result) {
+            Ok(()) => {
+                tracing::info!(
+                    blob_id = %metadata.blob_id(),
+                    "certificate sent via channel, continuing with additional uploads in background"
+                );
+            }
+            Err(_) => {
+                // Receiver was dropped, no point in continuing
+                tracing::warn!(blob_id = %metadata.blob_id(), "certificate receiver dropped, cancelling background upload");
+                return Ok(());
+            }
+        }
+
+        // Continue with extra time uploads in background
+        let extra_time = self
+            .config
+            .communication_config
+            .sliver_write_extra_time
+            .extra_time(start.elapsed());
+
+        tracing::debug!(
+            blob_id = %metadata.blob_id(),
+            extra_time = ?extra_time,
+            "continuing with additional uploads in background"
+        );
+
+        // Allow extra time for the client to store the slivers.
+        let completed_reason = requests
+            .execute_time(extra_time, committees.n_shards().get().into())
+            .await;
+        tracing::debug!(
+            elapsed_time = ?start.elapsed(),
+            blob_id = %metadata.blob_id(),
+            %completed_reason,
+            "stored metadata and slivers onto additional nodes (background)"
+        );
+
+        Ok(())
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
@@ -2272,6 +2449,94 @@ impl<T> WalrusNodeClient<T> {
     pub async fn get_price_computation(&self) -> ClientResult<PriceComputation> {
         let (_, price_computation) = self.get_committees_and_price().await?;
         Ok(price_computation)
+    }
+}
+
+// Separate impl block for async upload functionality that requires additional bounds
+impl<T: Send + Sync + Clone + 'static> WalrusNodeClient<T> {
+    /// Uploads blob data with async upload enabled - returns certificate immediately after quorum.
+    ///
+    /// This method returns immediately after quorum (2f+1 shards) is reached and continues
+    /// uploading to additional nodes in the background for better resilience.
+    #[tracing::instrument(skip_all)]
+    pub async fn send_blob_data_and_get_certificate_async(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
+        multi_pb: Option<&MultiProgress>,
+    ) -> ClientResult<ConfirmationCertificate> {
+        // Check if async upload is enabled
+        if self.config.async_upload.enabled {
+            let wrapper = self
+                .send_blob_data_with_async_upload_internal(
+                    metadata,
+                    pairs,
+                    blob_persistence_type,
+                    multi_pb,
+                )
+                .await?;
+            wrapper.wait_for_certificate().await
+        } else {
+            // Fall back to synchronous upload
+            self.send_blob_data_and_get_certificate_original(
+                metadata,
+                pairs,
+                blob_persistence_type,
+                multi_pb,
+            )
+            .await
+        }
+    }
+
+    /// Internal async version that returns immediately after quorum and continues in background.
+    #[tracing::instrument(skip_all)]
+    async fn send_blob_data_with_async_upload_internal(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
+        _multi_pb: Option<&MultiProgress>,
+    ) -> ClientResult<AsyncUploadWrapper> {
+        let (wrapper, cert_sender) = AsyncUploadWrapper::new();
+
+        // Clone the needed data for the background task
+        let client = self.clone();
+        let metadata = metadata.clone();
+        let pairs = pairs.to_vec();
+        let blob_persistence_type = blob_persistence_type.clone();
+
+        // Use a helper function to avoid lifetime issues
+        Self::spawn_background_upload_task(
+            client,
+            metadata,
+            pairs,
+            blob_persistence_type,
+            cert_sender,
+        );
+
+        Ok(wrapper)
+    }
+
+    /// Helper function to spawn the background upload task
+    fn spawn_background_upload_task(
+        client: WalrusNodeClient<T>,
+        metadata: VerifiedBlobMetadataWithId,
+        pairs: Vec<SliverPair>,
+        blob_persistence_type: BlobPersistenceType,
+        cert_sender: oneshot::Sender<ClientResult<ConfirmationCertificate>>,
+    ) {
+        tokio::spawn(async move {
+            let _result = client
+                .send_blob_data_and_get_certificate_with_early_return(
+                    &metadata,
+                    &pairs,
+                    &blob_persistence_type,
+                    None, // No progress bar for background task
+                    cert_sender,
+                )
+                .await;
+        });
     }
 }
 
