@@ -2,13 +2,12 @@
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 #
-# This script creates a PR branch and updates Sui testnet versions in
-# selected files.
+# This script creates a Sui Testnet Version Bump PR
 
 set -Eeuo pipefail
 
 # Ensure required binaries are available
-for cmd in gh sui git; do
+for cmd in cargo gh sui git; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Error: required command '$cmd' not found in PATH." >&2
     exit 1
@@ -62,7 +61,7 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
   echo "No matching files found for update."
   exit 0
 else
-  echo "Updating testnet tags in:"
+  echo "Updating testnet tags in:"g 
   printf '  - %s\n' "${TARGETS[@]}"
 
   for f in "${TARGETS[@]}"; do
@@ -109,7 +108,7 @@ PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "chore: bump Sui version to ${NEW_TAG}" \
-  --reviewer "ebmifa,mlegner,wbbradley" \
+  --reviewer "MystenLabs/walrus-pe" \
   --body "$BODY" \
   2>&1 | grep -Eo 'https://github.com/[^ ]+')
 
