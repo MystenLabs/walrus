@@ -166,8 +166,7 @@ pub trait EncodingFactory {
         self.n_slivers_for_reconstruction::<A::OrthogonalAxis>()
     }
 
-    /// Returns the number of source symbols required to reconstruct a blob using slivers of
-    /// [`EncodingAxis`] `A`.
+    /// Returns the number of slivers of [`EncodingAxis`] `A` required to reconstruct a blob.
     #[inline]
     fn n_slivers_for_reconstruction<A: EncodingAxis>(&self) -> RequiredCount {
         RequiredCount::Exact(self.n_source_symbols::<A>().get().into())

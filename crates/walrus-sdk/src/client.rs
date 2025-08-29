@@ -1846,7 +1846,7 @@ impl<T> WalrusNodeClient<T> {
                     slivers.len() >= required_slivers,
                     "we must have sufficient slivers if the threshold was reached"
                 );
-                let (blob, _meta) = self
+                let Ok((blob, _meta)) = self
                     .encoding_config
                     .get_for_type(metadata.metadata().encoding_type())
                     .decode_and_verify(
@@ -1854,15 +1854,12 @@ impl<T> WalrusNodeClient<T> {
                         metadata.metadata().unencoded_length(),
                         slivers,
                     )
-                    .map_err(|e| {
-                        ClientErrorKind::Other(
-                            anyhow::anyhow!(
-                                "unable to decode blob from a sufficient number of slivers: {e}; \
-                                this should not happen"
-                            )
-                            .into(),
-                        )
-                    })?;
+                else {
+                    panic!(
+                        "unable to decode blob from a sufficient number of slivers;\n\
+                        this should never happen; please report this as a bug"
+                    );
+                };
                 Ok(blob)
             }
             CompletedReasonWeight::FuturesConsumed(weight) => {
