@@ -36,7 +36,10 @@ use walrus_sui::{
 use walrus_utils::read_blob_from_file;
 
 use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, parse_quilt_patch_id};
-use crate::client::{config::AuthConfig, daemon::CacheConfig};
+use crate::client::{
+    config::AuthConfig,
+    daemon::{CacheConfig, chunked_upload::ChunkedUploadArgs},
+};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -380,7 +383,7 @@ pub enum CliCommands {
         /// Number of concurrent requests to send to the storage nodes.
         #[arg(long, default_value_t = default::concurrent_requests_for_health())]
         #[serde(default = "default::concurrent_requests_for_health")]
-        concurrent_requests: usize,
+        concurrent_requests: u32,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -836,16 +839,16 @@ pub struct PublisherArgs {
     /// The maximum body size of PUT requests in KiB.
     #[arg(long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
-    pub max_body_size_kib: usize,
+    pub max_body_size_kib: u64,
     /// The maximum body size of quilt PUT requests in KiB.
     #[arg(long = "max-quilt-body-size", default_value_t = default::max_quilt_body_size_kib())]
     #[serde(default = "default::max_quilt_body_size_kib")]
-    pub max_quilt_body_size_kib: usize,
+    pub max_quilt_body_size_kib: u64,
     /// The maximum number of requests that can be buffered before the server starts rejecting new
     /// ones.
     #[arg(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
     #[serde(default = "default::max_request_buffer_size")]
-    pub max_request_buffer_size: usize,
+    pub max_request_buffer_size: u64,
     /// The maximum number of requests the publisher can process concurrently.
     ///
     /// If more requests than this maximum are received, the excess requests are buffered up to
@@ -938,30 +941,27 @@ pub struct PublisherArgs {
     #[arg(long)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
+    /// The configuration for the JWT duplicate suppression cache.
     #[command(flatten)]
     #[serde(flatten)]
-    /// The configuration for the JWT duplicate suppression cache.
     pub replay_suppression_config: CacheConfig,
+    /// Configuration of the Chunked Upload middleware.
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub chunked_upload_args: ChunkedUploadArgs,
 }
 
 impl PublisherArgs {
-    pub(crate) fn max_body_size(&self) -> usize {
+    pub(crate) fn max_body_size(&self) -> u64 {
         self.max_body_size_kib << 10
     }
 
-    pub(crate) fn max_quilt_body_size(&self) -> usize {
+    pub(crate) fn max_quilt_body_size(&self) -> u64 {
         self.max_quilt_body_size_kib << 10
     }
 
     fn format_max_body_size(&self) -> String {
-        format!(
-            "{}",
-            HumanReadableBytes(
-                self.max_body_size()
-                    .try_into()
-                    .expect("should fit into a `u64`")
-            )
-        )
+        format!("{}", HumanReadableBytes(self.max_body_size()))
     }
 
     pub(crate) fn print_debug_message(&self, message: &str) {
@@ -1668,11 +1668,11 @@ pub(crate) mod default {
 
     use walrus_sui::utils::SuiNetwork;
 
-    pub(crate) fn max_body_size_kib() -> usize {
+    pub(crate) fn max_body_size_kib() -> u64 {
         10_240
     }
 
-    pub(crate) fn max_quilt_body_size_kib() -> usize {
+    pub(crate) fn max_quilt_body_size_kib() -> u64 {
         102_400 // 100MB default for quilts.
     }
 
@@ -1680,13 +1680,13 @@ pub(crate) mod default {
         8
     }
 
-    pub(crate) fn max_request_buffer_size() -> usize {
+    pub(crate) fn max_request_buffer_size() -> u64 {
         // 1x the number of concurrent requests by default means that we start rejecting requests
         // rather soon to avoid overloading the publisher.
         //
         // In total there can be 1x processing and 1x in the buffer, for 2x number of concurrent
         // requests allowed before we start rejecting.
-        max_concurrent_requests()
+        u64::try_from(max_concurrent_requests()).expect("should fit into u64")
     }
 
     pub(crate) fn n_publisher_clients() -> usize {
@@ -1755,7 +1755,7 @@ pub(crate) mod default {
         ]
     }
 
-    pub(crate) fn concurrent_requests_for_health() -> usize {
+    pub(crate) fn concurrent_requests_for_health() -> u32 {
         60
     }
 }
@@ -1843,6 +1843,7 @@ mod tests {
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
                 replay_suppression_config: Default::default(),
+                chunked_upload_args: Default::default(),
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
