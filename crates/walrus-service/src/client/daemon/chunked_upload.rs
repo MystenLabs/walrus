@@ -164,7 +164,6 @@ impl ChunkedUploadState {
         Ok(())
     }
 
-    /// Restore sessions from disk on startup
     async fn restore_sessions_from_disk(&self) -> Result<(), std::io::Error> {
         let mut dir_entries = tokio::fs::read_dir(&self.config.storage_dir).await?;
         let mut restored_count = 0;
@@ -229,23 +228,17 @@ impl ChunkedUploadState {
         self.config.storage_dir.join(format!("{}.data", session_id))
     }
 
-    /// Clean up expired sessions
     pub async fn cleanup_expired_sessions(&self) {
         let now = SystemTime::now();
         let mut sessions = self.sessions.write().await;
         let expired_sessions: Vec<String> = sessions
             .iter()
-            .filter_map(|(id, session)| {
-                if now
-                    .duration_since(session.last_activity)
-                    .unwrap_or_default()
-                    > self.config.session_timeout
-                {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
+            .filter_map(
+                |(id, session)| match now.duration_since(session.last_activity) {
+                    Ok(duration) if duration > self.config.session_timeout => Some(id.clone()),
+                    _ => None,
+                },
+            )
             .collect();
 
         for session_id in expired_sessions {
@@ -274,7 +267,6 @@ impl ChunkedUploadState {
         }
     }
 
-    /// Get or create an upload session
     async fn get_or_create_session(
         &self,
         session_id: &str,

@@ -24,6 +24,7 @@ use walrus_sui::wallet::Wallet;
 
 mod args;
 mod backfill;
+mod chunked_client;
 mod cli_output;
 mod runner;
 
@@ -45,6 +46,7 @@ pub use args::{
     QuiltPatchSelector,
     SortBy,
 };
+pub use chunked_client::PublisherClient;
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 
