@@ -12902,6 +12902,7 @@ dependencies = [
  "mysten-metrics",
  "num-bigint 0.4.6",
  "object_store",
+ "once_cell",
  "opentelemetry",
  "p256",
  "pin-project",

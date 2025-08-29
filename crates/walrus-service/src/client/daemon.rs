@@ -73,7 +73,15 @@ use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
         config::AuthConfig,
-        daemon::auth::verify_jwt_claim,
+        daemon::{
+            auth::verify_jwt_claim,
+            chunked_upload::{
+                ChunkedUploadArgs,
+                ChunkedUploadConfig,
+                ChunkedUploadState,
+                chunked_upload_middleware,
+            },
+        },
     },
     common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
 };
@@ -81,7 +89,9 @@ use crate::{
 pub mod auth;
 pub(crate) mod cache;
 pub(crate) use cache::{CacheConfig, CacheHandle};
+pub mod chunked_upload;
 mod openapi;
+pub(crate) mod publisher_lock;
 mod routes;
 
 pub trait WalrusReadClient {
@@ -439,6 +449,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         Self::new::<PublisherApiDoc>(client, args.daemon_args.bind_address, registry)
             .with_publisher(
                 auth_config,
+                &args.chunked_upload_args,
                 args.max_body_size(),
                 args.max_request_buffer_size,
                 args.max_concurrent_requests,
@@ -466,6 +477,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             })
             .with_publisher(
                 auth_config,
+                &publisher_args.chunked_upload_args,
                 publisher_args.max_body_size_kib,
                 publisher_args.max_request_buffer_size,
                 publisher_args.max_concurrent_requests,
@@ -477,10 +489,11 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     fn with_publisher(
         mut self,
         auth_config: Option<AuthConfig>,
-        max_body_limit: usize,
-        max_request_buffer_size: usize,
+        chunked_upload_args: &ChunkedUploadArgs,
+        max_body_limit: u64,
+        max_request_buffer_size: u64,
         max_concurrent_requests: usize,
-        max_quilt_body_limit: usize,
+        max_quilt_body_limit: u64,
     ) -> Self {
         tracing::debug!(
             %max_body_limit,
@@ -489,13 +502,44 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             "configuring the publisher endpoint",
         );
 
+        // Initialize chunked upload state
+        let chunked_upload_config = ChunkedUploadConfig::new(
+            chunked_upload_args.clone(),
+            max_quilt_body_limit.max(max_body_limit),
+        );
+        let chunked_upload_state = Arc::new(ChunkedUploadState::new(chunked_upload_config));
+
+        // Initialize chunked upload storage (ignore errors for now)
+        let upload_state_clone = chunked_upload_state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = upload_state_clone.init().await {
+                tracing::error!("Failed to initialize chunked upload storage: {}", e);
+            }
+            // Start background cleanup task for expired sessions
+            upload_state_clone.start_cleanup_task().await;
+        });
+
         let base_layers = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
-            .layer(BufferLayer::new(max_request_buffer_size))
+            .layer(BufferLayer::new(
+                usize::try_from(max_request_buffer_size)
+                    .expect("max_request_buffer_size is too large"),
+            ))
             .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
-            .layer(DefaultBodyLimit::max(max_body_limit));
+            .layer(DefaultBodyLimit::max(
+                usize::try_from(max_body_limit).expect("max_body_limit is too large"),
+            ));
 
+        // Add chunked upload middleware layer
+        let chunked_upload_layers = ServiceBuilder::new()
+            .layer(axum::middleware::from_fn_with_state(
+                chunked_upload_state,
+                chunked_upload_middleware,
+            ))
+            .layer(base_layers.clone());
+        let max_quilt_body_limit =
+            usize::try_from(max_quilt_body_limit).expect("max_quilt_body_limit is too large");
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
@@ -505,7 +549,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
                     auth_layer,
                 ))
-                .layer(base_layers.clone());
+                .layer(chunked_upload_layers.clone());
 
             self.router = self
                 .router
@@ -524,13 +568,13 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 .router
                 .route(
                     BLOB_PUT_ENDPOINT,
-                    put(routes::put_blob).route_layer(base_layers.clone()),
+                    put(routes::put_blob).route_layer(chunked_upload_layers.clone()),
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
                     put(routes::put_quilt)
                         .route_layer(DefaultBodyLimit::max(max_quilt_body_limit))
-                        .route_layer(base_layers),
+                        .route_layer(chunked_upload_layers),
                 );
         }
         self

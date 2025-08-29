@@ -114,6 +114,7 @@ move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 object_store = { workspace = true, optional = true }
+once_cell.workspace = true
 opentelemetry.workspace = true
 p256.workspace = true
 pin-project.workspace = true

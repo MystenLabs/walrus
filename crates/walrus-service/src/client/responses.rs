@@ -729,11 +729,13 @@ impl ServiceHealthInfoOutput {
         latest_seq: Option<u64>,
         detail: bool,
         sort: SortBy<HealthSortBy>,
-        concurrent_requests: usize,
+        concurrent_requests: u32,
     ) -> anyhow::Result<Self> {
         let mut health_info = stream::iter(nodes)
             .map(|node| NodeHealthOutput::get_for_node(node, detail, communication_factory))
-            .buffer_unordered(concurrent_requests)
+            .buffer_unordered(
+                usize::try_from(concurrent_requests).expect("concurrent_requests is too large"),
+            )
             .collect::<Vec<_>>()
             .await;
 
