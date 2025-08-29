@@ -30,6 +30,10 @@ struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
     event_receiver: UnboundedReceiver<(EventHandle, BlobEvent)>,
+    // Pending event count is a shared counter with BlobEventProcessor to track the number of
+    // events that are pending to be processed in the background processors.
+    // After finishing processing an event, the this BackgroundEventProcessor decrements the
+    //counter.
     pending_event_count: Arc<AtomicU64>,
 }
 
@@ -66,10 +70,12 @@ impl BackgroundEventProcessor {
             let current_pending_event_count =
                 self.pending_event_count.fetch_sub(1, Ordering::SeqCst) - 1;
             walrus_utils::with_label!(
-                self.node.metrics.pending_processing_blob_event_in_queue,
+                self.node
+                    .metrics
+                    .pending_processing_blob_event_in_background_processors,
                 &worker_index.to_string()
             )
-            .set(current_pending_event_count as i64);
+            .set(i64::try_from(current_pending_event_count).unwrap_or(i64::MAX));
         }
     }
 
@@ -238,8 +244,10 @@ pub struct BlobEventProcessor {
     sequential_processor: Option<Arc<BackgroundEventProcessor>>,
 
     // The number of events that are pending to be processed in each background processor.
-    // Use per processor count to avoid high contention on the Atomic variable when tracking the
-    // total number of pending processed events.
+    // Each counter is shared with individual BackgroundEventProcessor.
+    //
+    // We use per background processor count to avoid high contention on the Atomic variable when
+    // tracking the total number of pending processed events.
     background_per_processor_pending_event_count: Vec<Arc<AtomicU64>>,
 }
 
@@ -341,24 +349,23 @@ impl BlobEventProcessor {
             let processor_index = blob_event.blob_id().first_two_bytes() as usize
                 % self.background_processor_senders.len();
 
-            let current_pending_event_count = self.background_per_processor_pending_event_count
-                [processor_index]
-                .fetch_add(1, Ordering::SeqCst)
-                + 1;
-
             walrus_utils::with_label!(
                 self.node.metrics.pending_processing_blob_event_in_queue,
                 &processor_index.to_string()
             )
             .inc();
 
+            let current_pending_event_count = self.background_per_processor_pending_event_count
+                [processor_index]
+                .fetch_add(1, Ordering::SeqCst)
+                + 1;
             walrus_utils::with_label!(
                 self.node
                     .metrics
                     .pending_processing_blob_event_in_background_processors,
                 &processor_index.to_string()
             )
-            .set(current_pending_event_count as i64);
+            .set(i64::try_from(current_pending_event_count).unwrap_or(i64::MAX));
 
             self.background_processor_senders[processor_index]
                 .send((event_handle, blob_event))
@@ -371,13 +378,12 @@ impl BlobEventProcessor {
 
     /// Waits for all events to be processed in the background processors.
     pub async fn wait_for_all_events_to_be_processed(&self) {
-        tracing::info!("ZZZZ waiting for all events to be processed 1");
         if self.background_processor_senders.is_empty() {
-            tracing::info!("ZZZZ waiting for all events to be processed 2");
+            // When there are no background workers, we use a sequential processor to process events
+            // sequentially in the same thread, and no events are processed in the background.
+            // Therefore, we don't need to wait, and can return immediately.
             return;
         }
-
-        tracing::info!("ZZZZ waiting for all events to be processed 3");
 
         // Check if any of the background processors still have pending events.
         while self
@@ -385,10 +391,7 @@ impl BlobEventProcessor {
             .iter()
             .any(|c| c.load(Ordering::SeqCst) > 0)
         {
-            tracing::info!("ZZZZ waiting for all events to be processed 4");
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-
-        tracing::info!("ZZZZ waiting for all events to be processed 5");
     }
 }

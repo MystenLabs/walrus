@@ -171,10 +171,11 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of ongoing blob syncs during node recovery."]
         node_recovery_ongoing_blob_syncs: IntGauge[],
 
-        #[help = "The number of blob events pending processing in the queue."]
+        #[help = "The number of blob events pending processing in the queue between the \
+        BackgroundEventProcessor and BlobEventProcessor."]
         pending_processing_blob_event_in_queue: IntGaugeVec["worker_index"],
 
-        #[help = "The number of blob events pending processing in the background processors."]
+        #[help = "The number of blob events pending processing in the BlobEventProcessor."]
         pending_processing_blob_event_in_background_processors: IntGaugeVec["worker_index"],
     }
 }

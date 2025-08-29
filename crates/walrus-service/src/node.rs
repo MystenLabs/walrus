@@ -1528,14 +1528,6 @@ impl StorageNode {
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
 
-        self.blob_event_processor
-            .wait_for_all_events_to_be_processed()
-            .await;
-
-        if let Some(c) = self.config_synchronizer.as_ref() {
-            c.sync_node_params().await?;
-        }
-
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
         self.epoch_change_driver
@@ -1553,6 +1545,18 @@ impl StorageNode {
         self.start_epoch_change_finisher
             .wait_until_previous_task_done()
             .await;
+
+        // Before processing the epoch change start event, we need to wait for all the events in
+        // the current epoch to be processed (note that this does not include waiting for all
+        // pending blob syncs to finish). This is to make sure that the node is in a consistent
+        // state before processing the epoch change start event.
+        self.blob_event_processor
+            .wait_for_all_events_to_be_processed()
+            .await;
+
+        if let Some(c) = self.config_synchronizer.as_ref() {
+            c.sync_node_params().await?;
+        }
 
         // Start storage node consistency check if
         // - consistency check is enabled
@@ -6389,19 +6393,19 @@ mod tests {
             Ok(())
         }
 
-        // Tests that the blob event processor waits for all events to be processed.
+        // Tests that the blob event processor can correctly wait for all events to be processed.
         #[walrus_simtest]
         async fn test_blob_event_processor_wait_for_all_events_to_be_processed() -> TestResult {
             let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
             let test_shard = ShardIndex(1);
 
-            // Add delay between checking if a blob needs to recover and actual starting the
-            // recover process. This window is where other events can break event processing order.
             let blocking_notify = Arc::new(Notify::new());
             let unblock_notify = Arc::new(Notify::new());
             let blocking_notify_clone = blocking_notify.clone();
             let unblock_notify_clone = unblock_notify.clone();
 
+            // Here, we block the certified event processing in storage node 0. In this test, the
+            // initial blob upload will not upload to storage node 0, shard index 1.
             register_fail_point_async("fail_point_process_blob_certified_event", move || {
                 let blocking_notify_clone = blocking_notify_clone.clone();
                 let unblock_notify_clone = unblock_notify_clone.clone();
@@ -6435,6 +6439,9 @@ mod tests {
             store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
 
             let node = cluster.nodes[0].storage_node.clone();
+
+            // Initially, no event processing is blocked, so wait_for_all_events_to_be_processed()
+            // should return promptly.
             tokio::time::timeout(
                 Duration::from_secs(5),
                 node.blob_event_processor
@@ -6443,7 +6450,7 @@ mod tests {
             .await
             .expect("wait for all events to be processed should succeed");
 
-            // Sends certified event followed by delete event.
+            // Now we unblock the certified event processing.
             events.send(
                 BlobCertified {
                     deletable: true,
@@ -6453,8 +6460,13 @@ mod tests {
                 .into(),
             )?;
 
+            // Wait for the fail point to be triggered, and certified event processing to be
+            //blocked.
             blocking_notify.notified().await;
 
+            // Now since the certified event is blocked, the blob event processor should not be able
+            // to process the certified event, and therefore wait_for_all_events_to_be_processed()
+            // should timeout.
             tokio::time::timeout(
                 Duration::from_secs(10),
                 node.blob_event_processor
@@ -6463,10 +6475,15 @@ mod tests {
             .await
             .expect_err("wait for all events to be processed should timeout");
 
+            // Notify the fail point to unblock the certified event processing. After this, all the
+            // events should have been processed.
             unblock_notify.notify_one();
 
+            // After certified event processing is unblocked, all the events should have been
+            // processed, and therefore wait_for_all_events_to_be_processed() should return
+            //promptly.
             tokio::time::timeout(
-                Duration::from_secs(20),
+                Duration::from_secs(5),
                 node.blob_event_processor
                     .wait_for_all_events_to_be_processed(),
             )
