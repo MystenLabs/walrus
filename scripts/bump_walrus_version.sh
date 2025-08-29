@@ -15,7 +15,7 @@ for cmd in gh git cargo; do
   fi
 done
 
-# Get current main version
+# Extract the current version from Cargo.toml (e.g., "1.2.3" from version = "1.2.3")
 WALRUS_VERSION=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' ./Cargo.toml)
 
 # Generate the Walrus version bump PR
@@ -34,7 +34,7 @@ STAMP="$(date +%Y%m%d%H%M%S)"
 BRANCH="${GITHUB_ACTOR}/walrus-v${NEW_WALRUS_VERSION}-version-bump-${STAMP}"
 git checkout -b "$BRANCH"
 
-# Update the version in Cargo.toml
+# Replace the version line in Cargo.toml with the new version number
 sed -i -E "s/^(version = \")[0-9]+\.[0-9]+\.[0-9]+(\"$)/\1${NEW_WALRUS_VERSION}\2/" Cargo.toml
 
 # Cargo check to generate Cargo.lock changes
