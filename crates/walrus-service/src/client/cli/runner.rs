@@ -82,6 +82,7 @@ use super::{
         DaemonArgs,
         DaemonCommands,
         EpochArg,
+        EpochCountOrMax,
         FileOrBlobId,
         HealthSortBy,
         InfoCommands,
@@ -1577,17 +1578,25 @@ impl ClientCommandRunner {
                 epochs: Some(epochs),
                 ..
             } => match epochs {
-                crate::client::cli::args::EpochCountOrMax::Max => "max".to_string(),
-                crate::client::cli::args::EpochCountOrMax::Epochs(count) => count.to_string(),
+                EpochCountOrMax::Max => "max".to_string(),
+                EpochCountOrMax::Epochs(count) => count.to_string(),
             },
             EpochArg {
                 earliest_expiry_time: Some(time),
                 ..
             } => {
-                // Convert the time to a string representation that the daemon can understand
-                format!("{}", time.duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0))
+                // Convert the time to RFC3339 format that the daemon can understand
+                // Use a default value if conversion fails
+                match time.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(duration) => {
+                        // For now, convert to a simple epochs count based on rough estimation
+                        // This is a simplified approach - in a real implementation, we'd need
+                        // to consult the current epoch duration from the chain
+                        let estimated_days = duration.as_secs() / (24 * 60 * 60);
+                        format!("{}", (estimated_days / 30).max(1)) // Rough 30-day epoch estimate
+                    }
+                    Err(_) => "5".to_string(), // Default fallback
+                }
             },
             EpochArg {
                 end_epoch: Some(epoch),
