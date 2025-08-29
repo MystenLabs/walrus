@@ -1,28 +1,28 @@
 name: Generate Sui Version Upgrade PR
-run-name: Generate Sui Version (${{ github.event.inputs.new_sui_tag }}) Upgrade PR
+run-name: Generate Sui Version Upgrade PR
 
 on:
   workflow_dispatch:
     inputs:
-      new_sui_tag:
-        description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui testnet version"
+      new_tag:
+        description: "New Sui tag (e.g., testnet-v1.55.0), if empty defaults to current"
         required: false
         type: string
 
   repository_dispatch:
     types: [update-walrus-sui-testnet-tag]
 
-concurrency: ${{ github.workflow }}
+concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 
 permissions:
   contents: write
   pull-requests: write
 
 env:
-  NEW_SUI_TAG: ${{ github.event.client_payload.new_tag || inputs.new_sui_tag || '' }}
+  NEW_TAG: ${{ github.event.client_payload.new_tag || inputs.new_tag || '' }}
 
 jobs:
-  bump-sui-testnet-version:
+  bump:
     name: Bump Sui Testnet Version
     runs-on: ubuntu-ghcloud
 
@@ -31,24 +31,24 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
 
       - name: Get testnet version, if not provided
-        if: ${{ env.NEW_SUI_TAG == '' }}
+        if: ${{ env.NEW_TAG == '' }}
         run: |
           echo "No new tag provided, using current Sui testnet version."
-          CURRENT_SUI_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases \
+          CURRENT_TAG=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases \
             | jq -r '[.[] | select(.tag_name | startswith("testnet-")) | .tag_name] | first')
-          echo "Current Sui testnet version is: $CURRENT_SUI_TAG"
-          echo "NEW_SUI_TAG=$CURRENT_SUI_TAG" >> $GITHUB_ENV
+          echo "Current Sui testnet version is: $CURRENT_TAG"
+          echo "NEW_TAG=$CURRENT_TAG" >> $GITHUB_ENV
 
-      - name: Install ${{ env.NEW_SUI_TAG }} sui binary for move builds
+      - name: Install ${{ env.NEW_TAG }} sui binary for move builds
         shell: bash
         run: |
           curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
-          suiup install sui@${{ env.NEW_SUI_TAG }} -y
+          suiup install sui@${{ env.NEW_TAG }} -y
 
-      - name: Generate PR for ${{ env.NEW_SUI_TAG }}
+      - name: Generate PR for ${{ env.NEW_TAG }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_SUI_TAG }}"
+          ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}"
