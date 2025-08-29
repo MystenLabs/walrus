@@ -1,5 +1,5 @@
 name: Generate Sui Version Upgrade PR
-run-name: Generate Sui Version Upgrade PR
+run-name: Generate Sui Version (${{ github.event.inputs.new_sui_tag }}) Upgrade PR
 
 on:
   workflow_dispatch:
@@ -8,16 +8,11 @@ on:
         description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui testnet version"
         required: false
         type: string
-      bump_walrus_version:
-        description: "Create Walrus version bump PR"
-        required: false
-        type: boolean
-        default: false
 
   repository_dispatch:
     types: [update-walrus-sui-testnet-tag]
 
-concurrency: ${{ github.workflow }}-${{ inputs.new_sui_tag }}
+concurrency: ${{ github.workflow }}
 
 permissions:
   contents: write
@@ -57,20 +52,3 @@ jobs:
         shell: bash
         run: |
           ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_SUI_TAG }}"
-
-  bump-walrus-version:
-    name: Bump Walrus Version
-    if: ${{ inputs.bump_walrus_version }}
-    runs-on: ubuntu-ghcloud
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-
-      - name: Generate Walrus Version Bump PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
-        shell: bash
-        run: |
-          ./scripts/bump_walrus_version.sh

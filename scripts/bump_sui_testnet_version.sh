@@ -110,7 +110,7 @@ PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "chore: bump Sui version to ${NEW_TAG}" \
-  --reviewer "MystenLabs/walrus-pe" \
+  --reviewer "MystenLabs/walrus-maintenance" \
   --body "$BODY" \
   2>&1 | grep -Eo 'https://github.com/[^ ]+')
 

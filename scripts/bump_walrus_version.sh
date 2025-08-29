@@ -34,7 +34,7 @@ STAMP="$(date +%Y%m%d%H%M%S)"
 BRANCH="${GITHUB_ACTOR}/walrus-v${NEW_WALRUS_VERSION}-version-bump-${STAMP}"
 git checkout -b "$BRANCH"
 
-# Update the version in Cargo.toml and openrpc.json
+# Update the version in Cargo.toml
 sed -i -E "s/^(version = \")[0-9]+\.[0-9]+\.[0-9]+(\"$)/\1${NEW_WALRUS_VERSION}\2/" Cargo.toml
 
 # Cargo check to generate Cargo.lock changes
@@ -55,8 +55,8 @@ git push -u origin "$BRANCH"
 PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "$BODY" \
-  --reviewer "MystenLabs/walrus-pe" \
+  --title "chore: $BODY" \
+  --reviewer "MystenLabs/walrus-maintenance" \
   --body "$BODY" \
   2>&1 | grep -Eo 'https://github.com/[^ ]+')
 
