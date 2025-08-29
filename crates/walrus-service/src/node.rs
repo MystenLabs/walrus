@@ -525,7 +525,7 @@ pub struct StorageNodeInner {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
-    metrics: NodeMetricSet,
+    metrics: Arc<NodeMetricSet>,
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
@@ -581,7 +581,7 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        let metrics = NodeMetricSet::new(registry);
+        let metrics = Arc::new(NodeMetricSet::new(registry));
 
         let node_capability = contract_service
             .get_node_capability_object(config.storage_node_cap)
@@ -6461,7 +6461,7 @@ mod tests {
             )?;
 
             // Wait for the fail point to be triggered, and certified event processing to be
-            //blocked.
+            // blocked.
             blocking_notify.notified().await;
 
             // Now since the certified event is blocked, the blob event processor should not be able
@@ -6481,7 +6481,7 @@ mod tests {
 
             // After certified event processing is unblocked, all the events should have been
             // processed, and therefore wait_for_all_events_to_be_processed() should return
-            //promptly.
+            // promptly.
             tokio::time::timeout(
                 Duration::from_secs(5),
                 node.blob_event_processor
