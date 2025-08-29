@@ -14,7 +14,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, ensure};
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all, stream::FuturesOrdered};
 use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
@@ -840,18 +840,24 @@ async fn create_storage_node_wallets(
     admin_wallet: &mut Wallet,
     sui_amount: u64,
 ) -> anyhow::Result<Vec<Wallet>> {
-    // Create wallets for the storage nodes
-    let mut storage_node_wallets = Vec::with_capacity(n_nodes.get() as usize);
+    // Create wallets for the storage nodes.
+    // Use FuturesOrdered to ensure that the wallets are returned in the same order as the
+    // node index.
+    let mut futures = FuturesOrdered::new();
     for index in 0..n_nodes.get() {
         let name = node_config_name_prefix(index, n_nodes);
         let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
-        let wallet = create_wallet(
-            &wallet_path,
-            sui_network.env(),
-            Some(&format!("{name}.keystore")),
-            None,
-        )
-        .await?;
+        let env = sui_network.env();
+        let keystore = format!("{name}.keystore");
+        futures.push_back(async move {
+            let wallet = create_wallet(&wallet_path, env, Some(&keystore), None).await?;
+            Ok::<Wallet, anyhow::Error>(wallet)
+        });
+    }
+
+    let mut storage_node_wallets = Vec::with_capacity(n_nodes.get() as usize);
+    while let Some(result) = futures.next().await {
+        let wallet = result?;
         storage_node_wallets.push(wallet);
     }
 
