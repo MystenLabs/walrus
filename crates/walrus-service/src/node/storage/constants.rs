@@ -11,7 +11,6 @@ const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
 const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
-const OCTOPUS_INDEX_COLUMN_FAMILY_NAME: &str = "octopus_index";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -58,11 +57,6 @@ pub fn event_cursor_cf_name() -> &'static str {
 
 pub fn event_cursor_key() -> &'static [u8; 6] {
     &EVENT_CURSOR_KEY
-}
-
-/// Returns the name of the octopus index column family.
-pub fn octopus_index_cf_name() -> &'static str {
-    OCTOPUS_INDEX_COLUMN_FAMILY_NAME
 }
 
 /// Returns the column family name for primary slivers of a shard.

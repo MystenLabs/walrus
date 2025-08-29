@@ -45,7 +45,6 @@ use self::{
     constants::{
         metadata_cf_name,
         node_status_cf_name,
-        octopus_index_cf_name,
         pending_recover_slivers_column_family_name,
         primary_slivers_column_family_name,
         secondary_slivers_column_family_name,
@@ -60,7 +59,6 @@ use crate::utils;
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
-pub(crate) mod octopus_index;
 
 mod database_config;
 pub use database_config::DatabaseConfig;
@@ -90,10 +88,6 @@ pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
 
 pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
     db_config.node_status().to_options()
-}
-
-pub(crate) fn octopus_index_options(db_config: &DatabaseConfig) -> Options {
-    db_config.octopus_index().to_options()
 }
 
 /// The status of the node.
@@ -196,8 +190,6 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
-    #[allow(dead_code)]
-    octopus_index: octopus_index::OctopusIndexStore,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
     metrics: Arc<CommonDatabaseMetrics>,
@@ -272,8 +264,6 @@ impl Storage {
         let node_status_options = node_status_options(&db_config);
         let metadata_options = metadata_options(&db_config);
         let metadata_cf_name = metadata_cf_name();
-        let octopus_index_cf_name = octopus_index_cf_name();
-        let octopus_index_options = octopus_index_options(&db_config);
         let blob_info_column_families = BlobInfoTable::options(&db_config);
         let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
 
@@ -283,7 +273,6 @@ impl Storage {
             .chain([
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
-                (octopus_index_cf_name, octopus_index_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
             .chain(blob_info_column_families)
@@ -313,14 +302,6 @@ impl Storage {
             false,
         )?;
 
-        let octopus_index_db = DBMap::reopen(
-            &database,
-            Some(octopus_index_cf_name),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        let octopus_index = octopus_index::OctopusIndexStore::new(octopus_index_db);
-
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
@@ -339,7 +320,6 @@ impl Storage {
             metadata,
             blob_info,
             event_cursor,
-            octopus_index,
             shards,
             config: db_config,
             metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
@@ -353,12 +333,6 @@ impl Storage {
     /// Returns a reference to the database.
     pub(crate) fn get_db(&self) -> Arc<RocksDB> {
         self.database.clone()
-    }
-
-    /// Returns a reference to the octopus index.
-    #[allow(dead_code)]
-    pub(crate) fn octopus_index(&self) -> &octopus_index::OctopusIndexStore {
-        &self.octopus_index
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
@@ -1803,98 +1777,6 @@ pub(crate) mod tests {
             assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
         }
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_octopus_index_operations() -> TestResult {
-        let storage = empty_storage().await;
-        let storage = storage.as_ref();
-        
-        // Test basic shard storage and retrieval
-        let blob_id = BlobId([1; 32]);
-        let shard_index = 5;
-        let shard_data = b"test shard data";
-        
-        // Store a shard
-        storage.octopus_index.put_shard(&blob_id, shard_index, shard_data)?;
-        
-        // Retrieve the shard
-        let retrieved = storage.octopus_index.get_shard(&blob_id, shard_index)?;
-        assert_eq!(retrieved, Some(shard_data.to_vec()));
-        
-        // Test non-existent shard
-        let non_existent = storage.octopus_index.get_shard(&blob_id, 999)?;
-        assert_eq!(non_existent, None);
-        
-        // Test multiple shards for same blob
-        let shard_data_2 = b"another shard";
-        storage.octopus_index.put_shard(&blob_id, 10, shard_data_2)?;
-        
-        // Verify both shards exist
-        assert_eq!(
-            storage.octopus_index.get_shard(&blob_id, shard_index)?,
-            Some(shard_data.to_vec())
-        );
-        assert_eq!(
-            storage.octopus_index.get_shard(&blob_id, 10)?,
-            Some(shard_data_2.to_vec())
-        );
-        
-        // Test deletion
-        storage.octopus_index.delete_shard(&blob_id, shard_index)?;
-        assert_eq!(storage.octopus_index.get_shard(&blob_id, shard_index)?, None);
-        assert_eq!(
-            storage.octopus_index.get_shard(&blob_id, 10)?,
-            Some(shard_data_2.to_vec())
-        );
-        
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_octopus_index_batch_operations() -> TestResult {
-        let storage = empty_storage().await;
-        let storage = storage.as_ref();
-        
-        let blob_id = BlobId([2; 32]);
-        let shards = vec![
-            (1, b"shard 1".to_vec()),
-            (2, b"shard 2".to_vec()),
-            (3, b"shard 3".to_vec()),
-        ];
-        
-        // Store multiple shards in batch
-        storage.octopus_index.put_shards(&blob_id, shards.clone())?;
-        
-        // Verify all shards were stored
-        for (index, data) in &shards {
-            assert_eq!(
-                storage.octopus_index.get_shard(&blob_id, *index)?,
-                Some(data.clone())
-            );
-        }
-        
-        // Get multiple shards at once
-        let indices = vec![1, 2, 3, 4]; // 4 doesn't exist
-        let retrieved = storage.octopus_index.get_shards(&blob_id, indices)?;
-        assert_eq!(retrieved.len(), 3);
-        assert_eq!(retrieved.get(&1), Some(&b"shard 1".to_vec()));
-        assert_eq!(retrieved.get(&2), Some(&b"shard 2".to_vec()));
-        assert_eq!(retrieved.get(&3), Some(&b"shard 3".to_vec()));
-        assert_eq!(retrieved.get(&4), None);
-        
-        // Test exists check
-        assert!(storage.octopus_index.has_shard(&blob_id, 1)?);
-        assert!(storage.octopus_index.has_shard(&blob_id, 2)?);
-        assert!(!storage.octopus_index.has_shard(&blob_id, 99)?);
-        
-        // Delete all shards for blob
-        storage.octopus_index.delete_blob(&blob_id)?;
-        assert!(!storage.octopus_index.has_shard(&blob_id, 1)?);
-        assert!(!storage.octopus_index.has_shard(&blob_id, 2)?);
-        assert!(!storage.octopus_index.has_shard(&blob_id, 3)?);
-        
         Ok(())
     }
 

@@ -12737,6 +12737,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-indexer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.4",
+ "bincode",
+ "checkpoint-downloader",
+ "chrono",
+ "clap",
+ "futures",
+ "hex",
+ "move-core-types",
+ "mysten-metrics",
+ "prometheus",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sui-package-resolver",
+ "sui-sdk",
+ "sui-types",
+ "tempfile",
+ "tokio",
+ "tokio-util 0.7.16",
+ "tracing",
+ "tracing-subscriber",
+ "typed-store 1.32.0",
+ "walrus-core",
+ "walrus-sui",
+ "walrus-utils",
+]
+
+[[package]]
 name = "walrus-orchestrator"
 version = "1.32.0"
 dependencies = [

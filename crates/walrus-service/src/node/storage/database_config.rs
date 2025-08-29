@@ -384,8 +384,6 @@ pub struct DatabaseConfig {
     pub(super) attested: Option<DatabaseTableOptions>,
     /// Event blob writer failed to attest options.
     pub(super) failed_to_attest: Option<DatabaseTableOptions>,
-    /// Octopus index database options.
-    pub(super) octopus_index: Option<DatabaseTableOptions>,
     /// Checkpoint store database options.
     pub(super) checkpoint_store: Option<DatabaseTableOptions>,
     /// Walrus package store database options.
@@ -501,11 +499,6 @@ impl DatabaseConfig {
         Self::inherit_from_or_use_template(&self.failed_to_attest, self.standard())
     }
 
-    /// Returns the octopus index database option.
-    pub fn octopus_index(&self) -> DatabaseTableOptions {
-        Self::inherit_from_or_use_template(&self.octopus_index, self.standard())
-    }
-
     /// Returns the checkpoint store database option.
     pub fn checkpoint_store(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.checkpoint_store, self.standard())
@@ -552,7 +545,6 @@ impl Default for DatabaseConfig {
             pending: None,
             attested: None,
             failed_to_attest: None,
-            octopus_index: None,
             checkpoint_store: None,
             walrus_package_store: None,
             committee_store: None,
