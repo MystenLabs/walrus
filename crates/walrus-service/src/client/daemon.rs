@@ -502,19 +502,18 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             "configuring the publisher endpoint",
         );
 
-        // Initialize chunked upload state
         let chunked_upload_config = ChunkedUploadConfig::new(
             chunked_upload_args.clone(),
             max_quilt_body_limit.max(max_body_limit),
         );
         let chunked_upload_state = Arc::new(ChunkedUploadState::new(chunked_upload_config));
 
-        // Initialize chunked upload storage (ignore errors for now)
         let upload_state_clone = chunked_upload_state.clone();
         tokio::spawn(async move {
-            if let Err(e) = upload_state_clone.init().await {
-                tracing::error!("Failed to initialize chunked upload storage: {}", e);
-            }
+            upload_state_clone
+                .init()
+                .await
+                .expect("failed to initialize chunked upload state");
             // Start background cleanup task for expired sessions
             upload_state_clone.start_cleanup_task().await;
         });

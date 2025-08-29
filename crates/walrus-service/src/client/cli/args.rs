@@ -640,6 +640,25 @@ pub enum CliCommands {
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
     },
+    /// Publish files to a Walrus publisher daemon using chunked upload for large files.
+    ///
+    /// This command uploads files to a running publisher daemon. For files larger than 1MiB,
+    /// it automatically uses chunked upload to enable reliable transfer of large files.
+    /// Smaller files are uploaded directly.
+    Publish {
+        /// The file or directory to publish.
+        #[arg(required = true, value_name = "FILE_OR_DIR")]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
+        path: PathBuf,
+        /// The URL of the publisher daemon to upload to.
+        #[arg(long, default_value = "http://127.0.0.1:31415")]
+        #[serde(default = "default::default_daemon_url")]
+        daemon_url: String,
+        /// Common options shared with store commands.
+        #[command(flatten)]
+        #[serde(flatten)]
+        common_options: CommonStoreOptions,
+    },
 }
 
 /// Subcommands for the `info` command.
@@ -1757,6 +1776,10 @@ pub(crate) mod default {
 
     pub(crate) fn concurrent_requests_for_health() -> u32 {
         60
+    }
+
+    pub(crate) fn default_daemon_url() -> String {
+        "http://127.0.0.1:31415".to_string()
     }
 }
 

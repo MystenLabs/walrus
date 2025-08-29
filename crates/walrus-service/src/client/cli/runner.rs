@@ -72,6 +72,7 @@ use walrus_sui::{client::rpc_client, wallet::Wallet};
 use walrus_utils::{metrics::Registry, read_blob_from_file};
 
 use super::{
+    PublisherClient,
     args::{
         AggregatorArgs,
         BlobIdentifiers,
@@ -502,6 +503,21 @@ impl ClientCommandRunner {
                 let result = run_blob_backfill(backfill_dir, node_ids, pushed_state).await;
                 tracing::info!("blob backfill exited with: {:?}", result);
                 result
+            }
+            CliCommands::Publish {
+                path,
+                daemon_url,
+                common_options,
+            } => {
+                self.publish(
+                    path,
+                    daemon_url,
+                    common_options.epoch_arg,
+                    common_options.deletable,
+                    common_options.permanent,
+                    common_options.share,
+                )
+                .await
             }
         }
     }
@@ -1535,6 +1551,139 @@ impl ClientCommandRunner {
             };
 
             std::fs::write(&output_file_path, blob.take_blob())?;
+        }
+
+        Ok(())
+    }
+
+    /// Publish files to a publisher daemon using chunked upload for large files
+    pub async fn publish(
+        &self,
+        path: PathBuf,
+        daemon_url: String,
+        epoch_arg: EpochArg,
+        deletable: bool,
+        permanent: bool,
+        share: bool,
+    ) -> Result<()> {
+        let client = PublisherClient::new(daemon_url.clone());
+
+        // Build query parameters for the daemon
+        let mut query_params = std::collections::HashMap::new();
+
+        // Parse epoch_arg and add to query_params
+        let epochs_value = match epoch_arg {
+            EpochArg {
+                epochs: Some(epochs),
+                ..
+            } => match epochs {
+                crate::client::cli::args::EpochCountOrMax::Max => "max".to_string(),
+                crate::client::cli::args::EpochCountOrMax::Epochs(count) => count.to_string(),
+            },
+            EpochArg {
+                earliest_expiry_time: Some(time),
+                ..
+            } => {
+                // Convert the time to a string representation that the daemon can understand
+                format!("{}", time.duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0))
+            },
+            EpochArg {
+                end_epoch: Some(epoch),
+                ..
+            } => epoch.to_string(),
+            _ => "5".to_string(), // Default fallback
+        };
+        query_params.insert("epochs".to_string(), epochs_value);
+
+        if deletable {
+            query_params.insert("deletable".to_string(), "true".to_string());
+        }
+        if permanent {
+            query_params.insert("permanent".to_string(), "true".to_string());
+        }
+        if share {
+            query_params.insert("share".to_string(), "true".to_string());
+        }
+
+        if path.is_file() {
+            tracing::info!(
+                file = %path.display(),
+                daemon_url = %daemon_url,
+                "Publishing file to daemon"
+            );
+
+            let response = client.upload_file(&path, &query_params).await?;
+            let status = response.status();
+
+            if status.is_success() {
+                let response_text = response.text().await?;
+                if self.json {
+                    println!("{}", response_text);
+                } else {
+                    println!("{} File published successfully", success());
+                    if !response_text.is_empty() {
+                        println!("Response: {}", response_text);
+                    }
+                }
+            } else {
+                let error_text = response.text().await.unwrap_or_default();
+                anyhow::bail!("Upload failed with status {}: {}", status, error_text);
+            }
+        } else if path.is_dir() {
+            tracing::info!(
+                directory = %path.display(),
+                daemon_url = %daemon_url,
+                "Publishing directory to daemon"
+            );
+
+            let results = client.upload_directory(&path, &query_params).await?;
+            let mut success_count = 0;
+            let mut error_count = 0;
+
+            for (file_name, result) in results {
+                match result {
+                    Ok(response) => {
+                        let status = response.status();
+                        if status.is_success() {
+                            success_count += 1;
+                            if !self.json {
+                                println!("{} {}", success(), file_name);
+                            }
+                        } else {
+                            error_count += 1;
+                            let error_text = response.text().await.unwrap_or_default();
+                            eprintln!("Failed to upload {}: {} {}", file_name, status, error_text);
+                        }
+                    }
+                    Err(e) => {
+                        error_count += 1;
+                        eprintln!("Failed to upload {}: {}", file_name, e);
+                    }
+                }
+            }
+
+            if self.json {
+                // TODO: Provide proper JSON output format
+                println!(
+                    "{{\"success_count\": {}, \"error_count\": {}}}",
+                    success_count, error_count
+                );
+            } else {
+                println!(
+                    "{} Published {} files successfully, {} failed",
+                    success(),
+                    success_count,
+                    error_count
+                );
+            }
+
+            if error_count > 0 {
+                anyhow::bail!("{} files failed to upload", error_count);
+            }
+        } else {
+            anyhow::bail!("Path {} is neither a file nor a directory", path.display());
         }
 
         Ok(())
