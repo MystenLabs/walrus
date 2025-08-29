@@ -1058,17 +1058,16 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub ignore_resources: bool,
-    /// Mark the blob/quilt as deletable.
+    /// Mark the blob/quilt as deletable. Conflicts with `--permanent`.
     ///
     /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
     ///
-    /// This flag is currently optional as new blobs are created as deletable by default since
-    /// v1.33; however, it is still recommended to explicitly use the flag when storing new
-    /// deletable blobs.
+    /// New blobs are created as deletable by default since v1.33, and this flag is no longer
+    /// required.
     #[arg(long, conflicts_with = "permanent")]
     #[serde(default)]
     pub deletable: bool,
-    /// Mark the blob/quilt as permanent.
+    /// Mark the blob/quilt as permanent. Conflicts with `--deletable`.
     ///
     /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
     /// beneficial if strong availability guarantees are required.

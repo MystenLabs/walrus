@@ -791,9 +791,8 @@ pub struct PublisherQuery {
     pub epochs: EpochCount,
     /// If true, the publisher creates a deletable blob.
     ///
-    /// This flag is currently optional as new blobs are created as deletable by default since
-    /// v1.33; however, it is still recommended to explicitly use the flag when storing new
-    /// deletable blobs.
+    /// New blobs are created as deletable by default since v1.33, and this flag is no longer
+    /// required.
     #[serde(default)]
     pub deletable: bool,
     /// If true, the publisher creates a permanent blob instead of a deletable one.
