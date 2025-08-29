@@ -1597,7 +1597,7 @@ impl ClientCommandRunner {
                     }
                     Err(_) => "5".to_string(), // Default fallback
                 }
-            },
+            }
             EpochArg {
                 end_epoch: Some(epoch),
                 ..
