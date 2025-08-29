@@ -16,7 +16,7 @@ for cmd in gh git cargo; do
 done
 
 # Get current main version
-WALRUS_VERSION_VERSION=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' ./Cargo.toml)
+WALRUS_VERSION=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' ./Cargo.toml)
 
 # Generate the Walrus version bump PR
 echo "Generating walrus version bump..."
@@ -26,7 +26,8 @@ if [[ -z "${GITHUB_ACTOR:-}" ]]; then
   GITHUB_ACTOR="$(whoami 2>/dev/null || echo github-actions[bot])"
 fi
 
-IFS=. read -r major minor patch <<<"$WALRUS_VERSION_VERSION"; NEW_WALRUS_VERSION="$major.$((minor+1)).$patch"
+# Parse "X.Y.Z" from $WALRUS_VERSION into major/minor/patch, then set NEW_WALRUS_VERSION to "X.(Y+1).Z".
+IFS=. read -r major minor patch <<<"$WALRUS_VERSION"; NEW_WALRUS_VERSION="$major.$((minor+1)).$patch"
 
 # Setup new branch for staging
 STAMP="$(date +%Y%m%d%H%M%S)"
@@ -46,9 +47,11 @@ git add -A .
 # Generate PR body
 BODY="Walrus v${NEW_WALRUS_VERSION} Version Bump"
 
+# push branch
 git commit -m "$BODY"
 git push -u origin "$BRANCH"
 
+# Create PR
 PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \

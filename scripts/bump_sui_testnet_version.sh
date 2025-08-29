@@ -95,6 +95,7 @@ git config user.name "github-actions[bot]"
 git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
+# Push branch
 git commit -m "chore: bump Sui version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
@@ -104,6 +105,7 @@ This PR updates the Sui testnet version to ${NEW_TAG}
 EOF
 )
 
+# Create PR
 PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
