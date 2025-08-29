@@ -155,7 +155,9 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     env:
-      MSIM_TEST_NUM: 5
+      # TODO(zhewu): set this back to 5 after proper walrus cluster cleanup is implemented after
+      # each test run.
+      MSIM_TEST_NUM: 1
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
     steps:
