@@ -212,7 +212,6 @@ impl PublisherClient {
                     }
                 }
                 StatusCode::OK => {
-                    // Upload complete
                     tracing::info!(
                         session_id = %session_id,
                         "Chunked upload completed successfully"
@@ -226,7 +225,6 @@ impl PublisherClient {
             }
         }
 
-        // If we get here, something went wrong - we should have received a 200 OK
         Err(anyhow!(
             "Chunked upload completed all chunks but never received final 200 OK response"
         ))
