@@ -20,7 +20,7 @@ use walrus_indexer::{
 #[derive(Parser, Debug)]
 #[command(name = "walrus-indexer")]
 #[command(about = "Walrus Indexer Service (Octopus Index)", version)]
-struct IndexerArgs {
+pub struct IndexerArgs {
     /// Path to the database directory
     #[arg(long, default_value = "./indexer-db")]
     db_path: String,

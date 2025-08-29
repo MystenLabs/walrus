@@ -217,8 +217,7 @@ impl WalrusIndexer {
                 self.storage.put_primary_index(
                     &bucket_id,
                     &primary_key,
-                    blob_id,
-                    HashMap::new(), // metadata can be added later
+                    storage::IndexTarget::BlobId(blob_id),
                     indices_map,
                 )?;
             }
@@ -226,8 +225,14 @@ impl WalrusIndexer {
                 bucket_id,
                 primary_key,
             } => {
+                // Remove from storage
                 self.storage
                     .delete_primary_entry(&bucket_id, &primary_key)?;
+                
+                // Remove from cache
+                let cache_key = format!("{}/{}", bucket_id, primary_key);
+                let mut cache = self.cache.write().await;
+                cache.remove(&cache_key);
             }
             IndexOperation::ApplyMutations(mutations) => {
                 self.storage.apply_index_mutations(mutations)?;
@@ -263,13 +268,13 @@ impl WalrusIndexer {
         Ok(result)
     }
 
-    /// Get blobs by secondary index
+    /// Get targets by secondary index
     pub async fn list_index(
         &self,
         bucket_id: &ObjectID,
         index_name: &str,
         index_key: &str,
-    ) -> Result<Vec<BlobId>> {
+    ) -> Result<Vec<storage::IndexTarget>> {
         self.storage
             .get_secondary_index(bucket_id, index_name, index_key)
             .map_err(|e| anyhow::anyhow!("Failed to get secondary index: {}", e))
@@ -459,16 +464,16 @@ mod tests {
             .get_blob_by_index(&bucket_id, "/photos/2024/sunset.jpg")
             .await?;
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().blob_id, blob_id);
+        assert_eq!(entry.unwrap().target, storage::IndexTarget::BlobId(blob_id));
 
         // Query by secondary index
         let jpg_blobs = indexer.list_index(&bucket_id, "type", "jpg").await?;
-        assert_eq!(jpg_blobs, vec![blob_id]);
+        assert_eq!(jpg_blobs, vec![storage::IndexTarget::BlobId(blob_id)]);
 
         let california_blobs = indexer
             .list_index(&bucket_id, "location", "california")
             .await?;
-        assert_eq!(california_blobs, vec![blob_id]);
+        assert_eq!(california_blobs, vec![storage::IndexTarget::BlobId(blob_id)]);
 
         // List all entries in bucket
         let all_entries = indexer.list_bucket(&bucket_id).await?;

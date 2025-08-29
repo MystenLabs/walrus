@@ -55,6 +55,7 @@ pub struct IndexerEventProcessor {
     /// The interval at which to sample high-frequency tracing logs.
     pub sampled_tracing_interval: Duration,
     /// Channel for sending processed events to the indexer
+    #[allow(dead_code)]
     event_sender: mpsc::UnboundedSender<IndexerEvent>,
     /// Channel for receiving processed events
     event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IndexerEvent>>>,
@@ -245,6 +246,7 @@ impl IndexerEventProcessor {
     }
 
     /// Send an indexer event (used internally by the processor)
+    #[allow(dead_code)]
     fn send_event(&self, event: IndexerEvent) -> Result<()> {
         self.event_sender
             .send(event)

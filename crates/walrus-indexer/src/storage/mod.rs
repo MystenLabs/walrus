@@ -16,17 +16,23 @@ use typed_store::{
     TypedStoreError,
     rocks::{DBBatch, DBMap},
 };
-use walrus_core::BlobId;
+use walrus_core::{BlobId, QuiltPatchId};
+
+/// Target of an index entry
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IndexTarget {
+    /// Blob ID
+    BlobId(BlobId),
+    /// Quilt patch ID
+    QuiltPatchId(QuiltPatchId),
+}
 
 /// Primary index value containing blob metadata and secondary indices
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PrimaryIndexValue {
     /// The blob ID this entry points to
-    pub blob_id: BlobId,
-    /// Optional metadata associated with the blob
-    pub metadata: HashMap<String, String>,
+    pub target: IndexTarget,
     /// Secondary index keys for this entry
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub secondary_indices: HashMap<String, Vec<String>>,
 }
 
@@ -34,11 +40,7 @@ pub struct PrimaryIndexValue {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecondaryIndexValue {
     /// List of blob IDs that match this secondary index
-    pub blob_ids: Vec<BlobId>,
-    /// Whether this is paginated (for large lists)
-    pub is_paginated: bool,
-    /// Current page number if paginated
-    pub page_number: Option<u32>,
+    pub targets: Vec<IndexTarget>,
 }
 
 /// Index mutation operations that can be applied
@@ -49,7 +51,7 @@ pub enum IndexMutation {
     Insert {
         index_name: Option<String>,
         index_key: String,
-        index_value: String,
+        index_value: IndexTarget,
     },
     /// Delete an index entry
     /// When index_name is None, deletes from primary index
@@ -75,9 +77,9 @@ pub struct OctopusIndexStore {
     secondary_index: DBMap<String, SecondaryIndexValue>,
 }
 
-/// Constants for pagination
-const INLINE_STORAGE_THRESHOLD: usize = 100;
-const ENTRIES_PER_PAGE: usize = 1000;
+// Constants for future pagination implementation
+// const INLINE_STORAGE_THRESHOLD: usize = 100;
+// const ENTRIES_PER_PAGE: usize = 1000;
 
 impl OctopusIndexStore {
     pub fn new(
@@ -95,14 +97,12 @@ impl OctopusIndexStore {
         &self,
         bucket_id: &ObjectID,
         primary_key: &str,
-        blob_id: BlobId,
-        metadata: HashMap<String, String>,
+        target: IndexTarget,
         secondary_indices: HashMap<String, Vec<String>>,
     ) -> Result<(), TypedStoreError> {
         let key = format!("{}/{}", bucket_id, primary_key);
         let value = PrimaryIndexValue {
-            blob_id,
-            metadata,
+            target: target.clone(),
             secondary_indices: secondary_indices.clone(),
         };
 
@@ -117,7 +117,7 @@ impl OctopusIndexStore {
                     bucket_id,
                     &index_name,
                     &index_value,
-                    blob_id,
+                    &target,
                     true,
                 )?;
             }
@@ -142,31 +142,13 @@ impl OctopusIndexStore {
         bucket_id: &ObjectID,
         index_name: &str,
         index_value: &str,
-    ) -> Result<Vec<BlobId>, TypedStoreError> {
-        let base_key = format!("{}/{}/{}", bucket_id, index_name, index_value);
+    ) -> Result<Vec<IndexTarget>, TypedStoreError> {
+        let key = format!("{}/{}/{}", bucket_id, index_name, index_value);
 
-        // First try to get inline storage
-        if let Some(value) = self.secondary_index.get(&base_key)? {
-            if !value.is_paginated {
-                return Ok(value.blob_ids);
-            }
+        match self.secondary_index.get(&key)? {
+            Some(value) => Ok(value.targets),
+            None => Ok(Vec::new()),
         }
-
-        // If paginated, collect from all pages
-        let mut all_blob_ids = Vec::new();
-        let mut page = 0;
-        loop {
-            let page_key = format!("{}/{:04}", base_key, page);
-            match self.secondary_index.get(&page_key)? {
-                Some(page_value) => {
-                    all_blob_ids.extend(page_value.blob_ids);
-                    page += 1;
-                }
-                None => break,
-            }
-        }
-
-        Ok(all_blob_ids)
     }
 
     /// Update secondary index (internal helper)
@@ -176,53 +158,33 @@ impl OctopusIndexStore {
         bucket_id: &ObjectID,
         index_name: &str,
         index_value: &str,
-        blob_id: BlobId,
+        target: &IndexTarget,
         add: bool,
     ) -> Result<(), TypedStoreError> {
-        let base_key = format!("{}/{}/{}", bucket_id, index_name, index_value);
+        let key = format!("{}/{}/{}", bucket_id, index_name, index_value);
 
         // Get current value
-        let mut blob_ids = if let Some(current) = self.secondary_index.get(&base_key)? {
-            if current.is_paginated {
-                // Handle paginated case
-                self.get_secondary_index(bucket_id, index_name, index_value)?
-            } else {
-                current.blob_ids
-            }
+        let mut targets = if let Some(current) = self.secondary_index.get(&key)? {
+            current.targets
         } else {
             Vec::new()
         };
 
-        // Add or remove blob_id
+        // Add or remove target
         if add {
-            if !blob_ids.contains(&blob_id) {
-                blob_ids.push(blob_id);
+            if !targets.contains(target) {
+                targets.push(target.clone());
             }
         } else {
-            blob_ids.retain(|&id| id != blob_id);
+            targets.retain(|t| t != target);
         }
 
-        // Store based on size
-        if blob_ids.len() <= INLINE_STORAGE_THRESHOLD {
-            // Use inline storage
-            let value = SecondaryIndexValue {
-                blob_ids,
-                is_paginated: false,
-                page_number: None,
-            };
-            batch.insert_batch(&self.secondary_index, [(base_key, value)])?;
+        // Store the updated value
+        if targets.is_empty() {
+            batch.delete_batch(&self.secondary_index, [key])?;
         } else {
-            // Use paginated storage
-            let pages = blob_ids.chunks(ENTRIES_PER_PAGE);
-            for (page_num, page_blob_ids) in pages.enumerate() {
-                let page_key = format!("{}/{:04}", base_key, page_num);
-                let value = SecondaryIndexValue {
-                    blob_ids: page_blob_ids.to_vec(),
-                    is_paginated: true,
-                    page_number: Some(page_num as u32),
-                };
-                batch.insert_batch(&self.secondary_index, [(page_key, value)])?;
-            }
+            let value = SecondaryIndexValue { targets };
+            batch.insert_batch(&self.secondary_index, [(key, value)])?;
         }
 
         Ok(())
@@ -253,7 +215,8 @@ impl OctopusIndexStore {
         &self,
         mutations: Vec<MutationSet>,
     ) -> Result<(), TypedStoreError> {
-        // Process mutations directly without batch for simplicity
+        let mut batch = self.primary_index.batch();
+        
         for mutation_set in mutations {
             for mutation in mutation_set.mutations {
                 match mutation {
@@ -264,59 +227,22 @@ impl OctopusIndexStore {
                     } => {
                         if let Some(index_name) = index_name {
                             // Secondary index operation
-                            // Parse index_value as blob_id
-                            if let Ok(blob_id_bytes) = hex::decode(&index_value) {
-                                if blob_id_bytes.len() == 32 {
-                                    let mut arr = [0u8; 32];
-                                    arr.copy_from_slice(&blob_id_bytes);
-                                    let blob_id = BlobId(arr);
-
-                                    let base_key = format!(
-                                        "{}/{}/{}",
-                                        mutation_set.bucket_id, index_name, index_key
-                                    );
-
-                                    // Get current value
-                                    let mut blob_ids = if let Some(current) =
-                                        self.secondary_index.get(&base_key)?
-                                    {
-                                        current.blob_ids
-                                    } else {
-                                        Vec::new()
-                                    };
-
-                                    // Add blob_id if not present
-                                    if !blob_ids.contains(&blob_id) {
-                                        blob_ids.push(blob_id);
-                                    }
-
-                                    // Store updated value
-                                    let value = SecondaryIndexValue {
-                                        blob_ids,
-                                        is_paginated: false,
-                                        page_number: None,
-                                    };
-                                    self.secondary_index.insert(&base_key, &value)?;
-                                }
-                            }
+                            self.update_secondary_index_batch(
+                                &mut batch,
+                                &mutation_set.bucket_id,
+                                &index_name,
+                                &index_key,
+                                &index_value,
+                                true,
+                            )?;
                         } else {
                             // Primary index operation
-                            // index_key is the primary key, index_value is the blob_id
-                            if let Ok(blob_id_bytes) = hex::decode(&index_value) {
-                                if blob_id_bytes.len() == 32 {
-                                    let mut arr = [0u8; 32];
-                                    arr.copy_from_slice(&blob_id_bytes);
-                                    let blob_id = BlobId(arr);
-
-                                    let key = format!("{}/{}", mutation_set.bucket_id, index_key);
-                                    let value = PrimaryIndexValue {
-                                        blob_id,
-                                        metadata: HashMap::new(),
-                                        secondary_indices: HashMap::new(),
-                                    };
-                                    self.primary_index.insert(&key, &value)?;
-                                }
-                            }
+                            let key = format!("{}/{}", mutation_set.bucket_id, index_key);
+                            let value = PrimaryIndexValue {
+                                target: index_value,
+                                secondary_indices: HashMap::new(),
+                            };
+                            batch.insert_batch(&self.primary_index, [(key, value)])?;
                         }
                     }
                     IndexMutation::Delete {
@@ -324,21 +250,22 @@ impl OctopusIndexStore {
                         index_key,
                     } => {
                         if let Some(index_name) = index_name {
-                            // Secondary index deletion
-                            let secondary_key =
-                                format!("{}/{}/{}", mutation_set.bucket_id, index_name, index_key);
-                            self.secondary_index.remove(&secondary_key)?;
+                            // For secondary index deletion, we need to know the target to remove
+                            // This is a limitation of the current mutation design
+                            // For now, we'll remove the entire secondary index entry
+                            let key = format!("{}/{}/{}", mutation_set.bucket_id, index_name, index_key);
+                            batch.delete_batch(&self.secondary_index, [key])?;
                         } else {
                             // Primary index deletion
                             let key = format!("{}/{}", mutation_set.bucket_id, index_key);
-                            self.primary_index.remove(&key)?;
+                            batch.delete_batch(&self.primary_index, [key])?;
                         }
                     }
                 }
             }
         }
-
-        Ok(())
+        
+        batch.write()
     }
 
     /// Check if a primary index entry exists
@@ -374,7 +301,7 @@ impl OctopusIndexStore {
                         bucket_id,
                         &index_name,
                         &index_value,
-                        entry.blob_id,
+                        &entry.target,
                         false,
                     )?;
                 }
@@ -431,7 +358,7 @@ impl OctopusIndexStore {
             let (key, value) = entry?;
             if key.starts_with(&prefix) {
                 secondary_count += 1;
-                total_blob_count += value.blob_ids.len() as u32;
+                total_blob_count += value.targets.len() as u32;
             }
         }
 
@@ -519,8 +446,7 @@ mod tests {
         store.put_primary_index(
             &bucket_id,
             "/photos/2024/sunset.jpg",
-            blob_id,
-            metadata.clone(),
+            IndexTarget::BlobId(blob_id),
             secondary_indices,
         )?;
 
@@ -529,15 +455,14 @@ mod tests {
         assert!(entry.is_some());
 
         let retrieved = entry.unwrap();
-        assert_eq!(retrieved.blob_id, blob_id);
-        assert_eq!(retrieved.metadata, metadata);
+        assert_eq!(retrieved.target, IndexTarget::BlobId(blob_id));
 
         // Verify secondary indices were created
         let type_blobs = store.get_secondary_index(&bucket_id, "type", "jpg")?;
-        assert_eq!(type_blobs, vec![blob_id]);
+        assert_eq!(type_blobs, vec![IndexTarget::BlobId(blob_id)]);
 
         let date_blobs = store.get_secondary_index(&bucket_id, "date", "2024-01-15")?;
-        assert_eq!(date_blobs, vec![blob_id]);
+        assert_eq!(date_blobs, vec![IndexTarget::BlobId(blob_id)]);
 
         Ok(())
     }
@@ -561,8 +486,7 @@ mod tests {
             store.put_primary_index(
                 &bucket_id,
                 &format!("/photos/img{}.jpg", i),
-                blob_id,
-                HashMap::new(),
+                IndexTarget::BlobId(blob_id),
                 secondary_indices,
             )?;
         }
@@ -570,9 +494,9 @@ mod tests {
         // Verify secondary index contains all blobs
         let type_blobs = store.get_secondary_index(&bucket_id, "type", "jpg")?;
         assert_eq!(type_blobs.len(), 3);
-        assert!(type_blobs.contains(&BlobId([0; 32])));
-        assert!(type_blobs.contains(&BlobId([1; 32])));
-        assert!(type_blobs.contains(&BlobId([2; 32])));
+        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([0; 32]))));
+        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([1; 32]))));
+        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([2; 32]))));
 
         let location_blobs = store.get_secondary_index(&bucket_id, "location", "california")?;
         assert_eq!(location_blobs.len(), 3);
@@ -598,8 +522,7 @@ mod tests {
             store.put_primary_index(
                 &bucket_id,
                 &format!("file{}.txt", i),
-                blob_id,
-                HashMap::new(),
+                IndexTarget::BlobId(blob_id),
                 secondary_indices,
             )?;
         }
@@ -632,36 +555,55 @@ mod tests {
         .unwrap();
         let blob_id = BlobId([99; 32]);
 
-        // First test direct primary index write (this works in other tests)
+        // Test with empty secondary indices first
+        println!("Testing put_primary_index with empty secondary indices...");
         store.put_primary_index(
             &bucket_id,
-            "/test/direct.pdf",
-            blob_id,
-            HashMap::new(),
+            "/test/empty",
+            IndexTarget::BlobId(blob_id),
             HashMap::new(),
         )?;
-
-        // Verify it was stored
-        let entry = store.get_primary_index(&bucket_id, "/test/direct.pdf")?;
-        assert!(entry.is_some());
-        assert_eq!(entry.unwrap().blob_id, blob_id);
+        
+        println!("Retrieving value with empty indices...");
+        let retrieved = store.get_primary_index(&bucket_id, "/test/empty")?;
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().target, IndexTarget::BlobId(blob_id));
+        
+        // Test with non-empty secondary indices
+        println!("Testing put_primary_index with non-empty secondary indices...");
+        let mut secondary_indices = HashMap::new();
+        secondary_indices.insert("test_index".to_string(), vec!["test_value".to_string()]);
+        
+        store.put_primary_index(
+            &bucket_id,
+            "/test/simple",
+            IndexTarget::BlobId(blob_id),
+            secondary_indices,
+        )?;
+        
+        println!("Retrieving value with non-empty indices...");
+        let retrieved = store.get_primary_index(&bucket_id, "/test/simple")?;
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().target, IndexTarget::BlobId(blob_id));
 
         // Now test via mutations
+        println!("Testing mutations - primary index...");
         let primary_mutation = MutationSet {
             bucket_id,
             mutations: vec![IndexMutation::Insert {
                 index_name: None, // Primary index
                 index_key: "/documents/report.pdf".to_string(),
-                index_value: hex::encode(blob_id.0),
+                index_value: IndexTarget::BlobId(blob_id),
             }],
         };
 
+        println!("Applying primary mutation...");
         store.apply_index_mutations(vec![primary_mutation])?;
 
         // Verify primary index was created
         let entry = store.get_primary_index(&bucket_id, "/documents/report.pdf")?;
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().blob_id, blob_id);
+        assert_eq!(entry.unwrap().target, IndexTarget::BlobId(blob_id));
 
         // Test secondary index mutation (index_name = Some)
         let secondary_mutation = MutationSet {
@@ -669,7 +611,7 @@ mod tests {
             mutations: vec![IndexMutation::Insert {
                 index_name: Some("type".to_string()),
                 index_key: "pdf".to_string(),
-                index_value: hex::encode(blob_id.0),
+                index_value: IndexTarget::BlobId(blob_id),
             }],
         };
 
@@ -677,7 +619,7 @@ mod tests {
 
         // Verify secondary index was created
         let pdf_blobs = store.get_secondary_index(&bucket_id, "type", "pdf")?;
-        assert_eq!(pdf_blobs, vec![blob_id]);
+        assert_eq!(pdf_blobs, vec![IndexTarget::BlobId(blob_id)]);
 
         // Test deletion with None (primary index)
         let delete_primary = MutationSet {
@@ -726,8 +668,7 @@ mod tests {
         store.put_primary_index(
             &bucket_id,
             "/test/data.json",
-            blob_id,
-            metadata.clone(),
+            IndexTarget::BlobId(blob_id),
             secondary_indices.clone(),
         )?;
 
@@ -736,16 +677,15 @@ mod tests {
         assert!(retrieved.is_some());
 
         let primary_data = retrieved.unwrap();
-        assert_eq!(primary_data.blob_id, blob_id);
-        assert_eq!(primary_data.metadata, metadata);
+        assert_eq!(primary_data.target, IndexTarget::BlobId(blob_id));
         assert_eq!(primary_data.secondary_indices.len(), 2);
 
         // Read secondary index data
         let tag_blobs = store.get_secondary_index(&bucket_id, "tags", "test")?;
-        assert_eq!(tag_blobs, vec![blob_id]);
+        assert_eq!(tag_blobs, vec![IndexTarget::BlobId(blob_id)]);
 
         let category_blobs = store.get_secondary_index(&bucket_id, "category", "development")?;
-        assert_eq!(category_blobs, vec![blob_id]);
+        assert_eq!(category_blobs, vec![IndexTarget::BlobId(blob_id)]);
 
         // Verify persistence by checking if entry exists
         assert!(store.has_primary_entry(&bucket_id, "/test/data.json")?);
