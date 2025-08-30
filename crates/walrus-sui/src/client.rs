@@ -353,10 +353,11 @@ impl BlobPersistence {
         matches!(self, Self::Deletable)
     }
 
-    /// Constructs [`Self`] based on the value of a `deletable` flag.
+    /// Constructs [`Self`] based on the value of a `deletable` and a `permanent` flag.
     ///
-    /// If `deletable` is true, returns [`Self::Deletable`], force otherwise returns
-    /// [`Self::Permanent`].
+    /// Returns the appropriate [`Self`] variant if exactly one of the flags is true. Returns an
+    /// error, if both flags are true. Returns [`Self::Deletable`] (new default behavior) if both
+    /// flags are false, but logs a warning in that case.
     pub fn from_deletable_and_permanent(
         deletable: bool,
         permanent: bool,
@@ -366,14 +367,12 @@ impl BlobPersistence {
             (false, true) => Ok(Self::Permanent),
             (true, true) => Err(InvalidBlobPersistenceError),
             (false, false) => {
-                // TODO(WAL-911): Change the default behavior to return `Deletable` after a few
-                // releases.
                 tracing::warn!(
-                    "blob is marked as neither deletable nor permanent; blobs are currently \
-                    permanent by default, but this behavior will change starting with v1.33; use \
-                    `--deletable` or `--permanent` to explicitly specify the desired behavior"
+                    "blob is marked as neither deletable nor permanent; blobs are now deletable \
+                    by default (since v1.33); it is recommended to use `--deletable` or \
+                    `--permanent` to explicitly specify the desired behavior"
                 );
-                Ok(Self::Permanent)
+                Ok(Self::Deletable)
             }
         }
     }
