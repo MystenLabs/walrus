@@ -525,7 +525,7 @@ pub struct StorageNodeInner {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
-    metrics: NodeMetricSet,
+    metrics: Arc<NodeMetricSet>,
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
@@ -581,7 +581,7 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        let metrics = NodeMetricSet::new(registry);
+        let metrics = Arc::new(NodeMetricSet::new(registry));
 
         let node_capability = contract_service
             .get_node_capability_object(config.storage_node_cap)
@@ -1528,10 +1528,6 @@ impl StorageNode {
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
 
-        if let Some(c) = self.config_synchronizer.as_ref() {
-            c.sync_node_params().await?;
-        }
-
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
         self.epoch_change_driver
@@ -1549,6 +1545,18 @@ impl StorageNode {
         self.start_epoch_change_finisher
             .wait_until_previous_task_done()
             .await;
+
+        // Before processing the epoch change start event, we need to wait for all the events in
+        // the current epoch to be processed (note that this does not include waiting for all
+        // pending blob syncs to finish). This is to make sure that the node is in a consistent
+        // state before processing the epoch change start event.
+        self.blob_event_processor
+            .wait_for_all_events_to_be_processed()
+            .await;
+
+        if let Some(c) = self.config_synchronizer.as_ref() {
+            c.sync_node_params().await?;
+        }
 
         // Start storage node consistency check if
         // - consistency check is enabled
@@ -6380,6 +6388,107 @@ mod tests {
                     .blob_sync_in_progress()
                     .is_empty()
             );
+
+            clear_fail_point("fail_point_process_blob_certified_event");
+            Ok(())
+        }
+
+        // Tests that the blob event processor can correctly wait for all events to be processed.
+        #[walrus_simtest]
+        async fn test_blob_event_processor_wait_for_all_events_to_be_processed() -> TestResult {
+            let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+            let test_shard = ShardIndex(1);
+
+            let blocking_notify = Arc::new(Notify::new());
+            let unblock_notify = Arc::new(Notify::new());
+            let blocking_notify_clone = blocking_notify.clone();
+            let unblock_notify_clone = unblock_notify.clone();
+
+            // Here, we block the certified event processing in storage node 0. In this test, the
+            // initial blob upload will not upload to storage node 0, shard index 1.
+            register_fail_point_async("fail_point_process_blob_certified_event", move || {
+                let blocking_notify_clone = blocking_notify_clone.clone();
+                let unblock_notify_clone = unblock_notify_clone.clone();
+                async move {
+                    // Notify the test body that we are blocking.
+                    blocking_notify_clone.notify_one();
+                    // Wait for the test body to unblock.
+                    unblock_notify_clone.notified().await;
+                }
+            });
+
+            let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+            // Randomly generated blob.
+            let random_blob = walrus_test_utils::random_data_list(10, 1);
+
+            let config = cluster.encoding_config();
+            let blob = EncodedBlob::new(&random_blob[0], config);
+
+            let object_id = ObjectID::random();
+
+            // Do not store the sliver in the first node.
+            events.send(
+                BlobRegistered {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobRegistered::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+            store_at_shards(&blob, &cluster, |&shard, _| shard != test_shard).await?;
+
+            let node = cluster.nodes[0].storage_node.clone();
+
+            // Initially, no event processing is blocked, so wait_for_all_events_to_be_processed()
+            // should return promptly.
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect("wait for all events to be processed should succeed");
+
+            // Now we unblock the certified event processing.
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    object_id: object_id.clone(),
+                    ..BlobCertified::for_testing(*blob.blob_id()).into()
+                }
+                .into(),
+            )?;
+
+            // Wait for the fail point to be triggered, and certified event processing to be
+            // blocked.
+            blocking_notify.notified().await;
+
+            // Now since the certified event is blocked, the blob event processor should not be able
+            // to process the certified event, and therefore wait_for_all_events_to_be_processed()
+            // should timeout.
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect_err("wait for all events to be processed should timeout");
+
+            // Notify the fail point to unblock the certified event processing. After this, all the
+            // events should have been processed.
+            unblock_notify.notify_one();
+
+            // After certified event processing is unblocked, all the events should have been
+            // processed, and therefore wait_for_all_events_to_be_processed() should return
+            // promptly.
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                node.blob_event_processor
+                    .wait_for_all_events_to_be_processed(),
+            )
+            .await
+            .expect("wait for all events to be processed should succeed");
 
             clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())

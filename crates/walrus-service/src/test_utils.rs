@@ -2992,11 +2992,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Turn on all consistency checks in integration tests.
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                // TODO(WAL-875): re-enable blob data consistency check by tracking epoch in the
-                // event.
-                // Currently, the consistency check is not compatible with parallel event
-                // processing since the node does know whether a blob needs recovery or not.
-                enable_sliver_data_existence_check: false,
+                enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
