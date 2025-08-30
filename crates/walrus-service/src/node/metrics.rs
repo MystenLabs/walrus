@@ -43,7 +43,7 @@ type U64GaugeVec = GenericGaugeVec<AtomicU64>;
 type U64Gauge = GenericGauge<AtomicU64>;
 
 walrus_utils::metrics::define_metric_set! {
-    #[namespace = "walrus"]
+    #[namespace = ""]
     /// Metrics exported by the storage node.
     pub(crate) struct NodeMetricSet {
         #[help = "The total number of metadata stored"]
