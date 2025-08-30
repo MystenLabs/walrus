@@ -700,7 +700,7 @@ impl DbCheckpointManager {
         skip(db),
         fields(
             db_checkpoint_dir = ?db_checkpoint_dir,
-            db_path = ?db.db_path
+            db_path = ?db.path()
         ),
         err
     )]
@@ -714,9 +714,7 @@ impl DbCheckpointManager {
 
         tracing::info!("start creating RocksDB backup");
 
-        let db_ref = &db.underlying;
-        engine
-            .create_new_backup_flush(db_ref, flush_before_backup)
+        db.create_new_backup_flush(&mut engine, flush_before_backup)
             .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)))?;
 
         tracing::info!("rocksDB backup created successfully");

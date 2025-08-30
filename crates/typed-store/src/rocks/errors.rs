@@ -91,7 +91,12 @@ pub fn typed_store_err_from_bcs_err(err: bcs::Error) -> TypedStoreError {
 
 /// Convert the rocksdb error to the typed store error
 pub fn typed_store_err_from_rocks_err(err: RocksError) -> TypedStoreError {
-    TypedStoreError::RocksDBError(format!("{err}"))
+    match err.kind() {
+        rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain => {
+            TypedStoreError::RetryableTransactionError
+        }
+        _ => TypedStoreError::RocksDBError(err.into_string()),
+    }
 }
 
 impl From<tokio::task::JoinError> for TypedStoreError {
