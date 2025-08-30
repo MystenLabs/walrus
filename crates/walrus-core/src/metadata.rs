@@ -24,7 +24,7 @@ use crate::{
         DataTooLargeError,
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         QuiltError,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{

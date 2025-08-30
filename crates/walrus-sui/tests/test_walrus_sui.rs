@@ -16,7 +16,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     ShardIndex,
-    encoding::{EncodingConfig, EncodingConfigTrait as _},
+    encoding::{EncodingConfig, EncodingFactory as _},
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::Node,
 };

@@ -37,7 +37,7 @@ use crate::{
         BlobId,
         EncodingType,
         EpochCount,
-        encoding::EncodingConfigTrait,
+        encoding::EncodingFactory,
         messages::ConfirmationCertificate,
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },

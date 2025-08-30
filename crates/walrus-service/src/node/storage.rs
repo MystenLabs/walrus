@@ -439,7 +439,7 @@ impl Storage {
         self.shards.read().await.keys().cloned().collect::<Vec<_>>()
     }
 
-    /// Returns an iterator over the shard storages managed by the storage.
+    /// Returns a vector of the shard storages managed by the storage.
     pub async fn existing_shard_storages(&self) -> Vec<Arc<ShardStorage>> {
         self.shards
             .read()

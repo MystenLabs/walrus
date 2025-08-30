@@ -7,10 +7,10 @@ use core::{fmt, num::NonZeroU16};
 use reed_solomon_simd;
 use tracing::Level;
 
-use super::{DecodingSymbol, EncodingAxis, EncodingConfigTrait};
+use super::{DecodingSymbol, EncodingAxis, EncodingFactory};
 use crate::{
     EncodingType,
-    encoding::{EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, utils},
+    encoding::{DecodeError, EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, utils},
 };
 
 /// The key of blob attribute, used to identify the type of the blob.
@@ -20,15 +20,24 @@ pub const BLOB_TYPE_ATTRIBUTE_KEY: &str = "_walrusBlobType";
 pub const QUILT_TYPE_VALUE: &str = "quilt";
 
 /// Trait implemented for all basic (1D) decoders.
-pub trait Decoder {
+pub trait Decoder: Sized {
     /// The type of the associated encoding configuration.
-    type Config: EncodingConfigTrait;
+    type Config: EncodingFactory;
 
     /// Creates a new `Decoder`.
     ///
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
     /// `symbol_size`.
-    fn new(n_source_symbols: NonZeroU16, n_shards: NonZeroU16, symbol_size: NonZeroU16) -> Self;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError::IncompatibleParameters`] if the provided parameters are not
+    /// consistent with the decoder.
+    fn new(
+        n_source_symbols: NonZeroU16,
+        n_shards: NonZeroU16,
+        symbol_size: NonZeroU16,
+    ) -> Result<Self, DecodeError>;
 
     /// Attempts to decode the source data from the provided iterator over
     /// [`DecodingSymbol`s][DecodingSymbol].
@@ -37,7 +46,7 @@ pub trait Decoder {
     ///
     /// If decoding failed due to an insufficient number of provided symbols, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more symbols.
-    fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
+    fn decode<T, U>(&mut self, symbols: T) -> Result<Vec<u8>, DecodeError>
     where
         T: IntoIterator,
         T::IntoIter: Iterator<Item = DecodingSymbol<U>>,
@@ -45,18 +54,18 @@ pub trait Decoder {
 }
 
 /// Wrapper to perform a single encoding with Reed-Solomon for the provided parameters.
-pub struct ReedSolomonEncoder {
+pub struct ReedSolomonEncoder<'a> {
     encoder: reed_solomon_simd::ReedSolomonEncoder,
     n_source_symbols: NonZeroU16,
     // INV: n_source_symbols <= n_shards.
     n_shards: NonZeroU16,
     symbol_size: NonZeroU16,
-    source_symbols: Vec<Vec<u8>>,
+    source_symbols: Vec<&'a [u8]>,
 }
 
-impl fmt::Debug for ReedSolomonEncoder {
+impl<'a> fmt::Debug for ReedSolomonEncoder<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RSEncoder")
+        f.debug_struct("ReedSolomonEncoder")
             .field("n_source_symbols", &self.n_source_symbols)
             .field("n_shards", &self.n_shards)
             .field("symbol_size", &self.symbol_size)
@@ -64,7 +73,7 @@ impl fmt::Debug for ReedSolomonEncoder {
     }
 }
 
-impl ReedSolomonEncoder {
+impl<'a> ReedSolomonEncoder<'a> {
     const ASSOCIATED_ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
@@ -84,27 +93,13 @@ impl ReedSolomonEncoder {
         skip(data)
     )]
     pub fn new(
-        data: &[u8],
+        data: &'a [u8],
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
     ) -> Result<Self, EncodeError> {
         tracing::trace!("creating a new Encoder");
-        if data.is_empty() {
-            return Err(InvalidDataSizeError::EmptyData.into());
-        }
-        let symbol_size = utils::compute_symbol_size_from_usize(
-            data.len(),
-            n_source_symbols.into(),
-            Self::ASSOCIATED_ENCODING_TYPE.required_alignment(),
-        )
-        .map_err(InvalidDataSizeError::from)?;
-        if data.len() != usize::from(n_source_symbols.get()) * usize::from(symbol_size.get()) {
-            return Err(EncodeError::MisalignedData(n_source_symbols));
-        }
-        let source_symbols: Vec<Vec<u8>> = data
-            .chunks(symbol_size.get().into())
-            .map(Vec::from)
-            .collect();
+        let symbol_size = Self::check_parameters_and_compute_symbol_size(data, n_source_symbols)?;
+        let source_symbols: Vec<_> = data.chunks(symbol_size.get().into()).collect();
         assert_eq!(source_symbols.len(), usize::from(n_source_symbols.get()));
 
         let mut encoder = reed_solomon_simd::ReedSolomonEncoder::new(
@@ -126,38 +121,79 @@ impl ReedSolomonEncoder {
         })
     }
 
+    pub(super) fn check_parameters_and_compute_symbol_size(
+        data: &[u8],
+        n_source_symbols: NonZeroU16,
+    ) -> Result<NonZeroU16, EncodeError> {
+        if data.is_empty() {
+            return Err(InvalidDataSizeError::EmptyData.into());
+        }
+        let symbol_size = utils::compute_symbol_size_from_usize(
+            data.len(),
+            n_source_symbols.into(),
+            Self::ASSOCIATED_ENCODING_TYPE.required_alignment(),
+        )
+        .map_err(InvalidDataSizeError::from)?;
+        if data.len() != usize::from(n_source_symbols.get()) * usize::from(symbol_size.get()) {
+            return Err(EncodeError::MisalignedData(n_source_symbols));
+        }
+        Ok(symbol_size)
+    }
+
     /// Gets the symbol size of this encoder.
     #[inline]
     pub fn symbol_size(&self) -> NonZeroU16 {
         self.symbol_size
     }
 
-    /// Returns an iterator over all `n_shards` source and repair symbols.
-    // TODO (WAL-611): Return an iterator over all symbols.
-    pub fn encode_all(&mut self) -> Vec<Vec<u8>> {
+    /// Returns a vector of all `n_shards` source and repair symbols.
+    pub fn encode_all(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all symbols");
-        self.source_symbols
-            .iter()
-            .cloned()
-            .chain(
-                self.encoder
-                    .encode()
-                    .expect("we have added all source symbols, so this cannot fail")
-                    .recovery_iter()
-                    .map(Vec::from),
-            )
-            .collect()
+        let mut result = Vec::with_capacity(self.n_shards.get().into());
+        result.extend(self.source_symbols.into_iter().map(Vec::from));
+        result.extend(
+            self.encoder
+                .encode()
+                .expect("we have added all source symbols, so this cannot fail")
+                .recovery_iter()
+                .map(Vec::from),
+        );
+        result
     }
 
-    /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
-    pub fn encode_all_repair_symbols(&mut self) -> Vec<Vec<u8>> {
+    /// Returns a vector of all `n_shards - self.n_source_symbols` repair symbols.
+    pub fn encode_all_repair_symbols(mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all repair symbols");
+        let mut result =
+            Vec::with_capacity((self.n_shards.get() - self.n_source_symbols.get()).into());
+        result.extend(self.encode().recovery_iter().map(Vec::from));
+        result
+    }
+
+    /// Returns the symbol at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds (i.e, `index >= self.n_shards`).
+    pub fn into_symbol(mut self, index: u16) -> Vec<u8> {
+        assert!(index < self.n_shards.get());
+        let n_source_symbols = self.n_source_symbols.get();
+        if index < n_source_symbols {
+            self.source_symbols[usize::from(index)].to_vec()
+        } else {
+            self.encode()
+                .recovery(usize::from(index - n_source_symbols))
+                .expect(
+                    "we have added all source symbols and checked the index, so this cannot fail",
+                )
+                .to_vec()
+        }
+    }
+
+    fn encode(&mut self) -> reed_solomon_simd::EncoderResult<'_> {
         self.encoder
             .encode()
             .expect("we have added all source symbols, so this cannot fail")
-            .recovery_iter()
-            .map(Vec::from)
-            .collect()
     }
 }
 
@@ -181,23 +217,26 @@ impl Decoder for ReedSolomonDecoder {
     type Config = ReedSolomonEncodingConfig;
 
     #[tracing::instrument]
-    fn new(n_source_symbols: NonZeroU16, n_shards: NonZeroU16, symbol_size: NonZeroU16) -> Self {
+    fn new(
+        n_source_symbols: NonZeroU16,
+        n_shards: NonZeroU16,
+        symbol_size: NonZeroU16,
+    ) -> Result<Self, DecodeError> {
         tracing::trace!("creating a new Decoder");
-        Self {
+        Ok(Self {
             decoder: reed_solomon_simd::ReedSolomonDecoder::new(
                 n_source_symbols.get().into(),
                 (n_shards.get() - n_source_symbols.get()).into(),
                 symbol_size.get().into(),
             )
-            // TODO (WAL-621): Replace this by an error.
-            .expect("parameters must be consistent with the Reed-Solomon decoder"),
+            .map_err(DecodeError::IncompatibleParameters)?,
             n_source_symbols,
             symbol_size,
             source_symbols: alloc::vec![alloc::vec![]; n_source_symbols.get().into()],
-        }
+        })
     }
 
-    fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
+    fn decode<T, U>(&mut self, symbols: T) -> Result<Vec<u8>, DecodeError>
     where
         T: IntoIterator,
         T::IntoIter: Iterator<Item = DecodingSymbol<U>>,
@@ -215,16 +254,14 @@ impl Decoder for ReedSolomonDecoder {
                 );
             }
         }
-        let result = decoder.decode().ok()?;
+        let result = decoder.decode()?;
         for (index, symbol) in result.restored_original_iter() {
             self.source_symbols[index] = symbol.to_vec();
         }
 
-        Some(
-            (0..self.n_source_symbols.get())
-                .flat_map(|i| self.source_symbols[usize::from(i)].clone())
-                .collect(),
-        )
+        Ok((0..self.n_source_symbols.get())
+            .flat_map(|i| self.source_symbols[usize::from(i)].clone())
+            .collect())
     }
 }
 
@@ -285,7 +322,8 @@ mod tests {
         let end = encoded_symbols_range.end;
         let n_shards = end.max(n_source_symbols.get() + 1).try_into().unwrap();
 
-        let mut encoder = ReedSolomonEncoder::new(data, n_source_symbols, n_shards)?;
+        let encoder = ReedSolomonEncoder::new(data, n_source_symbols, n_shards)?;
+        let symbol_size = encoder.symbol_size();
         let encoded_symbols = encoder
             .encode_all()
             .into_iter()
@@ -295,14 +333,13 @@ mod tests {
             .map(|(i, symbol)| {
                 DecodingSymbol::<Primary>::new(u16::try_from(i).unwrap() + start, symbol)
             });
-        let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
+        let mut decoder = ReedSolomonDecoder::new(n_source_symbols, n_shards, symbol_size)?;
         let decoding_result = decoder.decode(encoded_symbols);
 
         if should_succeed {
             assert_eq!(decoding_result.unwrap(), data);
         } else {
-            assert_eq!(decoding_result, None)
+            assert!(matches!(decoding_result, Err(DecodeError::DecoderError(_))))
         }
 
         Ok(())
@@ -313,7 +350,8 @@ mod tests {
         let n_source_symbols = NonZeroU16::new(3).unwrap();
         let n_shards = NonZeroU16::new(10).unwrap();
         let data = [1, 2, 3, 4, 5, 6];
-        let mut encoder = ReedSolomonEncoder::new(&data, n_source_symbols, n_shards)?;
+        let encoder = ReedSolomonEncoder::new(&data, n_source_symbols, n_shards)?;
+        let symbol_size = encoder.symbol_size();
         let mut encoded_symbols = encoder
             .encode_all_repair_symbols()
             .into_iter()
@@ -324,21 +362,18 @@ mod tests {
                     symbol,
                 )]
             });
-        let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
+        let mut decoder = ReedSolomonDecoder::new(n_source_symbols, n_shards, symbol_size)?;
 
-        assert_eq!(
+        assert!(matches!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),
-            None
-        );
-        assert_eq!(
+            Err(DecodeError::DecoderError(_))
+        ));
+        assert!(matches!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),
-            None
-        );
+            Err(DecodeError::DecoderError(_))
+        ));
         assert_eq!(
-            decoder
-                .decode(encoded_symbols.next().unwrap().clone())
-                .unwrap(),
+            decoder.decode(encoded_symbols.next().unwrap().clone())?,
             data
         );
 

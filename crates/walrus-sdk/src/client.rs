@@ -39,10 +39,10 @@ use walrus_core::{
     SliverIndex,
     bft,
     encoding::{
-        BlobDecoderEnum,
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
+        RequiredCount,
         SliverData,
         SliverPair,
     },
@@ -50,7 +50,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         CertifyAndExtendBlobParams,
@@ -1702,7 +1702,7 @@ impl<T> WalrusNodeClient<T> {
             n.get_confirmation_with_retries(blob_id, committees.epoch(), blob_persistence_type)
         }));
 
-        requests
+        let _ = requests
             .execute_weight(
                 &|weight| committees.is_quorum(weight),
                 self.communication_limits.max_concurrent_sliver_reads,
@@ -1776,21 +1776,21 @@ impl<T> WalrusNodeClient<T> {
     /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
     /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn request_slivers_and_decode<U>(
+    async fn request_slivers_and_decode<A>(
         &self,
         certified_epoch: Epoch,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> ClientResult<Vec<u8>>
     where
-        U: EncodingAxis,
-        SliverData<U>: TryFrom<Sliver>,
+        A: EncodingAxis,
+        SliverData<A>: TryFrom<Sliver>,
     {
         let committees = self.get_committees().await?;
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar: indicatif::ProgressBar = styled_progress_bar(
             self.encoding_config
                 .get_for_type(metadata.metadata().encoding_type())
-                .n_source_symbols::<U>()
+                .n_source_symbols::<A>()
                 .get()
                 .into(),
         );
@@ -1804,7 +1804,7 @@ impl<T> WalrusNodeClient<T> {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
             // lifetimes of `s`.
             n.node.shard_ids.iter().cloned().map(|s| {
-                n.retrieve_verified_sliver::<U>(metadata, s)
+                n.retrieve_verified_sliver::<A>(metadata, s)
                     .instrument(n.span.clone())
                     // Increment the progress bar if the sliver is successfully retrieved.
                     .inspect({
@@ -1817,25 +1817,18 @@ impl<T> WalrusNodeClient<T> {
                     })
             })
         });
-        let mut decoder = self
-            .encoding_config
-            .get_for_type(metadata.metadata().encoding_type())
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
-            .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
-        let enough_source_symbols = |weight| {
-            weight
-                >= self
-                    .encoding_config
-                    .get_for_type(metadata.metadata().encoding_type())
-                    .n_source_symbols::<U>()
-                    .get()
-                    .into()
-        };
-        requests
+
+        // Note: The following code may have to be changed if we add encodings that require a
+        // variable number of slivers to reconstruct a blob.
+        let RequiredCount::Exact(required_slivers) = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type())
+            .n_slivers_for_reconstruction::<A>();
+        let completed_reason = requests
             .execute_weight(
-                &enough_source_symbols,
+                &|weight| weight >= required_slivers,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
@@ -1844,118 +1837,62 @@ impl<T> WalrusNodeClient<T> {
                     ),
             )
             .await;
-
         progress_bar.finish_with_message("slivers received");
 
-        let mut n_not_found = 0; // Counts the number of "not found" status codes received.
-        let mut n_forbidden = 0; // Counts the number of "forbidden" status codes received.
-        let slivers = requests
-            .take_results()
-            .into_iter()
-            .filter_map(|NodeResult { node, result, .. }| {
-                result
-                    .map_err(|error| {
-                        tracing::debug!(%node, %error, "retrieving sliver failed");
-                        if error.is_status_not_found() {
-                            n_not_found += 1;
-                        } else if error.is_blob_blocked() {
-                            n_forbidden += 1;
-                        }
-                    })
-                    .ok()
-            })
-            .collect::<Vec<_>>();
-
-        if committees.is_quorum(n_not_found + n_forbidden) {
-            return if n_not_found > n_forbidden {
-                Err(ClientErrorKind::BlobIdDoesNotExist.into())
-            } else {
-                Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
-            };
-        }
-
-        if let Some((blob, _meta)) = decoder
-            .decode_and_verify(metadata.blob_id(), slivers)
-            .map_err(ClientError::other)?
-        {
-            // We have enough to decode the blob.
-            Ok(blob)
-        } else {
-            // We were not able to decode. Keep requesting slivers and try decoding as soon as every
-            // new sliver is received.
-            tracing::info!(
-                "blob decoding with initial set of slivers failed; requesting additional slivers"
-            );
-            self.decode_sliver_by_sliver(
-                &mut requests,
-                &mut decoder,
-                metadata,
-                n_not_found,
-                n_forbidden,
-            )
-            .await
-        }
-    }
-
-    /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
-    /// sliver it receives.
-    #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn decode_sliver_by_sliver<'a, I, Fut, U>(
-        &self,
-        requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
-        decoder: &mut BlobDecoderEnum<'a, U>,
-        metadata: &VerifiedBlobMetadataWithId,
-        mut n_not_found: usize,
-        mut n_forbidden: usize,
-    ) -> ClientResult<Vec<u8>>
-    where
-        U: EncodingAxis,
-        I: Iterator<Item = Fut>,
-        Fut: Future<Output = NodeResult<SliverData<U>, NodeError>>,
-    {
-        while let Some(NodeResult { node, result, .. }) = requests
-            .next(
-                self.communication_limits
-                    .max_concurrent_sliver_reads_for_blob_size(
+        match completed_reason {
+            CompletedReasonWeight::ThresholdReached => {
+                let slivers = requests.take_inner_ok();
+                assert!(
+                    slivers.len() >= required_slivers,
+                    "we must have sufficient slivers if the threshold was reached"
+                );
+                let Ok((blob, _meta)) = self
+                    .encoding_config
+                    .get_for_type(metadata.metadata().encoding_type())
+                    .decode_and_verify(
+                        metadata.blob_id(),
                         metadata.metadata().unencoded_length(),
-                        &self.encoding_config,
-                        metadata.metadata().encoding_type(),
-                    ),
-            )
-            .await
-        {
-            match result {
-                Ok(sliver) => {
-                    let result = decoder
-                        .decode_and_verify(metadata.blob_id(), [sliver])
-                        .map_err(ClientError::other)?;
-                    if let Some((blob, _meta)) = result {
-                        return Ok(blob);
+                        slivers,
+                    )
+                else {
+                    panic!(
+                        "unable to decode blob from a sufficient number of slivers;\n\
+                        this should never happen; please report this as a bug"
+                    );
+                };
+                Ok(blob)
+            }
+            CompletedReasonWeight::FuturesConsumed(weight) => {
+                assert!(
+                    weight < required_slivers,
+                    "the case where we have collected sufficient slivers is handled above"
+                );
+                let mut n_not_found = 0; // Counts the number of "not found" status codes received.
+                let mut n_forbidden = 0; // Counts the number of "forbidden" status codes received.
+                requests.take_results().into_iter().for_each(
+                    |NodeResult { node, result, .. }| {
+                        if let Err(error) = result {
+                            tracing::debug!(%node, %error, "retrieving sliver failed");
+                            if error.is_status_not_found() {
+                                n_not_found += 1;
+                            } else if error.is_blob_blocked() {
+                                n_forbidden += 1;
+                            }
+                        }
+                    },
+                );
+
+                if committees.is_quorum(n_not_found + n_forbidden) {
+                    if n_not_found > n_forbidden {
+                        Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                    } else {
+                        Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
                     }
-                }
-                Err(error) => {
-                    tracing::debug!(%node, %error, "retrieving sliver failed");
-                    if error.is_status_not_found() {
-                        n_not_found += 1;
-                    } else if error.is_blob_blocked() {
-                        n_forbidden += 1;
-                    }
-                    if self
-                        .get_committees()
-                        .await?
-                        .is_quorum(n_not_found + n_forbidden)
-                    {
-                        return if n_not_found > n_forbidden {
-                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
-                        } else {
-                            Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
-                        };
-                    }
+                } else {
+                    Err(ClientErrorKind::NotEnoughSlivers.into())
                 }
             }
         }
-        // We have exhausted all the slivers but were not able to reconstruct the blob.
-        Err(ClientErrorKind::NotEnoughSlivers.into())
     }
 
     /// Requests the metadata from storage nodes, and keeps the first reply that correctly verifies.
@@ -2003,7 +1940,7 @@ impl<T> WalrusNodeClient<T> {
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
         let just_one = |weight| weight >= 1;
-        requests
+        let _ = requests
             .execute_weight(
                 &just_one,
                 self.communication_limits.max_concurrent_metadata_reads,

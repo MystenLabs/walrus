@@ -112,7 +112,7 @@ where
     ///    [`CompletedReasonWeight::ThresholdReached`] is returned.
     /// 1. If there are no more futures to execute; in this case a
     ///    [`CompletedReasonWeight::FuturesConsumed`] is returned containing the total weight of
-    ///    successful futures.
+    ///    successful futures. This is guaranteed to be below the threshold.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
@@ -270,7 +270,8 @@ where
 }
 
 /// Represents the reason why the `WeightedFutures::execute_weight` completed.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum CompletedReasonWeight {
     /// The threshold was reached.
     ThresholdReached,
@@ -279,7 +280,8 @@ pub enum CompletedReasonWeight {
 }
 
 /// Represents the reason why the `WeightedFutures::execute_time` completed.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum CompletedReasonTime {
     /// The timeout was reached.
     Timeout,
@@ -407,14 +409,17 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_weighted_futures() {
         create_weighted_futures!(weighted_futures, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        weighted_futures.execute_weight(&|w| w >= 3, 10).await;
+        let completed_reason = weighted_futures.execute_weight(&|w| w >= 3, 10).await;
+        assert_eq!(completed_reason, CompletedReasonWeight::ThresholdReached);
         assert_eq!(weighted_futures.take_inner_ok(), vec![1, 2, 3]);
         // Add to the existing runtime (~30ms) another 32ms to get to ~62ms of total execution.
-        weighted_futures
+        let completed_reason = weighted_futures
             .execute_time(Duration::from_millis(32), 10)
             .await;
+        assert_eq!(completed_reason, CompletedReasonTime::Timeout);
         assert_eq!(weighted_futures.take_inner_ok(), vec![4, 5, 6]);
-        weighted_futures.execute_weight(&|w| w >= 1, 10).await;
+        let completed_reason = weighted_futures.execute_weight(&|w| w >= 1, 10).await;
+        assert_eq!(completed_reason, CompletedReasonWeight::ThresholdReached);
         assert_eq!(weighted_futures.take_inner_ok(), vec![7]);
     }
 
@@ -424,9 +429,10 @@ mod tests {
         // futures have completed, and before the timer fires.
         create_weighted_futures!(weighted_futures, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let start = Instant::now();
-        weighted_futures
+        let completed_reason = weighted_futures
             .execute_time(Duration::from_millis(1000), 10)
             .await;
+        assert_eq!(completed_reason, CompletedReasonTime::FuturesConsumed);
         // `execute_time` should return within ~100 millis.
         println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(200));
@@ -440,10 +446,11 @@ mod tests {
     async fn test_execute_time_n_concurrent() {
         create_weighted_futures!(weighted_futures, &[1, 1, 1, 1, 1]);
         let start = Instant::now();
-        weighted_futures
+        let completed_reason = weighted_futures
             // Execute them one by one, for a total of ~50ms
             .execute_time(Duration::from_millis(1000), 1)
             .await;
+        assert_eq!(completed_reason, CompletedReasonTime::FuturesConsumed);
         println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(70));
         assert_eq!(weighted_futures.take_inner_ok(), vec![1, 1, 1, 1, 1]);
