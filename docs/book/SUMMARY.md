@@ -66,6 +66,7 @@
   - [The Walrus Sites portal](./walrus-sites/portal.md)
   - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
   - [Site data authentication](./walrus-sites/authentication.md)
+  - [Avoiding Duplicate-Content SEO in Custom Portals](./walrus-sites/avoid-duplicate-content-seo.md)
   - [Known restrictions](./walrus-sites/restrictions.md)
 
 ---
