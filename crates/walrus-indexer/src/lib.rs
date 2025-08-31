@@ -123,15 +123,20 @@ pub enum IndexOperation {
     /// Add index entry from Sui event
     IndexAdded {
         bucket_id: ObjectID,
-        primary_key: String,
+        identifier: String,
+        object_id: ObjectID,
         blob_id: BlobId,
-        secondary_indices: Vec<(String, String)>, // (index_name, index_value) pairs
     },
 
-    /// Remove index entry from Sui event
-    IndexRemoved {
+    /// Remove index entry from Sui event (by object_id)
+    IndexRemovedByObjectId {
+        object_id: ObjectID,
+    },
+
+    /// Remove index entry from Sui event (by bucket_id + identifier)
+    IndexRemovedByIdentifier {
         bucket_id: ObjectID,
-        primary_key: String,
+        identifier: String,
     },
 
     /// Batch of mutations from Sui events
@@ -154,7 +159,7 @@ pub struct WalrusIndexer {
 impl WalrusIndexer {
     /// Create a new indexer instance
     pub async fn new(config: IndexerConfig) -> Result<Self> {
-        // Initialize the database with proper column families
+        // Initialize the database with both column families
         let db_options = Options::default();
         let db = Arc::new(open_cf_opts(
             Path::new(&config.db_path),
@@ -162,7 +167,7 @@ impl WalrusIndexer {
             MetricConf::default(),
             &[
                 ("octopus_index_primary", db_options.clone()),
-                ("octopus_index_secondary", db_options),
+                ("octopus_index_object", db_options),
             ],
         )?);
 
@@ -174,19 +179,16 @@ impl WalrusIndexer {
             false,
         )?;
 
-        // Initialize secondary index
-        let secondary_index = DBMap::reopen(
+        // Initialize object index
+        let object_index = DBMap::reopen(
             &db,
-            Some("octopus_index_secondary"),
+            Some("octopus_index_object"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
 
         // Create storage layer
-        let storage = Arc::new(storage::OctopusIndexStore::new(
-            primary_index,
-            secondary_index,
-        ));
+        let storage = Arc::new(storage::OctopusIndexStore::new(primary_index, object_index));
 
         Ok(Self {
             config,
@@ -200,55 +202,65 @@ impl WalrusIndexer {
         match operation {
             IndexOperation::IndexAdded {
                 bucket_id,
-                primary_key,
+                identifier,
+                object_id,
                 blob_id,
-                secondary_indices,
             } => {
-                // Convert secondary indices to HashMap
-                let mut indices_map = HashMap::new();
-                for (index_name, index_value) in secondary_indices {
-                    indices_map
-                        .entry(index_name)
-                        .or_insert_with(Vec::new)
-                        .push(index_value);
-                }
-
-                // Store in primary index
-                self.storage.put_primary_index(
+                // Store in both primary and object indices
+                self.storage.put_index_entry(
                     &bucket_id,
-                    &primary_key,
-                    storage::IndexTarget::BlobId(blob_id),
-                    indices_map,
+                    &identifier,
+                    &object_id,
+                    blob_id,
                 )?;
+                
+                // Update cache
+                let cache_key = format!("{}/{}", bucket_id, identifier);
+                let blob_identity = storage::BlobIdentity { blob_id, object_id };
+                let primary_value = storage::PrimaryIndexValue { blob_identity };
+                let mut cache = self.cache.write().await;
+                cache.insert(cache_key, primary_value);
             }
-            IndexOperation::IndexRemoved {
+            IndexOperation::IndexRemovedByObjectId { object_id } => {
+                // Remove by object_id
+                self.storage.delete_by_object_id(&object_id)?;
+                
+                // Clear cache (we'd need to find the cache key, but it's complex)
+                // For now, let's clear the entire cache to be safe
+                let mut cache = self.cache.write().await;
+                cache.clear();
+            }
+            IndexOperation::IndexRemovedByIdentifier {
                 bucket_id,
-                primary_key,
+                identifier,
             } => {
-                // Remove from storage
-                self.storage
-                    .delete_primary_entry(&bucket_id, &primary_key)?;
+                // Remove by bucket_id and identifier
+                self.storage.delete_by_bucket_identifier(&bucket_id, &identifier)?;
                 
                 // Remove from cache
-                let cache_key = format!("{}/{}", bucket_id, primary_key);
+                let cache_key = format!("{}/{}", bucket_id, identifier);
                 let mut cache = self.cache.write().await;
                 cache.remove(&cache_key);
             }
             IndexOperation::ApplyMutations(mutations) => {
                 self.storage.apply_index_mutations(mutations)?;
+                
+                // Clear cache after mutations to ensure consistency
+                let mut cache = self.cache.write().await;
+                cache.clear();
             }
         }
         Ok(())
     }
 
-    /// Get primary index entry
+    /// Get index entry by bucket_id and identifier
     pub async fn get_blob_by_index(
         &self,
         bucket_id: &ObjectID,
-        primary_key: &str,
+        identifier: &str,
     ) -> Result<Option<PrimaryIndexValue>> {
         // Check cache first
-        let cache_key = format!("{}/{}", bucket_id, primary_key);
+        let cache_key = format!("{}/{}", bucket_id, identifier);
         {
             let cache = self.cache.read().await;
             if let Some(entry) = cache.get(&cache_key) {
@@ -257,7 +269,7 @@ impl WalrusIndexer {
         }
 
         // Get from storage
-        let result = self.storage.get_primary_index(bucket_id, primary_key)?;
+        let result = self.storage.get_by_bucket_identifier(bucket_id, identifier)?;
 
         // Update cache if found
         if let Some(ref entry) = result {
@@ -268,16 +280,16 @@ impl WalrusIndexer {
         Ok(result)
     }
 
-    /// Get targets by secondary index
-    pub async fn list_index(
+    /// Get index entry by object_id (implements read_blob_by_object_id from PDF)
+    pub async fn get_blob_by_object_id(
         &self,
-        bucket_id: &ObjectID,
-        index_name: &str,
-        index_key: &str,
-    ) -> Result<Vec<storage::IndexTarget>> {
+        object_id: &ObjectID,
+    ) -> Result<Option<PrimaryIndexValue>> {
+        // For object_id lookups, we can't use cache easily as we don't know the bucket_identifier
+        // Get directly from storage
         self.storage
-            .get_secondary_index(bucket_id, index_name, index_key)
-            .map_err(|e| anyhow::anyhow!("Failed to get secondary index: {}", e))
+            .get_by_object_id(object_id)
+            .map_err(|e| anyhow::anyhow!("Failed to get blob by object_id: {}", e))
     }
 
     /// List all entries in a bucket
@@ -435,26 +447,21 @@ mod tests {
         let bucket = Bucket {
             bucket_id,
             name: "test-photos".to_string(),
-            secondary_indices: vec![
-                "type".to_string(),
-                "date".to_string(),
-                "location".to_string(),
-            ],
+            secondary_indices: vec![], // No secondary indices
         };
 
         indexer.create_bucket(bucket).await?;
 
         // Add an index entry (simulating Sui event)
         let blob_id = BlobId([1; 32]);
+        let object_id = ObjectID::from_hex_literal(
+            "0xf3eda3f4deb7618d0fab06f7e90755afeabbeb8b33106f43c7f2d25c6ef6a3b3",
+        ).unwrap();
         let operation = IndexOperation::IndexAdded {
             bucket_id,
-            primary_key: "/photos/2024/sunset.jpg".to_string(),
+            identifier: "/photos/2024/sunset.jpg".to_string(),
+            object_id,
             blob_id,
-            secondary_indices: vec![
-                ("type".to_string(), "jpg".to_string()),
-                ("date".to_string(), "2024-01-15".to_string()),
-                ("location".to_string(), "california".to_string()),
-            ],
         };
 
         indexer.process_operation(operation).await?;
@@ -464,16 +471,11 @@ mod tests {
             .get_blob_by_index(&bucket_id, "/photos/2024/sunset.jpg")
             .await?;
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().target, storage::IndexTarget::BlobId(blob_id));
+        let retrieved_entry = entry.unwrap();
+        assert_eq!(retrieved_entry.blob_identity.blob_id, blob_id);
+        assert_eq!(retrieved_entry.blob_identity.object_id, object_id);
 
-        // Query by secondary index
-        let jpg_blobs = indexer.list_index(&bucket_id, "type", "jpg").await?;
-        assert_eq!(jpg_blobs, vec![storage::IndexTarget::BlobId(blob_id)]);
-
-        let california_blobs = indexer
-            .list_index(&bucket_id, "location", "california")
-            .await?;
-        assert_eq!(california_blobs, vec![storage::IndexTarget::BlobId(blob_id)]);
+        // Secondary index functionality removed - primary index only
 
         // List all entries in bucket
         let all_entries = indexer.list_bucket(&bucket_id).await?;
@@ -482,12 +484,12 @@ mod tests {
         // Get bucket stats
         let stats = indexer.get_bucket_stats(&bucket_id).await?;
         assert_eq!(stats.primary_count, 1);
-        assert!(stats.secondary_count > 0);
+        assert_eq!(stats.secondary_count, 0);
 
-        // Remove the entry
-        let remove_operation = IndexOperation::IndexRemoved {
+        // Remove the entry (test removal by identifier)
+        let remove_operation = IndexOperation::IndexRemovedByIdentifier {
             bucket_id,
-            primary_key: "/photos/2024/sunset.jpg".to_string(),
+            identifier: "/photos/2024/sunset.jpg".to_string(),
         };
 
         indexer.process_operation(remove_operation).await?;
@@ -498,8 +500,7 @@ mod tests {
             .await?;
         assert!(entry.is_none());
 
-        let jpg_blobs = indexer.list_index(&bucket_id, "type", "jpg").await?;
-        assert!(jpg_blobs.is_empty());
+        // Secondary index functionality removed
 
         Ok(())
     }

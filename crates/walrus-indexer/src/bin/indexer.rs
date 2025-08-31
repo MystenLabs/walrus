@@ -103,6 +103,7 @@ impl IndexerDaemon {
         info!("📚 Available endpoints:");
         info!("  GET  /v1/health - Health check");
         info!("  GET  /v1/blobs/{{bucket_id}}/{{primary_key}} - Get blob by primary key");
+        info!("  GET  /v1/object/{{object_id}} - Get blob by object ID");
         info!("  GET  /v1/bucket/{{bucket_id}} - List all blobs in bucket");
         info!("  GET  /v1/bucket/{{bucket_id}}/{{prefix}} - List blobs with prefix");
         info!("  GET  /v1/bucket/{{bucket_id}}/stats - Get bucket statistics");

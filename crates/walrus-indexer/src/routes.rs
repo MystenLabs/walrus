@@ -18,11 +18,12 @@ use sui_types::base_types::ObjectID;
 
 use crate::{
     WalrusIndexer,
-    storage::{BucketStats, PrimaryIndexValue, IndexTarget},
+    storage::{BucketStats, PrimaryIndexValue},
 };
 
 /// Octopus Index API endpoints
 pub const GET_BLOB_ENDPOINT: &str = "/v1/blobs/{bucket_id}/{primary_key}";
+pub const GET_BLOB_BY_OBJECT_ID_ENDPOINT: &str = "/v1/object/{object_id}";
 pub const LIST_BUCKET_ENDPOINT: &str = "/v1/bucket/{bucket_id}";
 pub const LIST_BUCKET_PREFIX_ENDPOINT: &str = "/v1/bucket/{bucket_id}/{prefix}";
 pub const GET_BUCKET_STATS_ENDPOINT: &str = "/v1/bucket/{bucket_id}/stats";
@@ -107,24 +108,15 @@ impl From<anyhow::Error> for IndexerError {
 /// Response for blob lookup by index
 #[derive(Debug, Serialize)]
 pub struct BlobByIndexResponse {
-    pub target_id: String,
-    pub target_type: String,
-    pub secondary_indices: HashMap<String, Vec<String>>,
+    pub blob_id: String,
+    pub object_id: String,
 }
 
 impl From<PrimaryIndexValue> for BlobByIndexResponse {
     fn from(value: PrimaryIndexValue) -> Self {
-        let (target_id, target_type) = match value.target {
-            IndexTarget::BlobId(blob_id) => (hex::encode(blob_id.0), "blob".to_string()),
-            IndexTarget::QuiltPatchId(quilt_patch_id) => {
-                (format!("{}:{}", hex::encode(quilt_patch_id.quilt_id.0), hex::encode(quilt_patch_id.patch_id_bytes)), "quilt_patch".to_string())
-            }
-        };
-        
         Self {
-            target_id,
-            target_type,
-            secondary_indices: value.secondary_indices,
+            blob_id: hex::encode(value.blob_identity.blob_id.0),
+            object_id: value.blob_identity.object_id.to_string(),
         }
     }
 }
@@ -157,6 +149,31 @@ pub async fn get_blob(
     match state
         .indexer
         .get_blob_by_index(&bucket_id, &primary_key)
+        .await?
+    {
+        Some(entry) => Ok(Json(ApiResponse::success(entry.into()))),
+        None => {
+            let error_response = ApiResponse::<BlobByIndexResponse> {
+                success: false,
+                data: None,
+                message: "Blob not found".to_string(),
+            };
+            Ok(Json(error_response))
+        }
+    }
+}
+
+/// Get a blob by its object_id (implements read_blob_by_object_id from PDF)
+///
+/// Endpoint: GET /v1/object/{object_id}
+/// Returns: BlobByIndexResponse with blob_id and object_id
+pub async fn get_blob_by_object_id(
+    State(state): State<IndexerState>,
+    Path(object_id): Path<ObjectID>,
+) -> Result<Json<ApiResponse<BlobByIndexResponse>>, IndexerError> {
+    match state
+        .indexer
+        .get_blob_by_object_id(&object_id)
         .await?
     {
         Some(entry) => Ok(Json(ApiResponse::success(entry.into()))),
@@ -282,6 +299,7 @@ pub async fn health_check(State(_state): State<IndexerState>) -> Json<ApiRespons
 pub fn create_indexer_router(state: IndexerState) -> axum::Router {
     axum::Router::new()
         .route(GET_BLOB_ENDPOINT, axum::routing::get(get_blob))
+        .route(GET_BLOB_BY_OBJECT_ID_ENDPOINT, axum::routing::get(get_blob_by_object_id))
         .route(LIST_BUCKET_ENDPOINT, axum::routing::get(list_bucket))
         .route(
             LIST_BUCKET_PREFIX_ENDPOINT,
@@ -298,10 +316,10 @@ pub fn create_indexer_router(state: IndexerState) -> axum::Router {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
-    use walrus_core::{BlobId, QuiltPatchId};
+    use walrus_core::BlobId;
 
     use super::*;
-    use crate::{IndexerConfig, WalrusIndexer, IndexOperation, storage};
+    use crate::{IndexerConfig, WalrusIndexer, IndexOperation};
 
     async fn create_test_indexer() -> Result<WalrusIndexer, anyhow::Error> {
         let temp_dir = TempDir::new()?;
@@ -313,55 +331,36 @@ mod tests {
         WalrusIndexer::new(config).await
     }
 
-    async fn setup_test_data(indexer: &WalrusIndexer) -> Result<ObjectID, anyhow::Error> {
+    async fn setup_test_data(indexer: &WalrusIndexer) -> Result<(ObjectID, ObjectID, ObjectID), anyhow::Error> {
         let bucket_id = ObjectID::from_hex_literal(
             "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         ).unwrap();
         
         // Add a blob entry
         let blob_id = BlobId([42; 32]);
+        let object_id1 = ObjectID::from_hex_literal(
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+        ).unwrap();
         indexer.process_operation(IndexOperation::IndexAdded {
             bucket_id,
-            primary_key: "/files/document.pdf".to_string(),
+            identifier: "/files/document.pdf".to_string(),
+            object_id: object_id1,
             blob_id,
-            secondary_indices: vec![
-                ("type".to_string(), "pdf".to_string()),
-                ("size".to_string(), "large".to_string()),
-                ("category".to_string(), "work".to_string()),
-            ],
         }).await?;
 
         // Add another blob entry
         let blob_id2 = BlobId([99; 32]);
+        let object_id2 = ObjectID::from_hex_literal(
+            "0x2222222222222222222222222222222222222222222222222222222222222222",
+        ).unwrap();
         indexer.process_operation(IndexOperation::IndexAdded {
             bucket_id,
-            primary_key: "/files/image.jpg".to_string(),
+            identifier: "/files/image.jpg".to_string(),
+            object_id: object_id2,
             blob_id: blob_id2,
-            secondary_indices: vec![
-                ("type".to_string(), "jpg".to_string()),
-                ("size".to_string(), "small".to_string()),
-                ("category".to_string(), "personal".to_string()),
-            ],
         }).await?;
 
-        // Add a quilt patch entry
-        let quilt_id = BlobId([77; 32]);
-        let quilt_patch_id = QuiltPatchId {
-            quilt_id,
-            patch_id_bytes: vec![1, 2, 3, 4],
-        };
-        indexer.storage().put_primary_index(
-            &bucket_id,
-            "/quilts/patch1",
-            storage::IndexTarget::QuiltPatchId(quilt_patch_id),
-            {
-                let mut indices = HashMap::new();
-                indices.insert("type".to_string(), vec!["quilt".to_string()]);
-                indices
-            },
-        )?;
-
-        Ok(bucket_id)
+        Ok((bucket_id, object_id1, object_id2))
     }
 
     #[tokio::test]
@@ -386,7 +385,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_blob_endpoint() -> Result<(), anyhow::Error> {
         let indexer = create_test_indexer().await?;
-        let bucket_id = setup_test_data(&indexer).await?;
+        let (bucket_id, object_id1, _object_id2) = setup_test_data(&indexer).await?;
         let state = IndexerState::new(indexer);
         
         // Test getting an existing blob
@@ -400,9 +399,8 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
             assert_eq!(json["success"], true);
-            assert_eq!(json["data"]["target_type"], "blob");
-            assert!(json["data"]["target_id"].is_string());
-            assert_eq!(json["data"]["secondary_indices"]["type"][0], "pdf");
+            assert!(json["data"]["blob_id"].is_string());
+            assert_eq!(json["data"]["object_id"], object_id1.to_string());
         } else {
             panic!("Expected Ok response");
         }
@@ -427,15 +425,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_quilt_patch_endpoint() -> Result<(), anyhow::Error> {
+    async fn test_get_blob_by_object_id_endpoint() -> Result<(), anyhow::Error> {
         let indexer = create_test_indexer().await?;
-        let bucket_id = setup_test_data(&indexer).await?;
+        let (_bucket_id, object_id1, _object_id2) = setup_test_data(&indexer).await?;
         let state = IndexerState::new(indexer);
         
-        // Test getting a quilt patch
-        let response = get_blob(
-            axum::extract::State(state),
-            axum::extract::Path((bucket_id, "/quilts/patch1".to_string())),
+        // Test getting a blob by object_id
+        let response = get_blob_by_object_id(
+            axum::extract::State(state.clone()),
+            axum::extract::Path(object_id1),
         ).await;
         
         if let Ok(json_response) = response {
@@ -443,9 +441,27 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
             assert_eq!(json["success"], true);
-            assert_eq!(json["data"]["target_type"], "quilt_patch");
-            assert!(json["data"]["target_id"].is_string());
-            assert!(json["data"]["target_id"].as_str().unwrap().contains(":"));
+            assert!(json["data"]["blob_id"].is_string());
+            assert_eq!(json["data"]["object_id"], object_id1.to_string());
+        } else {
+            panic!("Expected Ok response");
+        }
+        
+        // Test getting a non-existent object
+        let non_existent_id = ObjectID::from_hex_literal(
+            "0x9999999999999999999999999999999999999999999999999999999999999999",
+        ).unwrap();
+        let response = get_blob_by_object_id(
+            axum::extract::State(state),
+            axum::extract::Path(non_existent_id),
+        ).await;
+        
+        if let Ok(json_response) = response {
+            let json_str = serde_json::to_string(&json_response.0)?;
+            let json: serde_json::Value = serde_json::from_str(&json_str)?;
+            
+            assert_eq!(json["success"], false);
+            assert_eq!(json["message"], "Blob not found");
         } else {
             panic!("Expected Ok response");
         }
@@ -456,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_bucket_endpoint() -> Result<(), anyhow::Error> {
         let indexer = create_test_indexer().await?;
-        let bucket_id = setup_test_data(&indexer).await?;
+        let (bucket_id, _object_id1, _object_id2) = setup_test_data(&indexer).await?;
         let state = IndexerState::new(indexer);
         
         // List all entries in bucket
@@ -471,8 +487,8 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
             assert_eq!(json["success"], true);
-            assert_eq!(json["data"]["total_count"], 3);
-            assert_eq!(json["data"]["entries"].as_object().unwrap().len(), 3);
+            assert_eq!(json["data"]["total_count"], 2);
+            assert_eq!(json["data"]["entries"].as_object().unwrap().len(), 2);
         } else {
             panic!("Expected Ok response");
         }
@@ -481,15 +497,15 @@ mod tests {
         let response = list_bucket(
             axum::extract::State(state),
             axum::extract::Path(bucket_id),
-            axum::extract::Query(PaginationQuery { limit: Some(2), offset: Some(1) }),
+            axum::extract::Query(PaginationQuery { limit: Some(1), offset: Some(1) }),
         ).await;
         
         if let Ok(json_response) = response {
             let json_str = serde_json::to_string(&json_response.0)?;
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
-            assert_eq!(json["data"]["total_count"], 3);
-            assert_eq!(json["data"]["entries"].as_object().unwrap().len(), 2);
+            assert_eq!(json["data"]["total_count"], 2);
+            assert_eq!(json["data"]["entries"].as_object().unwrap().len(), 1);
         } else {
             panic!("Expected Ok response");
         }
@@ -500,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_bucket_with_prefix_endpoint() -> Result<(), anyhow::Error> {
         let indexer = create_test_indexer().await?;
-        let bucket_id = setup_test_data(&indexer).await?;
+        let (bucket_id, _object_id1, _object_id2) = setup_test_data(&indexer).await?;
         let state = IndexerState::new(indexer);
         
         // List entries with prefix "/files"
@@ -522,10 +538,10 @@ mod tests {
             panic!("Expected Ok response");
         }
         
-        // List entries with prefix "/quilts"
+        // List entries with prefix "/nonexistent"
         let response = list_bucket_with_prefix(
             axum::extract::State(state),
-            axum::extract::Path((bucket_id, "/quilts".to_string())),
+            axum::extract::Path((bucket_id, "/nonexistent".to_string())),
             axum::extract::Query(PaginationQuery { limit: None, offset: None }),
         ).await;
         
@@ -533,8 +549,8 @@ mod tests {
             let json_str = serde_json::to_string(&json_response.0)?;
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
-            assert_eq!(json["data"]["total_count"], 1);
-            assert!(json["data"]["entries"].as_object().unwrap().contains_key("/quilts/patch1"));
+            assert_eq!(json["data"]["total_count"], 0);
+            assert_eq!(json["data"]["entries"].as_object().unwrap().len(), 0);
         } else {
             panic!("Expected Ok response");
         }
@@ -545,7 +561,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_bucket_stats_endpoint() -> Result<(), anyhow::Error> {
         let indexer = create_test_indexer().await?;
-        let bucket_id = setup_test_data(&indexer).await?;
+        let (bucket_id, _object_id1, _object_id2) = setup_test_data(&indexer).await?;
         let state = IndexerState::new(indexer);
         
         let response = get_bucket_stats(
@@ -558,8 +574,8 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&json_str)?;
             
             assert_eq!(json["success"], true);
-            assert_eq!(json["data"]["primary_count"], 3);
-            assert!(json["data"]["secondary_count"].as_u64().unwrap() > 0);
+            assert_eq!(json["data"]["primary_count"], 2);
+            assert_eq!(json["data"]["secondary_count"], 0);
         } else {
             panic!("Expected Ok response");
         }

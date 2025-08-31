@@ -21,43 +21,46 @@ use walrus_core::{BlobId, QuiltPatchId};
 /// Target of an index entry
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IndexTarget {
-    /// Blob ID
+    /// Blob ID.
     BlobId(BlobId),
-    /// Quilt patch ID
+    /// Quilt patch ID.
     QuiltPatchId(QuiltPatchId),
+    /// Quilt ID.
+    QuiltId(ObjectID),
 }
 
-/// Primary index value containing blob metadata and secondary indices
+/// Blob identity containing both blob_id and object_id
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlobIdentity {
+    /// The blob ID
+    pub blob_id: BlobId,
+    /// The Sui object ID
+    pub object_id: ObjectID,
+}
+
+/// Primary index value containing the blob identity
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PrimaryIndexValue {
-    /// The blob ID this entry points to
-    pub target: IndexTarget,
-    /// Secondary index keys for this entry
-    pub secondary_indices: HashMap<String, Vec<String>>,
+    /// The blob identity this entry points to
+    pub blob_identity: BlobIdentity,
 }
 
-/// Secondary index value containing a list of blob IDs
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SecondaryIndexValue {
-    /// List of blob IDs that match this secondary index
-    pub targets: Vec<IndexTarget>,
-}
 
-/// Index mutation operations that can be applied
+/// Index mutation operations that can be applied (matches PDF spec)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IndexMutation {
-    /// Insert a new index entry
-    /// When index_name is None, writes to primary index
+    /// Insert a new index entry (bucket_id, identifier, object_id, blob_id)
     Insert {
-        index_name: Option<String>,
-        index_key: String,
-        index_value: IndexTarget,
+        bucket_id: ObjectID,
+        identifier: String,
+        object_id: ObjectID,
+        blob_id: BlobId,
     },
-    /// Delete an index entry
-    /// When index_name is None, deletes from primary index
+    /// Delete an index entry (bucket_id, index_name, object_id)
     Delete {
-        index_name: Option<String>,
-        index_key: String,
+        bucket_id: ObjectID,
+        index_name: String,
+        object_id: ObjectID,
     },
 }
 
@@ -68,13 +71,28 @@ pub struct MutationSet {
     pub mutations: Vec<IndexMutation>,
 }
 
-/// Storage interface for the Octopus Index
+pub fn construct_primary_index_key(bucket_id: &ObjectID, identifier: &str) -> String {
+    format!("{}/{}", bucket_id, identifier)
+}
+
+pub fn construct_object_index_key(object_id: &ObjectID) -> String {
+    object_id.to_string()
+}
+
+/// Value stored in the object index
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObjectIndexValue {
+    /// The bucket_id/identifier path
+    pub bucket_identifier: String,
+}
+
+/// Storage interface for the Octopus Index (Dual Index System)
 #[derive(Debug, Clone)]
 pub struct OctopusIndexStore {
-    /// Primary index: bucket_id/primary_key -> PrimaryIndexValue
+    /// Primary index: <bucket_id>/<identifier> -> <BlobIdentity>
     primary_index: DBMap<String, PrimaryIndexValue>,
-    /// Secondary index: bucket_id/index_name/index_value -> SecondaryIndexValue
-    secondary_index: DBMap<String, SecondaryIndexValue>,
+    /// Object index: <object_id> -> <bucket_id>/<identifier>
+    object_index: DBMap<String, ObjectIndexValue>,
 }
 
 // Constants for future pagination implementation
@@ -84,118 +102,76 @@ pub struct OctopusIndexStore {
 impl OctopusIndexStore {
     pub fn new(
         primary_index: DBMap<String, PrimaryIndexValue>,
-        secondary_index: DBMap<String, SecondaryIndexValue>,
+        object_index: DBMap<String, ObjectIndexValue>,
     ) -> Self {
         Self {
             primary_index,
-            secondary_index,
+            object_index,
         }
     }
 
-    /// Store a primary index entry
-    pub fn put_primary_index(
+    /// Store an index entry in both primary and object indices
+    pub fn put_index_entry(
         &self,
         bucket_id: &ObjectID,
-        primary_key: &str,
-        target: IndexTarget,
-        secondary_indices: HashMap<String, Vec<String>>,
+        identifier: &str,
+        object_id: &ObjectID,
+        blob_id: BlobId,
     ) -> Result<(), TypedStoreError> {
-        let key = format!("{}/{}", bucket_id, primary_key);
-        let value = PrimaryIndexValue {
-            target: target.clone(),
-            secondary_indices: secondary_indices.clone(),
+        // Primary index: bucket_id/identifier -> BlobIdentity
+        let primary_key = construct_primary_index_key(bucket_id, identifier);
+        let blob_identity = BlobIdentity {
+            blob_id,
+            object_id: *object_id,
         };
-
+        let primary_value = PrimaryIndexValue { blob_identity };
+        
+        // Object index: object_id -> bucket_id/identifier
+        let object_key = construct_object_index_key(object_id);
+        let object_value = ObjectIndexValue {
+            bucket_identifier: primary_key.clone(),
+        };
+        
+        // Use a batch to update both indices atomically
         let mut batch = self.primary_index.batch();
-        batch.insert_batch(&self.primary_index, [(key.clone(), value)])?;
-
-        // Update secondary indices
-        for (index_name, index_values) in secondary_indices {
-            for index_value in index_values {
-                self.update_secondary_index_batch(
-                    &mut batch,
-                    bucket_id,
-                    &index_name,
-                    &index_value,
-                    &target,
-                    true,
-                )?;
-            }
-        }
-
+        batch.insert_batch(&self.primary_index, [(primary_key, primary_value)])?;
+        batch.insert_batch(&self.object_index, [(object_key, object_value)])?;
         batch.write()
     }
 
-    /// Get a primary index entry
-    pub fn get_primary_index(
+    /// Get an index entry by bucket_id and identifier (primary index)
+    pub fn get_by_bucket_identifier(
         &self,
         bucket_id: &ObjectID,
-        primary_key: &str,
+        identifier: &str,
     ) -> Result<Option<PrimaryIndexValue>, TypedStoreError> {
-        let key = format!("{}/{}", bucket_id, primary_key);
+        let key = construct_primary_index_key(bucket_id, identifier);
         self.primary_index.get(&key)
     }
 
-    /// Get secondary index entries
-    pub fn get_secondary_index(
+    /// Get an index entry by object_id (object index)
+    pub fn get_by_object_id(
         &self,
-        bucket_id: &ObjectID,
-        index_name: &str,
-        index_value: &str,
-    ) -> Result<Vec<IndexTarget>, TypedStoreError> {
-        let key = format!("{}/{}/{}", bucket_id, index_name, index_value);
-
-        match self.secondary_index.get(&key)? {
-            Some(value) => Ok(value.targets),
-            None => Ok(Vec::new()),
+        object_id: &ObjectID,
+    ) -> Result<Option<PrimaryIndexValue>, TypedStoreError> {
+        // First get the bucket_identifier from object index
+        let object_key = construct_object_index_key(object_id);
+        if let Some(object_value) = self.object_index.get(&object_key)? {
+            // Then get the actual blob identity from primary index
+            self.primary_index.get(&object_value.bucket_identifier)
+        } else {
+            Ok(None)
         }
     }
 
-    /// Update secondary index (internal helper)
-    fn update_secondary_index_batch(
-        &self,
-        batch: &mut DBBatch,
-        bucket_id: &ObjectID,
-        index_name: &str,
-        index_value: &str,
-        target: &IndexTarget,
-        add: bool,
-    ) -> Result<(), TypedStoreError> {
-        let key = format!("{}/{}/{}", bucket_id, index_name, index_value);
 
-        // Get current value
-        let mut targets = if let Some(current) = self.secondary_index.get(&key)? {
-            current.targets
-        } else {
-            Vec::new()
-        };
-
-        // Add or remove target
-        if add {
-            if !targets.contains(target) {
-                targets.push(target.clone());
-            }
-        } else {
-            targets.retain(|t| t != target);
-        }
-
-        // Store the updated value
-        if targets.is_empty() {
-            batch.delete_batch(&self.secondary_index, [key])?;
-        } else {
-            let value = SecondaryIndexValue { targets };
-            batch.insert_batch(&self.secondary_index, [(key, value)])?;
-        }
-
-        Ok(())
-    }
 
     /// List all primary index entries in a bucket
     pub fn list_bucket_entries(
         &self,
         bucket_id: &ObjectID,
     ) -> Result<HashMap<String, PrimaryIndexValue>, TypedStoreError> {
-        let prefix = format!("{}/", bucket_id);
+        let prefix = construct_primary_index_key(bucket_id, "");
         let mut result = HashMap::new();
 
         for entry in self.primary_index.safe_iter()? {
@@ -211,61 +187,69 @@ impl OctopusIndexStore {
     }
 
     /// Apply index mutations from Sui events
+    /// All mutations are applied atomically in a single RocksDB batch transaction
     pub fn apply_index_mutations(
         &self,
         mutations: Vec<MutationSet>,
     ) -> Result<(), TypedStoreError> {
+        // Create a single batch for all mutations.
+        // TODO: consider add a batch size limit for the extreme cases.
         let mut batch = self.primary_index.batch();
         
+        // Add all mutations to the batch
         for mutation_set in mutations {
             for mutation in mutation_set.mutations {
-                match mutation {
-                    IndexMutation::Insert {
-                        index_name,
-                        index_key,
-                        index_value,
-                    } => {
-                        if let Some(index_name) = index_name {
-                            // Secondary index operation
-                            self.update_secondary_index_batch(
-                                &mut batch,
-                                &mutation_set.bucket_id,
-                                &index_name,
-                                &index_key,
-                                &index_value,
-                                true,
-                            )?;
-                        } else {
-                            // Primary index operation
-                            let key = format!("{}/{}", mutation_set.bucket_id, index_key);
-                            let value = PrimaryIndexValue {
-                                target: index_value,
-                                secondary_indices: HashMap::new(),
-                            };
-                            batch.insert_batch(&self.primary_index, [(key, value)])?;
-                        }
-                    }
-                    IndexMutation::Delete {
-                        index_name,
-                        index_key,
-                    } => {
-                        if let Some(index_name) = index_name {
-                            // For secondary index deletion, we need to know the target to remove
-                            // This is a limitation of the current mutation design
-                            // For now, we'll remove the entire secondary index entry
-                            let key = format!("{}/{}/{}", mutation_set.bucket_id, index_name, index_key);
-                            batch.delete_batch(&self.secondary_index, [key])?;
-                        } else {
-                            // Primary index deletion
-                            let key = format!("{}/{}", mutation_set.bucket_id, index_key);
-                            batch.delete_batch(&self.primary_index, [key])?;
-                        }
-                    }
-                }
+                self.apply_mutation(&mut batch, &mutation_set.bucket_id, mutation)?;
             }
         }
         
+        // Commit all mutations atomically in a single write
         batch.write()
+    }
+
+    /// Process a single mutation and add operations to the batch
+    fn apply_mutation(
+        &self,
+        batch: &mut DBBatch,
+        _bucket_id: &ObjectID, // bucket_id is now included in mutation
+        mutation: IndexMutation,
+    ) -> Result<(), TypedStoreError> {
+        match mutation {
+            IndexMutation::Insert {
+                bucket_id,
+                identifier,
+                object_id,
+                blob_id,
+            } => {
+                // Primary index: bucket_id/identifier -> BlobIdentity
+                let primary_key = construct_primary_index_key(&bucket_id, &identifier);
+                let blob_identity = BlobIdentity { blob_id, object_id };
+                let primary_value = PrimaryIndexValue { blob_identity };
+                
+                // Object index: object_id -> bucket_id/identifier
+                let object_key = construct_object_index_key(&object_id);
+                let object_value = ObjectIndexValue {
+                    bucket_identifier: primary_key.clone(),
+                };
+                
+                batch.insert_batch(&self.primary_index, [(primary_key, primary_value)])?;
+                batch.insert_batch(&self.object_index, [(object_key, object_value)])?;
+            }
+            IndexMutation::Delete {
+                bucket_id: _,
+                index_name: _,
+                object_id,
+            } => {
+                // Get the bucket_identifier from object index first
+                let object_key = construct_object_index_key(&object_id);
+                if let Some(object_value) = self.object_index.get(&object_key)? {
+                    // Delete from both indices
+                    batch.delete_batch(&self.primary_index, [object_value.bucket_identifier])?;
+                    batch.delete_batch(&self.object_index, [object_key])?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Check if a primary index entry exists
@@ -274,63 +258,65 @@ impl OctopusIndexStore {
         bucket_id: &ObjectID,
         primary_key: &str,
     ) -> Result<bool, TypedStoreError> {
-        let key = format!("{}/{}", bucket_id, primary_key);
+        let key = construct_primary_index_key(bucket_id, primary_key);
         self.primary_index.contains_key(&key)
     }
 
-    /// Delete a primary index entry and its secondary indices
-    pub fn delete_primary_entry(
+    /// Delete an index entry by bucket_id and identifier
+    pub fn delete_by_bucket_identifier(
         &self,
         bucket_id: &ObjectID,
-        primary_key: &str,
+        identifier: &str,
     ) -> Result<(), TypedStoreError> {
-        let key = format!("{}/{}", bucket_id, primary_key);
-
-        // Get the entry to find secondary indices
-        if let Some(entry) = self.primary_index.get(&key)? {
+        let primary_key = construct_primary_index_key(bucket_id, identifier);
+        
+        // Get the entry first to find the object_id
+        if let Some(primary_value) = self.primary_index.get(&primary_key)? {
+            let object_key = construct_object_index_key(&primary_value.blob_identity.object_id);
+            
+            // Use batch to delete from both indices atomically
             let mut batch = self.primary_index.batch();
-
-            // Delete primary index
-            batch.delete_batch(&self.primary_index, [key])?;
-
-            // Delete all secondary index references
-            for (index_name, index_values) in entry.secondary_indices {
-                for index_value in index_values {
-                    self.update_secondary_index_batch(
-                        &mut batch,
-                        bucket_id,
-                        &index_name,
-                        &index_value,
-                        &entry.target,
-                        false,
-                    )?;
-                }
-            }
-
+            batch.delete_batch(&self.primary_index, [primary_key])?;
+            batch.delete_batch(&self.object_index, [object_key])?;
             batch.write()
         } else {
-            Ok(())
+            Ok(()) // Entry doesn't exist
+        }
+    }
+
+    /// Delete an index entry by object_id
+    pub fn delete_by_object_id(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<(), TypedStoreError> {
+        let object_key = construct_object_index_key(object_id);
+        
+        // Get the bucket_identifier from object index
+        if let Some(object_value) = self.object_index.get(&object_key)? {
+            // Use batch to delete from both indices atomically
+            let mut batch = self.primary_index.batch();
+            batch.delete_batch(&self.primary_index, [object_value.bucket_identifier])?;
+            batch.delete_batch(&self.object_index, [object_key])?;
+            batch.write()
+        } else {
+            Ok(()) // Entry doesn't exist
         }
     }
 
     /// Delete all entries in a bucket
     pub fn delete_bucket(&self, bucket_id: &ObjectID) -> Result<(), TypedStoreError> {
-        let prefix = format!("{}/", bucket_id);
+        let prefix = construct_primary_index_key(bucket_id, "");
         let mut batch = self.primary_index.batch();
 
-        // Delete primary indices
+        // Delete from both indices
         for entry in self.primary_index.safe_iter()? {
-            let (key, _) = entry?;
+            let (key, value) = entry?;
             if key.starts_with(&prefix) {
+                // Delete from primary index
                 batch.delete_batch(&self.primary_index, [key])?;
-            }
-        }
-
-        // Delete secondary indices
-        for entry in self.secondary_index.safe_iter()? {
-            let (key, _) = entry?;
-            if key.starts_with(&prefix) {
-                batch.delete_batch(&self.secondary_index, [key])?;
+                // Delete from object index using the object_id
+                let object_key = construct_object_index_key(&value.blob_identity.object_id);
+                batch.delete_batch(&self.object_index, [object_key])?;
             }
         }
 
@@ -339,33 +325,21 @@ impl OctopusIndexStore {
 
     /// Get statistics about a bucket
     pub fn get_bucket_stats(&self, bucket_id: &ObjectID) -> Result<BucketStats, TypedStoreError> {
-        let prefix = format!("{}/", bucket_id);
+        let prefix = construct_primary_index_key(bucket_id, "");
         let mut primary_count = 0u32;
-        let mut secondary_count = 0u32;
-        let mut total_blob_count = 0u32;
 
         // Count primary entries
         for entry in self.primary_index.safe_iter()? {
             let (key, _) = entry?;
             if key.starts_with(&prefix) {
                 primary_count += 1;
-                total_blob_count += 1;
-            }
-        }
-
-        // Count secondary entries
-        for entry in self.secondary_index.safe_iter()? {
-            let (key, value) = entry?;
-            if key.starts_with(&prefix) {
-                secondary_count += 1;
-                total_blob_count += value.targets.len() as u32;
             }
         }
 
         Ok(BucketStats {
             primary_count,
-            secondary_count,
-            total_blob_count,
+            secondary_count: 0,
+            total_blob_count: primary_count,
         })
     }
 }
@@ -399,7 +373,7 @@ mod tests {
             MetricConf::default(),
             &[
                 ("octopus_index_primary", db_options.clone()),
-                ("octopus_index_secondary", db_options),
+                ("octopus_index_object", db_options),
             ],
         )?);
 
@@ -410,99 +384,54 @@ mod tests {
             false,
         )?;
 
-        let secondary_index = DBMap::reopen(
+        // Initialize object index  
+        let object_index = DBMap::reopen(
             &db,
-            Some("octopus_index_secondary"),
+            Some("octopus_index_object"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
 
-        Ok((
-            OctopusIndexStore::new(primary_index, secondary_index),
-            temp_dir,
-        ))
+        Ok((OctopusIndexStore::new(primary_index, object_index), temp_dir))
     }
 
     #[tokio::test]
-    async fn test_primary_index() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_dual_index_system() -> Result<(), Box<dyn std::error::Error>> {
         let (store, _temp_dir) = create_test_store()?;
 
-        // Create test bucket and blob
+        // Create test bucket, blob, and object
         let bucket_id = ObjectID::from_hex_literal(
             "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        )
+        .unwrap();
+        let object_id = ObjectID::from_hex_literal(
+            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         )
         .unwrap();
         let blob_id = BlobId([1; 32]);
 
-        // Store a primary index entry with secondary indices
-        let mut metadata = HashMap::new();
-        metadata.insert("type".to_string(), "image".to_string());
-        metadata.insert("size".to_string(), "1024".to_string());
+        // Store an index entry using the new API
+        store.put_index_entry(&bucket_id, "/photos/2024/sunset.jpg", &object_id, blob_id)?;
 
-        let mut secondary_indices = HashMap::new();
-        secondary_indices.insert("type".to_string(), vec!["jpg".to_string()]);
-        secondary_indices.insert("date".to_string(), vec!["2024-01-15".to_string()]);
-
-        store.put_primary_index(
-            &bucket_id,
-            "/photos/2024/sunset.jpg",
-            IndexTarget::BlobId(blob_id),
-            secondary_indices,
-        )?;
-
-        // Retrieve the primary index
-        let entry = store.get_primary_index(&bucket_id, "/photos/2024/sunset.jpg")?;
+        // Retrieve via primary index (bucket_id + identifier)
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/photos/2024/sunset.jpg")?;
         assert!(entry.is_some());
 
         let retrieved = entry.unwrap();
-        assert_eq!(retrieved.target, IndexTarget::BlobId(blob_id));
+        assert_eq!(retrieved.blob_identity.blob_id, blob_id);
+        assert_eq!(retrieved.blob_identity.object_id, object_id);
 
-        // Verify secondary indices were created
-        let type_blobs = store.get_secondary_index(&bucket_id, "type", "jpg")?;
-        assert_eq!(type_blobs, vec![IndexTarget::BlobId(blob_id)]);
+        // Retrieve via object index (object_id)
+        let entry = store.get_by_object_id(&object_id)?;
+        assert!(entry.is_some());
 
-        let date_blobs = store.get_secondary_index(&bucket_id, "date", "2024-01-15")?;
-        assert_eq!(date_blobs, vec![IndexTarget::BlobId(blob_id)]);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_secondary_index_multiple_blobs() -> Result<(), Box<dyn std::error::Error>> {
-        let (store, _temp_dir) = create_test_store()?;
-
-        let bucket_id = ObjectID::from_hex_literal(
-            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        )
-        .unwrap();
-
-        // Add multiple blobs with the same secondary index
-        for i in 0..3 {
-            let blob_id = BlobId([i; 32]);
-            let mut secondary_indices = HashMap::new();
-            secondary_indices.insert("type".to_string(), vec!["jpg".to_string()]);
-            secondary_indices.insert("location".to_string(), vec!["california".to_string()]);
-
-            store.put_primary_index(
-                &bucket_id,
-                &format!("/photos/img{}.jpg", i),
-                IndexTarget::BlobId(blob_id),
-                secondary_indices,
-            )?;
-        }
-
-        // Verify secondary index contains all blobs
-        let type_blobs = store.get_secondary_index(&bucket_id, "type", "jpg")?;
-        assert_eq!(type_blobs.len(), 3);
-        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([0; 32]))));
-        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([1; 32]))));
-        assert!(type_blobs.contains(&IndexTarget::BlobId(BlobId([2; 32]))));
-
-        let location_blobs = store.get_secondary_index(&bucket_id, "location", "california")?;
-        assert_eq!(location_blobs.len(), 3);
+        let retrieved = entry.unwrap();
+        assert_eq!(retrieved.blob_identity.blob_id, blob_id);
+        assert_eq!(retrieved.blob_identity.object_id, object_id);
 
         Ok(())
     }
+
 
     #[tokio::test]
     async fn test_bucket_operations() -> Result<(), Box<dyn std::error::Error>> {
@@ -516,14 +445,15 @@ mod tests {
         // Add multiple entries to a bucket
         for i in 0..3 {
             let blob_id = BlobId([i; 32]);
-            let mut secondary_indices = HashMap::new();
-            secondary_indices.insert("type".to_string(), vec!["document".to_string()]);
+            let object_id = ObjectID::from_hex_literal(
+                &format!("0x{:064x}", i),
+            )?;
 
-            store.put_primary_index(
+            store.put_index_entry(
                 &bucket_id,
                 &format!("file{}.txt", i),
-                IndexTarget::BlobId(blob_id),
-                secondary_indices,
+                &object_id,
+                blob_id,
             )?;
         }
 
@@ -534,7 +464,7 @@ mod tests {
         // Get stats
         let stats = store.get_bucket_stats(&bucket_id)?;
         assert_eq!(stats.primary_count, 3);
-        assert!(stats.secondary_count > 0);
+        assert_eq!(stats.secondary_count, 0);
 
         // Delete bucket
         store.delete_bucket(&bucket_id)?;
@@ -545,102 +475,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mutations_with_primary_index() -> Result<(), Box<dyn std::error::Error>> {
-        // Use the same setup as other passing tests
+    async fn test_mutations_with_dual_index() -> Result<(), Box<dyn std::error::Error>> {
         let (store, _temp_dir) = create_test_store()?;
 
         let bucket_id = ObjectID::from_hex_literal(
             "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         )
         .unwrap();
+        let object_id = ObjectID::from_hex_literal(
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .unwrap();
         let blob_id = BlobId([99; 32]);
 
-        // Test with empty secondary indices first
-        println!("Testing put_primary_index with empty secondary indices...");
-        store.put_primary_index(
-            &bucket_id,
-            "/test/empty",
-            IndexTarget::BlobId(blob_id),
-            HashMap::new(),
-        )?;
-        
-        println!("Retrieving value with empty indices...");
-        let retrieved = store.get_primary_index(&bucket_id, "/test/empty")?;
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().target, IndexTarget::BlobId(blob_id));
-        
-        // Test with non-empty secondary indices
-        println!("Testing put_primary_index with non-empty secondary indices...");
-        let mut secondary_indices = HashMap::new();
-        secondary_indices.insert("test_index".to_string(), vec!["test_value".to_string()]);
-        
-        store.put_primary_index(
-            &bucket_id,
-            "/test/simple",
-            IndexTarget::BlobId(blob_id),
-            secondary_indices,
-        )?;
-        
-        println!("Retrieving value with non-empty indices...");
-        let retrieved = store.get_primary_index(&bucket_id, "/test/simple")?;
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().target, IndexTarget::BlobId(blob_id));
-
-        // Now test via mutations
-        println!("Testing mutations - primary index...");
-        let primary_mutation = MutationSet {
+        // Test mutations via the new API
+        let insert_mutation = MutationSet {
             bucket_id,
             mutations: vec![IndexMutation::Insert {
-                index_name: None, // Primary index
-                index_key: "/documents/report.pdf".to_string(),
-                index_value: IndexTarget::BlobId(blob_id),
+                bucket_id,
+                identifier: "/documents/report.pdf".to_string(),
+                object_id,
+                blob_id,
             }],
         };
 
-        println!("Applying primary mutation...");
-        store.apply_index_mutations(vec![primary_mutation])?;
+        store.apply_index_mutations(vec![insert_mutation])?;
 
-        // Verify primary index was created
-        let entry = store.get_primary_index(&bucket_id, "/documents/report.pdf")?;
+        // Verify entry was created in both indices
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/documents/report.pdf")?;
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().target, IndexTarget::BlobId(blob_id));
+        assert_eq!(entry.unwrap().blob_identity.blob_id, blob_id);
 
-        // Test secondary index mutation (index_name = Some)
-        let secondary_mutation = MutationSet {
-            bucket_id,
-            mutations: vec![IndexMutation::Insert {
-                index_name: Some("type".to_string()),
-                index_key: "pdf".to_string(),
-                index_value: IndexTarget::BlobId(blob_id),
-            }],
-        };
+        let entry = store.get_by_object_id(&object_id)?;
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().blob_identity.blob_id, blob_id);
 
-        store.apply_index_mutations(vec![secondary_mutation])?;
-
-        // Verify secondary index was created
-        let pdf_blobs = store.get_secondary_index(&bucket_id, "type", "pdf")?;
-        assert_eq!(pdf_blobs, vec![IndexTarget::BlobId(blob_id)]);
-
-        // Test deletion with None (primary index)
-        let delete_primary = MutationSet {
+        // Test deletion
+        let delete_mutation = MutationSet {
             bucket_id,
             mutations: vec![IndexMutation::Delete {
-                index_name: None,
-                index_key: "/documents/report.pdf".to_string(),
+                bucket_id,
+                index_name: "/documents/report.pdf".to_string(),
+                object_id,
             }],
         };
 
-        store.apply_index_mutations(vec![delete_primary])?;
+        store.apply_index_mutations(vec![delete_mutation])?;
 
-        // Verify primary index was deleted
-        let entry = store.get_primary_index(&bucket_id, "/documents/report.pdf")?;
+        // Verify both indices were updated
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/documents/report.pdf")?;
+        assert!(entry.is_none());
+
+        let entry = store.get_by_object_id(&object_id)?;
         assert!(entry.is_none());
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_rocksdb_initialization_and_index_operations()
+    async fn test_rocksdb_initialization_and_dual_index_operations()
     -> Result<(), Box<dyn std::error::Error>> {
         // Initialize the RocksDB store
         let (store, _temp_dir) = create_test_store()?;
@@ -650,57 +543,38 @@ mod tests {
             "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
         )
         .unwrap();
+        let object_id = ObjectID::from_hex_literal(
+            "0x2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .unwrap();
         let blob_id = BlobId([42; 32]);
 
-        // Prepare metadata and secondary indices
-        let mut metadata = HashMap::new();
-        metadata.insert("content-type".to_string(), "application/json".to_string());
-        metadata.insert("created".to_string(), "2024-01-20".to_string());
+        // Write index data using the new API
+        store.put_index_entry(&bucket_id, "/test/data.json", &object_id, blob_id)?;
 
-        let mut secondary_indices = HashMap::new();
-        secondary_indices.insert(
-            "tags".to_string(),
-            vec!["test".to_string(), "demo".to_string()],
-        );
-        secondary_indices.insert("category".to_string(), vec!["development".to_string()]);
-
-        // Write index data
-        store.put_primary_index(
-            &bucket_id,
-            "/test/data.json",
-            IndexTarget::BlobId(blob_id),
-            secondary_indices.clone(),
-        )?;
-
-        // Read primary index data
-        let retrieved = store.get_primary_index(&bucket_id, "/test/data.json")?;
+        // Read via primary index
+        let retrieved = store.get_by_bucket_identifier(&bucket_id, "/test/data.json")?;
         assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().blob_identity.blob_id, blob_id);
 
-        let primary_data = retrieved.unwrap();
-        assert_eq!(primary_data.target, IndexTarget::BlobId(blob_id));
-        assert_eq!(primary_data.secondary_indices.len(), 2);
-
-        // Read secondary index data
-        let tag_blobs = store.get_secondary_index(&bucket_id, "tags", "test")?;
-        assert_eq!(tag_blobs, vec![IndexTarget::BlobId(blob_id)]);
-
-        let category_blobs = store.get_secondary_index(&bucket_id, "category", "development")?;
-        assert_eq!(category_blobs, vec![IndexTarget::BlobId(blob_id)]);
+        // Read via object index
+        let retrieved = store.get_by_object_id(&object_id)?;
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().blob_identity.blob_id, blob_id);
 
         // Verify persistence by checking if entry exists
         assert!(store.has_primary_entry(&bucket_id, "/test/data.json")?);
 
         // Delete the entry
-        store.delete_primary_entry(&bucket_id, "/test/data.json")?;
+        store.delete_by_bucket_identifier(&bucket_id, "/test/data.json")?;
 
-        // Verify deletion
+        // Verify deletion from both indices
         assert!(!store.has_primary_entry(&bucket_id, "/test/data.json")?);
-        let tag_blobs_after = store.get_secondary_index(&bucket_id, "tags", "test")?;
-        assert!(tag_blobs_after.is_empty());
+        assert!(store.get_by_object_id(&object_id)?.is_none());
 
-        println!("✅ RocksDB store initialized successfully");
-        println!("✅ Index data written and read successfully");
-        println!("✅ Secondary indices working correctly");
+        println!("✅ RocksDB dual-index store initialized successfully");
+        println!("✅ Index data written and read via both indices");
+        println!("✅ Dual index system working correctly");
         println!("✅ Data persistence verified");
 
         Ok(())
