@@ -13,7 +13,7 @@ Currently, only a server-side portal is served at <https://wal.app>.
 We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
 to the list.
 
-### Known portals
+## Known portals
 
 {{ #portals }}
 {{ /portals }}
