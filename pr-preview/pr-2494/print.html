@@ -5502,8 +5502,11 @@ verify its operation. Therefore, they can fully authenticate that the data serve
 Walrus Sites is what the original developer intended.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="avoiding-duplicate-content-seo-in-custom-portals"><a class="header" href="#avoiding-duplicate-content-seo-in-custom-portals">Avoiding Duplicate-Content SEO in Custom Portals</a></h1>
-<p>When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames (e.g., <strong>SuiNS</strong>, <strong>base36</strong>, or <strong>BYOD</strong>). Search engines treat this as duplicate content, which can dilute ranking signals.</p>
-<p>The official <code>wal.app</code> portal avoids this by serving only <strong>SuiNS domains</strong> with base36 and BYOD disabled. If you enable base36 or BYOD on your own portal, you should enforce canonicalization.</p>
+<p>When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames
+(e.g., <strong>SuiNS</strong>, <strong>base36</strong>, or <strong>BYOD</strong>). Search engines treat this as duplicate content,
+which can dilute ranking signals.</p>
+<p>The official <code>wal.app</code> portal avoids this by serving only <strong>SuiNS domains</strong> with base36 and BYOD disabled.
+If you enable base36 or BYOD on your own portal, you should enforce canonicalization.</p>
 <h2 id="recommended-practices"><a class="header" href="#recommended-practices">Recommended Practices</a></h2>
 <ul>
 <li>
@@ -5557,7 +5560,8 @@ Walrus Sites is what the original developer intended.</p>
 <li>
 <p><strong>Multiple SuiNS names → one site</strong></p>
 <ul>
-<li>This can happen permissionlessly. If you control the extra names, redirect them to your canonical. Otherwise, add a <code>&lt;link rel="canonical"&gt;</code> in the site HTML as a best-effort signal.</li>
+<li>This can happen permissionlessly. If you control the extra names, redirect them to your canonical.
+Otherwise, add a <code>&lt;link rel="canonical"&gt;</code> in the site HTML as a best-effort signal.</li>
 </ul>
 </li>
 </ul>
