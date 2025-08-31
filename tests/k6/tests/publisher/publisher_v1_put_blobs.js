@@ -53,8 +53,8 @@ export const options = {
     },
 
     tags: {
-        "blobs": BLOBS_TO_STORE,
-        "payload-size": PAYLOAD_SIZE,
+        "blobs": `${BLOBS_TO_STORE}`,
+        "payload-size": `${PAYLOAD_SIZE}`,
     },
 
     // Skip TLS verification for self-signed certs.
