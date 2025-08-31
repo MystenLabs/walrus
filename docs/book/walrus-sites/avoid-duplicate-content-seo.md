@@ -1,8 +1,11 @@
 # Avoiding Duplicate-Content SEO in Custom Portals
 
-When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames (e.g., **SuiNS**, **base36**, or **BYOD**). Search engines treat this as duplicate content, which can dilute ranking signals.
+When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames
+(e.g., **SuiNS**, **base36**, or **BYOD**). Search engines treat this as duplicate content,
+which can dilute ranking signals.
 
-The official `wal.app` portal avoids this by serving only **SuiNS domains** with base36 and BYOD disabled. If you enable base36 or BYOD on your own portal, you should enforce canonicalization.
+The official `wal.app` portal avoids this by serving only **SuiNS domains** with base36 and BYOD disabled.
+If you enable base36 or BYOD on your own portal, you should enforce canonicalization.
 
 ## Recommended Practices
 
@@ -46,4 +49,5 @@ The official `wal.app` portal avoids this by serving only **SuiNS domains** with
     ```
 
 - **Multiple SuiNS names → one site**
-  - This can happen permissionlessly. If you control the extra names, redirect them to your canonical. Otherwise, add a `<link rel="canonical">` in the site HTML as a best-effort signal.
+  - This can happen permissionlessly. If you control the extra names, redirect them to your canonical.
+    Otherwise, add a `<link rel="canonical">` in the site HTML as a best-effort signal.
