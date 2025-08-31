@@ -42,6 +42,6 @@ after = ["links"]
 
 [preprocessor.templates]
 command = "mdbook-templates"
-path = "docs/book/assets/operators.json"
+path = ["docs/book/assets/operators.json", "docs/book/portals/list.json"]
 
 [preprocessor.tabs]
