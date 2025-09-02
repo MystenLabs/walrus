@@ -32,6 +32,14 @@ const VUS = parseInt(__ENV.VUS || '1');
  */
 const PAYLOAD_SIZE = __ENV.PAYLOAD_SIZE || '1Ki';
 
+/**
+ * The timeout for storing each blob.
+ *
+ * @type {string}
+ * @example 5m
+ */
+const TIMEOUT = __ENV.TIMEOUT || '5m';
+
 const PAYLOAD_SIZE_CONVERSION = {
     '1Ki': 1024,
     '100Ki': 100 * 1024,
@@ -49,6 +57,7 @@ export const options = {
             executor: 'shared-iterations',
             vus: VUS,
             iterations: BLOBS_TO_STORE,
+            maxDuration: "15m",
         }
     },
 
@@ -70,13 +79,12 @@ export function setup() {
     console.log(`Virtual users: ${VUS}`);
     console.log(`Data file path: ${PAYLOAD_SOURCE_FILE}`);
     console.log(`Payload size: ${PAYLOAD_SIZE}`);
-
-
+    console.log(`Blob store timeout: ${TIMEOUT}`);
 }
 
 export default async function () {
     const payloadSize = PAYLOAD_SIZE_CONVERSION[PAYLOAD_SIZE];
-    await putBlob(dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize))
+    await putBlob(dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT))
 }
 
 export function handleSummary(data) {
