@@ -82,7 +82,6 @@ use super::{
         DaemonArgs,
         DaemonCommands,
         EpochArg,
-        EpochCountOrMax,
         FileOrBlobId,
         HealthSortBy,
         InfoCommands,
@@ -1559,7 +1558,7 @@ impl ClientCommandRunner {
 
     /// Publish files to a publisher daemon using chunked upload for large files
     pub async fn publish(
-        &self,
+        self,
         path: PathBuf,
         daemon_url: String,
         epoch_arg: EpochArg,
@@ -1567,44 +1566,26 @@ impl ClientCommandRunner {
         permanent: bool,
         share: bool,
     ) -> Result<()> {
-        let client = PublisherClient::new(daemon_url.clone());
+        let publisher_client = PublisherClient::new(daemon_url.clone());
+
+        // Create contract client to get epoch validation (consistent with store commands)
+        let contract_client =
+            get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let system_object = contract_client
+            .sui_client()
+            .read_client
+            .get_system_object()
+            .await?;
+        let epochs_ahead = get_epochs_ahead(
+            epoch_arg,
+            system_object.max_epochs_ahead(),
+            &contract_client,
+        )
+        .await?;
 
         // Build query parameters for the daemon
         let mut query_params = std::collections::HashMap::new();
-
-        // Parse epoch_arg and add to query_params
-        let epochs_value = match epoch_arg {
-            EpochArg {
-                epochs: Some(epochs),
-                ..
-            } => match epochs {
-                EpochCountOrMax::Max => "max".to_string(),
-                EpochCountOrMax::Epochs(count) => count.to_string(),
-            },
-            EpochArg {
-                earliest_expiry_time: Some(time),
-                ..
-            } => {
-                // Convert the time to RFC3339 format that the daemon can understand
-                // Use a default value if conversion fails
-                match time.duration_since(std::time::UNIX_EPOCH) {
-                    Ok(duration) => {
-                        // For now, convert to a simple epochs count based on rough estimation
-                        // This is a simplified approach - in a real implementation, we'd need
-                        // to consult the current epoch duration from the chain
-                        let estimated_days = duration.as_secs() / (24 * 60 * 60);
-                        format!("{}", (estimated_days / 30).max(1)) // Rough 30-day epoch estimate
-                    }
-                    Err(_) => "5".to_string(), // Default fallback
-                }
-            }
-            EpochArg {
-                end_epoch: Some(epoch),
-                ..
-            } => epoch.to_string(),
-            _ => "5".to_string(), // Default fallback
-        };
-        query_params.insert("epochs".to_string(), epochs_value);
+        query_params.insert("epochs".to_string(), epochs_ahead.to_string());
 
         if deletable {
             query_params.insert("deletable".to_string(), "true".to_string());
@@ -1623,7 +1604,7 @@ impl ClientCommandRunner {
                 "Publishing file to daemon"
             );
 
-            let response = client.upload_file(&path, &query_params).await?;
+            let response = publisher_client.upload_file(&path, &query_params).await?;
             let status = response.status();
 
             if status.is_success() {
@@ -1647,7 +1628,9 @@ impl ClientCommandRunner {
                 "Publishing directory to daemon"
             );
 
-            let results = client.upload_directory(&path, &query_params).await?;
+            let results = publisher_client
+                .upload_directory(&path, &query_params)
+                .await?;
             let mut success_count = 0;
             let mut error_count = 0;
 

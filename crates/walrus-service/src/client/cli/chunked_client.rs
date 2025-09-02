@@ -128,7 +128,7 @@ impl PublisherClient {
             .with_context(|| format!("Failed to open file: {}", file_path.display()))?;
 
         let session_id = Uuid::new_v4().to_string();
-        let total_chunks = ((file_size + CHUNK_SIZE as u64 - 1) / CHUNK_SIZE as u64) as u32;
+        let total_chunks = file_size.div_ceil(CHUNK_SIZE as u64) as u32;
 
         tracing::info!(
             session_id = %session_id,
@@ -151,13 +151,13 @@ impl PublisherClient {
         for chunk_index in 0..total_chunks {
             let chunk_size = if chunk_index == total_chunks - 1 {
                 // Last chunk may be smaller
-                (file_size - (chunk_index as u64 * CHUNK_SIZE as u64)) as usize
+                (file_size - (u64::from(chunk_index) * CHUNK_SIZE as u64)) as usize
             } else {
                 CHUNK_SIZE
             };
 
             let mut chunk_data = vec![0; chunk_size];
-            file.seek(SeekFrom::Start(chunk_index as u64 * CHUNK_SIZE as u64))
+            file.seek(SeekFrom::Start(u64::from(chunk_index) * CHUNK_SIZE as u64))
                 .with_context(|| format!("Failed to seek in file: {}", file_path.display()))?;
             file.read_exact(&mut chunk_data).with_context(|| {
                 format!("Failed to read chunk from file: {}", file_path.display())
