@@ -13,6 +13,8 @@ use std::{
 
 use rand::{
     Rng as _,
+    RngCore,
+    SeedableRng,
     rngs::{StdRng, ThreadRng},
 };
 use sui_rpc_api::{Client, client::ResponseExt};
@@ -40,6 +42,12 @@ use super::{
 };
 use crate::client::{SuiClientMetricSet, rpc_config::RpcFallbackConfig};
 pub mod fallback_client;
+
+/// Default backoff delays used when building a `SuiClient`.
+const CLIENT_BUILD_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
+const CLIENT_BUILD_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+/// The maximum number of retries for building a SuiClient.
+const RPC_MAX_TRIES: u32 = 3;
 
 /// Checks if the full node provides the required REST endpoint for event processing.
 pub(crate) async fn check_experimental_rest_endpoint_exists(
@@ -136,27 +144,31 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                 rpc_url,
                 ensure_experimental_rest_endpoint,
             } => {
-                let client = FallibleRpcClient::new(rpc_url.to_owned())
-                    .map(Arc::new)
-                    .map_err(|e| FailoverError::FailedToGetClient(e.to_string()))?;
-                if *ensure_experimental_rest_endpoint {
-                    tokio::time::timeout(
-                        std::time::Duration::from_secs(30),
-                        ensure_experimental_rest_endpoint_exists(client.inner().await),
+                let rpc_client = retry_rpc_errors(
+                    ExponentialBackoffConfig::new(
+                        CLIENT_BUILD_RETRY_MIN_DELAY,
+                        CLIENT_BUILD_RETRY_MAX_DELAY,
+                        Some(RPC_MAX_TRIES),
                     )
-                    .await
-                    .map_err(|_| {
-                        FailoverError::FailedToGetClient(format!(
-                            "Client validation timed out for {rpc_url:?}"
-                        ))
-                    })?
-                    .map_err(|e| {
-                        FailoverError::FailedToGetClient(format!(
-                            "Client validation failed for {rpc_url:?}: {e:?}"
-                        ))
-                    })?;
-                }
-                Ok(client)
+                    .get_strategy(StdRng::from_entropy().next_u64()),
+                    || async {
+                        let rpc_client = FallibleRpcClient::new(rpc_url.to_owned())?;
+                        if *ensure_experimental_rest_endpoint {
+                            tokio::time::timeout(
+                                std::time::Duration::from_secs(30),
+                                ensure_experimental_rest_endpoint_exists(rpc_client.inner().await),
+                            )
+                            .await??;
+                        }
+                        Ok(rpc_client)
+                    },
+                    None,
+                    "build_rpc_client",
+                )
+                .await
+                .map_err(|e: anyhow::Error| FailoverError::FailedToGetClient(e.to_string()))?;
+
+                Ok(Arc::new(rpc_client))
             }
             Self::Client(client) => Ok(client.clone()),
         }

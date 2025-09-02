@@ -703,6 +703,10 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
 impl Drop for SimStorageNodeHandle {
     fn drop(&mut self) {
         self.cancel_token.cancel();
+        if let Some(node_id) = self.node_id {
+            tracing::info!("shutting down storage node: {:?}", node_id);
+            sui_simulator::runtime::Handle::try_current().map(|h| h.delete_node(node_id));
+        }
     }
 }
 
