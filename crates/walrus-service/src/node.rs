@@ -5565,6 +5565,16 @@ mod tests {
         ) -> TestResult {
             let shard_sync_config = ShardSyncConfig {
                 sliver_count_per_sync_request: 2,
+                // Align SST flush threshold with the request size for this test.
+                // For this test, we need one flush (and thus one progress persist) per request
+                // to preserve the original progress semantics being asserted (whether shard sync
+                // "makes progress" between retriable failures). Setting `sst_max_entries` equal
+                // or less to the request size ensures each request triggers a flush and records
+                // `last_synced_blob_id` deterministically.
+                sst_ingestion_config: Some(crate::node::config::SstIngestionConfig {
+                    max_entries: Some(2),
+                    compact_after_sync: true,
+                }),
                 shard_sync_retry_min_backoff: Duration::from_secs(1),
                 shard_sync_retry_max_backoff: Duration::from_secs(5),
                 shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(10),

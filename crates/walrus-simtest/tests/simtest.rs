@@ -252,11 +252,11 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
+        let mut node_recovery_config = NodeRecoveryConfig::default();
+
         register_fail_point("fail_point_direct_shard_sync_recovery", move || {
             panic!("shard sync should not enter recovery mode in this test");
         });
-
-        let mut node_recovery_config = NodeRecoveryConfig::default();
 
         // 20% of the time using a more restrictive node recovery config.
         if rand::thread_rng().gen_bool(0.2) {
@@ -348,7 +348,8 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+        let mut node_health_info =
+            simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
 
         let committees = client_arc
             .inner
@@ -373,6 +374,21 @@ mod tests {
         assert_eq!(shards_in_new_node.len(), new_node_shards.len());
         for shard in new_node_shards {
             assert!(shards_in_new_node.contains(&shard.shard));
+        }
+
+        loop {
+            if node_health_info[5]
+                .shard_detail
+                .as_ref()
+                .unwrap()
+                .owned
+                .iter()
+                .all(|s| s.status == ShardStatus::Ready)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         }
 
         for shard in &node_health_info[5].shard_detail.as_ref().unwrap().owned {
