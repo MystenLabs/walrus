@@ -261,6 +261,15 @@ pub struct StorageNodeHandle {
     pub node_runtime_handle: Option<JoinHandle<()>>,
 }
 
+impl Drop for StorageNodeHandle {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(handle) = self.node_runtime_handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 impl StorageNodeHandleTrait for StorageNodeHandle {
     fn cancel(&self) {
         self.cancel.cancel();
