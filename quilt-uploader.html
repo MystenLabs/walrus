@@ -1,0 +1,587 @@
+<!--
+  Copyright (c) Walrus Foundation
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walrus Quilt Uploader</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.95;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 1.3rem;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .config-row > div {
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="url"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="url"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .add-file-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .add-file-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .files-container {
+            margin-top: 20px;
+        }
+
+        .file-item {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .file-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .file-size {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .remove-file-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .remove-file-btn:hover {
+            background: #ff3838;
+        }
+
+        .identifier-input {
+            margin-bottom: 15px;
+        }
+
+        .tags-section {
+            margin-top: 15px;
+        }
+
+        .tags-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .tags-title {
+            font-weight: 500;
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .add-tag-btn {
+            background: #00b894;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .add-tag-btn:hover {
+            background: #00a080;
+        }
+
+        .tag-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+
+        .tag-input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .remove-tag-btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .submit-section {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+            border: none;
+            padding: 14px 40px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 184, 148, 0.4);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .result-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-section.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
+
+        .result-section.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .result-content {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow-y: auto;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🦭 Walrus Quilt Uploader</h1>
+            <p>Store multiple files as a single quilt with metadata tags</p>
+        </div>
+
+        <div class="main-card">
+            <div class="section">
+                <h2 class="section-title">Configuration</h2>
+                <div class="config-row">
+                    <div>
+                        <label for="publisherUrl">Publisher URL</label>
+                        <input type="url" id="publisherUrl"
+                            placeholder="http://localhost:31415"
+                            value="http://localhost:31415">
+                    </div>
+                    <div>
+                        <label for="epochs">Storage Epochs</label>
+                        <input type="number" id="epochs" value="5" min="1">
+                    </div>
+                    <div>
+                        <label for="persistence">Persistence Type</label>
+                        <select id="persistence">
+                            <option value="permanent">Permanent</option>
+                            <option value="deletable">Deletable</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2 class="section-title">Files</h2>
+                <button class="add-file-btn" onclick="addFileInput()">
+                    <span>+</span> Add File
+                </button>
+                <div id="filesContainer" class="files-container"></div>
+            </div>
+
+            <div class="submit-section">
+                <button class="submit-btn" id="submitBtn" onclick="submitQuilt()">
+                    Store as Quilt
+                </button>
+            </div>
+
+            <div id="resultSection" class="result-section">
+                <div class="result-title"></div>
+                <div class="result-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let fileIdCounter = 0;
+        const filesData = new Map();
+
+        function addFileInput() {
+            const fileId = `file-${fileIdCounter++}`;
+            const container = document.getElementById('filesContainer');
+
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.id = fileId;
+
+            fileItem.innerHTML = `
+                <div class="file-header">
+                    <div class="file-info">
+                        <input type="file" onchange="handleFileSelect('${fileId}', this)">
+                        <span class="file-name"></span>
+                        <span class="file-size"></span>
+                    </div>
+                    <button class="remove-file-btn" onclick="removeFile('${fileId}')">
+                        Remove
+                    </button>
+                </div>
+                <div class="identifier-input">
+                    <label>Identifier (unique name for this file in the quilt)</label>
+                    <input type="text" class="identifier"
+                        placeholder="e.g., contract-v2, logo-2024">
+                </div>
+                <div class="tags-section">
+                    <div class="tags-header">
+                        <span class="tags-title">Tags (Key-Value Pairs)</span>
+                        <button class="add-tag-btn"
+                            onclick="addTag('${fileId}')">+ Add Tag</button>
+                    </div>
+                    <div class="tags-container" id="${fileId}-tags"></div>
+                </div>
+            `;
+
+            container.appendChild(fileItem);
+            filesData.set(fileId, { file: null, tags: [] });
+        }
+
+        function handleFileSelect(fileId, input) {
+            const file = input.files[0];
+            if (file) {
+                const fileItem = document.getElementById(fileId);
+                fileItem.querySelector('.file-name').textContent = file.name;
+                fileItem.querySelector('.file-size').textContent =
+                    `(${formatFileSize(file.size)})`;
+
+                // Auto-fill identifier with filename if empty
+                const identifierInput = fileItem.querySelector('.identifier');
+                if (!identifierInput.value) {
+                    identifierInput.value = file.name;
+                }
+
+                filesData.get(fileId).file = file;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function addTag(fileId) {
+            const tagId = `tag-${Date.now()}`;
+            const tagsContainer = document.getElementById(`${fileId}-tags`);
+
+            const tagItem = document.createElement('div');
+            tagItem.className = 'tag-item';
+            tagItem.id = tagId;
+
+            tagItem.innerHTML = `
+                <input type="text" class="tag-input tag-key"
+                    placeholder="Key (e.g., version)">
+                <input type="text" class="tag-input tag-value"
+                    placeholder="Value (e.g., 1.0)">
+                <button class="remove-tag-btn"
+                    onclick="removeTag('${fileId}', '${tagId}')">×</button>
+            `;
+
+            tagsContainer.appendChild(tagItem);
+        }
+
+        function removeTag(fileId, tagId) {
+            document.getElementById(tagId).remove();
+        }
+
+        function removeFile(fileId) {
+            document.getElementById(fileId).remove();
+            filesData.delete(fileId);
+        }
+
+        async function submitQuilt() {
+            const publisherUrl = document.getElementById('publisherUrl').value;
+            const epochs = document.getElementById('epochs').value;
+            const persistence = document.getElementById('persistence').value;
+
+            if (!publisherUrl) {
+                showResult('error', 'Please enter a publisher URL');
+                return;
+            }
+
+            // Collect all files and their metadata
+            const formData = new FormData();
+            const metadata = [];
+
+            for (const [fileId, data] of filesData) {
+                const fileItem = document.getElementById(fileId);
+                if (!fileItem) continue;
+
+                const fileInput = fileItem.querySelector('input[type="file"]');
+                const file = fileInput?.files[0];
+                if (!file) continue;
+
+                const identifier = fileItem.querySelector('.identifier').value;
+                if (!identifier) {
+                    showResult('error',
+                        `Please provide an identifier for file: ${file.name}`);
+                    return;
+                }
+
+                // Add file to form data
+                formData.append(identifier, file);
+
+                // Collect tags
+                const tags = {};
+                const tagItems = fileItem.querySelectorAll('.tag-item');
+                tagItems.forEach(tagItem => {
+                    const key = tagItem.querySelector('.tag-key').value;
+                    const value = tagItem.querySelector('.tag-value').value;
+                    if (key && value) {
+                        tags[key] = value;
+                    }
+                });
+
+                // Add to metadata if there are tags
+                if (Object.keys(tags).length > 0) {
+                    metadata.push({ identifier, tags });
+                }
+            }
+
+            if (formData.entries().next().done) {
+                showResult('error', 'Please add at least one file');
+                return;
+            }
+
+            // Add metadata to form data if present
+            if (metadata.length > 0) {
+                formData.append('_metadata', JSON.stringify(metadata));
+            }
+
+            // Build URL with query parameters
+            const params = new URLSearchParams({
+                epochs: epochs
+            });
+
+            if (persistence === 'deletable') {
+                params.append('deletable', 'true');
+            } else {
+                params.append('permanent', 'true');
+            }
+
+            const url = `${publisherUrl}/v1/quilts?${params}`;
+
+            // Show loading state
+            const submitBtn = document.getElementById('submitBtn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Uploading...';
+
+            try {
+                const response = await fetch(url, {
+                    method: 'PUT',
+                    body: formData
+                });
+
+                const result = await response.text();
+
+                if (response.ok) {
+                    try {
+                        const jsonResult = JSON.parse(result);
+                        showResult('success',
+                            'Quilt stored successfully!\n\n' +
+                            JSON.stringify(jsonResult, null, 2));
+                    } catch {
+                        showResult('success', 'Quilt stored successfully!\n\n' + result);
+                    }
+                } else {
+                    showResult('error',
+                        `Error ${response.status}: ${response.statusText}\n\n${result}`);
+                }
+            } catch (error) {
+                showResult('error', `Network error: ${error.message}`);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        }
+
+        function showResult(type, content) {
+            const resultSection = document.getElementById('resultSection');
+            resultSection.className = `result-section ${type}`;
+            resultSection.querySelector('.result-title').textContent =
+                type === 'success' ? '✓ Success' : '✗ Error';
+            resultSection.querySelector('.result-content').textContent = content;
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Add initial file input on load
+        window.addEventListener('DOMContentLoaded', () => {
+            addFileInput();
+        });
+    </script>
+</body>
+</html>

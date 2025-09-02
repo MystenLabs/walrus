@@ -22,7 +22,7 @@ use walrus_core::{
 use walrus_storage_node_client::{
     NodeError,
     StorageNodeClient,
-    api::{BlobStatus, StoredOnNodeStatus},
+    api::{BlobStatus, MultiPutBundle, MultiPutRequest, StoredOnNodeStatus},
 };
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -89,6 +89,13 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     fn take_inner_result(self) -> Result<Self::Inner, Self::Error> {
         self.result
     }
+}
+
+/// Response from a single blob in a multi-put operation.
+#[allow(dead_code)]
+pub struct MultiPutBlobResponse {
+    pub blob_id: BlobId,
+    pub result: Result<SignedStorageConfirmation, NodeError>,
 }
 
 pub(crate) struct NodeCommunication<'a, W = ()> {
@@ -541,6 +548,96 @@ impl NodeWriteCommunication<'_> {
             sliver_type: A::sliver_type(),
             error,
         })
+    }
+
+    /// Stores multiple blobs' metadata and sliver pairs on a node using the multi-put API.
+    ///
+    /// Returns a [`NodeResult`], where the weight is the number of shards for which storage
+    /// confirmations were issued (total across all blobs).
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn multi_put(
+        &self,
+        bundles: Vec<MultiPutBundle>,
+    ) -> NodeResult<Vec<MultiPutBlobResponse>, NodeError> {
+        tracing::info!(
+            "Node {}: storing {} blobs via multi-put",
+            self.node_index,
+            bundles.len()
+        );
+
+        let request = MultiPutRequest {
+            epoch: self.committee_epoch,
+            bundles,
+        };
+
+        let _total_shards = request
+            .bundles
+            .iter()
+            .map(|bundle| bundle.sliver_pairs.len() * 2) // Each pair has 2 slivers.
+            .sum::<usize>();
+
+        tracing::info!(
+            "Node {}: sending multi_put request with {} bundles to client",
+            self.node_index,
+            request.bundles.len()
+        );
+
+        let result = self
+            .retry_with_limits_and_backoff(|| {
+                tracing::trace!("Node {}: calling client.multi_put", self.node_index);
+                self.client.multi_put(&request)
+            })
+            .await;
+
+        tracing::info!(
+            "Node {}: multi_put request completed: {:?}, node_weight={}",
+            self.node_index,
+            result
+                .as_ref()
+                .map(|r| format!("{} results", r.results.len()))
+                .unwrap_or_else(|e| format!("Error: {e}")),
+            self.n_owned_shards().get()
+        );
+
+        let processed_result = result.map(|response| {
+            let blob_results: Vec<MultiPutBlobResponse> = response
+                .results
+                .into_iter()
+                .map(|blob_result| {
+                    let confirmation_result = if blob_result.success {
+                        blob_result.confirmation.ok_or_else(|| {
+                            use std::io::Error;
+                            NodeError::other(Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Success response missing confirmation",
+                            ))
+                        })
+                    } else {
+                        Err(blob_result
+                            .error
+                            .map(|status| {
+                                use std::io::Error;
+                                NodeError::other(Error::other(format!("Storage error: {status}")))
+                            })
+                            .unwrap_or_else(|| {
+                                use std::io::Error;
+                                NodeError::other(Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Failed response missing error",
+                                ))
+                            }))
+                    };
+                    MultiPutBlobResponse {
+                        blob_id: blob_result.blob_id,
+                        result: confirmation_result,
+                    }
+                })
+                .collect();
+
+            blob_results
+        });
+
+        self.to_node_result_with_n_shards(processed_result)
     }
 
     async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>
