@@ -58,7 +58,7 @@ reqwest = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
-walrus-service = { path = "../walrus-service" }
+walrus-service = { path = "../walrus-service", features = ["test-utils"] }
 walrus-test-utils = { path = "../walrus-test-utils" }
 walrus-sdk = { path = "../walrus-sdk" }
 telemetry-subscribers = { workspace = true }
