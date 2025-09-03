@@ -4,7 +4,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -23,18 +23,21 @@ use crate::node::{
     system_events::CompletableHandle,
 };
 
+// Poll interval for checking pending background events.
+const PENDING_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
 /// A guard that automatically decrements the pending event counter when dropped.
 /// This ensures robust tracking of pending events even if processing errors occur.
 #[derive(Debug)]
 struct PendingEventGuard {
-    pending_event_count: Arc<AtomicU64>,
+    pending_event_count: Arc<AtomicU32>,
     worker_index: usize,
     metrics: Arc<crate::node::metrics::NodeMetricSet>,
 }
 
 impl PendingEventGuard {
     fn new(
-        pending_event_count: Arc<AtomicU64>,
+        pending_event_count: Arc<AtomicU32>,
         worker_index: usize,
         metrics: Arc<crate::node::metrics::NodeMetricSet>,
     ) -> Self {
@@ -55,7 +58,7 @@ impl Drop for PendingEventGuard {
                 .pending_processing_blob_event_in_background_processors,
             &self.worker_index.to_string()
         )
-        .set(i64::try_from(current_pending_event_count).unwrap_or(i64::MAX));
+        .set(<i64 as From<u32>>::from(current_pending_event_count));
     }
 }
 
@@ -284,7 +287,7 @@ pub struct BlobEventProcessor {
     //
     // We use per background processor count to avoid high contention on the Atomic variable when
     // tracking the total number of pending events to be processed.
-    background_per_processor_pending_event_count: Vec<Arc<AtomicU64>>,
+    background_per_processor_pending_event_count: Vec<Arc<AtomicU32>>,
 }
 
 impl BlobEventProcessor {
@@ -299,8 +302,8 @@ impl BlobEventProcessor {
         for worker_index in 0..num_workers {
             let (tx, rx) = mpsc::unbounded_channel();
             senders.push(tx);
-            let pending_event_count = Arc::new(AtomicU64::new(0));
-            background_per_processor_pending_event_count.push(pending_event_count.clone());
+            let pending_event_count = Arc::new(AtomicU32::new(0));
+            background_per_processor_pending_event_count.push(pending_event_count);
             let mut background_processor = BackgroundEventProcessor::new(
                 node.clone(),
                 blob_sync_handler.clone(),
@@ -391,22 +394,23 @@ impl BlobEventProcessor {
             )
             .inc();
 
+            let current_processor_pending_event_count =
+                self.background_per_processor_pending_event_count[processor_index].clone();
+
             // Increment the counter and create a guard that will decrement it when dropped
-            let current_pending_event_count = self.background_per_processor_pending_event_count
-                [processor_index]
-                .fetch_add(1, Ordering::SeqCst)
-                + 1;
+            let current_pending_event_count =
+                current_processor_pending_event_count.fetch_add(1, Ordering::SeqCst) + 1;
             walrus_utils::with_label!(
                 self.node
                     .metrics
                     .pending_processing_blob_event_in_background_processors,
                 &processor_index.to_string()
             )
-            .set(i64::try_from(current_pending_event_count).unwrap_or(i64::MAX));
+            .set(<i64 as From<u32>>::from(current_pending_event_count));
 
             // Create the guard that will automatically decrement the counter when dropped
             let guard = PendingEventGuard::new(
-                self.background_per_processor_pending_event_count[processor_index].clone(),
+                current_processor_pending_event_count,
                 processor_index,
                 self.node.metrics.clone(),
             );
@@ -442,7 +446,7 @@ impl BlobEventProcessor {
             .iter()
             .any(|c| c.load(Ordering::SeqCst) > 0)
         {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
         }
     }
 }
