@@ -26,18 +26,50 @@ use crate::node::{
 // Poll interval for checking pending background events.
 const PENDING_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// A utility struct that wraps an Arc<AtomicU32> for tracking pending events.
+/// Provides convenient inc() and dec() methods that return the new value.
+#[derive(Debug, Clone)]
+struct PendingEventCounter {
+    inner: Arc<AtomicU32>,
+}
+
+impl PendingEventCounter {
+    /// Creates a new counter initialized to 0.
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    /// Increments the counter and returns the new value.
+    fn inc(&self) -> u32 {
+        self.inner.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Decrements the counter and returns the new value.
+    fn dec(&self) -> u32 {
+        let prev = self.inner.fetch_sub(1, Ordering::SeqCst);
+        prev.saturating_sub(1)
+    }
+
+    /// Gets the current value of the counter.
+    fn get(&self) -> u32 {
+        self.inner.load(Ordering::SeqCst)
+    }
+}
+
 /// A guard that automatically decrements the pending event counter when dropped.
 /// This ensures robust tracking of pending events even if processing errors occur.
 #[derive(Debug)]
 struct PendingEventGuard {
-    pending_event_count: Arc<AtomicU32>,
+    pending_event_count: PendingEventCounter,
     worker_index: usize,
     metrics: Arc<crate::node::metrics::NodeMetricSet>,
 }
 
 impl PendingEventGuard {
     fn new(
-        pending_event_count: Arc<AtomicU32>,
+        pending_event_count: PendingEventCounter,
         worker_index: usize,
         metrics: Arc<crate::node::metrics::NodeMetricSet>,
     ) -> Self {
@@ -51,8 +83,7 @@ impl PendingEventGuard {
 
 impl Drop for PendingEventGuard {
     fn drop(&mut self) {
-        let current_pending_event_count =
-            self.pending_event_count.fetch_sub(1, Ordering::SeqCst) - 1;
+        let current_pending_event_count = self.pending_event_count.dec();
         walrus_utils::with_label!(
             self.metrics
                 .pending_processing_blob_event_in_background_processors,
@@ -287,7 +318,7 @@ pub struct BlobEventProcessor {
     //
     // We use per background processor count to avoid high contention on the Atomic variable when
     // tracking the total number of pending events to be processed.
-    background_per_processor_pending_event_count: Vec<Arc<AtomicU32>>,
+    background_per_processor_pending_event_count: Vec<PendingEventCounter>,
 }
 
 impl BlobEventProcessor {
@@ -302,7 +333,7 @@ impl BlobEventProcessor {
         for worker_index in 0..num_workers {
             let (tx, rx) = mpsc::unbounded_channel();
             senders.push(tx);
-            let pending_event_count = Arc::new(AtomicU32::new(0));
+            let pending_event_count = PendingEventCounter::new();
             background_per_processor_pending_event_count.push(pending_event_count);
             let mut background_processor = BackgroundEventProcessor::new(
                 node.clone(),
@@ -398,8 +429,7 @@ impl BlobEventProcessor {
                 self.background_per_processor_pending_event_count[processor_index].clone();
 
             // Increment the counter and create a guard that will decrement it when dropped
-            let current_pending_event_count =
-                current_processor_pending_event_count.fetch_add(1, Ordering::SeqCst) + 1;
+            let current_pending_event_count = current_processor_pending_event_count.inc();
             walrus_utils::with_label!(
                 self.node
                     .metrics
@@ -444,7 +474,7 @@ impl BlobEventProcessor {
         while self
             .background_per_processor_pending_event_count
             .iter()
-            .any(|c| c.load(Ordering::SeqCst) > 0)
+            .any(|c| c.get() > 0)
         {
             tokio::time::sleep(PENDING_EVENTS_POLL_INTERVAL).await;
         }
