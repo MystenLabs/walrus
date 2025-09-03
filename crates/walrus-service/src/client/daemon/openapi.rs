@@ -26,6 +26,7 @@ use crate::common::api::Binary;
         routes::get_blob_by_object_id,
         routes::get_blob_by_quilt_patch_id,
         routes::get_blob_by_quilt_id_and_identifier,
+        routes::list_patches_in_quilt,
     ),
     components(schemas(BlobId, Status,))
 )]

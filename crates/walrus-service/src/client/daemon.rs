@@ -395,7 +395,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             )
             .route(
                 LIST_PATCHES_IN_QUILT_ENDPOINT,
-                get(routes::list_patches_in_quilt),
+                get(routes::list_patches_in_quilt).with_state(self.client.clone()),
             );
         self
     }

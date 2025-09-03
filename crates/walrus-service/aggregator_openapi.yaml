@@ -193,6 +193,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/quilts/{quilt_id}/patches:
+    get:
+      tags:
+      - routes
+      summary: List patches in a quilt
+      description: Retrieve a list of patches contained in a quilt with their identifiers and QuiltPatchIds. Each QuiltPatchId can be used with the /v1/blobs/by-quilt-patch-id endpoint to retrieve the actual blob data.
+      operationId: list_patches_in_quilt
+      parameters:
+      - name: quilt_id
+        in: path
+        description: The quilt ID encoded as URL-safe base64
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+        example: rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU
+      responses:
+        '200':
+          description: Successfully retrieved the list of patches in the quilt
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuiltPatchItem'
+        '404':
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     BlobId:
@@ -201,6 +243,47 @@ components:
       description: The ID of a blob.
       examples:
       - E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+    QuiltPatchId:
+      type: object
+      description: |-
+        A QuiltPatchId is a globally unique id for a quilt patch.
+
+        A quilt patch is a individual blob within a quilt.
+      required:
+      - quiltId
+      - patchIdBytes
+      properties:
+        patchIdBytes:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: The patch id of the quilt patch.
+        quiltId:
+          $ref: '#/components/schemas/BlobId'
+          description: The BlobId of the quilt as a Walrus blob.
+    QuiltPatchItem:
+      type: object
+      description: Response item for a patch in a quilt.
+      required:
+      - identifier
+      - patch_id
+      - tags
+      properties:
+        identifier:
+          type: string
+          description: The identifier of the patch (e.g., filename).
+        patch_id:
+          $ref: '#/components/schemas/QuiltPatchId'
+          description: The QuiltPatchId for this patch, encoded as URL-safe base64.
+        tags:
+          type: object
+          description: Tags for the patch.
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
     Status:
       type: object
       description: |-
