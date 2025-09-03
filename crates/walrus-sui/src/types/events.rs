@@ -220,6 +220,32 @@ impl TryFrom<SuiEvent> for DenyListBlobDeleted {
     }
 }
 
+/// Event for indexing blob events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlobIndexEvent {
+    InsertOrUpdate(InsertOrUpdateBlobIndexEvent),
+    Delete(DeleteBlobIndexEvent),
+}
+
+/// Event for inserting or updating a blob index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InsertOrUpdateBlobIndexEvent {
+    /// The bucket ID of the related `Blob` object.
+    pub bucket_id: ObjectID,
+    /// The identifier of the related `Blob` object.
+    pub identifier: String,
+    /// The object ID of the related `Blob` object.
+    pub object_id: ObjectID,
+    pub blob_id: BlobId,
+}
+
+/// Event for deleting a blob index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteBlobIndexEvent {
+    /// The object ID of the related `Blob` object.
+    pub object_id: ObjectID,
+}
+
 /// Enum to wrap blob events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlobEvent {

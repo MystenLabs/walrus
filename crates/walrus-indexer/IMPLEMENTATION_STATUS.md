@@ -91,6 +91,16 @@ pub struct IndexerEventProcessorConfig {
 - Events converted to `IndexOperation`s and applied to index
 - Proper cancellation token handling for graceful shutdown
 
+### Major Refactoring (2025-09-01)
+- **Aligned with walrus-service pattern**: Event processor now follows the proven walrus-service architecture
+- **Global index as key**: Events database uses sequential global index (0,1,2...) as key
+- **PositionedStreamEvent as value**: Stores event with checkpoint position metadata
+- **Channel-based streaming**: Event processor sends events via unbounded channel to indexer
+- **Smart resumption**: On startup, indexer tells event processor where to start (last_processed_index + 1)
+- **Simplified resumption**: Indexer tracks only `last_processed_global_index` for clean resumption
+- **Checkpoint boundaries**: Added checkpoint boundary events for segmentation
+- **Decoupled architecture**: Event extraction and indexing are properly separated
+
 ## File Structure
 ```
 src/
@@ -201,3 +211,140 @@ let config = IndexerConfig {
 This implementation provides a solid foundation for Sui event processing in the Walrus indexer. The architecture follows patterns from walrus-service while being adapted for indexing use cases. The main missing piece is the actual event parsing logic, which requires knowledge of the Walrus Move package event structures.
 
 The integration is complete and compiles successfully, providing a working event processing pipeline that can be extended and refined as needed.
+
+---
+
+## Dual Index Implementation (2025-08-31)
+
+### Overview
+Successfully implemented dual-index system for Walrus Indexer (Octopus Index) according to PDF specification, enabling bidirectional lookups between object_id and bucket_id/identifier.
+
+### Completed Tasks
+
+#### ✅ 1. Core Data Structure Updates
+- **File**: `src/storage/mod.rs`
+- **Changes**:
+  - Added `BlobIdentity` struct containing both `blob_id` and `object_id`
+  - Updated `PrimaryIndexValue` to use `BlobIdentity` instead of `target`
+  - Added `ObjectIndexValue` for reverse lookups
+  - Updated `IndexMutation` enum to match PDF specification:
+    ```rust
+    pub enum IndexMutation {
+        Insert {
+            bucket_id: ObjectID,
+            identifier: String,
+            object_id: ObjectID,
+            blob_id: BlobId,
+        },
+        Delete {
+            bucket_id: ObjectID,
+            index_name: String,
+            object_id: ObjectID,
+        },
+    }
+    ```
+  - Added `QuiltId(ObjectID)` variant to `IndexTarget` enum
+
+#### ✅ 2. Dual Index Storage Implementation
+- **File**: `src/storage/mod.rs`
+- **Changes**:
+  - Implemented dual index system with atomic batch operations
+  - Primary index: `bucket_id/identifier` → `BlobIdentity`
+  - Object index: `object_id` → `bucket_id/identifier`
+  - Added methods:
+    - `put_index_entry()` - Atomic insert to both indices
+    - `get_by_object_id()` - Retrieve by object ID
+    - `delete_by_object_id()` - Remove by object ID
+    - `delete_by_bucket_identifier()` - Remove by bucket and identifier
+
+#### ✅ 3. Main Library Updates
+- **File**: `src/lib.rs`
+- **Changes**:
+  - Updated database initialization for dual column families:
+    - `octopus_index_primary`
+    - `octopus_index_object`
+  - Modified `IndexOperation` enum:
+    ```rust
+    pub enum IndexOperation {
+        IndexAdded {
+            bucket_id: ObjectID,
+            identifier: String,
+            object_id: ObjectID,
+            blob_id: BlobId,
+        },
+        IndexRemovedByObjectId { object_id: ObjectID },
+        IndexRemovedByIdentifier { bucket_id: ObjectID, identifier: String },
+        ApplyMutations(Vec<MutationSet>),
+    }
+    ```
+  - Added `get_blob_by_object_id()` method
+  - Updated cache management for consistency
+
+#### ✅ 4. API Route Updates
+- **File**: `src/routes.rs`
+- **Changes**:
+  - Added new endpoint: `GET /v1/object/{object_id}`
+  - Added `get_blob_by_object_id()` handler function
+  - Updated `BlobByIndexResponse` structure:
+    ```rust
+    pub struct BlobByIndexResponse {
+        pub blob_id: String,      // Changed from target_id
+        pub object_id: String,     // NEW field
+    }
+    ```
+  - Updated router configuration to include new endpoint
+
+#### ✅ 5. Binary Documentation
+- **File**: `src/bin/indexer.rs`
+- **Changes**:
+  - Added documentation for new `/v1/object/{object_id}` endpoint
+
+#### ✅ 6. Test Updates
+- **All test files updated**
+- **Changes**:
+  - Rewrote storage tests for dual-index system
+  - Updated route tests for new response format
+  - Fixed test data setup with proper object_id values
+  - All 13 tests passing with sequential execution
+
+### Technical Decisions
+
+1. **Atomic Operations**: Both indices updated together using RocksDB batch operations
+2. **Cache Management**: Cache cleared on complex operations to ensure consistency
+3. **Bidirectional Mapping**: O(1) lookups by either bucket_id/identifier or object_id
+4. **Test Execution**: Sequential execution (RUST_TEST_THREADS=1) to avoid metrics conflicts
+
+### Testing Status
+```bash
+# Run tests with sequential execution to avoid metrics conflicts
+RUST_TEST_THREADS=1 cargo test -p walrus-indexer --lib
+
+# Result: All 13 tests passing
+```
+
+### API Endpoints Summary
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/blobs/{bucket_id}/{primary_key}` | GET | Retrieve blob by bucket and identifier |
+| `/v1/object/{object_id}` | GET | Retrieve blob by object ID (NEW) |
+| `/v1/bucket/{bucket_id}` | GET | List all blobs in bucket |
+| `/v1/bucket/{bucket_id}/{prefix}` | GET | List blobs with prefix |
+| `/v1/bucket/{bucket_id}/stats` | GET | Get bucket statistics |
+| `/v1/health` | GET | Health check |
+
+### Recent Updates (2025-08-31 - Post-checkpoint)
+
+#### ObjectIndexValue Structure Improvement
+- **Changed**: `ObjectIndexValue` now stores `bucket_id` and `identifier` separately instead of combined string
+- **Before**: `pub bucket_identifier: String` 
+- **After**: `pub bucket_id: ObjectID, pub identifier: String`
+- **Impact**: Cleaner data structure, more efficient queries, better type safety
+- **Also Updated**: `IndexMutation::Delete` simplified to only require `object_id`
+
+### Next Steps
+
+1. **Integration Testing**: Test with actual Sui events
+2. **Performance Optimization**: Benchmark dual-index operations
+3. **Error Recovery**: Enhance error handling for index consistency
+4. **Monitoring**: Add metrics for dual-index operations

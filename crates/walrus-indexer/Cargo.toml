@@ -16,6 +16,9 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+axum-server = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace"] }
 chrono = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
@@ -31,6 +34,7 @@ typed-store = { workspace = true }
 # Walrus dependencies
 checkpoint-downloader = { workspace = true }
 walrus-core = { path = "../walrus-core" }
+walrus-service = { path = "../walrus-service" }
 walrus-sui = { path = "../walrus-sui" }
 walrus-utils = { path = "../walrus-utils" }
 
@@ -44,11 +48,17 @@ sui-types = { workspace = true }
 rocksdb = { workspace = true }
 
 # Additional dependencies for event processing
+bcs = { workspace = true }
 bincode = { workspace = true }
 futures = { workspace = true }
 mysten-metrics = { workspace = true }
 prometheus = { workspace = true }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
+walrus-service = { path = "../walrus-service" }
+walrus-test-utils = { path = "../walrus-test-utils" }
+walrus-sdk = { path = "../walrus-sdk" }
+telemetry-subscribers = { workspace = true }
