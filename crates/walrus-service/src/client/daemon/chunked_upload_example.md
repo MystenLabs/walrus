@@ -16,7 +16,7 @@ The following headers control the chunked upload process:
 - `X-Upload-Session-Id`: Unique identifier for the upload session (required)
 - `X-Upload-Chunk-Index`: Zero-based index of this chunk (0, 1, 2, ...) (required)
 - `X-Upload-Total-Chunks`: Total number of chunks expected (required)
-- `X-Upload-Chunk-Size`: Size of this specific chunk in bytes (required)
+- `X-Upload-Chunk-Size`: Expected uniform chunk size in bytes for non-final chunks (required; constant across session)
 - `X-Upload-Total-Size`: Total size of the complete blob (required)
 - `Content-Type`: Must be `application/octet-stream`
 
@@ -29,6 +29,7 @@ Here's how a client would upload a large blob using chunked uploads:
 ```python
 import uuid
 import math
+import os
 import requests
 
 def upload_large_blob(file_path, publisher_url, chunk_size=10*1024*1024):
@@ -55,7 +56,7 @@ def upload_large_blob(file_path, publisher_url, chunk_size=10*1024*1024):
                 'X-Upload-Session-Id': session_id,
                 'X-Upload-Chunk-Index': str(chunk_index),
                 'X-Upload-Total-Chunks': str(total_chunks),
-                'X-Upload-Chunk-Size': str(actual_chunk_size),
+                'X-Upload-Chunk-Size': str(chunk_size),
                 'X-Upload-Total-Size': str(file_size),
             }
 
@@ -95,6 +96,8 @@ CHUNK_SIZE=10485760  # 10MB chunks
 
 # Generate session ID
 SESSION_ID=$(uuidgen)
+# macOS: FILE_SIZE=$(stat -f%z "$FILE_PATH")
+# Linux:
 FILE_SIZE=$(stat -c%s "$FILE_PATH")
 TOTAL_CHUNKS=$(( (FILE_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 

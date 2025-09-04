@@ -5,15 +5,15 @@
 # Using the walrus client json input & output facilities.
 
 # Std lib imports
+
+import base64
+import json
 import os
 import subprocess
-import json
 import tempfile
-import base64
 
 import requests
-
-from utils import num_to_blob_id, PATH_TO_WALRUS, PATH_TO_WALRUS_CONFIG, FULL_NODE_URL
+from utils import FULL_NODE_URL, PATH_TO_WALRUS, PATH_TO_WALRUS_CONFIG, num_to_blob_id
 
 try:
     # Create a 1MiB file of random data
@@ -23,21 +23,23 @@ try:
     tmp.close()
 
     # Part 1. Upload the file to the Walrus service
-    store_json_command = f"""{{ "config" : "{PATH_TO_WALRUS_CONFIG}",
-        "command" : {{ "store" :
-        {{ "files" : ["{tmp.name}"], "epochs" : 2  }}}}
-    }}"""
+    store_json_command = {
+        "config": PATH_TO_WALRUS_CONFIG,
+        "command": {"store": {"files": [tmp.name], "epochs": 2}},
+    }
     result = subprocess.run(
         [PATH_TO_WALRUS, "json"],
         text=True,
         capture_output=True,
-        input=store_json_command,
+        input=json.dumps(store_json_command),
     )
 
     assert result.returncode == 0
 
     # Parse the response and display key information
-    json_result_dict = json_result_dict = json.loads(result.stdout.strip())[0]["blobStoreResult"]
+    json_result_dict = json_result_dict = json.loads(result.stdout.strip())[0][
+        "blobStoreResult"
+    ]
     if "newlyCreated" in json_result_dict:
         blob_id = json_result_dict["newlyCreated"]["blobObject"]["blobId"]
         sui_object_id = json_result_dict["newlyCreated"]["blobObject"]["id"]
@@ -46,23 +48,21 @@ try:
     else:
         raise ValueError("Unexpected response from Walrus")
 
-    print(
-        f"Upload Blob ID: {blob_id} Size {len(random_data)} bytes"
-    )
+    print(f"Upload Blob ID: {blob_id} Size {len(random_data)} bytes")
 
     if sui_object_id:
         print(f"Certificate in Object ID: {sui_object_id}")
 
     # Part 2. Download the file from the Walrus service
-    read_json_command = f"""{{ "config" : "{PATH_TO_WALRUS_CONFIG}",
-        "command" : {{ "read" :
-        {{ "blobId" : "{blob_id}" }}}}
-    }}"""
+    read_json_command = {
+        "config": PATH_TO_WALRUS_CONFIG,
+        "command": {"read": {"blobId": blob_id}},
+    }
     result = subprocess.run(
         [PATH_TO_WALRUS, "json"],
         text=True,
         capture_output=True,
-        input=read_json_command,
+        input=json.dumps(read_json_command),
     )
 
     assert result.returncode == 0

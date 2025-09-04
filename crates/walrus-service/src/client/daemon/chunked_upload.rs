@@ -23,6 +23,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::RwLock,
 };
+use uuid::Uuid;
 
 /// Headers used for chunked upload protocol
 pub const UPLOAD_SESSION_ID_HEADER: &str = "X-Upload-Session-Id";
@@ -95,7 +96,7 @@ impl Default for ChunkedUploadArgs {
 /// Metadata about an upload session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadSession {
-    pub session_id: String,
+    pub session_id: Uuid,
     pub total_chunks: u32,
     pub total_size: u64,
     pub chunk_size: u64, // Expected size for all chunks except the last
@@ -109,7 +110,7 @@ pub struct UploadSession {
 #[derive(Debug)]
 pub struct ChunkedUploadState {
     config: ChunkedUploadConfig,
-    sessions: Arc<RwLock<HashMap<String, UploadSession>>>,
+    sessions: Arc<RwLock<HashMap<Uuid, UploadSession>>>,
 }
 
 impl ChunkedUploadState {
@@ -174,12 +175,16 @@ impl ChunkedUploadState {
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
                 && file_name.ends_with(".json")
             {
-                let session_id = file_name.strip_suffix(".json").expect("checked above");
+                let session_id: Uuid = file_name
+                    .strip_suffix(".json")
+                    .expect("checked above")
+                    .parse()
+                    .expect("invalid UUID in filename");
 
-                match self.load_session_from_disk(session_id).await {
+                match self.load_session_from_disk(&session_id).await {
                     Ok(session) => {
                         let mut sessions = self.sessions.write().await;
-                        sessions.insert(session_id.to_string(), session);
+                        sessions.insert(session_id, session);
                         restored_count += 1;
                     }
                     Err(e) => {
@@ -201,7 +206,7 @@ impl ChunkedUploadState {
     /// Load session metadata from disk
     async fn load_session_from_disk(
         &self,
-        session_id: &str,
+        session_id: &Uuid,
     ) -> Result<UploadSession, std::io::Error> {
         let meta_path = self.get_metadata_path(session_id);
         let meta_content = tokio::fs::read_to_string(&meta_path).await?;
@@ -220,12 +225,12 @@ impl ChunkedUploadState {
     }
 
     /// Get the path for session metadata file
-    fn get_metadata_path(&self, session_id: &str) -> PathBuf {
+    fn get_metadata_path(&self, session_id: &Uuid) -> PathBuf {
         self.config.storage_dir.join(format!("{}.json", session_id))
     }
 
     /// Get the path for session data file
-    fn get_data_path(&self, session_id: &str) -> PathBuf {
+    fn get_data_path(&self, session_id: &Uuid) -> PathBuf {
         self.config.storage_dir.join(format!("{}.data", session_id))
     }
 
@@ -233,7 +238,7 @@ impl ChunkedUploadState {
     pub async fn cleanup_expired_sessions(&self) {
         let now = SystemTime::now();
         let mut sessions = self.sessions.write().await;
-        let expired_sessions: Vec<String> = sessions
+        let expired_sessions: Vec<Uuid> = sessions
             .iter()
             .filter_map(|(id, session)| {
                 if now
@@ -241,11 +246,12 @@ impl ChunkedUploadState {
                     .unwrap_or_default()
                     > self.config.session_timeout
                 {
-                    Some(id.clone())
+                    Some(id)
                 } else {
                     None
                 }
             })
+            .cloned()
             .collect();
 
         for session_id in expired_sessions {
@@ -277,13 +283,12 @@ impl ChunkedUploadState {
     /// Get or create an upload session
     async fn get_or_create_session(
         &self,
-        session_id: &str,
+        session_id: &Uuid,
         total_chunks: u32,
         total_size: u64,
         chunk_size: u64,
     ) -> Result<UploadSession, ChunkedUploadError> {
         let mut sessions = self.sessions.write().await;
-
         if let Some(existing_session) = sessions.get_mut(session_id) {
             // Validate session parameters match
             if existing_session.total_chunks != total_chunks
@@ -343,7 +348,7 @@ impl ChunkedUploadState {
 
         // Create new session
         let session = UploadSession {
-            session_id: session_id.to_string(),
+            session_id: *session_id,
             total_chunks,
             total_size,
             chunk_size,
@@ -353,7 +358,7 @@ impl ChunkedUploadState {
             chunks_received: 0,
         };
 
-        sessions.insert(session_id.to_string(), session.clone());
+        sessions.insert(*session_id, session.clone());
 
         self.save_session_to_disk(&session).await?;
 
@@ -370,7 +375,7 @@ impl ChunkedUploadState {
     /// Store a chunk for an upload session
     async fn store_chunk(
         &self,
-        session_id: &str,
+        session_id: &Uuid,
         chunk_index: u32,
         chunk_data: Bytes,
     ) -> Result<UploadSession, ChunkedUploadError> {
@@ -455,7 +460,7 @@ impl ChunkedUploadState {
     /// Check if upload session is complete and return the full blob data
     async fn try_complete_upload(
         &self,
-        session_id: &str,
+        session_id: &Uuid,
     ) -> Result<Option<Bytes>, ChunkedUploadError> {
         let total_size = {
             let sessions = self.sessions.read().await;
@@ -587,7 +592,7 @@ impl IntoResponse for ChunkedUploadError {
 /// Extract chunked upload metadata from headers
 #[derive(Debug)]
 struct ChunkMetadata {
-    session_id: String,
+    session_id: Uuid,
     chunk_index: u32,
     total_chunks: u32,
     chunk_size: u64,
@@ -601,7 +606,8 @@ impl ChunkMetadata {
             .ok_or_else(|| ChunkedUploadError::MissingHeader(UPLOAD_SESSION_ID_HEADER.to_string()))?
             .to_str()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_SESSION_ID_HEADER.to_string()))?
-            .to_string();
+            .parse()
+            .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_SESSION_ID_HEADER.to_string()))?;
 
         let chunk_index = headers
             .get(UPLOAD_CHUNK_INDEX_HEADER)
@@ -610,7 +616,7 @@ impl ChunkMetadata {
             })?
             .to_str()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_CHUNK_INDEX_HEADER.to_string()))?
-            .parse::<u32>()
+            .parse()
             .map_err(|_| {
                 ChunkedUploadError::InvalidHeader(UPLOAD_CHUNK_INDEX_HEADER.to_string())
             })?;
@@ -622,7 +628,7 @@ impl ChunkMetadata {
             })?
             .to_str()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_TOTAL_CHUNKS_HEADER.to_string()))?
-            .parse::<u32>()
+            .parse()
             .map_err(|_| {
                 ChunkedUploadError::InvalidHeader(UPLOAD_TOTAL_CHUNKS_HEADER.to_string())
             })?;
@@ -632,7 +638,7 @@ impl ChunkMetadata {
             .ok_or_else(|| ChunkedUploadError::MissingHeader(UPLOAD_CHUNK_SIZE_HEADER.to_string()))?
             .to_str()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_CHUNK_SIZE_HEADER.to_string()))?
-            .parse::<u64>()
+            .parse()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_CHUNK_SIZE_HEADER.to_string()))?;
 
         let total_size = headers
@@ -640,7 +646,7 @@ impl ChunkMetadata {
             .ok_or_else(|| ChunkedUploadError::MissingHeader(UPLOAD_TOTAL_SIZE_HEADER.to_string()))?
             .to_str()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_TOTAL_SIZE_HEADER.to_string()))?
-            .parse::<u64>()
+            .parse()
             .map_err(|_| ChunkedUploadError::InvalidHeader(UPLOAD_TOTAL_SIZE_HEADER.to_string()))?;
 
         Ok(ChunkMetadata {
@@ -683,15 +689,6 @@ pub async fn chunked_upload_middleware(
 
     // Reconstruct request
     let mut request = Request::from_parts(parts, axum::body::Body::empty());
-
-    // Validate chunk size matches header
-    if body_bytes.len()
-        != usize::try_from(metadata.chunk_size).map_err(|_| {
-            (StatusCode::BAD_REQUEST, "failed to convert chunk_size").into_response()
-        })?
-    {
-        return Err((StatusCode::BAD_REQUEST, "Chunk size mismatch").into_response());
-    }
 
     // Get or create upload session
     upload_state
@@ -811,9 +808,9 @@ mod tests {
         let state = ChunkedUploadState::new(config);
         state.init().await.unwrap();
 
-        let session_id = "test-session";
+        let session_id = Uuid::new_v4();
         let session = state
-            .get_or_create_session(session_id, 3, 1000, 400)
+            .get_or_create_session(&session_id, 3, 1000, 400)
             .await
             .unwrap();
 
@@ -834,13 +831,13 @@ mod tests {
         let state = ChunkedUploadState::new(config);
         state.init().await.unwrap();
 
-        let session_id = "test-session";
+        let session_id = Uuid::new_v4();
         let total_size = 250u64;
         let total_chunks = 3u32;
 
         // Create session
         state
-            .get_or_create_session(session_id, total_chunks, total_size, 100)
+            .get_or_create_session(&session_id, total_chunks, total_size, 100)
             .await
             .unwrap();
 
@@ -849,24 +846,24 @@ mod tests {
         let chunk2 = Bytes::from(vec![2u8; 100]);
         let chunk3 = Bytes::from(vec![3u8; 50]);
 
-        state.store_chunk(session_id, 0, chunk1).await.unwrap();
-        state.store_chunk(session_id, 1, chunk2).await.unwrap();
+        state.store_chunk(&session_id, 0, chunk1).await.unwrap();
+        state.store_chunk(&session_id, 1, chunk2).await.unwrap();
 
         // Should not be complete yet
         assert!(
             state
-                .try_complete_upload(session_id)
+                .try_complete_upload(&session_id)
                 .await
                 .unwrap()
                 .is_none()
         );
 
         // Store final chunk
-        state.store_chunk(session_id, 2, chunk3).await.unwrap();
+        state.store_chunk(&session_id, 2, chunk3).await.unwrap();
 
         // Should now be complete
         let complete_blob = state
-            .try_complete_upload(session_id)
+            .try_complete_upload(&session_id)
             .await
             .unwrap()
             .unwrap();
@@ -881,7 +878,7 @@ mod tests {
             ..Default::default()
         };
 
-        let session_id = "persistent-session";
+        let session_id = Uuid::new_v4();
         let total_size = 200u64;
         let total_chunks = 2u32;
 
@@ -892,19 +889,19 @@ mod tests {
 
             // Create session and store first chunk
             state
-                .get_or_create_session(session_id, total_chunks, total_size, 100)
+                .get_or_create_session(&session_id, total_chunks, total_size, 100)
                 .await
                 .unwrap();
 
             let chunk1 = Bytes::from(vec![1u8; 100]);
-            let session = state.store_chunk(session_id, 0, chunk1).await.unwrap();
+            let session = state.store_chunk(&session_id, 0, chunk1).await.unwrap();
 
             assert_eq!(session.chunks_received, 1);
             assert_eq!(session.total_chunks, 2);
 
             // Verify files exist on disk
-            let data_path = state.get_data_path(session_id);
-            let meta_path = state.get_metadata_path(session_id);
+            let data_path = state.get_data_path(&session_id);
+            let meta_path = state.get_metadata_path(&session_id);
             assert!(tokio::fs::metadata(&data_path).await.is_ok());
             assert!(tokio::fs::metadata(&meta_path).await.is_ok());
         }
@@ -916,27 +913,27 @@ mod tests {
 
             // Verify session was restored
             let sessions = state.sessions.read().await;
-            assert!(sessions.contains_key(session_id));
-            let restored_session = sessions.get(session_id).unwrap();
+            assert!(sessions.contains_key(&session_id));
+            let restored_session = sessions.get(&session_id).unwrap();
             assert_eq!(restored_session.chunks_received, 1);
             assert_eq!(restored_session.total_chunks, 2);
             drop(sessions);
 
             // Store second chunk to complete upload
             let chunk2 = Bytes::from(vec![2u8; 100]);
-            state.store_chunk(session_id, 1, chunk2).await.unwrap();
+            state.store_chunk(&session_id, 1, chunk2).await.unwrap();
 
             // Should now be complete
             let complete_blob = state
-                .try_complete_upload(session_id)
+                .try_complete_upload(&session_id)
                 .await
                 .unwrap()
                 .unwrap();
             assert_eq!(complete_blob.len(), 200);
 
             // Verify files were cleaned up
-            let data_path = state.get_data_path(session_id);
-            let meta_path = state.get_metadata_path(session_id);
+            let data_path = state.get_data_path(&session_id);
+            let meta_path = state.get_metadata_path(&session_id);
             assert!(tokio::fs::metadata(&data_path).await.is_err());
             assert!(tokio::fs::metadata(&meta_path).await.is_err());
         }
@@ -955,20 +952,20 @@ mod tests {
         state.init().await.unwrap();
 
         // Create a session that will expire quickly
-        let session_id = "expired-test-session";
+        let session_id = Uuid::new_v4();
         let _session = state
-            .get_or_create_session(session_id, 2, 200, 100)
+            .get_or_create_session(&session_id, 2, 200, 100)
             .await
             .unwrap();
 
         // Store one chunk
         let chunk = Bytes::from(vec![1u8; 100]);
-        state.store_chunk(session_id, 0, chunk).await.unwrap();
+        state.store_chunk(&session_id, 0, chunk).await.unwrap();
 
         // Verify session exists
         {
             let sessions = state.sessions.read().await;
-            assert!(sessions.contains_key(session_id));
+            assert!(sessions.contains_key(&session_id));
         }
 
         // Wait for session to expire
@@ -980,12 +977,12 @@ mod tests {
         // Verify session was cleaned up
         {
             let sessions = state.sessions.read().await;
-            assert!(!sessions.contains_key(session_id));
+            assert!(!sessions.contains_key(&session_id));
         }
 
         // Verify files were cleaned up
-        let data_path = state.get_data_path(session_id);
-        let meta_path = state.get_metadata_path(session_id);
+        let data_path = state.get_data_path(&session_id);
+        let meta_path = state.get_metadata_path(&session_id);
         assert!(tokio::fs::metadata(&data_path).await.is_err());
         assert!(tokio::fs::metadata(&meta_path).await.is_err());
     }
@@ -1001,34 +998,34 @@ mod tests {
         let state = ChunkedUploadState::new(config);
         state.init().await.unwrap();
 
-        let session_id = "missing-chunk-test";
+        let session_id = Uuid::new_v4();
         let total_chunks = 5u32;
         let total_size = 500u64;
 
         // Create session
         state
-            .get_or_create_session(session_id, total_chunks, total_size, 100)
+            .get_or_create_session(&session_id, total_chunks, total_size, 100)
             .await
             .unwrap();
 
         // Store chunks 0, 2, and 4 (missing 1 and 3)
         let chunk = Bytes::from(vec![1u8; 100]);
         state
-            .store_chunk(session_id, 0, chunk.clone())
+            .store_chunk(&session_id, 0, chunk.clone())
             .await
             .unwrap();
         state
-            .store_chunk(session_id, 2, chunk.clone())
+            .store_chunk(&session_id, 2, chunk.clone())
             .await
             .unwrap();
         state
-            .store_chunk(session_id, 4, chunk.clone())
+            .store_chunk(&session_id, 4, chunk.clone())
             .await
             .unwrap();
 
         // Check session state directly to test our missing chunk logic
         let sessions = state.sessions.read().await;
-        let session = sessions.get(session_id).unwrap();
+        let session = sessions.get(&session_id).unwrap();
 
         // Find highest received index
         let highest_received_index = session
@@ -1065,27 +1062,27 @@ mod tests {
         let state = ChunkedUploadState::new(config);
         state.init().await.unwrap();
 
-        let session_id = "chunk-size-test";
+        let session_id = Uuid::new_v4();
         let total_chunks = 3u32;
         let total_size = 250u64;
         let chunk_size = 100u64;
 
         // Create session
         state
-            .get_or_create_session(session_id, total_chunks, total_size, chunk_size)
+            .get_or_create_session(&session_id, total_chunks, total_size, chunk_size)
             .await
             .unwrap();
 
         // Try to store first chunk with correct size
         let correct_chunk = Bytes::from(vec![1u8; 100]);
         state
-            .store_chunk(session_id, 0, correct_chunk)
+            .store_chunk(&session_id, 0, correct_chunk)
             .await
             .unwrap();
 
         // Try to store second chunk with wrong size (should fail)
         let wrong_size_chunk = Bytes::from(vec![2u8; 50]); // 50 bytes instead of 100
-        let result = state.store_chunk(session_id, 1, wrong_size_chunk).await;
+        let result = state.store_chunk(&session_id, 1, wrong_size_chunk).await;
         assert!(matches!(
             result,
             Err(ChunkedUploadError::ChunkSizeMismatch { .. })
@@ -1093,11 +1090,11 @@ mod tests {
 
         // Try to store last chunk with correct smaller size
         let last_chunk = Bytes::from(vec![3u8; 50]); // Last chunk can be 50 bytes (250 - 2*100)
-        state.store_chunk(session_id, 2, last_chunk).await.unwrap();
+        state.store_chunk(&session_id, 2, last_chunk).await.unwrap();
 
         // Try to store last chunk with wrong size (should fail)
         let wrong_last_chunk = Bytes::from(vec![4u8; 60]); // 60 bytes instead of expected 50
-        let result = state.store_chunk(session_id, 2, wrong_last_chunk).await;
+        let result = state.store_chunk(&session_id, 2, wrong_last_chunk).await;
         assert!(matches!(
             result,
             Err(ChunkedUploadError::ChunkSizeMismatch { .. })
