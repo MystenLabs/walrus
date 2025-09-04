@@ -53,7 +53,7 @@ use walrus_service::{
     node::system_events::SystemEventProvider,
 };
 
-use self::storage::{BlobIdentity, PrimaryIndexValue};
+use self::storage::BlobIdentity;
 
 /// Default configuration values for the indexer.
 pub mod default {
@@ -117,9 +117,6 @@ pub struct WalrusIndexer {
     /// Storage layer for index data.
     pub storage: Arc<storage::OctopusIndexStore>,
 
-    /// Cache for frequently accessed entries.
-    cache: Arc<RwLock<HashMap<String, PrimaryIndexValue>>>,
-
     /// Event processor for pulling events from Sui (if configured).
     event_processor: Arc<RwLock<Option<Arc<EventProcessor>>>>,
 
@@ -138,7 +135,6 @@ impl WalrusIndexer {
         Ok(Arc::new(Self {
             config,
             storage,
-            cache: Arc::new(RwLock::new(HashMap::new())),
             event_processor: Arc::new(RwLock::new(None)),
             cancellation_token: tokio_util::sync::CancellationToken::new(),
         }))
@@ -219,6 +215,7 @@ impl WalrusIndexer {
         }
         Ok(())
     }
+
     /// Process a contract event from Sui.
     pub async fn process_event(&self, event: ContractEvent) -> Result<()> {
         // Convert ContractEvent to IndexOperation based on event type
@@ -236,25 +233,9 @@ impl WalrusIndexer {
         bucket_id: &ObjectID,
         identifier: &str,
     ) -> Result<Option<BlobIdentity>> {
-        // Check cache first
-        let cache_key = format!("{}/{}", bucket_id, identifier);
-        {
-            let cache = self.cache.read().await;
-            if let Some(entry) = cache.get(&cache_key) {
-                return Ok(Some(entry.blob_identity.clone()));
-            }
-        }
-
-        // Get from storage
-        let storage_result = self.storage.get_by_bucket_identifier(bucket_id, identifier)?;
-
-        // Update cache if found
-        if let Some(ref blob_identity) = storage_result {
-            let mut cache = self.cache.write().await;
-            cache.insert(cache_key, PrimaryIndexValue { blob_identity: blob_identity.clone() });
-        }
-
-        Ok(storage_result)
+        self.storage
+            .get_by_bucket_identifier(bucket_id, identifier)
+            .map_err(|e| anyhow::anyhow!("Failed to get blob by bucket identifier: {}", e))
     }
 
     /// Get index entry by object_id (implements read_blob_by_object_id from PDF).
@@ -262,14 +243,9 @@ impl WalrusIndexer {
         &self,
         object_id: &ObjectID,
     ) -> Result<Option<BlobIdentity>> {
-        // For object_id lookups, we can't use cache easily as we don't know the bucket_identifier
-        // Get directly from storage
-        let storage_result = self.storage
+        self.storage
             .get_by_object_id(object_id)
-            .map_err(|e| anyhow::anyhow!("Failed to get blob by object_id: {}", e))?;
-            
-        // Return the BlobIdentity directly
-        Ok(storage_result)
+            .map_err(|e| anyhow::anyhow!("Failed to get blob by object_id: {}", e))
     }
 
     /// List all entries in a bucket.
