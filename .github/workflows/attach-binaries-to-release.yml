@@ -100,10 +100,15 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          echo "gcp_existing_archive=$(for network in mainnet testnet devnet; do \
-            if gcloud storage ls gs://mysten-walrus-binaries | grep ${network}-v${{ env.walrus_version }}-${{ env.os_type }}.tgz \
-            | head -n1; then echo "walrus-${network}-v${{ env.walrus_version }}-${{ env.os_type }}.tgz"; \
-            break; fi; done)" >> $GITHUB_ENV
+          gcp_existing_archive=""
+          for network in mainnet testnet devnet; do
+            name="walrus-${network}-v${{ env.walrus_version }}-${{ env.os_type }}.tgz"
+            if gcloud storage ls "gs://mysten-walrus-binaries/${name}" >/dev/null 2>&1; then
+              gcp_existing_archive="$name"
+              break
+            fi
+          done
+          echo "gcp_existing_archive=$gcp_existing_archive" >> "$GITHUB_ENV"
 
       - name: Download archive, if it exists
         if: ${{ env.gcp_existing_archive != '' }}
