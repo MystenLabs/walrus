@@ -1,0 +1,15 @@
+{
+  "name": "k6-testing",
+  "version": "1.0.0",
+  "engines": {
+    "node": "16 || 18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/k6": "~0.48.0",
+    "typescript": "5.3.3"
+  },
+  "dependencies": {
+    "k6-jslib-utils": "github:grafana/k6-jslib-utils"
+  }
+}
