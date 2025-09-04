@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
 
 # Test script for Walrus Indexer REST API
 

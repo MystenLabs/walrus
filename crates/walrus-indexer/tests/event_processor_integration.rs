@@ -9,37 +9,26 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
-use walrus_indexer::{
-    Bucket,
-    IndexerConfig,
-    WalrusIndexer,
-    WalrusIndexerConfig,
-};
-use walrus_service::{
-    event::event_processor::config::EventProcessorConfig,
-    common::config::SuiConfig,
-};
-use walrus_sui::{
-    config::WalletConfig,
-};
-use sui_types::{
-    base_types::ObjectID,
-};
 use walrus_core::BlobId;
-use walrus_sdk::client::StoreArgs;
-use walrus_service::test_utils::test_cluster;
+use walrus_indexer::{Bucket, IndexerConfig, IndexerEventProcessorConfig, WalrusIndexer};
 use walrus_proc_macros::walrus_simtest;
+use walrus_sdk::client::StoreArgs;
+use walrus_service::{
+    common::config::SuiConfig,
+    event::event_processor::config::EventProcessorConfig,
+    test_utils::test_cluster,
+};
+use walrus_sui::config::WalletConfig;
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_indexer_with_event_processor() -> Result<()> {
     // Initialize logging for debugging - include event processor logs.
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            "walrus_indexer=debug,walrus_service=debug,walrus_service::event=trace",
-        )
+        .with_env_filter("walrus_indexer=debug,walrus_service=debug,walrus_service::event=trace")
         .try_init();
 
     println!("🚀 Testing indexer with event processor integration");
@@ -87,7 +76,7 @@ async fn test_indexer_with_event_processor() -> Result<()> {
 
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        walrus_indexer_config: Some(WalrusIndexerConfig {
+        event_processor_config: Some(IndexerEventProcessorConfig {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
         }),
@@ -109,9 +98,7 @@ async fn test_indexer_with_event_processor() -> Result<()> {
 
     // Start the indexer in a background task.
     let indexer_for_run = indexer.clone();
-    let indexer_handle = tokio::spawn(async move { 
-        indexer_for_run.run(cancel_token_clone).await 
-    });
+    let indexer_handle = tokio::spawn(async move { indexer_for_run.run(cancel_token_clone).await });
 
     // Give the indexer time to start up.
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -163,7 +150,10 @@ async fn test_indexer_with_event_processor() -> Result<()> {
 
     // Verify the event processor has been processing events.
     if let Some(cursor) = cursor {
-        assert!(cursor > 0, "Event processor should have processed some events");
+        assert!(
+            cursor > 0,
+            "Event processor should have processed some events"
+        );
         println!(
             "✅ Event processor confirmed working - processed up to event index: {}",
             cursor
@@ -193,9 +183,8 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     println!("🚀 Testing indexer with REST API");
 
     // Create test clusters.
-    let (sui_cluster_handle, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
-        .build()
-        .await?;
+    let (sui_cluster_handle, _walrus_cluster, client, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
 
     // Get configuration from test cluster.
     let rpc_url = sui_cluster_handle
@@ -229,7 +218,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
 
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        walrus_indexer_config: Some(WalrusIndexerConfig {
+        event_processor_config: Some(IndexerEventProcessorConfig {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
         }),
@@ -240,9 +229,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    let indexer_handle = tokio::spawn(async move {
-        indexer.run(cancel_token_clone).await
-    });
+    let indexer_handle = tokio::spawn(async move { indexer.run(cancel_token_clone).await });
 
     // Give the indexer time to start up and bind to a port.
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -252,7 +239,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     // Create test data directly in storage.
     let indexer_for_data = WalrusIndexer::new(IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        walrus_indexer_config: None,
+        event_processor_config: None,
     })
     .await?;
 
@@ -274,7 +261,11 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     let entries = vec![
         ("/api/test/file1.txt", BlobId([1; 32]), ObjectID::random()),
         ("/api/test/file2.txt", BlobId([2; 32]), ObjectID::random()),
-        ("/api/test/subdir/file3.txt", BlobId([3; 32]), ObjectID::random()),
+        (
+            "/api/test/subdir/file3.txt",
+            BlobId([3; 32]),
+            ObjectID::random(),
+        ),
     ];
 
     for (path, blob_id, object_id) in &entries {

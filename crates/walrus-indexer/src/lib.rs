@@ -16,7 +16,7 @@
 //!     // Create configuration
 //!     let config = IndexerConfig {
 //!         db_path: "./indexer-db".to_string(),
-//!         walrus_indexer_config: None,
+//!         event_processor_config: None,
 //!     };
 //!
 //!     // Create the indexer
@@ -33,25 +33,19 @@
 pub mod checkpoint_downloader;
 pub mod storage;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
-use tokio::select;
-use tokio::sync::RwLock;
+use tokio::{select, sync::RwLock};
 use tracing::{info, warn};
-use walrus_sui::types::ContractEvent;
-
 use walrus_service::{
-    event::{
-        event_processor::processor::EventProcessor,
-        events::EventStreamElement,
-    },
+    event::{event_processor::processor::EventProcessor, events::EventStreamElement},
     node::system_events::SystemEventProvider,
 };
+use walrus_sui::types::ContractEvent;
 
 use self::storage::BlobIdentity;
 
@@ -63,13 +57,14 @@ pub mod default {
     }
 }
 
-/// Configuration for Walrus-specific indexer functionality.
+/// Configuration for indexer event processor functionality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WalrusIndexerConfig {
+pub struct IndexerEventProcessorConfig {
     /// Event processor configuration.
-    pub event_processor_config: walrus_service::event::event_processor::config::EventProcessorConfig,
-    
+    pub event_processor_config:
+        walrus_service::event::event_processor::config::EventProcessorConfig,
+
     /// Sui configuration for event processing and blockchain interaction.
     pub sui_config: walrus_service::common::config::SuiConfig,
 }
@@ -82,16 +77,16 @@ pub struct IndexerConfig {
     #[serde(default = "default::db_path")]
     pub db_path: String,
 
-    /// Optional Walrus-specific configuration for event processing and Sui integration.
+    /// Optional configuration for event processing and Sui integration.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub walrus_indexer_config: Option<WalrusIndexerConfig>,
+    pub event_processor_config: Option<IndexerEventProcessorConfig>,
 }
 
 impl Default for IndexerConfig {
     fn default() -> Self {
         Self {
             db_path: default::db_path(),
-            walrus_indexer_config: None,
+            event_processor_config: None,
         }
     }
 }
@@ -140,12 +135,11 @@ impl WalrusIndexer {
         }))
     }
 
-
     /// Run the indexer as a full-featured service.
     /// This method:
     /// 1. Initializes the event processor (if configured).
     /// 2. Processes events from Sui blockchain (if configured).
-    /// 
+    ///
     /// When run() is not called, the Indexer acts as a simple key-value store.
     /// and relies on the caller to use apply_mutations() for updates.
     pub async fn run(
@@ -154,15 +148,15 @@ impl WalrusIndexer {
     ) -> Result<()> {
         // Initialize event processor if configured.
         self.start_event_processor().await?;
-        
+
         // Get event processor for the main event loop
         let event_processor = self.event_processor.read().await.clone();
-        
+
         select! {
             _ = cancel_token.cancelled() => {
                 info!("Indexer received shutdown signal");
             }
-            
+
             res = async {
                 if let Some(processor) = event_processor {
                     self.process_events(processor).await
@@ -176,41 +170,44 @@ impl WalrusIndexer {
                 }
             }
         }
-        
+
         info!("Indexer shutdown complete");
         Ok(())
     }
-    
+
     /// Start the event processor if configured.
     async fn start_event_processor(&self) -> Result<()> {
-        if let Some(ref walrus_config) = self.config.walrus_indexer_config {
-            use walrus_service::event::event_processor::runtime::EventProcessorRuntime;
+        if let Some(ref event_proc_config) = self.config.event_processor_config {
+            use walrus_service::{
+                common::config::SuiReaderConfig,
+                event::event_processor::runtime::EventProcessorRuntime,
+                node::DatabaseConfig,
+            };
             use walrus_utils::metrics::Registry;
-            use walrus_service::node::DatabaseConfig;
-            use walrus_service::common::config::SuiReaderConfig;
-            
+
             info!("Creating indexer event processor using EventProcessorRuntime");
-            
+
             // Create metrics registry for event processor
             let prometheus_registry = prometheus::Registry::new();
             let metrics_registry = Registry::new(prometheus_registry);
-            
+
             // Create cancellation token for event processor
             let event_cancel_token = self.cancellation_token.child_token();
-            
+
             // Convert SuiConfig to SuiReaderConfig for the event processor
-            let sui_reader_config: SuiReaderConfig = (&walrus_config.sui_config).into();
-            
+            let sui_reader_config: SuiReaderConfig = (&event_proc_config.sui_config).into();
+
             // Use EventProcessorRuntime to create the event processor
             let event_processor = EventProcessorRuntime::start_async(
                 sui_reader_config,
-                walrus_config.event_processor_config.clone(),
+                event_proc_config.event_processor_config.clone(),
                 &std::path::PathBuf::from(&self.config.db_path).join("event_processor"),
                 &metrics_registry,
                 event_cancel_token,
                 &DatabaseConfig::default(),
-            ).await?;
-            
+            )
+            .await?;
+
             *self.event_processor.write().await = Some(event_processor);
         }
         Ok(())
@@ -225,7 +222,6 @@ impl WalrusIndexer {
         tracing::info!(?event, "Processing contract event in indexer");
         Ok(())
     }
-    
 
     /// Get blob identity by bucket_id and identifier.
     pub async fn get_blob_by_index(
@@ -249,14 +245,12 @@ impl WalrusIndexer {
     }
 
     /// List all entries in a bucket.
-    pub async fn list_bucket(
-        &self,
-        bucket_id: &ObjectID,
-    ) -> Result<HashMap<String, BlobIdentity>> {
-        let storage_result = self.storage
+    pub async fn list_bucket(&self, bucket_id: &ObjectID) -> Result<HashMap<String, BlobIdentity>> {
+        let storage_result = self
+            .storage
             .list_bucket_entries(bucket_id)
             .map_err(|e| anyhow::anyhow!("Failed to list bucket entries: {}", e))?;
-            
+
         // Return the HashMap<String, BlobIdentity> directly
         Ok(storage_result)
     }
@@ -293,35 +287,30 @@ impl WalrusIndexer {
 
     /// Stream events from the event processor using EventStreamCursor pattern.
     /// This follows the same pattern as the backup orchestrator.
-    async fn process_events(
-        &self,
-        event_processor: Arc<EventProcessor>,
-    ) -> Result<()> {
+    async fn process_events(&self, event_processor: Arc<EventProcessor>) -> Result<()> {
         // Get the event cursor for resumption
         let event_cursor = self.get_indexer_event_cursor().await?;
         tracing::info!(?event_cursor, "[stream_events] starting");
-        
-        // Get event stream from the event processor  
+
+        // Get event stream from the event processor
         let event_stream = std::pin::Pin::from(event_processor.events(event_cursor).await?);
         let next_event_index = event_cursor.element_index;
         let index_stream = futures::stream::iter(next_event_index..);
         let mut indexed_element_stream = index_stream.zip(event_stream);
-        
-        while let Some((
-            element_index,
-            positioned_stream_event,
-        )) = indexed_element_stream.next().await
+
+        while let Some((element_index, positioned_stream_event)) =
+            indexed_element_stream.next().await
         {
             match &positioned_stream_event.element {
                 EventStreamElement::ContractEvent(contract_event) => {
                     // Process the contract event and update storage
                     self.process_event(contract_event.clone()).await?;
-                    
+
                     // Update the last processed index in storage
                     self.storage
                         .set_last_processed_event_index(element_index)
                         .map_err(|e| anyhow::anyhow!("Failed to update event cursor: {}", e))?;
-                        
+
                     tracing::debug!(element_index, "Processed indexer event");
                 }
                 EventStreamElement::CheckpointBoundary => {
@@ -333,33 +322,32 @@ impl WalrusIndexer {
 
         anyhow::bail!("event stream for indexer stopped")
     }
-    
+
     /// Get the event cursor for resumption, similar to backup orchestrator's
     /// get_backup_node_cursor.
     async fn get_indexer_event_cursor(
         &self,
     ) -> Result<walrus_service::event::events::EventStreamCursor> {
         use walrus_service::event::events::EventStreamCursor;
-        
-        if let Some(last_processed_index) = self.storage
+
+        if let Some(last_processed_index) = self
+            .storage
             .get_last_processed_event_index()
             .map_err(|e| anyhow::anyhow!("Failed to get last processed index: {}", e))?
         {
             // Resume from the next event after the last processed one
             return Ok(EventStreamCursor::new(None, last_processed_index + 1));
         }
-        
+
         // Start from the beginning if no events have been processed yet
         Ok(EventStreamCursor::new(None, 0))
     }
 
-    
     /// Stop the indexer and its event processor.
     pub async fn stop(&self) {
         info!("Stopping indexer");
         self.cancellation_token.cancel();
     }
-
 }
 
 #[cfg(test)]
@@ -372,7 +360,7 @@ mod tests {
     async fn test_octopus_index_workflow() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let db_path = temp_dir.path().to_str().unwrap().to_string();
-        
+
         // Create test data references.
         let bucket1_id = ObjectID::from_hex_literal(
             "0x42a8f3dc1234567890abcdef1234567890abcdef1234567890abcdef12345678",
@@ -382,52 +370,52 @@ mod tests {
             "0x52a8f3dc1234567890abcdef1234567890abcdef1234567890abcdef12345679",
         )
         .unwrap();
-        
+
         // Test data for bucket 1 (photos).
         let photos_data = vec![
             (
                 "/photos/2024/sunset.jpg",
                 [1; 32],
-                "0xf3eda3f4deb7618d0fab06f7e90755afeabbeb8b33106f43c7f2d25c6ef6a3b3"
+                "0xf3eda3f4deb7618d0fab06f7e90755afeabbeb8b33106f43c7f2d25c6ef6a3b3",
             ),
             (
                 "/photos/2024/beach.jpg",
                 [2; 32],
-                "0xa1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890"
+                "0xa1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890",
             ),
             (
                 "/photos/2023/mountain.png",
                 [3; 32],
-                "0xb2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+                "0xb2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890ab",
             ),
             (
                 "/photos/2023/forest.png",
                 [4; 32],
-                "0xc3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcd"
+                "0xc3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcd",
             ),
         ];
-        
+
         // Test data for bucket 2 (documents).
         let docs_data = vec![
             (
                 "/docs/reports/2024/q1.pdf",
                 [5; 32],
-                "0xd4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+                "0xd4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
             ),
             (
                 "/docs/reports/2024/q2.pdf",
                 [6; 32],
-                "0xe5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12"
+                "0xe5f67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
             ),
             (
                 "/docs/contracts/agreement.doc",
                 [7; 32],
-                "0xf67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234"
+                "0xf67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234",
             ),
             (
                 "/docs/manuals/user-guide.txt",
                 [8; 32],
-                "0x67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345"
+                "0x67890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345",
             ),
         ];
 
@@ -435,7 +423,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                walrus_indexer_config: None,
+                event_processor_config: None,
             };
 
             let indexer = WalrusIndexer::new(config).await?;
@@ -460,7 +448,8 @@ mod tests {
             for (path, blob_bytes, obj_id_hex) in &photos_data {
                 let blob_id = walrus_core::BlobId(*blob_bytes);
                 let object_id = ObjectID::from_hex_literal(obj_id_hex).unwrap();
-                indexer.storage
+                indexer
+                    .storage
                     .put_index_entry(&bucket1_id, path, &object_id, blob_id)
                     .map_err(|e| anyhow::anyhow!("Failed to add photo entry: {}", e))?;
             }
@@ -469,7 +458,8 @@ mod tests {
             for (path, blob_bytes, obj_id_hex) in &docs_data {
                 let blob_id = walrus_core::BlobId(*blob_bytes);
                 let object_id = ObjectID::from_hex_literal(obj_id_hex).unwrap();
-                indexer.storage
+                indexer
+                    .storage
                     .put_index_entry(&bucket2_id, path, &object_id, blob_id)
                     .map_err(|e| anyhow::anyhow!("Failed to add doc entry: {}", e))?;
             }
@@ -493,18 +483,20 @@ mod tests {
             assert_eq!(bucket2_entries.len(), 4);
 
             // Remove one entry from each bucket to test deletion.
-            indexer.storage
+            indexer
+                .storage
                 .delete_by_bucket_identifier(&bucket1_id, "/photos/2023/forest.png")
                 .map_err(|e| anyhow::anyhow!("Failed to remove photo entry: {}", e))?;
-            
-            indexer.storage
+
+            indexer
+                .storage
                 .delete_by_bucket_identifier(&bucket2_id, "/docs/manuals/user-guide.txt")
                 .map_err(|e| anyhow::anyhow!("Failed to remove doc entry: {}", e))?;
             // Explicitly stop the indexer to ensure clean shutdown.
             indexer.stop().await;
         }
         // Indexer is dropped here, which should close RocksDB.
-        
+
         // Add a small delay to ensure RocksDB fully releases the lock.
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -512,7 +504,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                walrus_indexer_config: None,
+                event_processor_config: None,
             };
 
             let indexer = WalrusIndexer::new(config).await?;
@@ -523,8 +515,10 @@ mod tests {
 
             // Verify specific entries in bucket 1.
             for (i, (path, blob_bytes, obj_id_hex)) in photos_data.iter().enumerate() {
-                if i == 3 { continue; } // Skip the deleted entry.
-                
+                if i == 3 {
+                    continue;
+                } // Skip the deleted entry.
+
                 let entry = indexer.get_blob_by_index(&bucket1_id, path).await?;
                 assert!(entry.is_some(), "Entry {} should exist", path);
                 let retrieved = entry.unwrap();
@@ -546,7 +540,7 @@ mod tests {
             assert_eq!(stats2.primary_count, 3); // One was deleted.
 
             // Test query by object ID.
-            let obj_id = ObjectID::from_hex_literal(&docs_data[0].2).unwrap();
+            let obj_id = ObjectID::from_hex_literal(docs_data[0].2).unwrap();
             let entry_by_obj = indexer.get_blob_by_object_id(&obj_id).await?;
             assert!(entry_by_obj.is_some());
             let retrieved = entry_by_obj.unwrap();
@@ -559,7 +553,7 @@ mod tests {
             // Verify buckets are gone by checking stats return 0 entries.
             let stats1_after = indexer.get_bucket_stats(&bucket1_id).await?;
             assert_eq!(stats1_after.primary_count, 0);
-            
+
             let stats2_after = indexer.get_bucket_stats(&bucket2_id).await?;
             assert_eq!(stats2_after.primary_count, 0);
         }

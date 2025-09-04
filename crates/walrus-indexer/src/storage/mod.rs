@@ -7,9 +7,7 @@
 //! of blobs and quilt patches. Indices are stored in RocksDB, organized by 'buckets'
 //! that provide isolated namespaces similar to S3 buckets.
 
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use rocksdb::Options;
@@ -49,7 +47,6 @@ pub struct PrimaryIndexValue {
     pub blob_identity: BlobIdentity,
 }
 
-
 /// Index mutation operations that can be applied (matches PDF spec).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IndexMutation {
@@ -61,9 +58,7 @@ pub enum IndexMutation {
         blob_id: BlobId,
     },
     /// Delete an index entry (object_id).
-    Delete {
-        object_id: ObjectID,
-    },
+    Delete { object_id: ObjectID },
 }
 
 /// Batch of mutations for a specific bucket.
@@ -93,9 +88,9 @@ pub struct ObjectIndexValue {
 /// Storage interface for the Octopus Index (Dual Index System).
 #[derive(Debug, Clone)]
 pub struct OctopusIndexStore {
-    /// Primary index: <bucket_id>/<identifier> -> <BlobIdentity>.
+    /// Primary index: bucket_id/identifier -> BlobIdentity.
     primary_index: DBMap<String, PrimaryIndexValue>,
-    /// Object index: <object_id> -> <bucket_id>/<identifier>.
+    /// Object index: object_id -> bucket_id/identifier.
     object_index: DBMap<String, ObjectIndexValue>,
     /// Event cursor store: stores the last processed event index for resumption.
     event_cursor_store: DBMap<String, u64>,
@@ -183,14 +178,14 @@ impl OctopusIndexStore {
             object_id: *object_id,
         };
         let primary_value = PrimaryIndexValue { blob_identity };
-        
+
         // Object index: object_id -> bucket_id/identifier.
         let object_key = construct_object_index_key(object_id);
         let object_value = ObjectIndexValue {
             bucket_id: *bucket_id,
             identifier: identifier.to_string(),
         };
-        
+
         batch.insert_batch(&self.primary_index, [(primary_key, primary_value)])?;
         batch.insert_batch(&self.object_index, [(object_key, object_value)])?;
         Ok(())
@@ -222,10 +217,8 @@ impl OctopusIndexStore {
         let object_key = construct_object_index_key(object_id);
         // Get the bucket_id and identifier from object index.
         if let Some(object_value) = self.object_index.get(&object_key)? {
-            let primary_key = construct_primary_index_key(
-                &object_value.bucket_id,
-                &object_value.identifier,
-            );
+            let primary_key =
+                construct_primary_index_key(&object_value.bucket_id, &object_value.identifier);
             batch.delete_batch(&self.primary_index, [primary_key])?;
             batch.delete_batch(&self.object_index, [object_key])?;
         }
@@ -268,10 +261,8 @@ impl OctopusIndexStore {
         let object_key = construct_object_index_key(object_id);
         if let Some(object_value) = self.object_index.get(&object_key)? {
             // Then get the actual blob identity from primary index.
-            let primary_key = construct_primary_index_key(
-                &object_value.bucket_id,
-                &object_value.identifier,
-            );
+            let primary_key =
+                construct_primary_index_key(&object_value.bucket_id, &object_value.identifier);
             self.primary_index
                 .get(&primary_key)
                 .map(|result| result.map(|value| value.blob_identity))
@@ -310,14 +301,14 @@ impl OctopusIndexStore {
         // Create a single batch for all mutations.
         // TODO: consider add a batch size limit for the extreme cases.
         let mut batch = self.primary_index.batch();
-        
+
         // Add all mutations to the batch.
         for mutation_set in mutations {
             for mutation in mutation_set.mutations {
                 self.apply_mutation(&mut batch, &mutation_set.bucket_id, mutation)?;
             }
         }
-        
+
         // Commit all mutations atomically in a single write.
         batch.write()
     }
@@ -338,9 +329,7 @@ impl OctopusIndexStore {
             } => {
                 self.apply_insert(batch, &bucket_id, &identifier, &object_id, blob_id)?;
             }
-            IndexMutation::Delete {
-                object_id,
-            } => {
+            IndexMutation::Delete { object_id } => {
                 self.apply_delete_by_object_id(batch, &object_id)?;
             }
         }
@@ -364,7 +353,7 @@ impl OctopusIndexStore {
         identifier: &str,
     ) -> Result<(), TypedStoreError> {
         let primary_key = construct_primary_index_key(bucket_id, identifier);
-        
+
         // Use batch to delete from both indices atomically.
         let mut batch = self.primary_index.batch();
         self.apply_delete_by_key(&mut batch, primary_key)?;
@@ -372,10 +361,7 @@ impl OctopusIndexStore {
     }
 
     /// Delete an index entry by object_id.
-    pub fn delete_by_object_id(
-        &self,
-        object_id: &ObjectID,
-    ) -> Result<(), TypedStoreError> {
+    pub fn delete_by_object_id(&self, object_id: &ObjectID) -> Result<(), TypedStoreError> {
         // Use batch to delete from both indices atomically.
         let mut batch = self.primary_index.batch();
         self.apply_delete_by_object_id(&mut batch, object_id)?;
@@ -422,12 +408,14 @@ impl OctopusIndexStore {
     /// Get the last processed event index from storage.
     /// Returns None if no event has been processed yet.
     pub fn get_last_processed_event_index(&self) -> Result<Option<u64>, TypedStoreError> {
-        self.event_cursor_store.get(&"last_processed_index".to_string())
+        self.event_cursor_store
+            .get(&"last_processed_index".to_string())
     }
 
     /// Set the last processed event index in storage.
     pub fn set_last_processed_event_index(&self, index: u64) -> Result<(), TypedStoreError> {
-        self.event_cursor_store.insert(&"last_processed_index".to_string(), &index)
+        self.event_cursor_store
+            .insert(&"last_processed_index".to_string(), &index)
     }
 }
 
@@ -510,18 +498,10 @@ mod tests {
         let blob_id = BlobId([1; 32]);
 
         // Store an index entry using the new API.
-        store.put_index_entry(
-            &bucket_id,
-            "/photos/2024/sunset.jpg",
-            &object_id,
-            blob_id,
-        )?;
+        store.put_index_entry(&bucket_id, "/photos/2024/sunset.jpg", &object_id, blob_id)?;
 
         // Retrieve via primary index (bucket_id + identifier).
-        let entry = store.get_by_bucket_identifier(
-            &bucket_id,
-            "/photos/2024/sunset.jpg",
-        )?;
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/photos/2024/sunset.jpg")?;
         assert!(entry.is_some());
 
         let retrieved = entry.unwrap();
@@ -539,7 +519,6 @@ mod tests {
         Ok(())
     }
 
-
     #[tokio::test]
     async fn test_bucket_operations() -> Result<(), Box<dyn std::error::Error>> {
         let (store, _temp_dir) = create_test_store()?;
@@ -552,16 +531,9 @@ mod tests {
         // Add multiple entries to a bucket.
         for i in 0..3 {
             let blob_id = BlobId([i; 32]);
-            let object_id = ObjectID::from_hex_literal(
-                &format!("0x{:064x}", i),
-            )?;
+            let object_id = ObjectID::from_hex_literal(&format!("0x{:064x}", i))?;
 
-            store.put_index_entry(
-                &bucket_id,
-                &format!("file{}.txt", i),
-                &object_id,
-                blob_id,
-            )?;
+            store.put_index_entry(&bucket_id, &format!("file{}.txt", i), &object_id, blob_id)?;
         }
 
         // List all entries in bucket.
@@ -609,10 +581,7 @@ mod tests {
         store.apply_index_mutations(vec![insert_mutation])?;
 
         // Verify entry was created in both indices.
-        let entry = store.get_by_bucket_identifier(
-            &bucket_id,
-            "/documents/report.pdf",
-        )?;
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/documents/report.pdf")?;
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().blob_id, blob_id);
 
@@ -623,18 +592,13 @@ mod tests {
         // Test deletion.
         let delete_mutation = MutationSet {
             bucket_id,
-            mutations: vec![IndexMutation::Delete {
-                object_id,
-            }],
+            mutations: vec![IndexMutation::Delete { object_id }],
         };
 
         store.apply_index_mutations(vec![delete_mutation])?;
 
         // Verify both indices were updated.
-        let entry = store.get_by_bucket_identifier(
-            &bucket_id,
-            "/documents/report.pdf",
-        )?;
+        let entry = store.get_by_bucket_identifier(&bucket_id, "/documents/report.pdf")?;
         assert!(entry.is_none());
 
         let entry = store.get_by_object_id(&object_id)?;
@@ -661,18 +625,10 @@ mod tests {
         let blob_id = BlobId([42; 32]);
 
         // Write index data using the new API.
-        store.put_index_entry(
-            &bucket_id,
-            "/test/data.json",
-            &object_id,
-            blob_id,
-        )?;
+        store.put_index_entry(&bucket_id, "/test/data.json", &object_id, blob_id)?;
 
         // Read via primary index.
-        let retrieved = store.get_by_bucket_identifier(
-            &bucket_id,
-            "/test/data.json",
-        )?;
+        let retrieved = store.get_by_bucket_identifier(&bucket_id, "/test/data.json")?;
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().blob_id, blob_id);
 
@@ -682,22 +638,13 @@ mod tests {
         assert_eq!(retrieved.unwrap().blob_id, blob_id);
 
         // Verify persistence by checking if entry exists.
-        assert!(store.has_primary_entry(
-            &bucket_id,
-            "/test/data.json",
-        )?);
+        assert!(store.has_primary_entry(&bucket_id, "/test/data.json",)?);
 
         // Delete the entry.
-        store.delete_by_bucket_identifier(
-            &bucket_id,
-            "/test/data.json",
-        )?;
+        store.delete_by_bucket_identifier(&bucket_id, "/test/data.json")?;
 
         // Verify deletion from both indices.
-        assert!(!store.has_primary_entry(
-            &bucket_id,
-            "/test/data.json",
-        )?);
+        assert!(!store.has_primary_entry(&bucket_id, "/test/data.json",)?);
         assert!(store.get_by_object_id(&object_id)?.is_none());
 
         println!("✅ RocksDB dual-index store initialized successfully");

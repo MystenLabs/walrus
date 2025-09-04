@@ -12,10 +12,7 @@ use anyhow::Result;
 use clap::Parser;
 use tokio::runtime::Runtime;
 use tracing::{info, warn};
-use walrus_indexer::{
-    IndexerConfig,
-    WalrusIndexer,
-};
+use walrus_indexer::{IndexerConfig, WalrusIndexer};
 
 #[derive(Parser, Debug)]
 #[command(name = "walrus-indexer")]
@@ -24,7 +21,7 @@ pub struct IndexerArgs {
     /// Path to the configuration file (YAML format).
     #[arg(short = 'c', long)]
     config: Option<std::path::PathBuf>,
-    
+
     /// Path to the database directory (overrides config file).
     #[arg(long)]
     db_path: Option<String>,
@@ -51,7 +48,7 @@ impl IndexerRuntime {
         tracing_subscriber::fmt::init();
 
         info!("🐙 Starting Walrus Indexer (Octopus Index)");
-        
+
         // Load configuration
         let mut config = if let Some(config_path) = &args.config {
             info!("Loading configuration from: {:?}", config_path);
@@ -60,12 +57,12 @@ impl IndexerRuntime {
             info!("No config file provided, using defaults");
             IndexerConfig::default()
         };
-        
+
         // Apply command-line overrides
         if let Some(db_path) = args.db_path {
             config.db_path = db_path;
         }
-        
+
         info!("Database path: {}", config.db_path);
 
         // Create the tokio runtime
@@ -74,11 +71,11 @@ impl IndexerRuntime {
         // Create cancellation token for shutdown coordination
         let cancellation_token = tokio_util::sync::CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();
-        
+
         // Initialize and start the indexer
         let indexer_task_handle = runtime.block_on(async {
             // Check if event processing is enabled
-            let event_processing_enabled = config.walrus_indexer_config.is_some();
+            let event_processing_enabled = config.event_processor_config.is_some();
 
             // Initialize the indexer with all components
             info!("Initializing indexer components");
@@ -88,7 +85,6 @@ impl IndexerRuntime {
                 info!("✅ Event processing enabled - will listen for Sui events");
             } else {
                 info!("⚠️  Event processing disabled - operating as key-value store");
-                info!("    To enable event processing, add 'walrus_indexer_config' section with both 'event_processor_config' and 'sui_config' to config file");
             }
 
             // Spawn the indexer's run() method in a separate task
@@ -96,7 +92,7 @@ impl IndexerRuntime {
                 info!("Starting indexer run loop");
                 indexer.run(cancel_token_clone).await
             });
-            
+
             Ok::<_, anyhow::Error>(Some(handle))
         })?;
 
