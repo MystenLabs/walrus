@@ -4,11 +4,6 @@
 # Database configuration
 db_path: "/opt/walrus/db/indexer-db"
 
-# REST API configuration
-rest_api_config:
-  bind_address: "0.0.0.0:8080"
-  metrics_address: "0.0.0.0:9184"
-
 # Event processor configuration (optional)
 # If provided, the indexer will process Sui blockchain events
 # This combines both event processing and Sui configuration
@@ -51,5 +46,3 @@ event_processor:
 
 # Note: Command-line arguments can override these settings:
 #   --db-path <path>           Override database path
-#   --bind-address <addr>      Override REST API bind address
-#   --metrics-address <addr>   Override metrics address

@@ -12771,6 +12771,7 @@ dependencies = [
  "tracing-subscriber",
  "typed-store 1.32.0",
  "walrus-core",
+ "walrus-proc-macros",
  "walrus-sdk",
  "walrus-service",
  "walrus-sui",

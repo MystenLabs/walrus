@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Integration test for the new run() pattern with event processing and REST API
+//! Integration test for the new run() pattern with event processing
 
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use walrus_indexer::{
     Bucket,
     IndexerConfig,
     WalrusIndexer,
-    RestApiConfig,
+    WalrusIndexerConfig,
 };
 use walrus_service::{
     event::event_processor::config::EventProcessorConfig,
@@ -25,29 +25,22 @@ use walrus_sui::{
 use sui_types::base_types::ObjectID;
 use walrus_core::BlobId;
 
-/// Test that the indexer run() method properly starts REST API and handles shutdown
+/// Test that the indexer run() method properly handles startup and shutdown
 #[tokio::test]
-async fn test_indexer_run_with_rest_api() -> Result<()> {
+async fn test_indexer_run_basic() -> Result<()> {
     // Initialize logging for debugging
     let _ = tracing_subscriber::fmt()
         .with_env_filter("walrus_indexer=debug")
         .try_init();
     
-    println!("Testing indexer run() pattern with REST API");
+    println!("Testing indexer run() pattern");
     
     let temp_dir = TempDir::new()?;
     
-    // Create configuration with REST API enabled
-    let rest_api_config = RestApiConfig {
-        bind_address: "127.0.0.1:0".parse()?, // Use port 0 for automatic assignment
-        metrics_address: "127.0.0.1:0".parse()?,
-    };
-    
+    // Create configuration without event processing
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        rest_api_config: Some(rest_api_config.clone()),
-        event_processor_config: None, // No event processor for this test
-        sui: None,
+        walrus_indexer_config: None,
     };
     
     // Create and initialize the indexer
@@ -71,12 +64,8 @@ async fn test_indexer_run_with_rest_api() -> Result<()> {
         indexer.run(cancel_token_clone).await
     });
     
-    // Give the REST API time to start
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    
-    // Test that we can query the indexer through its REST API
-    // Note: In a real test, we would make HTTP requests to the REST API
-    // For now, we just verify the indexer is running
+    // Give the indexer time to start
+    tokio::time::sleep(Duration::from_millis(100)).await;
     
     // Shutdown the indexer
     println!("Sending shutdown signal");
@@ -123,16 +112,12 @@ async fn test_indexer_run_with_event_processing() -> Result<()> {
         request_timeout: None,
     };
     
-    let rest_api_config = RestApiConfig {
-        bind_address: "127.0.0.1:0".parse()?,
-        metrics_address: "127.0.0.1:0".parse()?,
-    };
-    
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        rest_api_config: Some(rest_api_config),
-        event_processor_config: Some(EventProcessorConfig::default()),
-        sui: Some(sui_config),
+        walrus_indexer_config: Some(WalrusIndexerConfig {
+            event_processor_config: EventProcessorConfig::default(),
+            sui_config,
+        }),
     };
     
     // This will try to initialize event processor (will fail to connect but that's expected)
@@ -166,28 +151,21 @@ async fn test_indexer_run_with_event_processing() -> Result<()> {
     Ok(())
 }
 
-/// Test concurrent REST API requests while event processing is happening
+/// Test concurrent operations on the indexer
 #[tokio::test] 
-async fn test_workload_isolation() -> Result<()> {
+async fn test_concurrent_operations() -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("walrus_indexer=debug")
         .try_init();
     
-    println!("Testing workload isolation between REST API and event processing");
+    println!("Testing concurrent operations on the indexer");
     
     let temp_dir = TempDir::new()?;
     
-    // Create indexer with both REST API and storage
-    let rest_api_config = RestApiConfig {
-        bind_address: "127.0.0.1:0".parse()?,
-        metrics_address: "127.0.0.1:0".parse()?,
-    };
-    
+    // Create indexer with storage only
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        rest_api_config: Some(rest_api_config),
-        event_processor_config: None,
-        sui: None,
+        walrus_indexer_config: None,
     };
     
     let indexer = WalrusIndexer::new(indexer_config).await?;
@@ -196,7 +174,7 @@ async fn test_workload_isolation() -> Result<()> {
     let bucket_id = ObjectID::random();
     let mut handles = vec![];
     
-    // Simulate concurrent writes (as if from event processing)
+    // Simulate concurrent writes
     for i in 0..10 {
         let indexer_clone = indexer.clone();
         let bucket = bucket_id.clone();
@@ -211,7 +189,7 @@ async fn test_workload_isolation() -> Result<()> {
         handles.push(handle);
     }
     
-    // Simulate concurrent reads (as if from REST API)
+    // Simulate concurrent reads
     for i in 0..10 {
         let indexer_clone = indexer.clone();
         let bucket = bucket_id.clone();
@@ -236,7 +214,7 @@ async fn test_workload_isolation() -> Result<()> {
         assert!(result.is_some(), "Entry {} should exist", i);
     }
     
-    println!("✅ Workload isolation test passed - concurrent operations successful");
+    println!("✅ Concurrent operations test passed");
     
     Ok(())
 }
@@ -254,9 +232,7 @@ async fn test_walrus_event_processing() -> Result<()> {
     
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_str().unwrap().to_string(),
-        rest_api_config: None,
-        event_processor_config: None,
-        sui: None,
+        walrus_indexer_config: None,
     };
     
     let indexer = WalrusIndexer::new(indexer_config).await?;

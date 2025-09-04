@@ -6,7 +6,7 @@
 //! This binary runs the Walrus indexer service (Octopus Index) that processes Sui events
 //! and maintains the bucket-based blob indexing system.
 
-use std::{net::SocketAddr, process::ExitCode};
+use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::Parser;
@@ -14,9 +14,7 @@ use tokio::runtime::Runtime;
 use tracing::{info, warn};
 use walrus_indexer::{
     IndexerConfig,
-    RestApiConfig,
     WalrusIndexer,
-    default,
 };
 
 #[derive(Parser, Debug)]
@@ -30,15 +28,6 @@ pub struct IndexerArgs {
     /// Path to the database directory (overrides config file).
     #[arg(long)]
     db_path: Option<String>,
-
-    /// API server bind address (overrides config file).
-    #[arg(long)]
-    bind_address: Option<SocketAddr>,
-
-    /// Socket address on which the Prometheus server should export its metrics
-    /// (overrides config file).
-    #[arg(short = 'a', long)]
-    metrics_address: Option<SocketAddr>,
 
     /// Enable detailed logging.
     #[arg(long)]
@@ -76,27 +65,8 @@ impl IndexerRuntime {
         if let Some(db_path) = args.db_path {
             config.db_path = db_path;
         }
-        if let Some(bind_address) = args.bind_address {
-            if let Some(ref mut rest_config) = config.rest_api_config {
-                rest_config.bind_address = bind_address;
-            } else {
-                config.rest_api_config = Some(RestApiConfig {
-                    bind_address,
-                    metrics_address: args.metrics_address.unwrap_or(default::metrics_address()),
-                });
-            }
-        }
-        if let Some(metrics_address) = args.metrics_address {
-            if let Some(ref mut rest_config) = config.rest_api_config {
-                rest_config.metrics_address = metrics_address;
-            }
-        }
         
         info!("Database path: {}", config.db_path);
-        if let Some(ref rest_config) = config.rest_api_config {
-            info!("API bind address: {}", rest_config.bind_address);
-            info!("Metrics address: {}", rest_config.metrics_address);
-        }
 
         // Create the tokio runtime
         let runtime = Runtime::new()?;
@@ -108,39 +78,18 @@ impl IndexerRuntime {
         // Initialize and start the indexer
         let indexer_task_handle = runtime.block_on(async {
             // Check if event processing is enabled
-            let event_processing_enabled = config.event_processor_config.is_some()
-                && config.sui.is_some();
+            let event_processing_enabled = config.walrus_indexer_config.is_some();
 
             // Initialize the indexer with all components
             info!("Initializing indexer components");
             let indexer = WalrusIndexer::new(config.clone()).await?;
 
-            if let Some(ref rest_config) = config.rest_api_config {
-                info!("🚀 REST API will start on {}", rest_config.bind_address);
-            }
-            
             if event_processing_enabled {
                 info!("✅ Event processing enabled - will listen for Sui events");
             } else {
-                info!("⚠️  Event processing disabled - REST API only mode");
-                if config.sui.is_none() {
-                    info!("    To enable event processing, add 'sui' section to config file");
-                }
-                if config.event_processor_config.is_none() {
-                    info!(
-                        "    To enable event processing, add 'event_processor_config' section to config file"
-                    );
-                }
+                info!("⚠️  Event processing disabled - operating as key-value store");
+                info!("    To enable event processing, add 'walrus_indexer_config' section with both 'event_processor_config' and 'sui_config' to config file");
             }
-            
-            info!("📚 Available endpoints:");
-            info!("  GET  /health - Health check");
-            info!("  GET  /get_blob - Get blob by primary key");
-            info!("  GET  /get_blob_by_object_id - Get blob by object ID");
-            info!("  GET  /list_bucket - List all blobs in bucket");
-            info!("  GET  /get_bucket_stats - Get bucket statistics");
-            info!("  GET  /buckets - List all buckets");
-            info!("  POST /bucket - Create new bucket");
 
             // Spawn the indexer's run() method in a separate task
             let handle = tokio::spawn(async move {

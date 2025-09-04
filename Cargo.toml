@@ -4,6 +4,7 @@ default-members = [
   "crates/typed-store",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
+  "crates/walrus-indexer",
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
   "crates/walrus-sdk",

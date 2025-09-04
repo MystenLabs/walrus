@@ -61,4 +61,5 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 walrus-service = { path = "../walrus-service", features = ["test-utils"] }
 walrus-test-utils = { path = "../walrus-test-utils" }
 walrus-sdk = { path = "../walrus-sdk" }
+walrus-proc-macros = { path = "../walrus-proc-macros", features = ["walrus-simtest"] }
 telemetry-subscribers = { workspace = true }

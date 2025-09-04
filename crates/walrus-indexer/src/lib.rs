@@ -9,21 +9,14 @@
 //! # Example Usage
 //!
 //! ```no_run
-//! use walrus_indexer::{IndexerConfig, WalrusIndexer, RestApiConfig};
+//! use walrus_indexer::{IndexerConfig, WalrusIndexer};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create configuration
-//!     let rest_api_config = RestApiConfig {
-//!         bind_address: "127.0.0.1:8080".parse().unwrap(),
-//!         metrics_address: "127.0.0.1:9184".parse().unwrap(),
-//!     };
-//!
 //!     let config = IndexerConfig {
 //!         db_path: "./indexer-db".to_string(),
-//!         rest_api_config: Some(rest_api_config),
-//!         event_processor_config: None,
-//!         sui: None,
+//!         walrus_indexer_config: None,
 //!     };
 //!
 //!     // Create the indexer
@@ -38,60 +31,47 @@
 //! ```
 
 pub mod checkpoint_downloader;
-pub mod routes;
-pub mod server;
 pub mod storage;
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
-use walrus_service::event::event_processor::processor::EventProcessor;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
-use tokio::{sync::RwLock, select, task::JoinHandle};
+use tokio::select;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 use walrus_sui::types::ContractEvent;
 
+use walrus_service::{
+    event::{
+        event_processor::processor::EventProcessor,
+        events::EventStreamElement,
+    },
+    node::system_events::SystemEventProvider,
+};
+
 use self::storage::{BlobIdentity, PrimaryIndexValue};
-pub use walrus_service::event::events::EventStreamElement;
-pub use crate::server::IndexerRestApiServer;
 
 /// Default configuration values for the indexer.
 pub mod default {
-    use std::net::SocketAddr;
-
     /// Default database path.
     pub fn db_path() -> String {
         "opt/walrus/db/indexer-db".to_string()
     }
-
-
-    /// Default API bind address.
-    pub fn bind_address() -> SocketAddr {
-        "127.0.0.1:21345"
-            .parse()
-            .expect("this is a correct socket address")
-    }
-
-    /// Default metrics bind address.
-    pub fn metrics_address() -> SocketAddr {
-        "127.0.0.1:9184"
-            .parse()
-            .expect("this is a correct socket address")
-    }
 }
 
-/// Configuration for the REST API server.
+/// Configuration for Walrus-specific indexer functionality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RestApiConfig {
-    /// The address to which to bind the service.
-    #[serde(default = "default::bind_address")]
-    pub bind_address: SocketAddr,
+pub struct WalrusIndexerConfig {
+    /// Event processor configuration.
+    pub event_processor_config: walrus_service::event::event_processor::config::EventProcessorConfig,
     
-    /// Socket address on which the Prometheus server should export its metrics.
-    #[serde(default = "default::metrics_address")]
-    pub metrics_address: SocketAddr,
+    /// Sui configuration for event processing and blockchain interaction.
+    pub sui_config: walrus_service::common::config::SuiConfig,
 }
 
 /// Configuration for the indexer.
@@ -101,33 +81,17 @@ pub struct IndexerConfig {
     /// Path to the database directory.
     #[serde(default = "default::db_path")]
     pub db_path: String,
-    
-    /// REST API configuration.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rest_api_config: Option<RestApiConfig>,
 
-    /// Event processor configuration (optional).
+    /// Optional Walrus-specific configuration for event processing and Sui integration.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_processor_config: Option<
-        walrus_service::event::event_processor::config::EventProcessorConfig,
-    >,
-    
-    /// Sui configuration for event processing and blockchain interaction (optional).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sui: Option<walrus_service::common::config::SuiConfig>,
-
+    pub walrus_indexer_config: Option<WalrusIndexerConfig>,
 }
 
 impl Default for IndexerConfig {
     fn default() -> Self {
         Self {
             db_path: default::db_path(),
-            rest_api_config: Some(RestApiConfig {
-                bind_address: default::bind_address(),
-                metrics_address: default::metrics_address(),
-            }),
-            event_processor_config: None,
-            sui: None,
+            walrus_indexer_config: None,
         }
     }
 }
@@ -184,8 +148,7 @@ impl WalrusIndexer {
     /// Run the indexer as a full-featured service.
     /// This method:
     /// 1. Initializes the event processor (if configured).
-    /// 2. Starts the REST API server (if configured).
-    /// 3. Processes events from Sui blockchain (if configured).
+    /// 2. Processes events from Sui blockchain (if configured).
     /// 
     /// When run() is not called, the Indexer acts as a simple key-value store.
     /// and relies on the caller to use apply_mutations() for updates.
@@ -195,9 +158,6 @@ impl WalrusIndexer {
     ) -> Result<()> {
         // Initialize event processor if configured.
         self.start_event_processor().await?;
-        
-        // Start REST API server in a separate task if configured.
-        let rest_api_handle = self.start_rest_api(cancel_token.clone()).await?;
         
         // Get event processor for the main event loop
         let event_processor = self.event_processor.read().await.clone();
@@ -209,7 +169,7 @@ impl WalrusIndexer {
             
             res = async {
                 if let Some(processor) = event_processor {
-                    self.stream_events(processor).await
+                    self.process_events(processor).await
                 } else {
                     // No event processor, just wait for cancellation
                     std::future::pending::<Result<()>>().await
@@ -217,24 +177,6 @@ impl WalrusIndexer {
             } => {
                 if let Err(e) = res {
                     warn!("Event processing error: {}", e);
-                }
-            }
-            
-            // Monitor REST API if it was started
-            res = async {
-                if let Some(handle) = rest_api_handle {
-                    match handle.await {
-                        Ok(rest_result) => rest_result,
-                        Err(e) => Err(anyhow::anyhow!("REST API task join error: {}", e))
-                    }
-                } else {
-                    std::future::pending::<Result<()>>().await
-                }
-            } => {
-                if let Err(e) = res {
-                    warn!("REST API error: {}", e);
-                } else {
-                    info!("REST API shutdown cleanly");
                 }
             }
         }
@@ -245,85 +187,45 @@ impl WalrusIndexer {
     
     /// Start the event processor if configured.
     async fn start_event_processor(&self) -> Result<()> {
-        if let Some(ref event_config) = self.config.event_processor_config {
-            if let Some(ref sui_config) = self.config.sui {
-                use walrus_service::event::event_processor::runtime::EventProcessorRuntime;
-                use walrus_utils::metrics::Registry;
-                use walrus_service::node::DatabaseConfig;
-                use walrus_service::common::config::SuiReaderConfig;
-                
-                info!("Creating indexer event processor using EventProcessorRuntime");
-                
-                // Create metrics registry for event processor
-                let prometheus_registry = prometheus::Registry::new();
-                let metrics_registry = Registry::new(prometheus_registry);
-                
-                // Create cancellation token for event processor
-                let event_cancel_token = self.cancellation_token.child_token();
-                
-                // Convert SuiConfig to SuiReaderConfig for the event processor
-                let sui_reader_config: SuiReaderConfig = sui_config.into();
-                
-                // Use EventProcessorRuntime to create the event processor
-                let event_processor = EventProcessorRuntime::start_async(
-                    sui_reader_config,
-                    event_config.clone(),
-                    &std::path::PathBuf::from(&self.config.db_path).join("event_processor"),
-                    &metrics_registry,
-                    event_cancel_token,
-                    &DatabaseConfig::default(),
-                ).await?;
-                
-                *self.event_processor.write().await = Some(event_processor);
-            } else {
-                warn!(
-                    "Event processor config provided but sui config is missing. \
-                     Event processor will not be started."
-                );
-            }
-        }
-        Ok(())
-    }
-    
-    /// Start the REST API server if configured.
-    async fn start_rest_api(
-        self: &Arc<Self>,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) -> Result<Option<JoinHandle<Result<()>>>> {
-        if let Some(ref rest_config) = self.config.rest_api_config {
+        if let Some(ref walrus_config) = self.config.walrus_indexer_config {
+            use walrus_service::event::event_processor::runtime::EventProcessorRuntime;
             use walrus_utils::metrics::Registry;
-            use server::IndexerRestApiServerConfig;
+            use walrus_service::node::DatabaseConfig;
+            use walrus_service::common::config::SuiReaderConfig;
             
-            info!("Starting REST API server on {}", rest_config.bind_address);
+            info!("Creating indexer event processor using EventProcessorRuntime");
             
-            // Create metrics registry for REST API
+            // Create metrics registry for event processor
             let prometheus_registry = prometheus::Registry::new();
             let metrics_registry = Registry::new(prometheus_registry);
             
-            let server_config = IndexerRestApiServerConfig::from(rest_config);
-            let rest_api_server = Arc::new(server::IndexerRestApiServer::new(
-                self.clone(),
-                cancel_token.child_token(),
-                server_config,
-                &metrics_registry,
-            ));
+            // Create cancellation token for event processor
+            let event_cancel_token = self.cancellation_token.child_token();
             
-            // Spawn REST API in its own task for workload isolation
-            Ok(Some(tokio::spawn(async move {
-                rest_api_server.run().await
-                    .map_err(|e| anyhow::anyhow!("REST API error: {}", e))
-            })))
-        } else {
-            Ok(None)
+            // Convert SuiConfig to SuiReaderConfig for the event processor
+            let sui_reader_config: SuiReaderConfig = (&walrus_config.sui_config).into();
+            
+            // Use EventProcessorRuntime to create the event processor
+            let event_processor = EventProcessorRuntime::start_async(
+                sui_reader_config,
+                walrus_config.event_processor_config.clone(),
+                &std::path::PathBuf::from(&self.config.db_path).join("event_processor"),
+                &metrics_registry,
+                event_cancel_token,
+                &DatabaseConfig::default(),
+            ).await?;
+            
+            *self.event_processor.write().await = Some(event_processor);
         }
+        Ok(())
     }
-    
     /// Process a contract event from Sui.
-    pub async fn process_event(&self, _event: ContractEvent) -> Result<()> {
+    pub async fn process_event(&self, event: ContractEvent) -> Result<()> {
         // Convert ContractEvent to IndexOperation based on event type
         // This is a simplified conversion - in reality you'd parse the actual event data
         // For now, we'll just return Ok since ContractEvent structure varies
         // In production, you'd parse the actual event fields to create proper IndexOperation
+        tracing::info!(?event, "Processing contract event in indexer");
         Ok(())
     }
     
@@ -415,14 +317,10 @@ impl WalrusIndexer {
 
     /// Stream events from the event processor using EventStreamCursor pattern.
     /// This follows the same pattern as the backup orchestrator.
-    async fn stream_events(
+    async fn process_events(
         &self,
         event_processor: Arc<EventProcessor>,
     ) -> Result<()> {
-        use futures::StreamExt;
-        use walrus_service::event::events::EventStreamElement;
-        use walrus_service::node::system_events::SystemEventProvider;
-        
         // Get the event cursor for resumption
         let event_cursor = self.get_indexer_event_cursor().await?;
         tracing::info!(?event_cursor, "[stream_events] starting");
@@ -561,7 +459,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                ..Default::default()
+                walrus_indexer_config: None,
             };
 
             let indexer = WalrusIndexer::new(config).await?;
@@ -638,7 +536,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                ..Default::default()
+                walrus_indexer_config: None,
             };
 
             let indexer = WalrusIndexer::new(config).await?;
