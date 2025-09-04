@@ -59,7 +59,7 @@ jobs:
           export walrus_tag=$(echo ${{ env.TAG_NAME }} | sed s/'refs\/tags\/'//)
           [[ "${walrus_tag}" == "main" ]] && echo "tag cannot be equals to 'main'" && exit 1
           echo "walrus_tag=${walrus_tag}" >> $GITHUB_ENV
-          export walrus_version=$(echo ${walrus_tag} | sed -e 's/mainnet-v//' -e 's/testnet-v//')
+          export walrus_version=$(echo ${walrus_tag} | sed -e 's/mainnet-v//' -e 's/testnet-v//' -e 's/devnet-v//')
           echo "walrus_version=${walrus_version}" >> $GITHUB_ENV
 
       - name: Check out ${{ env.walrus_tag }}
