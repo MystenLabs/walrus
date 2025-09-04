@@ -100,26 +100,25 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-binaries | \
-            grep -w "walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz" | \
-            head -n 1 || echo '')
-
-          echo "walrus_tarball_exist=$walrus_tarball_exist" >> $GITHUB_ENV
+          echo "gcp_existing_archive=$(for network in mainnet testnet devnet; do \
+            if gcloud storage ls gs://mysten-walrus-binaries | grep ${network}-v${{ env.walrus_version }}-${{ env.os_type }}.tgz \
+            | head -n1; then echo "walrus-${network}-v${{ env.walrus_version }}-${{ env.os_type }}.tgz"; \
+            break; fi; done)" >> $GITHUB_ENV
 
       - name: Download archive, if it exists
-        if: ${{ env.walrus_tarball_exist != '' }}
+        if: ${{ env.gcp_existing_archive != '' }}
         shell: bash
         run: |
           mkdir -p ${{ env.TMP_BUILD_DIR }}
-          gcloud storage cp gs://mysten-walrus-binaries/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+          gcloud storage cp gs://mysten-walrus-binaries/${{ env.gcp_existing_archive }} ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
       - name: Install nexttest (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
+        if: ${{ startsWith(matrix.os, 'windows') && env.gcp_existing_archive == '' }}
         uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
 
       - name: Install postgres (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
+        if: ${{ startsWith(matrix.os, 'windows') && env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           choco install postgresql12 --force --params '/Password:root'
@@ -135,7 +134,7 @@ jobs:
           git config --system core.longpaths true
 
       - name: Install postgres (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+        if: ${{ matrix.os == 'macos-latest-xlarge' && env.gcp_existing_archive == '' }}
         shell: bash
         env:
           PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
@@ -146,13 +145,13 @@ jobs:
           brew install postgresql
 
       - name: Install postgres (Ubuntu arm64)
-        if: ${{ matrix.os == 'ubuntu-arm64' && env.walrus_tarball_exist == '' }}
+        if: ${{ matrix.os == 'ubuntu-arm64' && env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           sudo apt update && sudo apt install libpq-dev
 
       - name: Remove unused apps (MacOS arm64)
-        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+        if: ${{ matrix.os == 'macos-latest-xlarge' && env.gcp_existing_archive == '' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -165,13 +164,13 @@ jobs:
           df -h /
 
       - name: Cargo build for ${{ matrix.os }} platform
-        if: ${{ env.walrus_tarball_exist == '' }}
+        if: ${{ env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release
 
       - name: Rename and archive binaries for ${{ matrix.os }}
-        if: ${{ env.walrus_tarball_exist == '' }}
+        if: ${{ env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           mkdir -p ${{ env.TMP_BUILD_DIR }}
