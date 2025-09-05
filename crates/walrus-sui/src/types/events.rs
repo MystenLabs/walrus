@@ -171,6 +171,21 @@ pub struct InvalidBlobId {
     pub event_id: EventID,
 }
 
+/// Sui event that a blob index entry has been inserted or updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InsertOrUpdateBlobIndexEvent {
+    /// The bucket ID of the related `Blob` object.
+    pub bucket_id: ObjectID,
+    /// The identifier of the related `Blob` object.
+    pub identifier: String,
+    /// The object ID of the related `Blob` object.
+    pub object_id: ObjectID,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
 impl AssociatedSuiEvent for InvalidBlobId {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::InvalidBlobID;
 }
@@ -184,6 +199,27 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
         let (epoch, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
+            blob_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+impl AssociatedSuiEvent for InsertOrUpdateBlobIndexEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::InsertOrUpdateBlobIndex;
+}
+
+impl TryFrom<SuiEvent> for InsertOrUpdateBlobIndexEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (bucket_id, identifier, object_id, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            bucket_id,
+            identifier,
+            object_id,
             blob_id,
             event_id: sui_event.id,
         })
@@ -220,23 +256,41 @@ impl TryFrom<SuiEvent> for DenyListBlobDeleted {
     }
 }
 
-/// Event for indexing blob events.
+/// Index mutation operations that can be applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BlobIndexEvent {
-    InsertOrUpdate(InsertOrUpdateBlobIndexEvent),
-    Delete(DeleteBlobIndexEvent),
+pub enum IndexMutation {
+    /// Insert a new index entry (identifier, object_id, blob_id).
+    Insert {
+        /// The identifier for the blob.
+        identifier: String,
+        /// The object ID of the related `Blob` object.
+        object_id: ObjectID,
+        /// The blob ID.
+        blob_id: BlobId,
+    },
+    /// Delete an index entry (object_id).
+    Delete {
+        /// The object ID of the related `Blob` object.
+        object_id: ObjectID,
+    },
 }
 
-/// Event for inserting or updating a blob index.
+/// A set of index mutations to be applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InsertOrUpdateBlobIndexEvent {
-    /// The bucket ID of the related `Blob` object.
+pub struct IndexMutationSet {
+    /// The bucket ID.
     pub bucket_id: ObjectID,
-    /// The identifier of the related `Blob` object.
-    pub identifier: String,
-    /// The object ID of the related `Blob` object.
-    pub object_id: ObjectID,
-    pub blob_id: BlobId,
+    /// The mutations to perform.
+    pub mutations: Vec<IndexMutation>,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+/// Event for indexing operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IndexEvent {
+    /// A blob index operation containing a set of mutations.
+    BlobIndexOperation(IndexMutationSet),
 }
 
 /// Event for deleting a blob index.
@@ -244,6 +298,110 @@ pub struct InsertOrUpdateBlobIndexEvent {
 pub struct DeleteBlobIndexEvent {
     /// The object ID of the related `Blob` object.
     pub object_id: ObjectID,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl From<InsertOrUpdateBlobIndexEvent> for IndexEvent {
+    fn from(value: InsertOrUpdateBlobIndexEvent) -> Self {
+        Self::BlobIndexOperation(IndexMutationSet {
+            bucket_id: value.bucket_id,
+            mutations: vec![IndexMutation::Insert {
+                identifier: value.identifier,
+                object_id: value.object_id,
+                blob_id: value.blob_id,
+            }],
+            event_id: value.event_id,
+        })
+    }
+}
+
+impl From<DeleteBlobIndexEvent> for IndexEvent {
+    fn from(value: DeleteBlobIndexEvent) -> Self {
+        Self::BlobIndexOperation(IndexMutationSet {
+            bucket_id: ObjectID::ZERO, // Delete operations don't specify bucket_id
+            mutations: vec![IndexMutation::Delete {
+                object_id: value.object_id,
+            }],
+            event_id: value.event_id,
+        })
+    }
+}
+
+impl IndexEvent {
+    /// Returns the blob IDs contained in the mutations.
+    pub fn blob_ids(&self) -> Vec<BlobId> {
+        match self {
+            IndexEvent::BlobIndexOperation(mutation_set) => mutation_set
+                .mutations
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    IndexMutation::Insert { blob_id, .. } => Some(*blob_id),
+                    IndexMutation::Delete { .. } => None,
+                })
+                .collect(),
+        }
+    }
+
+    /// Returns the first blob ID contained in the mutations, for compatibility.
+    pub fn blob_id(&self) -> Option<BlobId> {
+        self.blob_ids().first().copied()
+    }
+
+    /// Returns the object IDs contained in the mutations.
+    pub fn object_ids(&self) -> Vec<ObjectID> {
+        match self {
+            IndexEvent::BlobIndexOperation(mutation_set) => mutation_set
+                .mutations
+                .iter()
+                .map(|mutation| match mutation {
+                    IndexMutation::Insert { object_id, .. } => *object_id,
+                    IndexMutation::Delete { object_id } => *object_id,
+                })
+                .collect(),
+        }
+    }
+
+    /// Returns the first object ID contained in the mutations, for compatibility.
+    pub fn object_id(&self) -> ObjectID {
+        self.object_ids().first().copied().unwrap_or(ObjectID::ZERO)
+    }
+
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            IndexEvent::BlobIndexOperation(mutation_set) => mutation_set.event_id,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            IndexEvent::BlobIndexOperation(_) => "BlobIndexOperation",
+        }
+    }
+
+    /// Returns the mutation set.
+    pub fn mutation_set(&self) -> &IndexMutationSet {
+        match self {
+            IndexEvent::BlobIndexOperation(mutation_set) => mutation_set,
+        }
+    }
+}
+
+impl TryFrom<SuiEvent> for IndexEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
+        match (&value.type_).into() {
+            contracts::events::InsertOrUpdateBlobIndex => {
+                let insert_event: InsertOrUpdateBlobIndexEvent = value.try_into()?;
+                Ok(IndexEvent::from(insert_event))
+            }
+            // TODO: Add DeleteBlobIndex when it's implemented in contracts
+            _ => Err(anyhow!("could not convert to index event: {}", value)),
+        }
+    }
 }
 
 /// Enum to wrap blob events.
@@ -288,6 +446,24 @@ impl From<InvalidBlobId> for BlobEvent {
 impl From<BlobEvent> for ContractEvent {
     fn from(value: BlobEvent) -> Self {
         Self::BlobEvent(value)
+    }
+}
+
+impl From<IndexEvent> for ContractEvent {
+    fn from(value: IndexEvent) -> Self {
+        Self::IndexEvent(value)
+    }
+}
+
+impl From<InsertOrUpdateBlobIndexEvent> for ContractEvent {
+    fn from(value: InsertOrUpdateBlobIndexEvent) -> Self {
+        Self::IndexEvent(value.into())
+    }
+}
+
+impl From<DeleteBlobIndexEvent> for ContractEvent {
+    fn from(value: DeleteBlobIndexEvent) -> Self {
+        Self::IndexEvent(value.into())
     }
 }
 
@@ -920,6 +1096,8 @@ impl ProtocolEvent {
 pub enum ContractEvent {
     /// Blob event.
     BlobEvent(BlobEvent),
+    /// Index event.
+    IndexEvent(IndexEvent),
     /// Epoch change event.
     EpochChangeEvent(EpochChangeEvent),
     /// Events related to package maintenance.
@@ -935,6 +1113,7 @@ impl ContractEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             ContractEvent::BlobEvent(event) => event.event_id(),
+            ContractEvent::IndexEvent(event) => event.event_id(),
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
             ContractEvent::PackageEvent(event) => event.event_id(),
             ContractEvent::DenyListEvent(event) => event.event_id(),
@@ -946,6 +1125,7 @@ impl ContractEvent {
     pub fn blob_id(&self) -> Option<BlobId> {
         match self {
             ContractEvent::BlobEvent(event) => Some(event.blob_id()),
+            ContractEvent::IndexEvent(event) => event.blob_id(),
             ContractEvent::EpochChangeEvent(_) => None,
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
@@ -960,6 +1140,7 @@ impl ContractEvent {
     pub fn event_epoch(&self) -> Option<Epoch> {
         match self {
             ContractEvent::BlobEvent(event) => event.event_epoch(),
+            ContractEvent::IndexEvent(_) => None,
             ContractEvent::EpochChangeEvent(event) => Some(event.event_epoch()),
             ContractEvent::PackageEvent(event) => Some(event.event_epoch()),
             ContractEvent::DenyListEvent(event) => Some(event.event_epoch()),
@@ -971,6 +1152,7 @@ impl ContractEvent {
     pub fn is_blob_extension(&self) -> bool {
         match self {
             ContractEvent::BlobEvent(event) => event.is_blob_extension(),
+            ContractEvent::IndexEvent(_) => false,
             ContractEvent::EpochChangeEvent(_) => false,
             ContractEvent::PackageEvent(_) => false,
             ContractEvent::DenyListEvent(_) => false,
@@ -1033,6 +1215,10 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::ProtocolVersionUpdated => Ok(ContractEvent::ProtocolEvent(
                 ProtocolEvent::ProtocolVersionUpdated(value.try_into()?),
             )),
+            contracts::events::InsertOrUpdateBlobIndex => {
+                let insert_event: InsertOrUpdateBlobIndexEvent = value.try_into()?;
+                Ok(ContractEvent::IndexEvent(IndexEvent::from(insert_event)))
+            }
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }
     }

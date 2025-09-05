@@ -747,7 +747,12 @@ async fn test_store_with_existing_storage_resource(
         .iter()
         .enumerate()
         .map(|(i, data)| {
-            WalrusStoreBlob::new_unencoded(data, format!("test-{i:02}"), BlobAttribute::default())
+            WalrusStoreBlob::new_unencoded(
+                data,
+                format!("test-{i:02}"),
+                BlobAttribute::default(),
+                None,
+            )
         })
         .collect();
     let encoding_type = DEFAULT_ENCODING;
@@ -1714,7 +1719,7 @@ async fn test_post_store_action(
         .with_post_store(post_store);
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+        .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
         .await?;
 
     let owned_blobs = client
@@ -1793,7 +1798,7 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
     let store_args = StoreArgs::default_with_epochs(2).no_store_optimizations();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &attributes, &store_args)
+        .reserve_and_store_blobs_retry_committees(&blobs, &attributes, &[], &store_args)
         .await?;
 
     assert_eq!(results.len(), 1);

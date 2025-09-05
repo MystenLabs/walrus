@@ -1070,7 +1070,7 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
             .await?;
 
         let last_certified_event_blob =
@@ -1102,7 +1102,7 @@ mod tests {
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
             .await?;
 
         Ok(())

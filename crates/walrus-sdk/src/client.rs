@@ -53,6 +53,7 @@ use walrus_core::{
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
+        BlobBucketIdentifier,
         CertifyAndExtendBlobParams,
         CertifyAndExtendBlobResult,
         ExpirySelectionPolicy,
@@ -860,10 +861,14 @@ impl WalrusNodeClient<SuiContractClient> {
         &self,
         blobs: &[&[u8]],
         attributes: &[BlobAttribute],
+        bucket_identifiers: &[BlobBucketIdentifier],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, attributes);
+        let walrus_store_blobs = WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(
+            blobs,
+            attributes,
+            bucket_identifiers,
+        );
         let start = Instant::now();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
@@ -900,7 +905,7 @@ impl WalrusNodeClient<SuiContractClient> {
             .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[]);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs, &[], &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 
@@ -942,7 +947,7 @@ impl WalrusNodeClient<SuiContractClient> {
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let walrus_store_blobs =
-            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[]);
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs, &[], &[]);
 
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
 

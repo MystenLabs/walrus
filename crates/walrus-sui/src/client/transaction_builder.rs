@@ -32,6 +32,7 @@ use sui_types::{
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
+    BlobId,
     Epoch,
     EpochCount,
     NetworkPublicKey,
@@ -428,6 +429,26 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
         self.walrus_move_call(contracts::system::certify_blob, certify_args)?;
+        Ok(())
+    }
+
+    /// Adds a call to `add_index_entry` to the `pt_builder`.
+    /// This function adds an index entry for a blob, emitting an InsertOrUpdateBlobIndex event.
+    pub async fn add_index_entry(
+        &mut self,
+        bucket_id: ObjectID,
+        identifier: String,
+        object_id: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        let add_index_args = vec![
+            self.system_arg(Mutability::Immutable).await?,
+            self.pt_builder.pure(bucket_id)?,
+            self.pt_builder.pure(identifier)?,
+            self.pt_builder.pure(object_id)?,
+            self.pt_builder.pure(blob_id)?,
+        ];
+        self.walrus_move_call(contracts::system::add_index_entry, add_index_args)?;
         Ok(())
     }
 

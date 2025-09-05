@@ -45,6 +45,18 @@ public struct BlobDeleted has copy, drop {
     was_certified: bool,
 }
 
+/// Signals that a blob index entry has been inserted or updated.
+public struct InsertOrUpdateBlobIndex has copy, drop {
+    // The bucket ID of the related `Blob` object.
+    bucket_id: ID,
+    // The identifier of the related `Blob` object.
+    identifier: vector<u8>,
+    // The object ID of the related `Blob` object.
+    object_id: ID,
+    // The blob ID.
+    blob_id: u256,
+}
+
 /// Signals that a BlobID is invalid.
 public struct InvalidBlobID has copy, drop {
     epoch: u32, // The epoch in which the blob ID is first registered as invalid
@@ -172,6 +184,15 @@ public(package) fun emit_blob_deleted(
     was_certified: bool,
 ) {
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
+}
+
+public(package) fun emit_insert_or_update_blob_index(
+    bucket_id: ID,
+    identifier: vector<u8>,
+    object_id: ID,
+    blob_id: u256,
+) {
+    event::emit(InsertOrUpdateBlobIndex { bucket_id, identifier, object_id, blob_id });
 }
 
 public(package) fun emit_epoch_change_start(epoch: u32) {

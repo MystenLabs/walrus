@@ -220,7 +220,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
             post_store,
         );
         let result = self
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&[blob], &[], &[], &store_args)
             .await?;
 
         Ok(result

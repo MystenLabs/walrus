@@ -21,7 +21,7 @@ use walrus_service::{
     event::event_processor::config::EventProcessorConfig,
     test_utils::test_cluster,
 };
-use walrus_sui::config::WalletConfig;
+use walrus_sui::{client::BlobBucketIdentifier, config::WalletConfig};
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
@@ -32,6 +32,12 @@ async fn test_indexer_with_event_processor() -> Result<()> {
         .try_init();
 
     println!("🚀 Testing indexer with event processor integration");
+
+    // Create a bucket ID for indexing throughout the test.
+    let bucket_id = ObjectID::from_hex_literal(
+        "0xbbbbaaaaffffeeeedddccccbbbbaaaafffeeedddccccbbbaaaafffeeeddcc",
+    )
+    .unwrap();
 
     let (sui_cluster_handle, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(10))
@@ -75,7 +81,7 @@ async fn test_indexer_with_event_processor() -> Result<()> {
     };
 
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: Some(IndexerEventProcessorConfig {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
@@ -128,11 +134,26 @@ async fn test_indexer_with_event_processor() -> Result<()> {
 
     // Store more blobs to generate multiple events.
     println!("📝 Storing additional blobs to generate more events...");
+
     let blob_data2 = walrus_test_utils::random_data(2048);
     let blob_data3 = walrus_test_utils::random_data(512);
     let store_results2 = client
         .as_ref()
-        .reserve_and_store_blobs(&[&blob_data2, &blob_data3], &store_args)
+        .reserve_and_store_blobs_retry_committees(
+            &[&blob_data2, &blob_data3],
+            &[],
+            &[
+                BlobBucketIdentifier {
+                    bucket_id,
+                    identifier: "test1".to_string(),
+                },
+                BlobBucketIdentifier {
+                    bucket_id,
+                    identifier: "test2".to_string(),
+                },
+            ],
+            &store_args,
+        )
         .await?;
 
     println!("✅ Stored {} more blobs", store_results2.len());
@@ -162,6 +183,20 @@ async fn test_indexer_with_event_processor() -> Result<()> {
         // If no cursor is set, it might mean no events were found yet.
         println!("⚠️  No event cursor found - event processor may still be initializing");
     }
+
+    let blob_identity = indexer.get_blob_from_bucket(&bucket_id, "test1").await?;
+    let blob_identity = blob_identity.expect("blob identity should be found");
+    assert_eq!(
+        blob_identity.blob_id,
+        store_results2[0].blob_id().expect("blob should have ID")
+    );
+
+    let blob_identity = indexer.get_blob_from_bucket(&bucket_id, "test2").await?;
+    let blob_identity = blob_identity.expect("blob identity should be found");
+    assert_eq!(
+        blob_identity.blob_id,
+        store_results2[1].blob_id().expect("blob should have ID")
+    );
 
     // Shutdown the indexer.
     cancel_token.cancel();
@@ -217,7 +252,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     };
 
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: Some(IndexerEventProcessorConfig {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
@@ -238,7 +273,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
 
     // Create test data directly in storage.
     let indexer_for_data = WalrusIndexer::new(IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: None,
     })
     .await?;
@@ -282,13 +317,13 @@ async fn test_indexer_with_rest_api() -> Result<()> {
 
     // Test get blob by index.
     let entry = indexer_for_data
-        .get_blob_by_index(&bucket_id, "/api/test/file1.txt")
+        .get_blob_from_bucket(&bucket_id, "/api/test/file1.txt")
         .await?;
     assert!(entry.is_some());
     assert_eq!(entry.unwrap().blob_id, entries[0].1);
 
     // Test list bucket.
-    let bucket_entries = indexer_for_data.list_bucket(&bucket_id).await?;
+    let bucket_entries = indexer_for_data.list_blobs_in_bucket(&bucket_id).await?;
     assert_eq!(bucket_entries.len(), 3);
 
     // Test bucket stats.

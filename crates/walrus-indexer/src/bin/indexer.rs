@@ -3,10 +3,10 @@
 
 //! Walrus Indexer Binary
 //!
-//! This binary runs the Walrus indexer service (Octopus Index) that processes Sui events
+//! This binary runs the Walrus indexer service that processes Sui events
 //! and maintains the bucket-based blob indexing system.
 
-use std::process::ExitCode;
+use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Result;
 use clap::Parser;
@@ -16,7 +16,7 @@ use walrus_indexer::{IndexerConfig, WalrusIndexer};
 
 #[derive(Parser, Debug)]
 #[command(name = "walrus-indexer")]
-#[command(about = "Walrus Indexer Service (Octopus Index)", version)]
+#[command(about = "Walrus Indexer Service", version)]
 pub struct IndexerArgs {
     /// Path to the configuration file (YAML format).
     #[arg(short = 'c', long)]
@@ -24,7 +24,7 @@ pub struct IndexerArgs {
 
     /// Path to the database directory (overrides config file).
     #[arg(long)]
-    db_path: Option<String>,
+    db_path: Option<PathBuf>,
 
     /// Enable detailed logging.
     #[arg(long)]
@@ -47,7 +47,7 @@ impl IndexerRuntime {
         }
         tracing_subscriber::fmt::init();
 
-        info!("🐙 Starting Walrus Indexer (Octopus Index)");
+        info!("🚀 Starting Walrus Indexer");
 
         // Load configuration
         let mut config = if let Some(config_path) = &args.config {
@@ -63,7 +63,7 @@ impl IndexerRuntime {
             config.db_path = db_path;
         }
 
-        info!("Database path: {}", config.db_path);
+        info!("Database path: {}", config.db_path.display());
 
         // Create the tokio runtime
         let runtime = Runtime::new()?;

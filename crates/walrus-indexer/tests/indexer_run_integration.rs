@@ -31,7 +31,7 @@ async fn test_indexer_run_basic() -> Result<()> {
 
     // Create configuration without event processing
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: None,
     };
 
@@ -105,7 +105,7 @@ async fn test_indexer_run_with_event_processing() -> Result<()> {
     };
 
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: Some(IndexerEventProcessorConfig {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
@@ -154,7 +154,7 @@ async fn test_concurrent_operations() -> Result<()> {
 
     // Create indexer with storage only
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: None,
     };
 
@@ -188,7 +188,7 @@ async fn test_concurrent_operations() -> Result<()> {
         let handle = tokio::spawn(async move {
             let path = format!("/test/blob_{}", i);
             // Try to read - may or may not exist yet
-            let _result = indexer_clone.get_blob_by_index(&bucket, &path).await;
+            let _result = indexer_clone.get_blob_from_bucket(&bucket, &path).await;
             Ok::<(), anyhow::Error>(())
         });
         handles.push(handle);
@@ -202,7 +202,7 @@ async fn test_concurrent_operations() -> Result<()> {
     // Verify final state
     for i in 0..10 {
         let path = format!("/test/blob_{}", i);
-        let result = indexer.get_blob_by_index(&bucket_id, &path).await?;
+        let result = indexer.get_blob_from_bucket(&bucket_id, &path).await?;
         assert!(result.is_some(), "Entry {} should exist", i);
     }
 
@@ -223,7 +223,7 @@ async fn test_walrus_event_processing() -> Result<()> {
     let temp_dir = TempDir::new()?;
 
     let indexer_config = IndexerConfig {
-        db_path: temp_dir.path().to_str().unwrap().to_string(),
+        db_path: temp_dir.path().to_path_buf(),
         event_processor_config: None,
     };
 
@@ -284,7 +284,7 @@ async fn test_walrus_event_processing() -> Result<()> {
     println!("Last processed event index: {:?}", last_index);
 
     // Verify bucket contents
-    let entries = indexer.list_bucket(&bucket_id).await?;
+    let entries = indexer.list_blobs_in_bucket(&bucket_id).await?;
     assert_eq!(entries.len(), 5, "Should have 5 indexed blobs");
 
     println!("✅ Walrus event processing test passed");

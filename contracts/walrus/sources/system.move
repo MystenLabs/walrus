@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    events,
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
@@ -246,6 +247,19 @@ public fun delete_deny_listed_blob(
     message: vector<u8>,
 ) {
     self.inner().delete_deny_listed_blob(signature, members_bitmap, message)
+}
+
+/// Add or update an index entry for a blob.
+/// This function emits an InsertOrUpdateBlobIndex event that can be used by indexers.
+public fun add_index_entry(
+    _self: &System,
+    bucket_id: ID,
+    identifier: vector<u8>,
+    object_id: ID,
+    blob_id: u256,
+) {
+    // Just emit the event - no state changes needed in the contract
+    events::emit_insert_or_update_blob_index(bucket_id, identifier, object_id, blob_id);
 }
 
 // === Public Accessors ===

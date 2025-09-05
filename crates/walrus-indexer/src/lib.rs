@@ -15,7 +15,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create configuration
 //!     let config = IndexerConfig {
-//!         db_path: "./indexer-db".to_string(),
+//!         db_path: "./indexer-db".into(),
 //!         event_processor_config: None,
 //!     };
 //!
@@ -24,7 +24,7 @@
 //!
 //!     // The indexer is now running and processing Sui events in the background
 //!     // You can use it to query data:
-//!     // let entry = indexer.get_blob_by_index(&bucket_id, "/path/to/file").await?;
+//!     // let entry = indexer.get_blob_from_bucket(&bucket_id, "/path/to/file").await?;
 //!
 //!     Ok(())
 //! }
@@ -33,7 +33,7 @@
 pub mod checkpoint_downloader;
 pub mod storage;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use futures::StreamExt;
@@ -45,15 +45,17 @@ use walrus_service::{
     event::{event_processor::processor::EventProcessor, events::EventStreamElement},
     node::system_events::SystemEventProvider,
 };
-use walrus_sui::types::ContractEvent;
+use walrus_sui::types::{ContractEvent, IndexEvent};
 
 use self::storage::BlobIdentity;
 
 /// Default configuration values for the indexer.
 pub mod default {
+    use std::path::PathBuf;
+
     /// Default database path.
-    pub fn db_path() -> String {
-        "opt/walrus/db/indexer-db".to_string()
+    pub fn db_path() -> PathBuf {
+        PathBuf::from("opt/walrus/db/indexer-db")
     }
 }
 
@@ -75,7 +77,7 @@ pub struct IndexerEventProcessorConfig {
 pub struct IndexerConfig {
     /// Path to the database directory.
     #[serde(default = "default::db_path")]
-    pub db_path: String,
+    pub db_path: PathBuf,
 
     /// Optional configuration for event processing and Sui integration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,13 +106,13 @@ pub struct Bucket {
     pub secondary_indices: Vec<String>,
 }
 
-/// The main Walrus Indexer interface (Octopus Index).
+/// The main Walrus Indexer interface.
 #[derive(Clone)]
 pub struct WalrusIndexer {
     config: IndexerConfig,
 
     /// Storage layer for index data.
-    pub storage: Arc<storage::OctopusIndexStore>,
+    pub storage: Arc<storage::WalrusIndexStore>,
 
     /// Event processor for pulling events from Sui (if configured).
     event_processor: Arc<RwLock<Option<Arc<EventProcessor>>>>,
@@ -125,7 +127,7 @@ impl WalrusIndexer {
     /// The indexer will not start any background services until run() is called.
     pub async fn new(config: IndexerConfig) -> Result<Arc<Self>> {
         // Create storage layer by opening the database
-        let storage = Arc::new(storage::OctopusIndexStore::open(&config.db_path).await?);
+        let storage = Arc::new(storage::WalrusIndexStore::open(&config.db_path).await?);
 
         Ok(Arc::new(Self {
             config,
@@ -201,7 +203,7 @@ impl WalrusIndexer {
             let event_processor = EventProcessorRuntime::start_async(
                 sui_reader_config,
                 event_proc_config.event_processor_config.clone(),
-                &std::path::PathBuf::from(&self.config.db_path).join("event_processor"),
+                &self.config.db_path.join("event_processor"),
                 &metrics_registry,
                 event_cancel_token,
                 &DatabaseConfig::default(),
@@ -215,16 +217,30 @@ impl WalrusIndexer {
 
     /// Process a contract event from Sui.
     pub async fn process_event(&self, event: ContractEvent) -> Result<()> {
-        // Convert ContractEvent to IndexOperation based on event type
-        // This is a simplified conversion - in reality you'd parse the actual event data
-        // For now, we'll just return Ok since ContractEvent structure varies
-        // In production, you'd parse the actual event fields to create proper IndexOperation
         tracing::info!(?event, "Processing contract event in indexer");
+        match event {
+            ContractEvent::IndexEvent(index_event) => {
+                self.process_index_event(index_event).await?;
+            }
+            _ => {
+                tracing::warn!("Skipping non-index event: {:?}", event);
+            }
+        }
         Ok(())
     }
 
-    /// Get blob identity by bucket_id and identifier.
-    pub async fn get_blob_by_index(
+    /// Process an index event from Sui.
+    pub async fn process_index_event(&self, index_event: IndexEvent) -> Result<()> {
+        match index_event {
+            IndexEvent::BlobIndexOperation(mutation_set) => {
+                self.storage.apply_index_mutations(vec![mutation_set])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get blob identity from a bucket by bucket_id and identifier.
+    pub async fn get_blob_from_bucket(
         &self,
         bucket_id: &ObjectID,
         identifier: &str,
@@ -244,11 +260,14 @@ impl WalrusIndexer {
             .map_err(|e| anyhow::anyhow!("Failed to get blob by object_id: {}", e))
     }
 
-    /// List all entries in a bucket.
-    pub async fn list_bucket(&self, bucket_id: &ObjectID) -> Result<HashMap<String, BlobIdentity>> {
+    /// List all blob entries in a bucket.
+    pub async fn list_blobs_in_bucket(
+        &self,
+        bucket_id: &ObjectID,
+    ) -> Result<HashMap<String, BlobIdentity>> {
         let storage_result = self
             .storage
-            .list_bucket_entries(bucket_id)
+            .list_blobs_in_bucket_entries(bucket_id)
             .map_err(|e| anyhow::anyhow!("Failed to list bucket entries: {}", e))?;
 
         // Return the HashMap<String, BlobIdentity> directly
@@ -256,6 +275,8 @@ impl WalrusIndexer {
     }
 
     /// Create a new bucket.
+    /// This is a no-op in the current implementation.
+    /// We can store bucket object after refactoring the underlying storage layout.
     pub async fn create_bucket(&self, bucket: Bucket) -> Result<()> {
         // In a real implementation, this would interact with Sui to create the bucket object
         // For now, we just validate the bucket can be used
@@ -274,7 +295,7 @@ impl WalrusIndexer {
     }
 
     /// Get storage layer for direct operations.
-    pub fn storage(&self) -> &Arc<storage::OctopusIndexStore> {
+    pub fn storage(&self) -> &Arc<storage::WalrusIndexStore> {
         &self.storage
     }
 
@@ -357,9 +378,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_octopus_index_workflow() -> Result<()> {
+    async fn test_walrus_index_workflow() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let db_path = temp_dir.path().to_str().unwrap().to_string();
+        let db_path = temp_dir.path().to_path_buf();
 
         // Create test data references.
         let bucket1_id = ObjectID::from_hex_literal(
@@ -475,11 +496,11 @@ mod tests {
             assert_eq!(stats2.secondary_count, 0);
 
             // List all entries in bucket 1.
-            let bucket1_entries = indexer.list_bucket(&bucket1_id).await?;
+            let bucket1_entries = indexer.list_blobs_in_bucket(&bucket1_id).await?;
             assert_eq!(bucket1_entries.len(), 4);
 
             // List all entries in bucket 2.
-            let bucket2_entries = indexer.list_bucket(&bucket2_id).await?;
+            let bucket2_entries = indexer.list_blobs_in_bucket(&bucket2_id).await?;
             assert_eq!(bucket2_entries.len(), 4);
 
             // Remove one entry from each bucket to test deletion.
@@ -519,7 +540,7 @@ mod tests {
                     continue;
                 } // Skip the deleted entry.
 
-                let entry = indexer.get_blob_by_index(&bucket1_id, path).await?;
+                let entry = indexer.get_blob_from_bucket(&bucket1_id, path).await?;
                 assert!(entry.is_some(), "Entry {} should exist", path);
                 let retrieved = entry.unwrap();
                 assert_eq!(retrieved.blob_id, walrus_core::BlobId(*blob_bytes));
@@ -531,7 +552,7 @@ mod tests {
 
             // Verify deleted entry is gone.
             let deleted_entry = indexer
-                .get_blob_by_index(&bucket1_id, "/photos/2023/forest.png")
+                .get_blob_from_bucket(&bucket1_id, "/photos/2023/forest.png")
                 .await?;
             assert!(deleted_entry.is_none());
 

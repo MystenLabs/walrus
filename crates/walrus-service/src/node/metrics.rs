@@ -18,6 +18,7 @@ use walrus_sui::types::{
     ContractEvent,
     DenyListEvent,
     EpochChangeEvent,
+    IndexEvent,
     PackageEvent,
     ProtocolEvent,
 };
@@ -240,6 +241,14 @@ impl TelemetryLabel for BlobEvent {
     }
 }
 
+impl TelemetryLabel for IndexEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            IndexEvent::BlobIndexOperation(_) => "blob-index-operation",
+        }
+    }
+}
+
 impl TelemetryLabel for EpochChangeEvent {
     fn label(&self) -> &'static str {
         match self {
@@ -284,6 +293,7 @@ impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
             ContractEvent::BlobEvent(event) => event.label(),
+            ContractEvent::IndexEvent(event) => event.label(),
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),

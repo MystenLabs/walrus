@@ -169,7 +169,12 @@ impl SingleClientWorkload {
                 store_args = store_args.with_metrics(self.metrics.clone());
                 let store_result = self
                     .client
-                    .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &store_args)
+                    .reserve_and_store_blobs_retry_committees(
+                        &[blob.as_slice()],
+                        &[],
+                        &[],
+                        &store_args,
+                    )
                     .await?;
                 self.metrics.observe_latency("store_blob", now.elapsed());
                 match &store_result[0] {

@@ -19,7 +19,7 @@ use walrus_core::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
-    client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
+    client::{BlobBucketIdentifier, CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
     types::move_structs::BlobAttribute,
 };
 
@@ -190,9 +190,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     pub fn default_unencoded_blobs_from_slice(
         blobs: &'a [&[u8]],
         attributes: &[BlobAttribute],
+        bucket_identifiers: &[BlobBucketIdentifier],
     ) -> Vec<WalrusStoreBlob<'a, String>> {
         // TODO(WAL-962): Remove this assertion once we have a better struct to represent a blob.
         assert!(attributes.is_empty() || attributes.len() == blobs.len());
+        assert!(bucket_identifiers.is_empty() || bucket_identifiers.len() == blobs.len());
         blobs
             .iter()
             .enumerate()
@@ -201,6 +203,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
                     blob,
                     format!("blob_{i:06}"),
                     attributes.get(i).cloned().unwrap_or_default(),
+                    bucket_identifiers.get(i).cloned(),
                 )
             })
             .collect()
@@ -212,7 +215,12 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Creates a new unencoded blob.
-    pub fn new_unencoded(blob: &'a [u8], identifier: T, attribute: BlobAttribute) -> Self {
+    pub fn new_unencoded(
+        blob: &'a [u8],
+        identifier: T,
+        attribute: BlobAttribute,
+        bucket_identifier: Option<BlobBucketIdentifier>,
+    ) -> Self {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
             "store_blob_tracing",
@@ -225,6 +233,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             identifier,
             span,
             attribute,
+            bucket_identifier,
         })
     }
 
@@ -293,6 +302,8 @@ pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
     pub span: Span,
     /// The attribute of the blob.
     pub attribute: BlobAttribute,
+    /// The bucket identifier of the blob.
+    pub bucket_identifier: Option<BlobBucketIdentifier>,
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
@@ -1016,6 +1027,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
                 attribute: &self.input_blob.attribute,
                 certificate: None,
                 epochs_extended: Some(*epochs_extended),
+                bucket_identifier: self.input_blob.bucket_identifier.clone(),
             })
         } else {
             Err(invalid_operation_for_blob(
@@ -1278,6 +1290,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 attribute: &self.input_blob.attribute,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: Some(*epochs_extended),
+                bucket_identifier: self.input_blob.bucket_identifier.clone(),
             }),
             RegisterBlobOp::RegisterFromScratch { .. }
             | RegisterBlobOp::ReuseStorage { .. }
@@ -1286,6 +1299,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 attribute: &self.input_blob.attribute,
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: None,
+                bucket_identifier: self.input_blob.bucket_identifier.clone(),
             }),
         }
     }
@@ -1769,8 +1783,12 @@ mod tests {
         let identifier = "sample_id".to_string();
 
         // Wrap it in the WalrusStoreBlob enum
-        let walrus_blob: WalrusStoreBlob<String> =
-            WalrusStoreBlob::new_unencoded(blob_data, identifier.clone(), BlobAttribute::default());
+        let walrus_blob: WalrusStoreBlob<String> = WalrusStoreBlob::new_unencoded(
+            blob_data,
+            identifier.clone(),
+            BlobAttribute::default(),
+            None,
+        );
 
         // Import the trait directly to bring the methods into scope
         use super::WalrusStoreBlobApi;

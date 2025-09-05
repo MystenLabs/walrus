@@ -98,6 +98,7 @@ use walrus_sdk::{
             EpochChangeEvent,
             EpochChangeStart,
             GENESIS_EPOCH,
+            IndexEvent,
             PackageEvent,
         },
     },
@@ -1383,6 +1384,9 @@ impl StorageNode {
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();
             }
+            EventStreamElement::ContractEvent(ContractEvent::IndexEvent(event)) => {
+                self.process_index_event(event_handle, event).await?;
+            }
         }
         Ok(())
     }
@@ -1482,6 +1486,16 @@ impl StorageNode {
             NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
         );
         self.epoch_change_driver.schedule_process_subsidies();
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_index_event(
+        &self,
+        event_handle: EventHandle,
+        _index_event: IndexEvent,
+    ) -> anyhow::Result<()> {
+        event_handle.mark_as_complete();
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]

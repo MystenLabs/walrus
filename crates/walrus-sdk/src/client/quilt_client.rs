@@ -786,7 +786,7 @@ impl QuiltClient<'_, SuiContractClient> {
         )])];
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, store_args)
+            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, &[], store_args)
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();

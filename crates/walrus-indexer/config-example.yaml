@@ -1,5 +1,5 @@
 # Walrus Indexer Configuration Example
-# This file demonstrates the structure for configuring the Walrus Indexer (Octopus Index)
+# This file demonstrates the structure for configuring the Walrus Indexer
 
 # Database configuration
 db_path: "/opt/walrus/db/indexer-db"
@@ -11,7 +11,7 @@ event_processor:
   # Event pruning configuration
   pruning_interval_secs: 3600
   num_events_to_retain: 10000
-  
+
   # Checkpoint downloader configuration
   adaptive_downloader_config:
     target_lag_checkpoints: 10
@@ -21,23 +21,23 @@ event_processor:
   # Sui blockchain configuration
   # Sui RPC endpoint
   rpc: "https://fullnode.devnet.sui.io:443"
-  
+
   # Contract configuration - these IDs are obtained from deployed Walrus contracts
   # The EventProcessor will automatically query the system object to get the package ID
   system_object: "0x0000000000000000000000000000000000000000000000000000000000000001"
   staking_object: "0x0000000000000000000000000000000000000000000000000000000000000002"
-  
+
   # Event polling interval
   event_polling_interval_millis: 100
-  
+
   # Wallet configuration for write operations (if needed)
   wallet_config:
     keystore_path: "~/.sui/keystore"
     client_config_path: "~/.sui/client.yaml"
-  
+
   # Additional RPC endpoints for failover
   additional_rpc_endpoints: []
-  
+
   # Backoff configuration for retries
   backoff_config:
     initial_backoff_millis: 1000

@@ -1,7 +1,7 @@
 # Walrus Indexer Implementation Status
 
 ## Overview
-This document tracks the implementation status of the Walrus Indexer (Octopus Index) crate after integrating checkpoint downloader and event processor functionality.
+This document tracks the implementation status of the Walrus Indexer crate after integrating checkpoint downloader and event processor functionality.
 
 ## Current Status: ✅ COMPLETE INTEGRATION
 
@@ -217,7 +217,7 @@ The integration is complete and compiles successfully, providing a working event
 ## Dual Index Implementation (2025-08-31)
 
 ### Overview
-Successfully implemented dual-index system for Walrus Indexer (Octopus Index) according to PDF specification, enabling bidirectional lookups between object_id and bucket_id/identifier.
+Successfully implemented dual-index system for Walrus Indexer according to PDF specification, enabling bidirectional lookups between object_id and bucket_id/identifier.
 
 ### Completed Tasks
 
@@ -261,8 +261,8 @@ Successfully implemented dual-index system for Walrus Indexer (Octopus Index) ac
 - **File**: `src/lib.rs`
 - **Changes**:
   - Updated database initialization for dual column families:
-    - `octopus_index_primary`
-    - `octopus_index_object`
+    - `walrus_index_primary`
+    - `walrus_index_object`
   - Modified `IndexOperation` enum:
     ```rust
     pub enum IndexOperation {
@@ -337,7 +337,7 @@ RUST_TEST_THREADS=1 cargo test -p walrus-indexer --lib
 
 #### ObjectIndexValue Structure Improvement
 - **Changed**: `ObjectIndexValue` now stores `bucket_id` and `identifier` separately instead of combined string
-- **Before**: `pub bucket_identifier: String` 
+- **Before**: `pub bucket_identifier: String`
 - **After**: `pub bucket_id: ObjectID, pub identifier: String`
 - **Impact**: Cleaner data structure, more efficient queries, better type safety
 - **Also Updated**: `IndexMutation::Delete` simplified to only require `object_id`

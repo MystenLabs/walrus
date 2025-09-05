@@ -1,9 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Storage layer for the Walrus Indexer (Octopus Index).
+//! Storage layer for the Walrus Indexer.
 //!
-//! This module implements the Octopus Index architecture for efficient indexing
+//! This module implements the Walrus Index architecture for efficient indexing
 //! of blobs and quilt patches. Indices are stored in RocksDB, organized by 'buckets'
 //! that provide isolated namespaces similar to S3 buckets.
 
@@ -47,27 +47,6 @@ pub struct PrimaryIndexValue {
     pub blob_identity: BlobIdentity,
 }
 
-/// Index mutation operations that can be applied (matches PDF spec).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IndexMutation {
-    /// Insert a new index entry (bucket_id, identifier, object_id, blob_id).
-    Insert {
-        bucket_id: ObjectID,
-        identifier: String,
-        object_id: ObjectID,
-        blob_id: BlobId,
-    },
-    /// Delete an index entry (object_id).
-    Delete { object_id: ObjectID },
-}
-
-/// Batch of mutations for a specific bucket.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MutationSet {
-    pub bucket_id: ObjectID,
-    pub mutations: Vec<IndexMutation>,
-}
-
 pub fn construct_primary_index_key(bucket_id: &ObjectID, identifier: &str) -> String {
     format!("{}/{}", bucket_id, identifier)
 }
@@ -85,9 +64,9 @@ pub struct ObjectIndexValue {
     pub identifier: String,
 }
 
-/// Storage interface for the Octopus Index (Dual Index System).
+/// Storage interface for the Walrus Index (Dual Index System).
 #[derive(Debug, Clone)]
-pub struct OctopusIndexStore {
+pub struct WalrusIndexStore {
     /// Primary index: bucket_id/identifier -> BlobIdentity.
     primary_index: DBMap<String, PrimaryIndexValue>,
     /// Object index: object_id -> bucket_id/identifier.
@@ -100,27 +79,27 @@ pub struct OctopusIndexStore {
 // const INLINE_STORAGE_THRESHOLD: usize = 100;
 // const ENTRIES_PER_PAGE: usize = 1000;
 
-impl OctopusIndexStore {
-    /// Create a new OctopusIndexStore by opening the database at the specified path.
+impl WalrusIndexStore {
+    /// Create a new WalrusIndexStore by opening the database at the specified path.
     /// This initializes all required column families for the indexer.
-    pub async fn open(db_path: &str) -> Result<Self> {
+    pub async fn open(db_path: &Path) -> Result<Self> {
         // Initialize the database with all column families
         let db_options = Options::default();
         let db = Arc::new(open_cf_opts(
-            Path::new(db_path),
+            db_path,
             None,
             MetricConf::default(),
             &[
-                ("octopus_index_primary", db_options.clone()),
-                ("octopus_index_object", db_options.clone()),
-                ("octopus_event_cursor", db_options),
+                ("walrus_index_primary", db_options.clone()),
+                ("walrus_index_object", db_options.clone()),
+                ("walrus_event_cursor", db_options),
             ],
         )?);
 
         // Initialize primary index (bucket_id, identifier) -> BlobIdentity
         let primary_index: DBMap<String, PrimaryIndexValue> = DBMap::reopen(
             &db,
-            Some("octopus_index_primary"),
+            Some("walrus_index_primary"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
@@ -128,7 +107,7 @@ impl OctopusIndexStore {
         // Initialize object index
         let object_index: DBMap<String, ObjectIndexValue> = DBMap::reopen(
             &db,
-            Some("octopus_index_object"),
+            Some("walrus_index_object"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
@@ -136,7 +115,7 @@ impl OctopusIndexStore {
         // Initialize event cursor store
         let event_cursor_store: DBMap<String, u64> = DBMap::reopen(
             &db,
-            Some("octopus_event_cursor"),
+            Some("walrus_event_cursor"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
@@ -148,7 +127,7 @@ impl OctopusIndexStore {
         })
     }
 
-    /// Create a new OctopusIndexStore from existing DBMap instances.
+    /// Create a new WalrusIndexStore from existing DBMap instances.
     /// This is used for testing and migration purposes.
     pub fn from_maps(
         primary_index: DBMap<String, PrimaryIndexValue>,
@@ -272,7 +251,7 @@ impl OctopusIndexStore {
     }
 
     /// List all primary index entries in a bucket.
-    pub fn list_bucket_entries(
+    pub fn list_blobs_in_bucket_entries(
         &self,
         bucket_id: &ObjectID,
     ) -> Result<HashMap<String, BlobIdentity>, TypedStoreError> {
@@ -296,14 +275,14 @@ impl OctopusIndexStore {
     /// All mutations are applied atomically in a single RocksDB batch transaction.
     pub fn apply_index_mutations(
         &self,
-        mutations: Vec<MutationSet>,
+        mutation_sets: Vec<walrus_sui::types::IndexMutationSet>,
     ) -> Result<(), TypedStoreError> {
         // Create a single batch for all mutations.
         // TODO: consider add a batch size limit for the extreme cases.
         let mut batch = self.primary_index.batch();
 
         // Add all mutations to the batch.
-        for mutation_set in mutations {
+        for mutation_set in mutation_sets {
             for mutation in mutation_set.mutations {
                 self.apply_mutation(&mut batch, &mutation_set.bucket_id, mutation)?;
             }
@@ -317,19 +296,18 @@ impl OctopusIndexStore {
     fn apply_mutation(
         &self,
         batch: &mut DBBatch,
-        _bucket_id: &ObjectID, // bucket_id is now included in mutation.
-        mutation: IndexMutation,
+        bucket_id: &ObjectID, // bucket_id comes from the MutationSet
+        mutation: walrus_sui::types::IndexMutation,
     ) -> Result<(), TypedStoreError> {
         match mutation {
-            IndexMutation::Insert {
-                bucket_id,
+            walrus_sui::types::IndexMutation::Insert {
                 identifier,
                 object_id,
                 blob_id,
             } => {
-                self.apply_insert(batch, &bucket_id, &identifier, &object_id, blob_id)?;
+                self.apply_insert(batch, bucket_id, &identifier, &object_id, blob_id)?;
             }
-            IndexMutation::Delete { object_id } => {
+            walrus_sui::types::IndexMutation::Delete { object_id } => {
                 self.apply_delete_by_object_id(batch, &object_id)?;
             }
         }
@@ -437,7 +415,7 @@ mod tests {
 
     use super::*;
 
-    fn create_test_store() -> Result<(OctopusIndexStore, TempDir), Box<dyn std::error::Error>> {
+    fn create_test_store() -> Result<(WalrusIndexStore, TempDir), Box<dyn std::error::Error>> {
         let temp_dir = TempDir::new()?;
         let db_options = Options::default();
 
@@ -447,15 +425,15 @@ mod tests {
             None,
             MetricConf::default(),
             &[
-                ("octopus_index_primary", db_options.clone()),
-                ("octopus_index_object", db_options.clone()),
-                ("octopus_event_cursor", db_options),
+                ("walrus_index_primary", db_options.clone()),
+                ("walrus_index_object", db_options.clone()),
+                ("walrus_event_cursor", db_options),
             ],
         )?);
 
         let primary_index = DBMap::reopen(
             &db,
-            Some("octopus_index_primary"),
+            Some("walrus_index_primary"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
@@ -463,7 +441,7 @@ mod tests {
         // Initialize object index.
         let object_index = DBMap::reopen(
             &db,
-            Some("octopus_index_object"),
+            Some("walrus_index_object"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
@@ -471,13 +449,13 @@ mod tests {
         // Initialize event cursor store.
         let event_cursor_store = DBMap::reopen(
             &db,
-            Some("octopus_event_cursor"),
+            Some("walrus_event_cursor"),
             &typed_store::rocks::ReadWriteOptions::default(),
             false,
         )?;
 
         Ok((
-            OctopusIndexStore::from_maps(primary_index, object_index, event_cursor_store),
+            WalrusIndexStore::from_maps(primary_index, object_index, event_cursor_store),
             temp_dir,
         ))
     }
@@ -537,7 +515,7 @@ mod tests {
         }
 
         // List all entries in bucket.
-        let entries = store.list_bucket_entries(&bucket_id)?;
+        let entries = store.list_blobs_in_bucket_entries(&bucket_id)?;
         assert_eq!(entries.len(), 3);
 
         // Get stats.
@@ -547,7 +525,7 @@ mod tests {
 
         // Delete bucket.
         store.delete_bucket(&bucket_id)?;
-        let entries = store.list_bucket_entries(&bucket_id)?;
+        let entries = store.list_blobs_in_bucket_entries(&bucket_id)?;
         assert_eq!(entries.len(), 0);
 
         Ok(())
@@ -568,14 +546,17 @@ mod tests {
         let blob_id = BlobId([99; 32]);
 
         // Test mutations via the new API.
-        let insert_mutation = MutationSet {
+        let insert_mutation = walrus_sui::types::IndexMutationSet {
             bucket_id,
-            mutations: vec![IndexMutation::Insert {
-                bucket_id,
+            mutations: vec![walrus_sui::types::IndexMutation::Insert {
                 identifier: "/documents/report.pdf".to_string(),
                 object_id,
                 blob_id,
             }],
+            event_id: sui_types::event::EventID {
+                tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                event_seq: 0,
+            },
         };
 
         store.apply_index_mutations(vec![insert_mutation])?;
@@ -590,9 +571,13 @@ mod tests {
         assert_eq!(entry.unwrap().blob_id, blob_id);
 
         // Test deletion.
-        let delete_mutation = MutationSet {
+        let delete_mutation = walrus_sui::types::IndexMutationSet {
             bucket_id,
-            mutations: vec![IndexMutation::Delete { object_id }],
+            mutations: vec![walrus_sui::types::IndexMutation::Delete { object_id }],
+            event_id: sui_types::event::EventID {
+                tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                event_seq: 1,
+            },
         };
 
         store.apply_index_mutations(vec![delete_mutation])?;

@@ -230,6 +230,15 @@ impl SuiClientError {
     }
 }
 
+/// Identifies a blob within a specific bucket for indexing purposes.
+#[derive(Debug, Clone)]
+pub struct BlobBucketIdentifier {
+    /// The ID of the bucket.
+    pub bucket_id: ObjectID,
+    /// The identifier of the blob.
+    pub identifier: String,
+}
+
 /// Parameters for certifying and extending a blob.
 ///
 /// When certificate is present, the blob will be certified on Sui.
@@ -245,6 +254,8 @@ pub struct CertifyAndExtendBlobParams<'a> {
     pub certificate: Option<ConfirmationCertificate>,
     /// The number of epochs by which to extend the blob.
     pub epochs_extended: Option<EpochCount>,
+    /// The bucket identifier of the blob.
+    pub bucket_identifier: Option<BlobBucketIdentifier>,
 }
 
 /// Result of certifying and extending a blob.
@@ -685,6 +696,24 @@ impl SuiContractClient {
                 .lock()
                 .await
                 .invalidate_blob_id(certificate)
+                .await
+        })
+        .await
+    }
+
+    /// Adds or updates an index entry for a blob.
+    pub async fn add_index_entry(
+        &self,
+        bucket_id: ObjectID,
+        identifier: String,
+        object_id: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .add_index_entry(bucket_id, identifier.clone(), object_id, blob_id)
                 .await
         })
         .await
@@ -1855,6 +1884,24 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Adds or updates an index entry for a blob.
+    pub async fn add_index_entry(
+        &mut self,
+        bucket_id: ObjectID,
+        identifier: String,
+        object_id: ObjectID,
+        blob_id: BlobId,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .add_index_entry(bucket_id, identifier, object_id, blob_id)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "add_index_entry")
+            .await?;
+        Ok(())
+    }
+
     /// Registers a candidate node.
     pub async fn register_candidate(
         &mut self,
@@ -2731,6 +2778,18 @@ impl SuiContractClientInner {
             pt_builder
                 .insert_or_update_blob_attribute_pairs(blob.id.into(), blob_params.attribute)
                 .await?;
+
+            // Add index entry if bucket identifier is provided.
+            if let Some(bucket_identifier) = blob_params.bucket_identifier.as_ref() {
+                pt_builder
+                    .add_index_entry(
+                        bucket_identifier.bucket_id,
+                        bucket_identifier.identifier.clone(),
+                        blob.id,
+                        blob.blob_id,
+                    )
+                    .await?;
+            }
 
             if let Some(epochs_extended) = blob_params.epochs_extended {
                 // TODO(WAL-835): buy single storage resource to extend multiple blobs

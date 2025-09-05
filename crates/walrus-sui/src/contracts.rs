@@ -214,6 +214,7 @@ pub mod system {
     contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
     contract_ident!(fn system::extend_blob);
+    contract_ident!(fn system::add_index_entry);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.
@@ -347,6 +348,7 @@ pub mod events {
     contract_ident!(struct events::BlobRegistered);
     contract_ident!(struct events::BlobDeleted);
     contract_ident!(struct events::InvalidBlobID);
+    contract_ident!(struct events::InsertOrUpdateBlobIndex);
     contract_ident!(struct events::EpochParametersSelected);
     contract_ident!(struct events::EpochChangeStart);
     contract_ident!(struct events::EpochChangeDone);
