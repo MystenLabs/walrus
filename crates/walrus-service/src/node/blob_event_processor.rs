@@ -43,12 +43,22 @@ impl PendingEventCounter {
 
     /// Increments the counter and returns the new value.
     fn inc(&self) -> u32 {
+        // We must ensure the increment happens-before the event is observable by the worker via
+        // the channel. Without a strong ordering, the send could be observed before the increment,
+        // allowing the receiver to drop the guard and do fetch_sub first, which would underflow
+        // the counter.
         self.inner.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     /// Decrements the counter and returns the new value.
     fn dec(&self) -> u32 {
+        // Same reasoning as inc() applies hereto use SeqCst ordering.
         let prev = self.inner.fetch_sub(1, Ordering::SeqCst);
+        if prev == 0 {
+            // This should never happen, since the counter is incremented before the event is
+            // observable by the worker via the channel.
+            panic!("pending event counter underflow");
+        }
         prev.saturating_sub(1)
     }
 
