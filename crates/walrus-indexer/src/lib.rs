@@ -16,7 +16,7 @@
 //!     // Create configuration
 //!     let config = IndexerConfig {
 //!         db_path: "./indexer-db".into(),
-//!         event_processor_config: None,
+//!         ..Default::default()
 //!     };
 //!
 //!     // Create the indexer
@@ -30,34 +30,19 @@
 //! }
 //! ```
 
+// Module declarations
 pub mod checkpoint_downloader;
+pub mod indexer;
 pub mod storage;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+// Configuration modules
+use std::{net::SocketAddr, path::PathBuf};
 
-use anyhow::Result;
-use futures::StreamExt;
+// Re-export main types for convenience
+pub use indexer::WalrusIndexer;
 use serde::{Deserialize, Serialize};
+pub use storage::{BlobIdentity, BucketStats, WalrusIndexStore};
 use sui_types::base_types::ObjectID;
-use tokio::{select, sync::RwLock};
-use tracing::{info, warn};
-use walrus_service::{
-    event::{event_processor::processor::EventProcessor, events::EventStreamElement},
-    node::system_events::SystemEventProvider,
-};
-use walrus_sui::types::{ContractEvent, IndexEvent};
-
-use self::storage::BlobIdentity;
-
-/// Default configuration values for the indexer.
-pub mod default {
-    use std::path::PathBuf;
-
-    /// Default database path.
-    pub fn db_path() -> PathBuf {
-        PathBuf::from("opt/walrus/db/indexer-db")
-    }
-}
 
 /// Configuration for indexer event processor functionality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,7 +52,7 @@ pub struct IndexerEventProcessorConfig {
     pub event_processor_config:
         walrus_service::event::event_processor::config::EventProcessorConfig,
 
-    /// Sui configuration for event processing and blockchain interaction.
+    /// Sui configuration for event processing.
     pub sui_config: walrus_service::common::config::SuiConfig,
 }
 
@@ -75,11 +60,15 @@ pub struct IndexerEventProcessorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexerConfig {
-    /// Path to the database directory.
+    /// Path to the database storing the indexer data.
     #[serde(default = "default::db_path")]
     pub db_path: PathBuf,
 
-    /// Optional configuration for event processing and Sui integration.
+    /// Socket address on which the Prometheus server should export its metrics.
+    #[serde(default = "default::metrics_address")]
+    pub metrics_address: SocketAddr,
+
+    /// Optional configuration for event processing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_processor_config: Option<IndexerEventProcessorConfig>,
 }
@@ -88,12 +77,14 @@ impl Default for IndexerConfig {
     fn default() -> Self {
         Self {
             db_path: default::db_path(),
+            metrics_address: default::metrics_address(),
             event_processor_config: None,
         }
     }
 }
 
 /// Represents a bucket for index entries (matches design spec).
+// TODO(blob_manager): What type should be used here?
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Bucket {
     /// Bucket ID as Sui object.
@@ -106,273 +97,27 @@ pub struct Bucket {
     pub secondary_indices: Vec<String>,
 }
 
-/// The main Walrus Indexer interface.
-#[derive(Clone)]
-pub struct WalrusIndexer {
-    config: IndexerConfig,
+/// Default configuration values for the indexer.
+pub mod default {
+    use std::{
+        net::{Ipv4Addr, SocketAddr},
+        path::PathBuf,
+    };
 
-    /// Storage layer for index data.
-    pub storage: Arc<storage::WalrusIndexStore>,
-
-    /// Event processor for pulling events from Sui (if configured).
-    event_processor: Arc<RwLock<Option<Arc<EventProcessor>>>>,
-
-    /// Cancellation token for graceful shutdown.
-    cancellation_token: tokio_util::sync::CancellationToken,
-}
-
-impl WalrusIndexer {
-    /// Create a new indexer instance.
-    /// This creates a simple key-value store with indexing logic.
-    /// The indexer will not start any background services until run() is called.
-    pub async fn new(config: IndexerConfig) -> Result<Arc<Self>> {
-        // Create storage layer by opening the database
-        let storage = Arc::new(storage::WalrusIndexStore::open(&config.db_path).await?);
-
-        Ok(Arc::new(Self {
-            config,
-            storage,
-            event_processor: Arc::new(RwLock::new(None)),
-            cancellation_token: tokio_util::sync::CancellationToken::new(),
-        }))
+    /// Default database path.
+    pub fn db_path() -> PathBuf {
+        PathBuf::from("opt/walrus/db/indexer-db")
     }
 
-    /// Run the indexer as a full-featured service.
-    /// This method:
-    /// 1. Initializes the event processor (if configured).
-    /// 2. Processes events from Sui blockchain (if configured).
-    ///
-    /// When run() is not called, the Indexer acts as a simple key-value store.
-    /// and relies on the caller to use apply_mutations() for updates.
-    pub async fn run(
-        self: Arc<Self>,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) -> Result<()> {
-        // Initialize event processor if configured.
-        self.start_event_processor().await?;
-
-        // Get event processor for the main event loop
-        let event_processor = self.event_processor.read().await.clone();
-
-        select! {
-            _ = cancel_token.cancelled() => {
-                info!("Indexer received shutdown signal");
-            }
-
-            res = async {
-                if let Some(processor) = event_processor {
-                    self.process_events(processor).await
-                } else {
-                    // No event processor, just wait for cancellation
-                    std::future::pending::<Result<()>>().await
-                }
-            } => {
-                if let Err(e) = res {
-                    warn!("Event processing error: {}", e);
-                }
-            }
-        }
-
-        info!("Indexer shutdown complete");
-        Ok(())
-    }
-
-    /// Start the event processor if configured.
-    async fn start_event_processor(&self) -> Result<()> {
-        if let Some(ref event_proc_config) = self.config.event_processor_config {
-            use walrus_service::{
-                common::config::SuiReaderConfig,
-                event::event_processor::runtime::EventProcessorRuntime,
-                node::DatabaseConfig,
-            };
-            use walrus_utils::metrics::Registry;
-
-            info!("Creating indexer event processor using EventProcessorRuntime");
-
-            // Create metrics registry for event processor
-            let prometheus_registry = prometheus::Registry::new();
-            let metrics_registry = Registry::new(prometheus_registry);
-
-            // Create cancellation token for event processor
-            let event_cancel_token = self.cancellation_token.child_token();
-
-            // Convert SuiConfig to SuiReaderConfig for the event processor
-            let sui_reader_config: SuiReaderConfig = (&event_proc_config.sui_config).into();
-
-            // Use EventProcessorRuntime to create the event processor
-            let event_processor = EventProcessorRuntime::start_async(
-                sui_reader_config,
-                event_proc_config.event_processor_config.clone(),
-                &self.config.db_path.join("event_processor"),
-                &metrics_registry,
-                event_cancel_token,
-                &DatabaseConfig::default(),
-            )
-            .await?;
-
-            *self.event_processor.write().await = Some(event_processor);
-        }
-        Ok(())
-    }
-
-    /// Process a contract event from Sui.
-    pub async fn process_event(&self, event: ContractEvent) -> Result<()> {
-        tracing::info!(?event, "Processing contract event in indexer");
-        match event {
-            ContractEvent::IndexEvent(index_event) => {
-                self.process_index_event(index_event).await?;
-            }
-            _ => {
-                tracing::warn!("Skipping non-index event: {:?}", event);
-            }
-        }
-        Ok(())
-    }
-
-    /// Process an index event from Sui.
-    pub async fn process_index_event(&self, index_event: IndexEvent) -> Result<()> {
-        match index_event {
-            IndexEvent::BlobIndexOperation(mutation_set) => {
-                self.storage.apply_index_mutations(vec![mutation_set])?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Get blob identity from a bucket by bucket_id and identifier.
-    pub async fn get_blob_from_bucket(
-        &self,
-        bucket_id: &ObjectID,
-        identifier: &str,
-    ) -> Result<Option<BlobIdentity>> {
-        self.storage
-            .get_by_bucket_identifier(bucket_id, identifier)
-            .map_err(|e| anyhow::anyhow!("Failed to get blob by bucket identifier: {}", e))
-    }
-
-    /// Get index entry by object_id (implements read_blob_by_object_id from PDF).
-    pub async fn get_blob_by_object_id(
-        &self,
-        object_id: &ObjectID,
-    ) -> Result<Option<BlobIdentity>> {
-        self.storage
-            .get_by_object_id(object_id)
-            .map_err(|e| anyhow::anyhow!("Failed to get blob by object_id: {}", e))
-    }
-
-    /// List all blob entries in a bucket.
-    pub async fn list_blobs_in_bucket(
-        &self,
-        bucket_id: &ObjectID,
-    ) -> Result<HashMap<String, BlobIdentity>> {
-        let storage_result = self
-            .storage
-            .list_blobs_in_bucket_entries(bucket_id)
-            .map_err(|e| anyhow::anyhow!("Failed to list bucket entries: {}", e))?;
-
-        // Return the HashMap<String, BlobIdentity> directly
-        Ok(storage_result)
-    }
-
-    /// Create a new bucket.
-    /// This is a no-op in the current implementation.
-    /// We can store bucket object after refactoring the underlying storage layout.
-    pub async fn create_bucket(&self, bucket: Bucket) -> Result<()> {
-        // In a real implementation, this would interact with Sui to create the bucket object
-        // For now, we just validate the bucket can be used
-        println!(
-            "Creating bucket: {} with ID: {}",
-            bucket.name, bucket.bucket_id
-        );
-        Ok(())
-    }
-
-    /// Remove a bucket and all its entries.
-    pub async fn remove_bucket(&self, bucket_id: &ObjectID) -> Result<()> {
-        self.storage
-            .delete_bucket(bucket_id)
-            .map_err(|e| anyhow::anyhow!("Failed to delete bucket: {}", e))
-    }
-
-    /// Get storage layer for direct operations.
-    pub fn storage(&self) -> &Arc<storage::WalrusIndexStore> {
-        &self.storage
-    }
-
-    /// Get statistics for a bucket.
-    pub async fn get_bucket_stats(&self, bucket_id: &ObjectID) -> Result<storage::BucketStats> {
-        self.storage
-            .get_bucket_stats(bucket_id)
-            .map_err(|e| anyhow::anyhow!("Failed to get bucket stats: {}", e))
-    }
-
-    /// Stream events from the event processor using EventStreamCursor pattern.
-    /// This follows the same pattern as the backup orchestrator.
-    async fn process_events(&self, event_processor: Arc<EventProcessor>) -> Result<()> {
-        // Get the event cursor for resumption
-        let event_cursor = self.get_indexer_event_cursor().await?;
-        tracing::info!(?event_cursor, "[stream_events] starting");
-
-        // Get event stream from the event processor
-        let event_stream = std::pin::Pin::from(event_processor.events(event_cursor).await?);
-        let next_event_index = event_cursor.element_index;
-        let index_stream = futures::stream::iter(next_event_index..);
-        let mut indexed_element_stream = index_stream.zip(event_stream);
-
-        while let Some((element_index, positioned_stream_event)) =
-            indexed_element_stream.next().await
-        {
-            match &positioned_stream_event.element {
-                EventStreamElement::ContractEvent(contract_event) => {
-                    // Process the contract event and update storage
-                    self.process_event(contract_event.clone()).await?;
-
-                    // Update the last processed index in storage
-                    self.storage
-                        .set_last_processed_event_index(element_index)
-                        .map_err(|e| anyhow::anyhow!("Failed to update event cursor: {}", e))?;
-
-                    tracing::debug!(element_index, "Processed indexer event");
-                }
-                EventStreamElement::CheckpointBoundary => {
-                    // Skip checkpoint boundaries as they are not relevant for the indexer
-                    continue;
-                }
-            }
-        }
-
-        anyhow::bail!("event stream for indexer stopped")
-    }
-
-    /// Get the event cursor for resumption, similar to backup orchestrator's
-    /// get_backup_node_cursor.
-    async fn get_indexer_event_cursor(
-        &self,
-    ) -> Result<walrus_service::event::events::EventStreamCursor> {
-        use walrus_service::event::events::EventStreamCursor;
-
-        if let Some(last_processed_index) = self
-            .storage
-            .get_last_processed_event_index()
-            .map_err(|e| anyhow::anyhow!("Failed to get last processed index: {}", e))?
-        {
-            // Resume from the next event after the last processed one
-            return Ok(EventStreamCursor::new(None, last_processed_index + 1));
-        }
-
-        // Start from the beginning if no events have been processed yet
-        Ok(EventStreamCursor::new(None, 0))
-    }
-
-    /// Stop the indexer and its event processor.
-    pub async fn stop(&self) {
-        info!("Stopping indexer");
-        self.cancellation_token.cancel();
+    /// Default metrics address.
+    pub fn metrics_address() -> SocketAddr {
+        (Ipv4Addr::LOCALHOST, 9186).into()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
     use tempfile::TempDir;
 
     use super::*;
@@ -444,7 +189,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                event_processor_config: None,
+                ..Default::default()
             };
 
             let indexer = WalrusIndexer::new(config).await?;
@@ -525,7 +270,7 @@ mod tests {
         {
             let config = IndexerConfig {
                 db_path: db_path.clone(),
-                event_processor_config: None,
+                ..Default::default()
             };
 
             let indexer = WalrusIndexer::new(config).await?;

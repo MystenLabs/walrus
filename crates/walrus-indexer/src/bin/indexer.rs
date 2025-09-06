@@ -13,6 +13,7 @@ use clap::Parser;
 use tokio::runtime::Runtime;
 use tracing::{info, warn};
 use walrus_indexer::{IndexerConfig, WalrusIndexer};
+use walrus_service::utils::MetricsAndLoggingRuntime;
 
 #[derive(Parser, Debug)]
 #[command(name = "walrus-indexer")]
@@ -36,16 +37,18 @@ struct IndexerRuntime {
     indexer_task_handle: Option<tokio::task::JoinHandle<Result<()>>>,
     cancellation_token: tokio_util::sync::CancellationToken,
     runtime: Runtime,
+    // Keep metrics runtime alive for the lifetime of the program
+    #[allow(dead_code)]
+    metrics_runtime: MetricsAndLoggingRuntime,
 }
 
 impl IndexerRuntime {
     fn start(args: IndexerArgs) -> Result<Self> {
-        // Initialize tracing
+        // Initialize tracing (already handled by MetricsAndLoggingRuntime)
         if std::env::var("RUST_LOG").is_err() {
             let log_level = if args.verbose { "debug" } else { "info" };
             std::env::set_var("RUST_LOG", log_level);
         }
-        tracing_subscriber::fmt::init();
 
         info!("🚀 Starting Walrus Indexer");
 
@@ -65,12 +68,19 @@ impl IndexerRuntime {
 
         info!("Database path: {}", config.db_path.display());
 
+        // Initialize metrics and logging runtime with the configured address
+        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+
         // Create the tokio runtime
         let runtime = Runtime::new()?;
 
         // Create cancellation token for shutdown coordination
         let cancellation_token = tokio_util::sync::CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();
+
+        // Get the registry from metrics runtime
+        let registry = &metrics_runtime.registry;
+        let registry_clone = registry.clone();
 
         // Initialize and start the indexer
         let indexer_task_handle = runtime.block_on(async {
@@ -90,7 +100,7 @@ impl IndexerRuntime {
             // Spawn the indexer's run() method in a separate task
             let handle = tokio::spawn(async move {
                 info!("Starting indexer run loop");
-                indexer.run(cancel_token_clone).await
+                indexer.run(&registry_clone, cancel_token_clone).await
             });
 
             Ok::<_, anyhow::Error>(Some(handle))
@@ -100,6 +110,7 @@ impl IndexerRuntime {
             indexer_task_handle,
             cancellation_token,
             runtime,
+            metrics_runtime,
         })
     }
 

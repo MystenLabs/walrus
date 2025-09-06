@@ -86,6 +86,7 @@ async fn test_indexer_with_event_processor() -> Result<()> {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
         }),
+        ..Default::default()
     };
 
     // Create the indexer.
@@ -102,9 +103,17 @@ async fn test_indexer_with_event_processor() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
+    // Create a metrics registry
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_registry = walrus_utils::metrics::Registry::new(prometheus_registry);
+
     // Start the indexer in a background task.
     let indexer_for_run = indexer.clone();
-    let indexer_handle = tokio::spawn(async move { indexer_for_run.run(cancel_token_clone).await });
+    let indexer_handle = tokio::spawn(async move {
+        indexer_for_run
+            .run(&metrics_registry, cancel_token_clone)
+            .await
+    });
 
     // Give the indexer time to start up.
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -257,6 +266,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
             event_processor_config: EventProcessorConfig::default(),
             sui_config,
         }),
+        ..Default::default()
     };
 
     // Create and start the indexer.
@@ -264,7 +274,12 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    let indexer_handle = tokio::spawn(async move { indexer.run(cancel_token_clone).await });
+    // Create a metrics registry
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_registry = walrus_utils::metrics::Registry::new(prometheus_registry);
+
+    let indexer_handle =
+        tokio::spawn(async move { indexer.run(&metrics_registry, cancel_token_clone).await });
 
     // Give the indexer time to start up and bind to a port.
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -274,7 +289,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
     // Create test data directly in storage.
     let indexer_for_data = WalrusIndexer::new(IndexerConfig {
         db_path: temp_dir.path().to_path_buf(),
-        event_processor_config: None,
+        ..Default::default()
     })
     .await?;
 
