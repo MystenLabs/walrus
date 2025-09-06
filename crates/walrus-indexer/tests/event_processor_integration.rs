@@ -318,12 +318,28 @@ async fn test_indexer_with_rest_api() -> Result<()> {
         ),
     ];
 
-    for (path, blob_id, object_id) in &entries {
-        indexer_for_data
-            .storage
-            .put_index_entry(&bucket_id, path, object_id, *blob_id)
-            .map_err(|e| anyhow::anyhow!("Failed to add entry: {}", e))?;
-    }
+    let mutations: Vec<_> = entries
+        .iter()
+        .map(
+            |(path, blob_id, object_id)| walrus_sui::types::IndexMutation::Insert {
+                identifier: path.to_string(),
+                object_id: *object_id,
+                blob_id: *blob_id,
+            },
+        )
+        .collect();
+
+    indexer_for_data
+        .storage
+        .apply_index_mutations(vec![walrus_sui::types::IndexMutationSet {
+            bucket_id,
+            mutations,
+            event_id: sui_types::event::EventID {
+                tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                event_seq: 0,
+            },
+        }])
+        .map_err(|e| anyhow::anyhow!("Failed to add entries: {}", e))?;
 
     println!("✅ Test data created");
 

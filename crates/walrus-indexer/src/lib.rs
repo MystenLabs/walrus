@@ -211,24 +211,52 @@ mod tests {
             indexer.create_bucket(bucket2).await?;
 
             // Add photos to bucket 1.
+            let mut mutations_bucket1 = Vec::new();
             for (path, blob_bytes, obj_id_hex) in &photos_data {
                 let blob_id = walrus_core::BlobId(*blob_bytes);
                 let object_id = ObjectID::from_hex_literal(obj_id_hex).unwrap();
-                indexer
-                    .storage
-                    .put_index_entry(&bucket1_id, path, &object_id, blob_id)
-                    .map_err(|e| anyhow::anyhow!("Failed to add photo entry: {}", e))?;
+                mutations_bucket1.push(walrus_sui::types::IndexMutation::Insert {
+                    identifier: path.to_string(),
+                    object_id,
+                    blob_id,
+                });
             }
 
+            indexer
+                .storage
+                .apply_index_mutations(vec![walrus_sui::types::IndexMutationSet {
+                    bucket_id: bucket1_id,
+                    mutations: mutations_bucket1,
+                    event_id: sui_types::event::EventID {
+                        tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                        event_seq: 0,
+                    },
+                }])
+                .map_err(|e| anyhow::anyhow!("Failed to add photo entries: {}", e))?;
+
             // Add documents to bucket 2.
+            let mut mutations_bucket2 = Vec::new();
             for (path, blob_bytes, obj_id_hex) in &docs_data {
                 let blob_id = walrus_core::BlobId(*blob_bytes);
                 let object_id = ObjectID::from_hex_literal(obj_id_hex).unwrap();
-                indexer
-                    .storage
-                    .put_index_entry(&bucket2_id, path, &object_id, blob_id)
-                    .map_err(|e| anyhow::anyhow!("Failed to add doc entry: {}", e))?;
+                mutations_bucket2.push(walrus_sui::types::IndexMutation::Insert {
+                    identifier: path.to_string(),
+                    object_id,
+                    blob_id,
+                });
             }
+
+            indexer
+                .storage
+                .apply_index_mutations(vec![walrus_sui::types::IndexMutationSet {
+                    bucket_id: bucket2_id,
+                    mutations: mutations_bucket2,
+                    event_id: sui_types::event::EventID {
+                        tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                        event_seq: 0,
+                    },
+                }])
+                .map_err(|e| anyhow::anyhow!("Failed to add document entries: {}", e))?;
 
             // Verify bucket 1 stats.
             let stats1 = indexer.get_bucket_stats(&bucket1_id).await?;
