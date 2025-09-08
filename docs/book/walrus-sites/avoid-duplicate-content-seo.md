@@ -8,7 +8,7 @@ When you deploy your own Walrus Sites portal, you may expose the same site under
 
 - **[SuiNS](https://suins.io/)** – human-readable names registered on-chain, e.g. `snowreads.wal.app`.
 - **Base36** – subdomains derived directly from the site object ID, e.g. `1myb…xd.portal.com`.
-- **[Custom domains](https://docs.wal.app/walrus-sites/bring-your-own-domain.html)** – Bring Your Own Domain,
+- **[Custom domains](https://docs.wal.app/walrus-sites/bring-your-own-domain.html)** – BYOD,
   e.g. `example.com`.
 
 Search engines treat the same content served at multiple hosts as duplicates,
@@ -58,8 +58,11 @@ In the HTML `<head>`:
 
 - **Custom domains**
 
-  - Setting `BRING_YOUR_OWN_DOMAIN=true` makes the portal serve only your configured custom domain (single-site mode). Other domains, including SuiNS and base36, are not resolved by that portal.
-  - It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain, to avoid duplicate indexing across different hosts.
+  - Setting `BRING_YOUR_OWN_DOMAIN=true` makes the portal serve only your configured custom domain (single-site mode).
+    Other domains, including SuiNS and base36, are not resolved by that portal.
+  - It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain,
+    to avoid duplicate indexing across different hosts.
 
 - **Multiple SuiNS names → one site**  
-  This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML to point to your preferred domain.
+  This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML
+  to point to your preferred domain.
