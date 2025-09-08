@@ -266,16 +266,21 @@ Add a canonical hint so crawlers know which host to index:</p>
 <h2 id="recommended-practices"><a class="header" href="#recommended-practices">Recommended Practices</a></h2>
 <ul>
 <li>
-<p><strong>Canonical host policy</strong><br />
-Choose one hostname type per site (custom domain &gt; SuiNS &gt; base36 is a good priority).<br />
+<p><strong>Canonical host policy</strong>
+Choose one hostname type per site (custom domain &gt; SuiNS &gt; base36 is a good priority).
 All other hosts should include canonical hints pointing to that choice.</p>
 </li>
 <li>
 <p><strong>Base36 subdomains</strong></p>
 <ul>
-<li>Disable if not needed: <code>B36_DOMAIN_RESOLUTION_SUPPORT=false</code>.</li>
-<li>If enabled, add canonical hints (<code>&lt;link rel="canonical"&gt;</code> or <code>Link: rel="canonical"</code>).</li>
-<li>Optionally, block them from indexing with:
+<li>
+<p>Disable if not needed: <code>B36_DOMAIN_RESOLUTION_SUPPORT=false</code>.</p>
+</li>
+<li>
+<p>If enabled, add canonical hints (<code>&lt;link rel="canonical"&gt;</code> or <code>Link: rel="canonical"</code>).</p>
+</li>
+<li>
+<p>Optionally, block them from indexing with:</p>
 <pre><code class="language-http">X-Robots-Tag: noindex
 </code></pre>
 </li>
@@ -291,7 +296,7 @@ to avoid duplicate indexing across different hosts.</li>
 </ul>
 </li>
 <li>
-<p><strong>Multiple SuiNS names → one site</strong><br />
+<p><strong>Multiple SuiNS names → one site</strong>
 This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML
 to point to your preferred domain.</p>
 </li>
