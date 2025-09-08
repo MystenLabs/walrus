@@ -5502,16 +5502,16 @@ verify its operation. Therefore, they can fully authenticate that the data serve
 Walrus Sites is what the original developer intended.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="avoiding-duplicate-content-seo-in-custom-portals"><a class="header" href="#avoiding-duplicate-content-seo-in-custom-portals">Avoiding Duplicate-Content SEO in Custom Portals</a></h1>
-<p>When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames:</p>
 <blockquote>
 <p><strong>Note:</strong> This guidance does not require any changes to the Walrus Sites portal itself.
 It is focused on <strong>site-level fixes</strong> (HTML tags or HTTP headers) that developers can
 add when hosting their own portals.</p>
 </blockquote>
+<p>When you deploy your own Walrus Sites portal, you may expose the same site under multiple hostnames:</p>
 <ul>
 <li><strong><a href="https://suins.io/">SuiNS</a></strong> – human-readable names registered on-chain, e.g. <code>snowreads.wal.app</code>.</li>
 <li><strong>Base36</strong> – subdomains derived directly from the site object ID, e.g. <code>1myb…xd.portal.com</code>.</li>
-<li><strong><a href="https://docs.wal.app/walrus-sites/bring-your-own-domain.html">BYOD</a></strong> – Bring Your Own Domain,
+<li><strong><a href="https://docs.wal.app/walrus-sites/bring-your-own-domain.html">Custom domains</a></strong> – Bring Your Own Domain,
 e.g. <code>example.com</code>.</li>
 </ul>
 <p>Search engines treat the same content served at multiple hosts as duplicates,
@@ -5520,59 +5520,12 @@ which can dilute ranking signals.</p>
 with base36 and BYOD disabled.
 If you run your own portal and enable base36 or BYOD, you must take steps to signal a canonical host.</p>
 <hr />
-<h2 id="recommended-practices"><a class="header" href="#recommended-practices">Recommended Practices</a></h2>
-<ul>
-<li>
-<p><strong>Canonical host policy</strong>
-Choose one hostname type per site (BYOD &gt; SuiNS &gt; base36 is a good priority).
-All other hosts should include canonical hints pointing to that choice.</p>
-</li>
-<li>
-<p><strong>Base36 subdomains</strong></p>
-<ul>
-<li>
-<p>Disable if not needed: <code>B36_DOMAIN_RESOLUTION_SUPPORT=false</code>.</p>
-</li>
-<li>
-<p>If enabled, add either:</p>
-<ul>
-<li>
-<p>An HTML <code>&lt;link rel="canonical"&gt;</code> in your pages, or</p>
-</li>
-<li>
-<p>An HTTP header:</p>
-<pre><code class="language-http">Link: &lt;https://example.com/page&gt;; rel="canonical"
-</code></pre>
-</li>
-</ul>
-</li>
-<li>
-<p>Alternatively, block them from indexing with:</p>
-<pre><code class="language-http">X-Robots-Tag: noindex
-</code></pre>
-</li>
-</ul>
-</li>
-<li>
-<p><strong>BYOD domains</strong></p>
-<ul>
-<li>Enable with care: <code>BRING_YOUR_OWN_DOMAIN=true</code>.</li>
-<li>Decide if BYOD or SuiNS is canonical, and ensure non-canonical hosts send canonical hints or <code>noindex</code>.</li>
-</ul>
-</li>
-<li>
-<p><strong>Multiple SuiNS names → one site</strong>
-This can happen permissionlessly. If you own the extra names, add canonical hints to consolidate them.
-Otherwise, add a <code>&lt;link rel="canonical"&gt;</code> in the HTML to indicate your preferred host.</p>
-</li>
-</ul>
-<hr />
 <h2 id="example-scenario"><a class="header" href="#example-scenario">Example Scenario</a></h2>
 <p><strong>Problem:</strong>
 You run a site that is reachable at both:</p>
 <ul>
 <li><code>https://example.wal.app/math</code> (SuiNS)</li>
-<li><code>https://example.com/math</code> (BYOD)</li>
+<li><code>https://example.com/math</code> (Custom domain)</li>
 </ul>
 <p>A web crawler will see identical content at two different URLs and may treat them as duplicates.</p>
 <p><strong>Solution:</strong>
@@ -5580,6 +5533,37 @@ Add a canonical hint so crawlers know which host to index:</p>
 <p>In the HTML <code>&lt;head&gt;</code>:</p>
 <pre><code class="language-html">&lt;link rel="canonical" href="https://example.com/math" /&gt;
 </code></pre>
+<hr />
+<h2 id="recommended-practices"><a class="header" href="#recommended-practices">Recommended Practices</a></h2>
+<ul>
+<li>
+<p><strong>Canonical host policy</strong><br />
+Choose one hostname type per site (custom domain &gt; SuiNS &gt; base36 is a good priority).<br />
+All other hosts should include canonical hints pointing to that choice.</p>
+</li>
+<li>
+<p><strong>Base36 subdomains</strong></p>
+<ul>
+<li>Disable if not needed: <code>B36_DOMAIN_RESOLUTION_SUPPORT=false</code>.</li>
+<li>If enabled, add canonical hints (<code>&lt;link rel="canonical"&gt;</code> or <code>Link: rel="canonical"</code>).</li>
+<li>Optionally, block them from indexing with:
+<pre><code class="language-http">X-Robots-Tag: noindex
+</code></pre>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>Custom domains</strong></p>
+<ul>
+<li>Setting <code>BRING_YOUR_OWN_DOMAIN=true</code> makes the portal serve only your configured custom domain (single-site mode). Other domains, including SuiNS and base36, are not resolved by that portal.</li>
+<li>It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain, to avoid duplicate indexing across different hosts.</li>
+</ul>
+</li>
+<li>
+<p><strong>Multiple SuiNS names → one site</strong><br />
+This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML to point to your preferred domain.</p>
+</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="known-restrictions"><a class="header" href="#known-restrictions">Known restrictions</a></h1>
 <p>Walrus Sites can be used to deploy almost any form of traditional static web2 website build for
