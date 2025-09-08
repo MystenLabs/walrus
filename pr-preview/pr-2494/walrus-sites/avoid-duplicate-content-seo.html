@@ -240,7 +240,7 @@ add when hosting their own portals.</p>
 <ul>
 <li><strong><a href="https://suins.io/">SuiNS</a></strong> – human-readable names registered on-chain, e.g. <code>snowreads.wal.app</code>.</li>
 <li><strong>Base36</strong> – subdomains derived directly from the site object ID, e.g. <code>1myb…xd.portal.com</code>.</li>
-<li><strong><a href="https://docs.wal.app/walrus-sites/bring-your-own-domain.html">Custom domains</a></strong> – Bring Your Own Domain,
+<li><strong><a href="https://docs.wal.app/walrus-sites/bring-your-own-domain.html">Custom domains</a></strong> – BYOD,
 e.g. <code>example.com</code>.</li>
 </ul>
 <p>Search engines treat the same content served at multiple hosts as duplicates,
@@ -284,13 +284,16 @@ All other hosts should include canonical hints pointing to that choice.</p>
 <li>
 <p><strong>Custom domains</strong></p>
 <ul>
-<li>Setting <code>BRING_YOUR_OWN_DOMAIN=true</code> makes the portal serve only your configured custom domain (single-site mode). Other domains, including SuiNS and base36, are not resolved by that portal.</li>
-<li>It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain, to avoid duplicate indexing across different hosts.</li>
+<li>Setting <code>BRING_YOUR_OWN_DOMAIN=true</code> makes the portal serve only your configured custom domain (single-site mode).
+Other domains, including SuiNS and base36, are not resolved by that portal.</li>
+<li>It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain,
+to avoid duplicate indexing across different hosts.</li>
 </ul>
 </li>
 <li>
 <p><strong>Multiple SuiNS names → one site</strong><br />
-This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML to point to your preferred domain.</p>
+This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML
+to point to your preferred domain.</p>
 </li>
 </ul>
 
