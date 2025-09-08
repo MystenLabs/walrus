@@ -43,8 +43,8 @@ In the HTML `<head>`:
 
 ## Recommended Practices
 
-- **Canonical host policy**  
-  Choose one hostname type per site (custom domain > SuiNS > base36 is a good priority).  
+- **Canonical host policy**
+  Choose one hostname type per site (custom domain > SuiNS > base36 is a good priority).
   All other hosts should include canonical hints pointing to that choice.
 
 - **Base36 subdomains**
@@ -52,6 +52,7 @@ In the HTML `<head>`:
   - Disable if not needed: `B36_DOMAIN_RESOLUTION_SUPPORT=false`.
   - If enabled, add canonical hints (`<link rel="canonical">` or `Link: rel="canonical"`).
   - Optionally, block them from indexing with:
+
     ```http
     X-Robots-Tag: noindex
     ```
@@ -63,6 +64,6 @@ In the HTML `<head>`:
   - It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain,
     to avoid duplicate indexing across different hosts.
 
-- **Multiple SuiNS names → one site**  
+- **Multiple SuiNS names → one site**
   This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML
   to point to your preferred domain.
