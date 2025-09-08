@@ -2429,7 +2429,7 @@ async fn test_store_with_upload_relay_no_tip() {
         ..cluster_config.clone()
     };
     let server_address = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V4("0.0.0.0".parse::<Ipv4Addr>().unwrap()),
         thread_rng().gen_range(20000..60000),
     );
 
@@ -2550,7 +2550,7 @@ async fn test_store_with_upload_relay_with_tip() {
     };
 
     let server_address = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V4("0.0.0.0".parse::<Ipv4Addr>().unwrap()),
         thread_rng().gen_range(20000..60000),
     );
 
