@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     collections::{HashMap, HashSet},
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
@@ -97,7 +97,6 @@ use walrus_sui::{
 };
 use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 use walrus_upload_relay::{
-    DEFAULT_SERVER_ADDRESS,
     UploadRelayHandle,
     controller::{WalrusUploadRelayConfig, get_client_with_config},
 };
@@ -2429,9 +2428,10 @@ async fn test_store_with_upload_relay_no_tip() {
         ],
         ..cluster_config.clone()
     };
-    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
-        .parse()
-        .expect("valid server address");
+    let server_address = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        thread_rng().gen_range(20000..60000),
+    );
 
     let registry = Registry::default();
 
@@ -2549,9 +2549,10 @@ async fn test_store_with_upload_relay_with_tip() {
         ..cluster_client.inner.config().clone()
     };
 
-    let server_address: SocketAddr = DEFAULT_SERVER_ADDRESS
-        .parse()
-        .expect("valid server address");
+    let server_address = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        thread_rng().gen_range(20000..60000),
+    );
 
     const TIP_BASE: u64 = 1000;
     const TIP_MULTIPLIER: u64 = 100;
