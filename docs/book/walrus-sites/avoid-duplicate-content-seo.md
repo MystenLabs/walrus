@@ -59,11 +59,13 @@ In the HTML `<head>`:
 
 - **Custom domains**
 
-  - Setting `BRING_YOUR_OWN_DOMAIN=true` makes the portal serve only your configured custom domain (single-site mode).
+  - Setting `BRING_YOUR_OWN_DOMAIN=true` makes the portal serve only your configured
+    custom domain (single-site mode).
     Other domains, including SuiNS and base36, are not resolved by that portal.
-  - It’s always a good practice to add canonical hints in your HTML or headers pointing to your chosen custom domain,
+  - It’s always a good practice to add canonical hints in your HTML or headers pointing
+    to your chosen custom domain,
     to avoid duplicate indexing across different hosts.
 
 - **Multiple SuiNS names → one site**
-  This can happen permissionlessly. If you own the extra names, add canonical hints in your site HTML
-  to point to your preferred domain.
+  This can happen permissionlessly. If you own the extra names, add canonical hints
+  in your site HTML to point to your preferred domain.
