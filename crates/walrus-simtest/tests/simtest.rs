@@ -1067,10 +1067,15 @@ mod tests {
             .no_store_optimizations()
             .with_post_store(PostStoreAction::Keep)
             .with_persistence(BlobPersistence::Permanent);
+        let unencoded_blobs = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, blob)| walrus_sdk::client::UnencodedBlob::new(blob, i))
+            .collect::<Vec<_>>();
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
             .await?;
 
         let last_certified_event_blob =
@@ -1099,10 +1104,15 @@ mod tests {
             .no_store_optimizations()
             .with_post_store(PostStoreAction::Keep)
             .with_persistence(BlobPersistence::Permanent);
+        let unencoded_blobs = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, blob)| walrus_sdk::client::UnencodedBlob::new(blob, i))
+            .collect::<Vec<_>>();
         let _results = client
             .as_ref()
             .inner
-            .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
             .await?;
 
         Ok(())

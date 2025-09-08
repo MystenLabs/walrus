@@ -246,6 +246,8 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
                         attribute: &attribute,
                         certificate: None,
                         epochs_extended,
+                        bucket_identifier: None,
+                        is_quilt: false,
                     })
                     .collect();
                 walrus_client

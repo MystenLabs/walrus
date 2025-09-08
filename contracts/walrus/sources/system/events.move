@@ -55,6 +55,8 @@ public struct InsertOrUpdateBlobIndex has copy, drop {
     object_id: ID,
     // The blob ID.
     blob_id: u256,
+    // Whether the blob is a quilt.
+    is_quilt: bool,
 }
 
 /// Signals that a BlobID is invalid.
@@ -191,8 +193,9 @@ public(package) fun emit_insert_or_update_blob_index(
     identifier: vector<u8>,
     object_id: ID,
     blob_id: u256,
+    is_quilt: bool,
 ) {
-    event::emit(InsertOrUpdateBlobIndex { bucket_id, identifier, object_id, blob_id });
+    event::emit(InsertOrUpdateBlobIndex { bucket_id, identifier, object_id, blob_id, is_quilt });
 }
 
 public(package) fun emit_epoch_change_start(epoch: u32) {

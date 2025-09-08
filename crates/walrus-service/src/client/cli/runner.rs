@@ -883,7 +883,7 @@ impl ClientCommandRunner {
         }
 
         let result = quilt_write_client
-            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+            .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, None, &store_args)
             .await?;
 
         tracing::info!(

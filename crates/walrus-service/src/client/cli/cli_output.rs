@@ -16,12 +16,11 @@ use serde::Serialize;
 use walrus_core::{
     BlobId,
     ShardIndex,
-    encoding::quilt_encoding::QuiltPatchApi,
-    metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1},
+    metadata::{QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
     client::{
-        client_types::StoredQuiltPatch,
+        client_types::{StoredQuiltPatch, get_stored_quilt_patches},
         resource::RegisterBlobOp,
         responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
     },
@@ -312,17 +311,6 @@ impl CliOutput for DryRunOutput {
             HumanReadableFrost::from(self.storage_cost),
         )
     }
-}
-
-/// Get the stored quilt patches from a quilt index.
-fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<StoredQuiltPatch> {
-    quilt_index
-        .patches()
-        .iter()
-        .map(|patch| {
-            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
-        })
-        .collect()
 }
 
 impl CliOutput for StoreQuiltDryRunOutput {

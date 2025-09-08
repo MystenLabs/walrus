@@ -257,9 +257,10 @@ public fun add_index_entry(
     identifier: vector<u8>,
     object_id: ID,
     blob_id: u256,
+    is_quilt: bool,
 ) {
     // Just emit the event - no state changes needed in the contract
-    events::emit_insert_or_update_blob_index(bucket_id, identifier, object_id, blob_id);
+    events::emit_insert_or_update_blob_index(bucket_id, identifier, object_id, blob_id, is_quilt);
 }
 
 // === Public Accessors ===

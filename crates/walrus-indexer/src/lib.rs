@@ -44,18 +44,6 @@ use serde::{Deserialize, Serialize};
 pub use storage::{BlobIdentity, BucketStats, WalrusIndexStore};
 use sui_types::base_types::ObjectID;
 
-/// Configuration for indexer event processor functionality.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IndexerEventProcessorConfig {
-    /// Event processor configuration.
-    pub event_processor_config:
-        walrus_service::event::event_processor::config::EventProcessorConfig,
-
-    /// Sui configuration for event processing.
-    pub sui_config: walrus_service::common::config::SuiConfig,
-}
-
 /// Configuration for the indexer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,9 +56,14 @@ pub struct IndexerConfig {
     #[serde(default = "default::metrics_address")]
     pub metrics_address: SocketAddr,
 
-    /// Optional configuration for event processing.
+    /// Optional event processor configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_processor_config: Option<IndexerEventProcessorConfig>,
+    pub event_processor_config:
+        Option<walrus_service::event::event_processor::config::EventProcessorConfig>,
+
+    /// Optional Sui configuration for event processing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sui_config: Option<walrus_service::common::config::SuiConfig>,
 }
 
 impl Default for IndexerConfig {
@@ -79,6 +72,7 @@ impl Default for IndexerConfig {
             db_path: default::db_path(),
             metrics_address: default::metrics_address(),
             event_processor_config: None,
+            sui_config: None,
         }
     }
 }
@@ -119,6 +113,11 @@ pub mod default {
 mod tests {
     use anyhow::Result;
     use tempfile::TempDir;
+    use walrus_core::encoding::EncodingConfigTrait;
+    use walrus_sui::{
+        test_utils::event_id_for_testing,
+        types::{IndexMutation, IndexMutationSet},
+    };
 
     use super::*;
 
@@ -219,6 +218,7 @@ mod tests {
                     identifier: path.to_string(),
                     object_id,
                     blob_id,
+                    is_quilt: false,
                 });
             }
 
@@ -243,6 +243,7 @@ mod tests {
                     identifier: path.to_string(),
                     object_id,
                     blob_id,
+                    is_quilt: false,
                 });
             }
 
@@ -351,6 +352,106 @@ mod tests {
             let stats2_after = indexer.get_bucket_stats(&bucket2_id).await?;
             assert_eq!(stats2_after.primary_count, 0);
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_quilt_patch_indexing() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let indexer = WalrusIndexer::new(IndexerConfig {
+            db_path: temp_dir.path().to_path_buf(),
+            metrics_address: "127.0.0.1:8080".parse().unwrap(),
+            sui_config: None,
+            event_processor_config: None,
+        })
+        .await?;
+
+        let bucket_id = ObjectID::random();
+
+        // Create some test data blobs that would be inside a quilt
+        let blob1_data = b"Hello, this is blob 1 content";
+        let blob2_data = b"This is the content of blob 2 with more data";
+        let blob3_data = b"Blob 3 has different content altogether";
+
+        // Calculate blob IDs for each individual blob using the encoding API
+        let encoding_config =
+            walrus_core::encoding::EncodingConfig::new(std::num::NonZeroU16::new(1000).unwrap());
+        let config_enum = encoding_config.get_for_type(walrus_core::EncodingType::RS2);
+
+        let blob1_metadata = config_enum.compute_metadata(blob1_data)?;
+        let blob2_metadata = config_enum.compute_metadata(blob2_data)?;
+        let blob3_metadata = config_enum.compute_metadata(blob3_data)?;
+
+        let blob1_id = *blob1_metadata.blob_id();
+        let blob2_id = *blob2_metadata.blob_id();
+        let blob3_id = *blob3_metadata.blob_id();
+
+        // TODO: Test the quilt patch index functionality when quilt index handling is implemented
+        // Simulate a quilt blob ID (this would be the ID of the quilt itself)
+        // let quilt_blob_id = walrus_core::BlobId::ZERO; // Using zero for simplicity in test
+        // Create QuiltPatchIds that would be generated when processing a real quilt
+        // let patch1_id = walrus_core::QuiltPatchId::new(quilt_blob_id, vec![1, 0]);
+        // let patch2_id = walrus_core::QuiltPatchId::new(quilt_blob_id, vec![2, 0]);
+        // let patch3_id = walrus_core::QuiltPatchId::new(quilt_blob_id, vec![3, 0]);
+        // let key1 = format!("{}:{}", blob1_id, quilt_blob_id);
+        // let key2 = format!("{}:{}", blob2_id, quilt_blob_id);
+        // let key3 = format!("{}:{}", blob3_id, quilt_blob_id);
+
+        // Now test the primary index functionality with quilt patch entries
+        // Insert the patch blobs into the primary index as well
+        let mutations = vec![
+            IndexMutation::Insert {
+                identifier: "patch1.txt".to_string(),
+                object_id: ObjectID::ZERO,
+                blob_id: blob1_id,
+                is_quilt: false,
+            },
+            IndexMutation::Insert {
+                identifier: "patch2.txt".to_string(),
+                object_id: ObjectID::ZERO,
+                blob_id: blob2_id,
+                is_quilt: false,
+            },
+            IndexMutation::Insert {
+                identifier: "patch3.txt".to_string(),
+                object_id: ObjectID::ZERO,
+                blob_id: blob3_id,
+                is_quilt: false,
+            },
+        ];
+
+        let mutation_set = IndexMutationSet {
+            bucket_id,
+            mutations,
+            event_id: event_id_for_testing(),
+        };
+
+        indexer.storage.apply_index_mutations(vec![mutation_set])?;
+
+        // Verify the patches can be found in the primary index
+        let patch1_entry = indexer
+            .get_blob_from_bucket(&bucket_id, "patch1.txt")
+            .await?;
+        let patch2_entry = indexer
+            .get_blob_from_bucket(&bucket_id, "patch2.txt")
+            .await?;
+        let patch3_entry = indexer
+            .get_blob_from_bucket(&bucket_id, "patch3.txt")
+            .await?;
+
+        assert!(patch1_entry.is_some());
+        assert!(patch2_entry.is_some());
+        assert!(patch3_entry.is_some());
+
+        assert_eq!(patch1_entry.unwrap().blob_id, blob1_id);
+        assert_eq!(patch2_entry.unwrap().blob_id, blob2_id);
+        assert_eq!(patch3_entry.unwrap().blob_id, blob3_id);
+
+        // TODO: Test quilt patch mappings when quilt index handling is implemented
+
+        println!("✅ Quilt patch indexing test completed successfully!");
+        println!("   - Verified patch blobs are indexed in primary index");
 
         Ok(())
     }

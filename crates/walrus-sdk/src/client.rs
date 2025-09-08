@@ -53,19 +53,13 @@ use walrus_core::{
 use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
-        BlobBucketIdentifier,
         CertifyAndExtendBlobParams,
         CertifyAndExtendBlobResult,
         ExpirySelectionPolicy,
         ReadClient,
         SuiContractClient,
     },
-    types::{
-        Blob,
-        BlobEvent,
-        StakedWal,
-        move_structs::{BlobAttribute, BlobWithAttribute},
-    },
+    types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
@@ -857,19 +851,18 @@ impl WalrusNodeClient<SuiContractClient> {
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs_retry_committees(
+    pub async fn reserve_and_store_blobs_retry_committees<
+        T: Debug + Clone + Send + Sync + ToString,
+    >(
         &self,
-        blobs: &[&[u8]],
-        attributes: &[BlobAttribute],
-        bucket_identifiers: &[BlobBucketIdentifier],
+        blobs: &[UnencodedBlob<'_, T>],
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let walrus_store_blobs = WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(
-            blobs,
-            attributes,
-            bucket_identifiers,
-        );
         let start = Instant::now();
+        let walrus_store_blobs = blobs
+            .iter()
+            .map(|blob| WalrusStoreBlob::Unencoded(blob.clone()))
+            .collect::<Vec<_>>();
         let encoded_blobs = self.encode_blobs(walrus_store_blobs, store_args.encoding_type)?;
         store_args.maybe_observe_encoding_latency(start.elapsed());
 

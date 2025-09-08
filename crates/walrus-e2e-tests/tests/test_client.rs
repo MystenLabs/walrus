@@ -978,7 +978,7 @@ async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
         .with_encoding_type(encoding_type)
         .no_store_optimizations();
     let store_operation_result = quilt_client
-        .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, &store_args)
+        .reserve_and_store_quilt::<QuiltVersionV1>(&quilt, None, &store_args)
         .await?;
 
     let QuiltStoreResult {
@@ -1717,9 +1717,14 @@ async fn test_post_store_action(
     let store_args = StoreArgs::default_with_epochs(1)
         .no_store_optimizations()
         .with_post_store(post_store);
+    let unencoded_blobs = blobs
+        .iter()
+        .enumerate()
+        .map(|(i, blob)| walrus_sdk::client::UnencodedBlob::new(blob, i))
+        .collect::<Vec<_>>();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &[], &[], &store_args)
+        .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
         .await?;
 
     let owned_blobs = client
@@ -1796,9 +1801,20 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
 
     // Store the blob with attributes.
     let store_args = StoreArgs::default_with_epochs(2).no_store_optimizations();
+    let unencoded_blobs = blobs
+        .iter()
+        .enumerate()
+        .map(|(i, blob)| {
+            let mut unencoded = walrus_sdk::client::UnencodedBlob::new(blob, i);
+            if let Some(attr) = attributes.get(i) {
+                unencoded = unencoded.with_attribute(attr.clone());
+            }
+            unencoded
+        })
+        .collect::<Vec<_>>();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(&blobs, &attributes, &[], &store_args)
+        .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
         .await?;
 
     assert_eq!(results.len(), 1);

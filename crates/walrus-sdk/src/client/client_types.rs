@@ -13,9 +13,12 @@ use utoipa::ToSchema;
 use walrus_core::{
     BlobId,
     QuiltPatchId,
-    encoding::{SliverPair, quilt_encoding::QuiltPatchInternalIdApi},
+    encoding::{
+        SliverPair,
+        quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
+    },
     messages::ConfirmationCertificate,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
@@ -41,16 +44,46 @@ pub struct StoredQuiltPatch {
     pub identifier: String,
     /// The quilt patch id.
     pub quilt_patch_id: String,
+    /// The object id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_blob_id: Option<BlobId>,
 }
 
 impl StoredQuiltPatch {
     /// Create a new stored quilt patch.
-    pub fn new<T: QuiltPatchInternalIdApi>(blob_id: BlobId, identifier: &str, patch_id: T) -> Self {
+    pub fn new<T: QuiltPatchInternalIdApi>(
+        blob_id: BlobId,
+        identifier: &str,
+        patch_id: T,
+        patch_blob_id: Option<BlobId>,
+    ) -> Self {
         Self {
             identifier: identifier.to_string(),
             quilt_patch_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()).to_string(),
+            patch_blob_id,
         }
     }
+}
+
+/// Get the stored quilt patches from a quilt index.
+pub fn get_stored_quilt_patches(
+    quilt_index: &QuiltIndex,
+    quilt_id: BlobId,
+) -> Vec<StoredQuiltPatch> {
+    assert!(matches!(quilt_index, QuiltIndex::V1(_)));
+    let QuiltIndex::V1(quilt_index_v1) = quilt_index;
+    quilt_index_v1
+        .patches()
+        .iter()
+        .map(|patch| {
+            StoredQuiltPatch::new(
+                quilt_id,
+                &patch.identifier,
+                patch.quilt_patch_internal_id(),
+                patch.patch_blob_id(),
+            )
+        })
+        .collect()
 }
 
 /// API for a blob that is being stored to Walrus.
@@ -234,6 +267,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
             span,
             attribute,
             bucket_identifier,
+            is_quilt: false,
         })
     }
 
@@ -304,6 +338,8 @@ pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
     pub attribute: BlobAttribute,
     /// The bucket identifier of the blob.
     pub bucket_identifier: Option<BlobBucketIdentifier>,
+    /// Whether the blob is a quilt.
+    pub is_quilt: bool,
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
@@ -483,6 +519,41 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for UnencodedBlob<'_, T> {
             .field("blob_len", &self.blob.len())
             .field("attribute", &self.attribute)
             .finish()
+    }
+}
+
+impl<'a, T: Debug + Clone + Send + Sync> UnencodedBlob<'a, T> {
+    /// Create a new unencoded blob.
+    pub fn new(blob: &'a [u8], identifier: T) -> Self {
+        Self {
+            blob,
+            identifier,
+            span: Span::current(),
+            attribute: BlobAttribute::default(),
+            bucket_identifier: None,
+            is_quilt: false,
+        }
+    }
+
+    /// Set the attribute of the blob.
+    pub fn with_attribute(self, attribute: BlobAttribute) -> Self {
+        Self { attribute, ..self }
+    }
+
+    /// Set the bucket identifier of the blob.
+    pub fn with_bucket_identifier(self, bucket_identifier: BlobBucketIdentifier) -> Self {
+        Self {
+            bucket_identifier: Some(bucket_identifier),
+            ..self
+        }
+    }
+
+    /// Mark the blob as a quilt.
+    pub fn mark_as_quilt(self) -> Self {
+        Self {
+            is_quilt: true,
+            ..self
+        }
     }
 }
 
@@ -1028,6 +1099,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
                 certificate: None,
                 epochs_extended: Some(*epochs_extended),
                 bucket_identifier: self.input_blob.bucket_identifier.clone(),
+                is_quilt: self.input_blob.is_quilt,
             })
         } else {
             Err(invalid_operation_for_blob(
@@ -1291,6 +1363,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: Some(*epochs_extended),
                 bucket_identifier: self.input_blob.bucket_identifier.clone(),
+                is_quilt: self.input_blob.is_quilt,
             }),
             RegisterBlobOp::RegisterFromScratch { .. }
             | RegisterBlobOp::ReuseStorage { .. }
@@ -1300,6 +1373,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 certificate: Some(self.certificate.clone()),
                 epochs_extended: None,
                 bucket_identifier: self.input_blob.bucket_identifier.clone(),
+                is_quilt: self.input_blob.is_quilt,
             }),
         }
     }

@@ -440,6 +440,7 @@ impl WalrusPtbBuilder {
         identifier: String,
         object_id: ObjectID,
         blob_id: BlobId,
+        is_quilt: bool,
     ) -> SuiClientResult<()> {
         let add_index_args = vec![
             self.system_arg(Mutability::Immutable).await?,
@@ -447,6 +448,7 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(identifier)?,
             self.pt_builder.pure(object_id)?,
             self.pt_builder.pure(blob_id)?,
+            self.pt_builder.pure(is_quilt)?,
         ];
         self.walrus_move_call(contracts::system::add_index_entry, add_index_args)?;
         Ok(())

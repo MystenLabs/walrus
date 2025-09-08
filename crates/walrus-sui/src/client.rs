@@ -256,6 +256,8 @@ pub struct CertifyAndExtendBlobParams<'a> {
     pub epochs_extended: Option<EpochCount>,
     /// The bucket identifier of the blob.
     pub bucket_identifier: Option<BlobBucketIdentifier>,
+    /// Whether the blob is a quilt.
+    pub is_quilt: bool,
 }
 
 /// Result of certifying and extending a blob.
@@ -708,12 +710,13 @@ impl SuiContractClient {
         identifier: String,
         object_id: ObjectID,
         blob_id: BlobId,
+        is_quilt: bool,
     ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .add_index_entry(bucket_id, identifier.clone(), object_id, blob_id)
+                .add_index_entry(bucket_id, identifier.clone(), object_id, blob_id, is_quilt)
                 .await
         })
         .await
@@ -1891,10 +1894,11 @@ impl SuiContractClientInner {
         identifier: String,
         object_id: ObjectID,
         blob_id: BlobId,
+        is_quilt: bool,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .add_index_entry(bucket_id, identifier, object_id, blob_id)
+            .add_index_entry(bucket_id, identifier, object_id, blob_id, is_quilt)
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "add_index_entry")
@@ -2787,6 +2791,7 @@ impl SuiContractClientInner {
                         bucket_identifier.identifier.clone(),
                         blob.id,
                         blob.blob_id,
+                        blob_params.is_quilt,
                     )
                     .await?;
             }

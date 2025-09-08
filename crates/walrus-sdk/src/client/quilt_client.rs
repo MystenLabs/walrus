@@ -31,7 +31,7 @@ use walrus_core::{
     metadata::{QuiltIndex, QuiltMetadata, QuiltMetadataV1, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{
-    client::{ReadClient, SuiContractClient},
+    client::{BlobBucketIdentifier, ReadClient, SuiContractClient},
     types::move_structs::BlobAttribute,
 };
 use walrus_utils::read_blob_from_file;
@@ -39,6 +39,7 @@ use walrus_utils::read_blob_from_file;
 use crate::{
     client::{
         StoreArgs,
+        UnencodedBlob,
         WalrusNodeClient,
         client_types::StoredQuiltPatch,
         responses::QuiltStoreResult,
@@ -767,7 +768,7 @@ impl QuiltClient<'_, SuiContractClient> {
             .construct_quilt_from_paths::<V, P>(paths, store_args.encoding_type)
             .await?;
         let result = self
-            .reserve_and_store_quilt::<V>(&quilt, store_args)
+            .reserve_and_store_quilt::<V>(&quilt, None, store_args)
             .await?;
 
         Ok(result)
@@ -778,15 +779,19 @@ impl QuiltClient<'_, SuiContractClient> {
     pub async fn reserve_and_store_quilt<V: QuiltVersion>(
         &self,
         quilt: &V::Quilt,
+        bucket_identifier: Option<BlobBucketIdentifier>,
         store_args: &StoreArgs,
     ) -> ClientResult<QuiltStoreResult> {
-        let attributes = vec![BlobAttribute::from([(
-            BLOB_TYPE_ATTRIBUTE_KEY,
-            QUILT_TYPE_VALUE,
-        )])];
+        let attribute = BlobAttribute::from([(BLOB_TYPE_ATTRIBUTE_KEY, QUILT_TYPE_VALUE)]);
+        let mut unencoded_blob = UnencodedBlob::new(quilt.data(), 0)
+            .with_attribute(attribute)
+            .mark_as_quilt();
+        if let Some(bucket_identifier) = bucket_identifier {
+            unencoded_blob = unencoded_blob.with_bucket_identifier(bucket_identifier);
+        }
         let result = self
             .client
-            .reserve_and_store_blobs_retry_committees(&[quilt.data()], &attributes, &[], store_args)
+            .reserve_and_store_blobs_retry_committees(&[unencoded_blob], store_args)
             .await?;
 
         let blob_store_result = result.first().expect("the first blob should exist").clone();
@@ -798,7 +803,12 @@ impl QuiltClient<'_, SuiContractClient> {
             .patches()
             .iter()
             .map(|patch| {
-                StoredQuiltPatch::new(blob_id, patch.identifier(), patch.quilt_patch_internal_id())
+                StoredQuiltPatch::new(
+                    blob_id,
+                    patch.identifier(),
+                    patch.quilt_patch_internal_id(),
+                    patch.patch_blob_id(),
+                )
             })
             .collect::<Vec<_>>();
 

@@ -126,9 +126,10 @@ pub mod simtest_utils {
                 .with_persistence(BlobPersistence::from_deletable_and_permanent(
                     deletable, !deletable,
                 )?);
+            let unencoded_blobs = [walrus_sdk::client::UnencodedBlob::new(blob.as_slice(), 0)];
             let result = client
                 .as_ref()
-                .reserve_and_store_blobs_retry_committees(&[blob.as_slice()], &[], &[], &store_args)
+                .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
                 .await;
             if let Ok(result) = result {
                 break result;

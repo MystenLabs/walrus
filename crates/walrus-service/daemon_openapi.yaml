@@ -885,6 +885,11 @@ components:
         identifier:
           type: string
           description: The identifier of the quilt patch.
+        patchBlobId:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlobId'
+            description: The object id.
         quiltPatchId:
           type: string
           description: The quilt patch id.

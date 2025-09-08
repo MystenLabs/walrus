@@ -9,6 +9,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
+use std::str::FromStr;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -28,6 +29,7 @@ use crate::{
         QuiltError,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{
+            PATCH_BLOB_ID_TAG,
             QuiltIndexApi,
             QuiltPatchApi,
             QuiltPatchInternalIdApi,
@@ -93,6 +95,12 @@ impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
         (self.start_index..self.end_index)
             .map(SliverIndex::new)
             .collect()
+    }
+
+    fn patch_blob_id(&self) -> Option<BlobId> {
+        self.tags
+            .get(PATCH_BLOB_ID_TAG)
+            .and_then(|blob_id| BlobId::from_str(blob_id).ok())
     }
 }
 
@@ -164,13 +172,6 @@ impl QuiltIndex {
             QuiltIndex::V1(quilt_index) => {
                 quilt_index.get_sliver_indices_for_identifiers(identifiers)
             }
-        }
-    }
-
-    /// Returns the patches of the quilt index.
-    pub fn patches(&self) -> &[QuiltPatchV1] {
-        match self {
-            QuiltIndex::V1(quilt_index) => &quilt_index.quilt_patches,
         }
     }
 }
@@ -313,6 +314,13 @@ impl QuiltMetadata {
     pub fn get_verified_metadata(&self) -> VerifiedBlobMetadataWithId {
         match self {
             QuiltMetadata::V1(quilt_metadata_v1) => quilt_metadata_v1.get_verified_metadata(),
+        }
+    }
+
+    /// Returns the quilt index.
+    pub fn get_quilt_index(&self) -> QuiltIndex {
+        match self {
+            QuiltMetadata::V1(quilt_metadata_v1) => QuiltIndex::V1(quilt_metadata_v1.index.clone()),
         }
     }
 }

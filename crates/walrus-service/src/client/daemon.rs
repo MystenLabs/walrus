@@ -219,8 +219,9 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
             persistence,
             post_store,
         );
+        let unencoded_blob = walrus_sdk::client::UnencodedBlob::new(blob, 0);
         let result = self
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&[unencoded_blob], &store_args)
             .await?;
 
         Ok(result
@@ -261,7 +262,7 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
             post_store,
         );
         self.quilt_client()
-            .reserve_and_store_quilt::<V>(&quilt, &store_args)
+            .reserve_and_store_quilt::<V>(&quilt, None, &store_args)
             .await
     }
 

@@ -109,11 +109,12 @@ impl WriteClient {
             .no_store_optimizations()
             .with_metrics(self.metrics.clone());
 
+        let unencoded_blob = walrus_sdk::client::UnencodedBlob::new(blob, 0);
         let blob_id = self
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_committees(&[blob], &[], &[], &store_args)
+            .reserve_and_store_blobs_retry_committees(&[unencoded_blob], &store_args)
             .await?
             .first()
             .expect("should have one blob store result")

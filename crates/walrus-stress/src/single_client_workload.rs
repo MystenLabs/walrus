@@ -167,14 +167,10 @@ impl SingleClientWorkload {
                     PostStoreAction::Keep,
                 );
                 store_args = store_args.with_metrics(self.metrics.clone());
+                let unencoded_blob = walrus_sdk::client::UnencodedBlob::new(blob.as_slice(), 0);
                 let store_result = self
                     .client
-                    .reserve_and_store_blobs_retry_committees(
-                        &[blob.as_slice()],
-                        &[],
-                        &[],
-                        &store_args,
-                    )
+                    .reserve_and_store_blobs_retry_committees(&[unencoded_blob], &store_args)
                     .await?;
                 self.metrics.observe_latency("store_blob", now.elapsed());
                 match &store_result[0] {

@@ -6,14 +6,17 @@
 // Allowing `unwrap`s in tests.
 #![allow(clippy::unwrap_used)]
 
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use anyhow::Result;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
-use walrus_core::BlobId;
-use walrus_indexer::{Bucket, IndexerConfig, IndexerEventProcessorConfig, WalrusIndexer};
+use walrus_core::{
+    BlobId,
+    encoding::quilt_encoding::{QuiltStoreBlob, QuiltVersionV1},
+};
+use walrus_indexer::{Bucket, IndexerConfig, WalrusIndexer, storage::IndexTarget};
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::client::StoreArgs;
 use walrus_service::{
@@ -26,47 +29,56 @@ use walrus_sui::{client::BlobBucketIdentifier, config::WalletConfig};
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_indexer_with_event_processor() -> Result<()> {
-    // Initialize logging for debugging - include event processor logs.
     let _ = tracing_subscriber::fmt()
         .with_env_filter("walrus_indexer=debug,walrus_service=debug,walrus_service::event=trace")
         .try_init();
-
-    println!("🚀 Testing indexer with event processor integration");
-
-    // Create a bucket ID for indexing throughout the test.
-    let bucket_id = ObjectID::from_hex_literal(
-        "0xbbbbaaaaffffeeeedddccccbbbbaaaafffeeedddccccbbbaaaafffeeeddcc",
-    )
-    .unwrap();
 
     let (sui_cluster_handle, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(Duration::from_secs(10))
         .build()
         .await?;
 
-    // Get RPC URL from the test cluster.
+    let bucket_id_1 = ObjectID::random();
+    let bucket_id_2 = ObjectID::random();
+    let data_list_1 = walrus_test_utils::generate_random_data(5, 1024, 2048);
+    let data_list_2 = walrus_test_utils::generate_random_data(5, 1024, 2048);
+    let unencoded_blobs_1 = data_list_1.iter().enumerate().map(|(i, data)| {
+        walrus_sdk::client::UnencodedBlob::new(data, 0)
+            .with_bucket_identifier(BlobBucketIdentifier {
+                bucket_id: bucket_id_1,
+                identifier: format!("test1-{}", i),
+            })
+    }).collect::<Vec<_>>();
+    let unencoded_blobs_2 = data_list_2.iter().enumerate().map(|(i, data)| {
+        walrus_sdk::client::UnencodedBlob::new(data, 0)
+            .with_bucket_identifier(BlobBucketIdentifier {
+                bucket_id: bucket_id_2,
+                identifier: format!("test2-{}", i),
+            })
+    }).collect::<Vec<_>>();
+
+    let data_list_quilt = walrus_test_utils::generate_random_data(5, 1024, 2048);
+    let encoder_config = client.as_ref().encoding_config().get_for_type(walrus_core::EncodingType::RS2);
+    let quilt_store_blobs = data_list_quilt.iter().enumerate().map(|(i, data)| {
+        QuiltStoreBlob::new(data, format!("quilt-patch-{}", i))
+            .expect("Should create blob").with_blob_id(&encoder_config)
+    }).collect::<Result<Vec<_>, _>>()?;
+
+
     let rpc_url = sui_cluster_handle
         .lock()
         .await
         .cluster()
         .rpc_url()
         .to_string();
-
-    println!("✅ Test clusters created, RPC URL: {}", rpc_url);
-
-    // Get wallet config from the test cluster.
     let cluster_wallet_path = sui_cluster_handle.lock().await.wallet_path().await;
     let wallet_config = WalletConfig::from_path(cluster_wallet_path);
-
-    // Get contract config from the client.
     let contract_config = client
         .as_ref()
         .sui_client()
         .read_client()
         .contract_config()
         .clone();
-
-    // Create indexer configuration.
     let temp_dir = TempDir::new()?;
     let sui_config = SuiConfig {
         rpc: rpc_url,
@@ -82,28 +94,19 @@ async fn test_indexer_with_event_processor() -> Result<()> {
 
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_path_buf(),
-        event_processor_config: Some(IndexerEventProcessorConfig {
-            event_processor_config: EventProcessorConfig::default(),
-            sui_config,
-        }),
+        event_processor_config: Some(EventProcessorConfig::default()),
+        sui_config: Some(sui_config),
         ..Default::default()
     };
 
     // Create the indexer.
     let indexer = WalrusIndexer::new(indexer_config).await?;
 
-    // Check initial event cursor position before storing blobs.
-    let pre_store_cursor = indexer
-        .storage
-        .get_last_processed_event_index()
-        .map_err(|e| anyhow::anyhow!("Failed to get initial event index: {}", e))?;
-    println!("📊 Initial event cursor position: {:?}", pre_store_cursor);
-
     // Create a cancellation token for the indexer.
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    // Create a metrics registry
+    // Create a metrics registry.
     let prometheus_registry = prometheus::Registry::new();
     let metrics_registry = walrus_utils::metrics::Registry::new(prometheus_registry);
 
@@ -115,103 +118,163 @@ async fn test_indexer_with_event_processor() -> Result<()> {
             .await
     });
 
-    // Give the indexer time to start up.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    println!("✅ Indexer started with event processor");
-
-    // Store a blob using the client to generate real events.
-    let blob_data = walrus_test_utils::random_data(1024);
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
-    let store_results = client
+    let store_results_1 = client
         .as_ref()
-        .reserve_and_store_blobs(&[&blob_data], &store_args)
+        .reserve_and_store_blobs_retry_committees(&unencoded_blobs_1, &store_args)
         .await?;
-
-    let blob_id = store_results[0].blob_id().expect("blob should have ID");
-    let object_id = match &store_results[0] {
-        walrus_sdk::client::responses::BlobStoreResult::NewlyCreated { blob_object, .. } => {
-            blob_object.id
-        }
-        _ => panic!("Expected newly created blob"),
-    };
-
-    println!(
-        "✅ Stored blob with ID: {:?}, object ID: {:?}",
-        blob_id, object_id
-    );
-
-    // Store more blobs to generate multiple events.
-    println!("📝 Storing additional blobs to generate more events...");
-
-    let blob_data2 = walrus_test_utils::random_data(2048);
-    let blob_data3 = walrus_test_utils::random_data(512);
-    let store_results2 = client
+    let store_results_2 = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees(
-            &[&blob_data2, &blob_data3],
-            &[],
-            &[
-                BlobBucketIdentifier {
-                    bucket_id,
-                    identifier: "test1".to_string(),
-                },
-                BlobBucketIdentifier {
-                    bucket_id,
-                    identifier: "test2".to_string(),
-                },
-            ],
+        .reserve_and_store_blobs_retry_committees(&unencoded_blobs_2, &store_args)
+        .await?;
+    let quilt = client
+        .as_ref()
+        .quilt_client()
+        .construct_quilt::<QuiltVersionV1>(&quilt_store_blobs, store_args.encoding_type)
+        .await?;
+    let quilt_bucket_identifier = BlobBucketIdentifier {
+        bucket_id: bucket_id_1,
+        identifier: "quilt-main".to_string(),
+    };
+    let quilt_store_result = client
+        .as_ref()
+        .quilt_client()
+        .reserve_and_store_quilt::<QuiltVersionV1>(
+            &quilt,
+            Some(quilt_bucket_identifier),
             &store_args,
         )
         .await?;
 
-    println!("✅ Stored {} more blobs", store_results2.len());
-
-    // Wait for events to be processed.
-    println!("⏳ Waiting for event processor to consume events...");
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    // Check event cursor progress - it should have advanced.
-    let cursor = indexer
-        .storage
-        .get_last_processed_event_index()
-        .map_err(|e| anyhow::anyhow!("Failed to get event index: {}", e))?;
-    println!("📊 Event cursor after processing: {:?}", cursor);
-
-    // Verify the event processor has been processing events.
-    if let Some(cursor) = cursor {
-        assert!(
-            cursor > 0,
-            "Event processor should have processed some events"
-        );
-        println!(
-            "✅ Event processor confirmed working - processed up to event index: {}",
-            cursor
-        );
-    } else {
-        // If no cursor is set, it might mean no events were found yet.
-        println!("⚠️  No event cursor found - event processor may still be initializing");
+    for (i, unencoded_blob) in unencoded_blobs_1.iter().enumerate() {
+        let identifier = &unencoded_blob.bucket_identifier.as_ref().unwrap().identifier;
+        let expected_blob_id = store_results_1[i].blob_id().expect("blob should have ID");
+        
+        let index_target = indexer.get_index_target_from_bucket(&bucket_id_1, identifier).await?;
+        match index_target {
+            Some(IndexTarget::Blob(blob_identity)) => {
+                assert_eq!(blob_identity.blob_id, expected_blob_id);
+            }
+            Some(other) => panic!("Expected IndexTarget::Blob, got {:?}", other),
+            None => panic!("Expected to find blob for identifier {}", identifier),
+        }
     }
 
-    let blob_identity = indexer.get_blob_from_bucket(&bucket_id, "test1").await?;
-    let blob_identity = blob_identity.expect("blob identity should be found");
-    assert_eq!(
-        blob_identity.blob_id,
-        store_results2[0].blob_id().expect("blob should have ID")
-    );
+    for (i, unencoded_blob) in unencoded_blobs_2.iter().enumerate() {
+        let identifier = &unencoded_blob.bucket_identifier.as_ref().unwrap().identifier;
+        let expected_blob_id = store_results_2[i].blob_id().expect("blob should have ID");
+        
+        let index_target = indexer.get_index_target_from_bucket(&bucket_id_2, identifier).await?;
+        match index_target {
+            Some(IndexTarget::Blob(blob_identity)) => {
+                assert_eq!(blob_identity.blob_id, expected_blob_id);
+            }
+            Some(other) => panic!("Expected IndexTarget::Blob, got {:?}", other),
+            None => panic!("Expected to find blob for identifier {}", identifier),
+        }
+    }
 
-    let blob_identity = indexer.get_blob_from_bucket(&bucket_id, "test2").await?;
-    let blob_identity = blob_identity.expect("blob identity should be found");
-    assert_eq!(
-        blob_identity.blob_id,
-        store_results2[1].blob_id().expect("blob should have ID")
-    );
+    let  quilt_target = indexer.get_index_target_from_bucket(&bucket_id_1, "quilt-main").await?;
+    match quilt_target {
+        Some(IndexTarget::Blob(blob_identity)) => {
+            let expected_quilt_blob_id = quilt_store_result.blob_store_result.blob_id().expect("quilt should have blob ID");
+            assert_eq!(blob_identity.blob_id, expected_quilt_blob_id);
+        }
+        Some(other) => panic!("Expected IndexTarget::Blob for quilt, got {:?}", other),
+        None => panic!("Expected to find quilt for identifier quilt-main"),
+    }
+
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    let quilt_patches = &quilt_store_result.stored_quilt_blobs;
+    for stored_quilt_patch in quilt_patches.iter() {
+        let patch_identifier = stored_quilt_patch.identifier.as_str();
+        let expected_patch_id = walrus_core::QuiltPatchId::from_str(&stored_quilt_patch.quilt_patch_id).expect("Valid patch ID");
+        let patch_blob_id = stored_quilt_patch.patch_blob_id.expect("QuiltStoreBlob should have blob_id");
+
+        let patch_index_target = indexer
+            .get_index_target_from_bucket(&bucket_id_1, patch_identifier)
+            .await?;
+        
+        match patch_index_target {
+            Some(IndexTarget::QuiltPatchId(found_patch_id)) => {
+                assert_eq!(found_patch_id, expected_patch_id);
+            }
+            Some(other) => {
+                panic!("Expected IndexTarget::QuiltPatchId, got {:?}", other);
+            }
+            None => {
+                panic!("Expected to find quilt patch for identifier {}", patch_identifier);
+            }
+        }
+
+        // Check if the patch is in the quilt patch index
+        let quilt_patch_from_index = indexer
+            .storage
+            .get_quilt_patch_id_by_blob_id(&patch_blob_id)?;
+        
+        match quilt_patch_from_index {
+            Some(found_patch_id) => {
+                assert_eq!(found_patch_id, expected_patch_id);
+            }
+            None => {
+                panic!("Expected to find quilt patch for blob_id {:?}", patch_blob_id);
+            }
+        }
+    }
+
+    // List all entries to show the complete state
+    println!("\n📝 Complete index state:");
+    
+    println!("  Bucket_1 entries:");
+    let bucket_1_entries = indexer.list_blobs_in_bucket(&bucket_id_1).await?;
+    for (identifier, blob_identity) in &bucket_1_entries {
+        println!("    - {}: {:?}", identifier, blob_identity.blob_id);
+    }
+    
+    println!("  Bucket_2 entries:");  
+    let bucket_2_entries = indexer.list_blobs_in_bucket(&bucket_id_2).await?;
+    for (identifier, blob_identity) in &bucket_2_entries {
+        println!("    - {}: {:?}", identifier, blob_identity.blob_id);
+    }
+
+    // Check quilt patch index directly
+    println!("\n🔍 Checking quilt patch index directly:");
+    match indexer.storage.get_all_quilt_patch_entries() {
+        Ok(patch_entries) => {
+            println!(
+                "Found {} entries in quilt patch index:",
+                patch_entries.len()
+            );
+            for (key, patch_id) in patch_entries {
+                println!("  - key: '{}', patch_id: {:?}", key, patch_id);
+            }
+        }
+        Err(e) => println!("❌ Failed to read quilt patch index: {}", e),
+    }
+
+    // Check pending quilt tasks
+    println!("\n📋 Checking pending quilt tasks:");
+    match indexer.storage.get_all_pending_quilt_tasks() {
+        Ok(pending_tasks) => {
+            println!("Found {} pending quilt tasks:", pending_tasks.len());
+            for (key, task) in pending_tasks {
+                println!(
+                    "  - key: {:?}, object_id: {:?}, bucket_id: {:?}",
+                    key, task.object_id, task.bucket_id
+                );
+            }
+        }
+        Err(e) => println!("❌ Failed to read pending tasks: {}", e),
+    }
 
     // Shutdown the indexer.
     cancel_token.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(5), indexer_handle).await;
 
-    println!("✅ Test completed successfully");
+    println!("\n✅ Test completed successfully");
     Ok(())
 }
 
@@ -262,10 +325,8 @@ async fn test_indexer_with_rest_api() -> Result<()> {
 
     let indexer_config = IndexerConfig {
         db_path: temp_dir.path().to_path_buf(),
-        event_processor_config: Some(IndexerEventProcessorConfig {
-            event_processor_config: EventProcessorConfig::default(),
-            sui_config,
-        }),
+        event_processor_config: Some(EventProcessorConfig::default()),
+        sui_config: Some(sui_config),
         ..Default::default()
     };
 
@@ -325,6 +386,7 @@ async fn test_indexer_with_rest_api() -> Result<()> {
                 identifier: path.to_string(),
                 object_id: *object_id,
                 blob_id: *blob_id,
+                is_quilt: false,
             },
         )
         .collect();

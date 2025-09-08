@@ -182,6 +182,8 @@ pub struct InsertOrUpdateBlobIndexEvent {
     pub object_id: ObjectID,
     /// The blob ID.
     pub blob_id: BlobId,
+    /// Whether the blob is a quilt.
+    pub is_quilt: bool,
     /// The ID of the event.
     pub event_id: EventID,
 }
@@ -215,12 +217,14 @@ impl TryFrom<SuiEvent> for InsertOrUpdateBlobIndexEvent {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (bucket_id, identifier, object_id, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (bucket_id, identifier, object_id, blob_id, is_quilt) =
+            bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             bucket_id,
             identifier,
             object_id,
             blob_id,
+            is_quilt,
             event_id: sui_event.id,
         })
     }
@@ -267,6 +271,8 @@ pub enum IndexMutation {
         object_id: ObjectID,
         /// The blob ID.
         blob_id: BlobId,
+        /// Whether the blob is a quilt.
+        is_quilt: bool,
     },
     /// Delete an index entry (object_id).
     Delete {
@@ -310,6 +316,7 @@ impl From<InsertOrUpdateBlobIndexEvent> for IndexEvent {
                 identifier: value.identifier,
                 object_id: value.object_id,
                 blob_id: value.blob_id,
+                is_quilt: value.is_quilt,
             }],
             event_id: value.event_id,
         })
