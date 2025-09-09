@@ -110,7 +110,7 @@ if PR_OUTPUT=$(gh pr create \
   --title "$BODY" \
   --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
   --body "$BODY" 2>&1); then
-  
+
   # Extract PR URL from output
   if PR_URL=$(echo "$PR_OUTPUT" | grep -Eo 'https://github.com/[^ ]+'); then
     echo "Successfully created PR: $PR_URL"
