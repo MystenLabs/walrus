@@ -96,24 +96,34 @@ git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
 # Push branch
-git commit -m "chore: bump Sui version to ${NEW_TAG}"
+git commit -m "chore: bump Sui testnet version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
 # Generate PR body
-BODY=$(cat <<-EOF
-This PR updates the Sui testnet version to ${NEW_TAG}
-EOF
-)
+BODY="This PR updates the Sui testnet version to ${NEW_TAG}"
 
 # Create PR
-PR_URL=$(gh pr create \
+echo "Creating pull request..."
+if PR_OUTPUT=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "chore: bump Sui version to ${NEW_TAG}" \
-  --reviewer "MystenLabs/walrus-maintenance" \
-  --body "$BODY" \
-  2>&1 | grep -Eo 'https://github.com/[^ ]+')
+  --title "$BODY" \
+  --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
+  --body "$BODY" 2>&1); then
+  
+  # Extract PR URL from output
+  if PR_URL=$(echo "$PR_OUTPUT" | grep -Eo 'https://github.com/[^ ]+'); then
+    echo "Successfully created PR: $PR_URL"
+  else
+    echo "Warning: PR created but could not extract URL from output:"
+    echo "$PR_OUTPUT"
+    PR_URL="(URL extraction failed)"
+  fi
+else
+  echo "Error: Failed to create pull request:" >&2
+  echo "$PR_OUTPUT" >&2
+  exit 1
+fi
 
 # Setting the PR to auto merge
 gh pr merge --auto --squash --delete-branch "$BRANCH"
-echo "Pull request created: $PR_URL"
