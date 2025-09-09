@@ -14,6 +14,9 @@ pub mod backoff;
 #[cfg(feature = "config")]
 pub mod config;
 
+#[cfg(feature = "blob-bundle")]
+pub mod blob_bundle;
+
 #[cfg(feature = "metrics")]
 pub mod metrics;
 

@@ -13165,6 +13165,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "const-str 0.6.4",
+ "crc32fast",
  "git-version",
  "home",
  "http-body 1.0.1",
@@ -13186,6 +13187,7 @@ dependencies = [
  "tokio-util 0.7.16",
  "tracing",
  "tracing-subscriber",
+ "walrus-core",
  "walrus-test-utils",
 ]
 

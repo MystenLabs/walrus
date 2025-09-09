@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 backoff = ["dep:rand", "dep:serde_with", "tokio/time"]
+blob-bundle = ["dep:bytes", "dep:crc32fast", "dep:thiserror", "dep:walrus-core"]
 config = ["dep:home"]
 default = []
 http = ["dep:bytes", "dep:http-body", "dep:pin-project"]
@@ -19,6 +20,7 @@ tokio-metrics = ["dep:tokio-metrics"]
 anyhow.workspace = true
 bytes = { workspace = true, optional = true }
 const-str.workspace = true
+crc32fast = { version = "1.4", optional = true }
 git-version.workspace = true
 home = { workspace = true, optional = true }
 http-body = { version = "1", optional = true }
@@ -39,6 +41,7 @@ tokio-metrics = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
+walrus-core = { workspace = true, optional = true }
 
 [lints]
 workspace = true
