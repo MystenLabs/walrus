@@ -96,7 +96,7 @@ git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
 # Push branch
-git commit -m "chore: bump Sui testnet version to ${NEW_TAG}"
+git commit -m "ci: bump Sui testnet version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
 # Generate PR body
@@ -107,7 +107,7 @@ echo "Creating pull request..."
 if PR_OUTPUT=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "$BODY" \
+  --title "ci: bump Sui testnet version to ${NEW_TAG}" \
   --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
   --body "$BODY" 2>&1); then
 
