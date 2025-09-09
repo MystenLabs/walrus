@@ -338,7 +338,6 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch

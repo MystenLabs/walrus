@@ -208,6 +208,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             .sliver_data_existence_check_sample_rate_percentage
                 {
                     total_synced_scanned += 1;
+                    tracing::info!("ZZZZZ check blob existence for blob {}", blob_info.0);
 
                     #[cfg(not(msim))]
                     {

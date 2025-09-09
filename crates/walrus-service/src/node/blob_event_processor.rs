@@ -203,11 +203,16 @@ impl BackgroundEventProcessor {
 
         let histogram_set = self.node.metrics.recover_blob_duration_seconds.clone();
 
-        if !self.node.is_blob_certified(&event.blob_id)?
-            // For blob extension events, the original blob certified event should already recover
-            // the entire blob, and we can skip the recovery.
-            || event.is_extension
-            || self.node.storage.node_status()?.is_catching_up()
+        tracing::info!("ZZZZZ check blob certified blob {}", event.blob_id);
+
+        let a = self.node.is_blob_certified(&event.blob_id)?;
+        tracing::info!("ZZZZZ is_blob_certified: {}", a);
+        let b = event.is_extension;
+        tracing::info!("ZZZZZ is_extension: {}", b);
+
+        tracing::info!("ZZZZZ node status: {}", self.node.storage.node_status()?);
+
+        if b || self.node.storage.node_status()?.is_catching_up()
             || self
                 .node
                 .is_stored_at_all_shards_at_epoch(
@@ -217,6 +222,11 @@ impl BackgroundEventProcessor {
                 .await?
         {
             event_handle.mark_as_complete();
+
+            tracing::info!(
+                "ZZZZZ blob certified blob, no action needed {}",
+                event.blob_id
+            );
 
             walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
@@ -247,7 +257,7 @@ impl BackgroundEventProcessor {
         let blob_id = event.blob_id;
 
         if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified(self.node.current_epoch()) {
+            if !blob_info.is_certified(self.node.current_committee_epoch()) {
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);

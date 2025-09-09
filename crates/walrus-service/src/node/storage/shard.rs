@@ -548,6 +548,10 @@ impl ShardStorage {
     /// This function will delete the existing sync progress for the shard and reset the shard
     /// sync from scratch.
     pub(crate) fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
+        tracing::info!(
+            "ZZZZZ recording start shard sync. Existing status: {}",
+            self.status()?
+        );
         let mut batch = self.shard_status.batch();
         batch.delete_batch(&self.shard_sync_progress, [()])?;
         batch.insert_batch(&self.shard_status, [((), ShardStatus::ActiveSync)])?;
@@ -555,6 +559,10 @@ impl ShardStorage {
     }
 
     pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
+        tracing::info!(
+            "ZZZZZ setting shard status to Active. Existing status: {}",
+            self.status()?
+        );
         self.shard_status.insert(&(), &ShardStatus::Active)
     }
 
@@ -741,7 +749,15 @@ impl ShardStorage {
             .await?;
 
         let mut batch = self.shard_status.batch();
-        batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
+        if self.status()? == ShardStatus::ActiveSync || self.status()? == ShardStatus::ActiveRecover
+        {
+            tracing::info!(
+                "ZZZZZ setting shard status to Active for shard {}. Existing status: {}",
+                self.id(),
+                self.status()?
+            );
+            batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
+        }
         batch.delete_batch(&self.shard_sync_progress, [()])?;
         batch.write()?;
 
@@ -1019,8 +1035,13 @@ impl ShardStorage {
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_shard_sync_recovery");
 
-        tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
-        self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+        if self.status()? == ShardStatus::ActiveSync {
+            tracing::info!(
+                "shard sync is done; still has missing blobs; shard enters recovery mode"
+            );
+            self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+        }
+        // self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
 
         #[cfg(msim)]
         {
