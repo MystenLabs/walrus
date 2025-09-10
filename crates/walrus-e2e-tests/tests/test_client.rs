@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     collections::{HashMap, HashSet},
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
@@ -72,8 +72,8 @@ use walrus_sdk::{
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
     TestNodesConfig,
-    get_unused_port,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
+    unused_socket_address,
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
@@ -2429,8 +2429,11 @@ async fn test_store_with_upload_relay_no_tip() {
         ],
         ..cluster_config.clone()
     };
-    let server_address =
-        SocketAddr::new(IpAddr::V4("0.0.0.0".parse().unwrap()), get_unused_port()?);
+    let server_address = unused_socket_address(
+        walrus_service::test_utils::UnusedSocketAddressIp::AllInterfaces,
+        false,
+    )
+    .expect("get unused socket address");
 
     let registry = Registry::default();
 
@@ -2548,8 +2551,11 @@ async fn test_store_with_upload_relay_with_tip() {
         ..cluster_client.inner.config().clone()
     };
 
-    let server_address =
-        SocketAddr::new(IpAddr::V4("0.0.0.0".parse().unwrap()), get_unused_port()?);
+    let server_address = unused_socket_address(
+        walrus_service::test_utils::UnusedSocketAddressIp::AllInterfaces,
+        false,
+    )
+    .expect("get unused socket address");
 
     const TIP_BASE: u64 = 1000;
     const TIP_MULTIPLIER: u64 = 100;
