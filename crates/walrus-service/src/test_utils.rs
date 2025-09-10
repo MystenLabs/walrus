@@ -3106,7 +3106,7 @@ mod test {
         assert_eq!(
             (0..n)
                 .map(
-                    |_| unused_socket_address(UnusedSocketAddressIp::DistinctIp, false)
+                    |_| unused_socket_address(UnusedSocketAddressIp::DistinctIp, true)
                         .expect("should be able to find an unused socket address")
                 )
                 .collect::<HashSet<_>>()
