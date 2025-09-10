@@ -3097,7 +3097,7 @@ pub async fn create_test_node_with_contract_service(
 mod test {
     use std::collections::HashSet;
 
-    use super::unused_socket_address;
+    use super::{UnusedSocketAddressIp, unused_socket_address};
 
     #[test]
     #[ignore = "ignore to not bind sockets unnecessarily"]
@@ -3105,11 +3105,10 @@ mod test {
         let n = 1000;
         assert_eq!(
             (0..n)
-                .map(|_| unused_socket_address(
-                    crate::test_utils::UnusedSocketAddressIp::DistinctIp,
-                    false
+                .map(
+                    |_| unused_socket_address(UnusedSocketAddressIp::DistinctIp, false)
+                        .expect("should be able to find an unused socket address")
                 )
-                .expect("should be able to find an unused socket address"))
                 .collect::<HashSet<_>>()
                 .len(),
             n

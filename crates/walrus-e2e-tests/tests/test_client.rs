@@ -72,6 +72,7 @@ use walrus_sdk::{
 use walrus_service::test_utils::{
     StorageNodeHandleTrait,
     TestNodesConfig,
+    UnusedSocketAddressIp,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
     unused_socket_address,
 };
@@ -2429,11 +2430,8 @@ async fn test_store_with_upload_relay_no_tip() {
         ],
         ..cluster_config.clone()
     };
-    let server_address = unused_socket_address(
-        walrus_service::test_utils::UnusedSocketAddressIp::AllInterfaces,
-        false,
-    )
-    .expect("get unused socket address");
+    let server_address = unused_socket_address(UnusedSocketAddressIp::AllInterfaces, false)
+        .expect("get unused socket address");
 
     let registry = Registry::default();
 
@@ -2551,11 +2549,8 @@ async fn test_store_with_upload_relay_with_tip() {
         ..cluster_client.inner.config().clone()
     };
 
-    let server_address = unused_socket_address(
-        walrus_service::test_utils::UnusedSocketAddressIp::AllInterfaces,
-        false,
-    )
-    .expect("get unused socket address");
+    let server_address = unused_socket_address(UnusedSocketAddressIp::AllInterfaces, false)
+        .expect("get unused socket address");
 
     const TIP_BASE: u64 = 1000;
     const TIP_MULTIPLIER: u64 = 100;
