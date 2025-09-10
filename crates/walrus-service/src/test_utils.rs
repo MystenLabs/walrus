@@ -1705,6 +1705,12 @@ fn try_unused_socket_address_with_distinct_ip() -> anyhow::Result<SocketAddr> {
     )?)
 }
 
+pub fn get_unused_port() -> anyhow::Result<u16> {
+    let listener = std::net::TcpListener::bind("0.0.0.0:0")?;
+    let port = listener.local_addr()?.port();
+    Ok(port)
+}
+
 #[async_trait::async_trait]
 impl SystemEventProvider for Vec<ContractEvent> {
     async fn events(
