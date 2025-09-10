@@ -1687,6 +1687,18 @@ pub enum UnusedSocketAddressIp {
     Loopback,
 }
 
+impl UnusedSocketAddressIp {
+    fn get_addr(&self) -> String {
+        match self {
+            UnusedSocketAddressIp::AllInterfaces => "0.0.0.0:0".to_string(),
+            UnusedSocketAddressIp::Loopback => "127.0.0.1:0".to_string(),
+            UnusedSocketAddressIp::DistinctIp => {
+                format!("{}:1314", sui_config::local_ip_utils::get_new_ip())
+            }
+        }
+    }
+}
+
 /// Returns a socket address that is not currently in use on the system.
 ///
 /// force_time_wait: If true, the function will create and accept a connection to force the port
@@ -1696,12 +1708,7 @@ pub fn unused_socket_address(
     unused_socket_address_ip: UnusedSocketAddressIp,
     force_time_wait: bool,
 ) -> anyhow::Result<SocketAddr> {
-    let (ip, port) = match unused_socket_address_ip {
-        UnusedSocketAddressIp::AllInterfaces => ("0.0.0.0".to_string(), 0),
-        UnusedSocketAddressIp::Loopback => ("127.0.0.1".to_string(), 0),
-        UnusedSocketAddressIp::DistinctIp => (sui_config::local_ip_utils::get_new_ip(), 1314),
-    };
-    let listener = std::net::TcpListener::bind(format!("{ip}:{port}"))?;
+    let listener = std::net::TcpListener::bind(unused_socket_address_ip.get_addr())?;
     let address = listener.local_addr()?;
 
     if force_time_wait {
