@@ -1,6 +1,17 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-
+//
+// Store a fixed number of files of a specified size on Walrus.
+//
+// For example,
+// ```
+// k6 run --env VUS=3 --env BLOBS_TO_STORE=20 --env PAYLOAD_SIZE=10Mi \
+//   --env ENVIRONMENT=localhost publisher_v1_put_blobs.ts
+// ```
+// stores 20 files, each 10 MiB, in parallel using 3 concurrent clients; using
+// a publisher already running on localhost.
+//
+// See `environment.ts` for ENVIRONMENT defaults.
 import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from '../../config/environment.ts'
 import { PutBlobOptions, putBlob } from '../../flows/publisher.ts'
 import { open } from 'k6/experimental/fs';

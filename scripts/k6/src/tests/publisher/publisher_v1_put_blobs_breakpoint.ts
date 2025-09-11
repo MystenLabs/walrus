@@ -1,6 +1,31 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-
+//
+// Store files of a given size on Walrus at an increasing the rate until the
+// publisher starts failing.
+//
+// This script stores blobs of the size specified by `PAYLOAD_SIZE` with the
+// publisher starting at 1 blob per minute. It increases this rate up to
+// `TARGET_RATE` over the specified duration `DURATION`
+//
+// It stops when either (i) more than 5% of the requests fail, which happens
+// when the publisher refuses to accept new requests, or (ii) the time to store
+// a file is more than twice what it was as the beginning of the test.
+//
+// The resulting metrics can be used to determine the supported throughput of
+// the publisher in terms of requests/minute (use small files), and bytes
+// per minute (use large files).
+//
+// For example,
+// ```
+// k6 run --env PAYLOAD_SIZE=50Ki --env DURATION=15m --env TARGET_RATE=300 \
+//   --env ENVIRONMENT=localhost publisher_v1_put_blobs_breakpoint.ts
+// ```
+// ramps up storing files, each 50 KiB in size up to a target rate of
+// 300 per minute, over 15 minutes, and using a publisher already running on
+// localhost.
+//
+// See `environment.ts` for ENVIRONMENT defaults.
 import { PutBlobOptions, putBlob } from "../../flows/publisher.ts"
 import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';

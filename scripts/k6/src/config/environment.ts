@@ -21,7 +21,7 @@ interface EnvironmentConfig {
 const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
     "localhost": {
         "publisherUrl": "http://localhost:31415",
-        "payloadSourceFile": "../../../data.bin"
+        "payloadSourceFile": "../../../data.bin" // Within the k6 folder
     },
     "walrus-performance-network": {
         "publisherUrl": "http://walrus-publisher-0.walrus-publisher:31415",
@@ -29,11 +29,11 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
     },
     "walrus-testnet": {
         "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
-        "payloadSourceFile": "/opt/k6/data/data.bin"
+        "payloadSourceFile": "../../../data.bin" // Within the k6 folder
     }
 }
 
-const ENVIRONMENT = __ENV.ENVIRONMENT || "localhost";
+const ENVIRONMENT = __ENV.ENVIRONMENT || "walrus-testnet";
 
 /**
  * The URL of the publisher to use.
