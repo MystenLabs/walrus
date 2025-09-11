@@ -4,7 +4,6 @@
   "engines": {
     "node": "16 || 18"
   },
-  "license": "MIT",
   "devDependencies": {
     "@types/k6": "~0.48.0",
     "typescript": "5.3.3"
