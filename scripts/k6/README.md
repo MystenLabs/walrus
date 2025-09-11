@@ -43,25 +43,24 @@ testnet publisher and report the metrics:
 ```shell
 k6 run scripts/k6/src/tests/publisher/publisher_v1_put_blobs.ts
 ```
-The web dashboard, if enabled, is viewable on [http://127.0.0.1:5665].
+The web dashboard, if enabled, is viewable on http://127.0.0.1:5665.
 
 ### Useful arguments and environment variables
 
 The following is useful to know.
 
 **Read the test script files**. Each test script file is its own "executable"
-and can have different parameters and load profiles. Reads the scripts to see
+and can have different parameters and load profiles. Read the scripts to see
 what they do and how they can be called.
 
 **Passing script arguments**. Scripts can be written to accept arguments.
 These are passed with repeated `--env` flags.
 
 For example, the script `publisher_v1_put_blobs.ts` has been written to accept
-the arguments `PAYLOAD_SIZE` and `BLOBS_TO_STORE` among others. The above example
+the arguments `PAYLOAD_SIZE` and `BLOBS_TO_STORE`, among others. The above example
 could therefore be run as
 ```shell
-k6 run --env PAYLOAD_SIZE=1Mi --env BLOBS_TO_STORE=10 \
-    scripts/k6/src/tests/publisher/publisher_v1_put_blobs.ts
+k6 run --env PAYLOAD_SIZE=1Mi --env BLOBS_TO_STORE=10 scripts/k6/src/tests/publisher/publisher_v1_put_blobs.ts
 ```
 to sequentially store ten, 1 MiB files with the publisher.
 

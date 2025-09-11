@@ -6,11 +6,12 @@
 //
 // This script stores blobs of the size specified by `PAYLOAD_SIZE` with the
 // publisher starting at 1 blob per minute. It increases this rate up to
-// `TARGET_RATE` over the specified duration `DURATION`
+// `TARGET_RATE` over the specified duration `DURATION`.
 //
 // It stops when either (i) more than 5% of the requests fail, which happens
 // when the publisher refuses to accept new requests, or (ii) the time to store
-// a file is more than twice what it was as the beginning of the test.
+// a file is more than twice what it was as the beginning of the test, in more
+// than 5% of the cases.
 //
 // The resulting metrics can be used to determine the supported throughput of
 // the publisher in terms of requests/minute (use small files), and bytes

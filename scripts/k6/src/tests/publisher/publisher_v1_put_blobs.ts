@@ -8,7 +8,7 @@
 // k6 run --env VUS=3 --env BLOBS_TO_STORE=20 --env PAYLOAD_SIZE=10Mi \
 //   --env ENVIRONMENT=localhost publisher_v1_put_blobs.ts
 // ```
-// stores 20 files, each 10 MiB, in parallel using 3 concurrent clients; using
+// stores 20 files, each 10 MiB, using 3 concurrent clients in parallel, via
 // a publisher already running on localhost.
 //
 // See `environment.ts` for ENVIRONMENT defaults.
