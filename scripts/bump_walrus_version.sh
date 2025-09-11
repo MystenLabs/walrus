@@ -44,39 +44,20 @@ cargo check || true
 echo "Staging all changed files..."
 git add -A .
 
-git config user.name "github-actions[bot]"
-git config user.email \
-  "41898282+github-actions[bot]@users.noreply.github.com"
-
-# push branch
-git commit -m "chore: bump walrus version to v${NEW_WALRUS_VERSION}"
-git push -u origin "$BRANCH"
-
 # Generate PR body
 BODY="Walrus v${NEW_WALRUS_VERSION} Version Bump"
 
+# push branch
+git commit -m "$BODY"
+git push -u origin "$BRANCH"
+
 # Create PR
-echo "Creating pull request..."
-if PR_OUTPUT=$(gh pr create \
+PR_URL=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "chore: bump Walrus version to v${NEW_WALRUS_VERSION}" \
-  --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
-  --body "$BODY" 2>&1); then
+  --title "chore: $BODY" \
+  --reviewer "MystenLabs/walrus-maintenance" \
+  --body "$BODY" \
+  2>&1 | grep -Eo 'https://github.com/[^ ]+')
 
-  # Extract PR URL from output
-  if PR_URL=$(echo "$PR_OUTPUT" | grep -Eo 'https://github.com/[^ ]+'); then
-    echo "Successfully created PR: $PR_URL"
-  else
-    echo "Warning: PR created but could not extract URL from output:"
-    echo "$PR_OUTPUT"
-    PR_URL="(URL extraction failed)"
-  fi
-else
-  echo "Error: Failed to create pull request:" >&2
-  echo "$PR_OUTPUT" >&2
-  exit 1
-fi
-
-# Setting the PR to auto merge
-gh pr merge --auto --squash --delete-branch "$BRANCH"
+echo "Pull request for Walrus v${NEW_WALRUS_VERSION} Version Bump created: $PR_URL"
