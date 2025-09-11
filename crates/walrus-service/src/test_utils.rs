@@ -3113,7 +3113,7 @@ mod test {
         assert_eq!(
             (0..n)
                 .map(
-                    |_| unused_socket_address(UnusedSocketAddressIp::DistinctIp, true)
+                    |_| unused_socket_address(UnusedSocketAddressIp::Loopback, true)
                         .expect("should be able to find an unused socket address")
                 )
                 .collect::<HashSet<_>>()
