@@ -356,6 +356,37 @@ impl BlobBundleBuilder {
         self
     }
 
+    /// Get the current size of the bundle if Build() were called now.
+    /// This is useful for checking whether to stop adding entries and create a new bundle.
+    ///
+    /// Returns the total size in bytes including:
+    /// - Header (magic + version)
+    /// - All data entries
+    /// - Index entries (with ID strings, offsets, lengths, and CRC32s)
+    /// - Footer (magic + version + index_offset + index_entries + crc32)
+    pub fn current_size(&self) -> u64 {
+        // Calculate data size
+        let data_size: u64 = self.entries.iter().map(|(_, data)| data.len() as u64).sum();
+
+        // Calculate header size
+        let header_size = Header::size() as u64;
+
+        // Calculate index overhead
+        // Each index entry has: id_len (4) + id_bytes + offset (8) + length (8) + crc32 (4)
+        let index_entry_overhead_per_item = U32_SIZE + U64_SIZE + U64_SIZE + CRC32_SIZE;
+        let index_overhead: u64 = self
+            .entries
+            .iter()
+            .map(|(id, _)| id.len() + index_entry_overhead_per_item)
+            .sum::<usize>() as u64;
+
+        // Calculate footer size
+        let footer_size = Footer::size() as u64;
+
+        // Return total size
+        header_size + data_size + index_overhead + footer_size
+    }
+
     /// Build the blob bundle with size check for RS2 encoding
     pub fn build(self) -> Result<BlobBundleBuildResult> {
         // First, calculate the total size to check against max blob size
@@ -1130,6 +1161,89 @@ mod tests {
         match corrupted_footer {
             Err(BlobBundleError::FooterCrcMismatch { .. }) => {}
             _ => panic!("Expected FooterCrcMismatch error for corrupted footer"),
+        }
+    }
+
+    #[test]
+    fn test_current_size() {
+        // Create a builder
+        let mut builder = BlobBundleBuilder::new(NonZeroU16::new(10).expect("10 is non-zero"));
+
+        // Initial size should be just header + footer
+        let empty_size = builder.current_size();
+        let expected_empty_size = Header::size() as u64 + Footer::size() as u64;
+        assert_eq!(
+            empty_size, expected_empty_size,
+            "Empty builder should have minimal size"
+        );
+
+        // Add first entry
+        let data1 = Bytes::from("Hello");
+        builder.add("entry1", data1.clone());
+
+        // Size should increase by data size + index entry overhead
+        let size_after_first = builder.current_size();
+        let index_overhead_first =
+            (U32_SIZE + "entry1".len() + U64_SIZE + U64_SIZE + CRC32_SIZE) as u64;
+        let expected_after_first = expected_empty_size + data1.len() as u64 + index_overhead_first;
+        assert_eq!(
+            size_after_first, expected_after_first,
+            "Size after first entry should match expected"
+        );
+
+        // Add second entry
+        let data2 = Bytes::from("World!");
+        builder.add("entry2", data2.clone());
+
+        // Size should increase by second data size + second index entry overhead
+        let size_after_second = builder.current_size();
+        let index_overhead_second =
+            (U32_SIZE + "entry2".len() + U64_SIZE + U64_SIZE + CRC32_SIZE) as u64;
+        let expected_after_second =
+            expected_after_first + data2.len() as u64 + index_overhead_second;
+        assert_eq!(
+            size_after_second, expected_after_second,
+            "Size after second entry should match expected"
+        );
+
+        // Build and verify the actual size matches
+        let result = builder.build().expect("Failed to build bundle");
+        let actual_size = result.bytes.len() as u64;
+        assert_eq!(
+            actual_size, size_after_second,
+            "Built bundle size should match current_size()"
+        );
+    }
+
+    #[test]
+    fn test_current_size_matches_build() {
+        // Test with various data sizes to ensure current_size() accurately predicts build() size
+        let test_cases = vec![
+            vec![("a", "x"), ("b", "yy"), ("c", "zzz")],
+            vec![("single", "some data here")],
+            vec![
+                ("long_id_name_here", "short"),
+                ("id", "very long data string that contains many characters"),
+            ],
+        ];
+
+        for entries in test_cases {
+            let mut builder =
+                BlobBundleBuilder::new(NonZeroU16::new(100).expect("100 is non-zero"));
+
+            for (id, data) in &entries {
+                builder.add(*id, Bytes::from(*data));
+            }
+
+            let predicted_size = builder.current_size();
+            let result = builder.build().expect("Failed to build bundle");
+            let actual_size = result.bytes.len() as u64;
+
+            assert_eq!(
+                predicted_size, actual_size,
+                "current_size() should exactly match built bundle size for entries: {:?}",
+                entries
+            );
         }
     }
 
