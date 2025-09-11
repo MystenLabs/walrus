@@ -278,6 +278,8 @@ pub enum IndexMutation {
     Delete {
         /// The object ID of the related `Blob` object.
         object_id: ObjectID,
+        /// Whether the blob is a quilt.
+        is_quilt: bool,
     },
 }
 
@@ -329,6 +331,7 @@ impl From<DeleteBlobIndexEvent> for IndexEvent {
             bucket_id: ObjectID::ZERO, // Delete operations don't specify bucket_id
             mutations: vec![IndexMutation::Delete {
                 object_id: value.object_id,
+                is_quilt: false, // Default to false for now
             }],
             event_id: value.event_id,
         })
@@ -363,7 +366,10 @@ impl IndexEvent {
                 .iter()
                 .map(|mutation| match mutation {
                     IndexMutation::Insert { object_id, .. } => *object_id,
-                    IndexMutation::Delete { object_id } => *object_id,
+                    IndexMutation::Delete {
+                        object_id,
+                        is_quilt: _,
+                    } => *object_id,
                 })
                 .collect(),
         }

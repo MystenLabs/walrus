@@ -12741,6 +12741,7 @@ name = "walrus-indexer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.8.4",
  "axum-server 0.7.2",
  "bcs",
@@ -12764,6 +12765,7 @@ dependencies = [
  "sui-types",
  "telemetry-subscribers",
  "tempfile",
+ "thiserror 2.0.16",
  "tokio",
  "tokio-util 0.7.16",
  "tower 0.5.2",

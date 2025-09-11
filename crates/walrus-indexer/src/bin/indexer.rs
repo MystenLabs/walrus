@@ -11,7 +11,6 @@ use std::{path::PathBuf, process::ExitCode};
 use anyhow::Result;
 use clap::Parser;
 use tokio::runtime::Runtime;
-use tracing::{info, warn};
 use walrus_indexer::{IndexerConfig, WalrusIndexer};
 use walrus_service::utils::MetricsAndLoggingRuntime;
 
@@ -50,14 +49,14 @@ impl IndexerRuntime {
             std::env::set_var("RUST_LOG", log_level);
         }
 
-        info!("🚀 Starting Walrus Indexer");
+        tracing::info!("🚀 Starting Walrus Indexer");
 
         // Load configuration
         let mut config = if let Some(config_path) = &args.config {
-            info!("Loading configuration from: {:?}", config_path);
+            tracing::info!("Loading configuration from: {:?}", config_path);
             walrus_utils::load_from_yaml(config_path)?
         } else {
-            info!("No config file provided, using defaults");
+            tracing::info!("No config file provided, using defaults");
             IndexerConfig::default()
         };
 
@@ -66,7 +65,7 @@ impl IndexerRuntime {
             config.db_path = db_path;
         }
 
-        info!("Database path: {}", config.db_path.display());
+        tracing::info!("Database path: {}", config.db_path.display());
 
         // Initialize metrics and logging runtime with the configured address
         let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
@@ -88,18 +87,18 @@ impl IndexerRuntime {
             let event_processing_enabled = config.event_processor_config.is_some();
 
             // Initialize the indexer with all components
-            info!("Initializing indexer components");
+            tracing::info!("Initializing indexer components");
             let indexer = WalrusIndexer::new(config.clone()).await?;
 
             if event_processing_enabled {
-                info!("✅ Event processing enabled - will listen for Sui events");
+                tracing::info!("✅ Event processing enabled - will listen for Sui events");
             } else {
-                info!("⚠️  Event processing disabled - operating as key-value store");
+                tracing::info!("⚠️  Event processing disabled - operating as key-value store");
             }
 
             // Spawn the indexer's run() method in a separate task
             let handle = tokio::spawn(async move {
-                info!("Starting indexer run loop");
+                tracing::info!("Starting indexer run loop");
                 indexer.run(&registry_clone, cancel_token_clone).await
             });
 
@@ -119,9 +118,9 @@ impl IndexerRuntime {
         if let Some(handle) = self.indexer_task_handle.take() {
             self.runtime.block_on(async {
                 match handle.await {
-                    Ok(Ok(())) => info!("Indexer task completed successfully"),
-                    Ok(Err(e)) => warn!("Indexer task error: {}", e),
-                    Err(e) => warn!("Failed to join indexer task: {}", e),
+                    Ok(Ok(())) => tracing::info!("Indexer task completed successfully"),
+                    Ok(Err(e)) => tracing::warn!("Indexer task error: {}", e),
+                    Err(e) => tracing::warn!("Failed to join indexer task: {}", e),
                 }
             });
         }
@@ -142,14 +141,14 @@ fn indexer() -> Result<()> {
         tokio::signal::ctrl_c()
             .await
             .expect("Failed to install CTRL+C signal handler");
-        info!("Received shutdown signal");
+        tracing::info!("Received shutdown signal");
         runtime.cancellation_token.cancel();
     });
 
     // Join all tasks
     runtime.join()?;
 
-    info!("Indexer shutdown complete");
+    tracing::info!("Indexer shutdown complete");
     Ok(())
 }
 

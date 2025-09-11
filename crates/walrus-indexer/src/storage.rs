@@ -18,13 +18,11 @@ use typed_store::{
     TypedStoreError,
     rocks::{DBBatch, DBMap, MetricConf, open_cf_opts},
 };
-use walrus_core::{
-    BlobId,
-    QuiltPatchId,
-    metadata::QuiltIndex,
-};
+use walrus_core::{BlobId, QuiltPatchId, metadata::QuiltIndex};
 use walrus_sdk::client::client_types::get_stored_quilt_patches;
 use walrus_sui::client::SuiReadClient;
+
+use crate::indexer::{QuiltIndexTask, QuiltIndexTaskId};
 
 // Column family names
 const CF_NAME_PRIMARY_INDEX: &str = "walrus_index_primary";
@@ -95,21 +93,10 @@ pub struct ObjectIndexValue {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PendingQuiltIndexTaskKey {
-    pub index: u64,
-    pub quilt_id: BlobId,
-}
-
-impl PendingQuiltIndexTaskKey {
-    pub fn new(index: u64, quilt_id: BlobId) -> Self {
-        Self { index, quilt_id }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PendingQuiltIndexTaskValue {
-    pub object_id: ObjectID,
+pub struct QuiltIndexTaskValue {
     pub bucket_id: ObjectID,
+    pub identifier: String,
+    pub object_id: ObjectID,
 }
 
 /// Storage interface for the Walrus Index (Dual Index System).
@@ -125,7 +112,7 @@ pub struct WalrusIndexStore {
     /// files' blob IDs.
     quilt_patch_index: DBMap<String, QuiltPatchId>,
     /// Pending quilt index tasks: stores the quilt index tasks that are pending to be processed.
-    pending_quilt_index_tasks: DBMap<PendingQuiltIndexTaskKey, PendingQuiltIndexTaskValue>,
+    pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
     /// Walrus read client.
     read_client: Option<Arc<SuiReadClient>>,
 }
@@ -148,7 +135,7 @@ impl WalrusIndexStore {
                 (CF_NAME_OBJECT_INDEX, db_options.clone()),
                 (CF_NAME_EVENT_CURSOR, db_options.clone()),
                 (CF_NAME_QUILT_PATCH_INDEX, db_options.clone()),
-                (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options),
+                (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options.clone()),
             ],
         )?);
 
@@ -180,7 +167,7 @@ impl WalrusIndexStore {
             false,
         )?;
 
-        let pending_quilt_index_tasks: DBMap<PendingQuiltIndexTaskKey, PendingQuiltIndexTaskValue> =
+        let pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue> =
             DBMap::reopen(
                 &db,
                 Some(CF_NAME_PENDING_QUILT_INDEX_TASKS),
@@ -213,7 +200,7 @@ impl WalrusIndexStore {
         object_index: DBMap<String, ObjectIndexValue>,
         event_cursor_store: DBMap<String, u64>,
         quilt_patch_index: DBMap<String, QuiltPatchId>,
-        pending_quilt_index_tasks: DBMap<PendingQuiltIndexTaskKey, PendingQuiltIndexTaskValue>,
+        pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
     ) -> Self {
         Self {
             primary_index,
@@ -235,7 +222,8 @@ impl WalrusIndexStore {
     }
 
     /// Apply index mutations from Sui events with optional cursor update.
-    /// All mutations and cursor update are applied atomically in a single RocksDB batch transaction.
+    /// All mutations and cursor update are applied atomically in a single RocksDB batch
+    /// transaction.
     /// This ensures that mutations and cursor progression are consistent.
     pub fn apply_index_mutations_with_cursor(
         &self,
@@ -280,17 +268,12 @@ impl WalrusIndexStore {
                 blob_id,
                 is_quilt,
             } => {
-                self.apply_insert(
-                    batch,
-                    bucket_id,
-                    &identifier,
-                    &object_id,
-                    blob_id,
-                    is_quilt,
-                    cursor_update,
-                )?;
+                self.apply_insert(batch, bucket_id, &identifier, &object_id, blob_id, is_quilt)?;
             }
-            walrus_sui::types::IndexMutation::Delete { object_id } => {
+            walrus_sui::types::IndexMutation::Delete {
+                object_id,
+                is_quilt: _,
+            } => {
                 self.apply_delete_by_object_id(batch, &object_id)?;
             }
         }
@@ -306,7 +289,6 @@ impl WalrusIndexStore {
         object_id: &ObjectID,
         blob_id: BlobId,
         is_quilt: bool,
-        cursor_update: Option<u64>,
     ) -> Result<(), TypedStoreError> {
         // Primary index: bucket_id/identifier -> IndexTarget.
         let primary_key = construct_primary_index_key(bucket_id, identifier);
@@ -327,35 +309,28 @@ impl WalrusIndexStore {
         batch.insert_batch(&self.primary_index, [(primary_key, index_target)])?;
         batch.insert_batch(&self.object_index, [(object_key, object_value)])?;
 
-        if is_quilt && cursor_update.is_some() {
-            let index = cursor_update.unwrap();
-            batch.insert_batch(
-                &self.pending_quilt_index_tasks,
-                [(
-                    PendingQuiltIndexTaskKey::new(index, blob_id),
-                    PendingQuiltIndexTaskValue {
-                        object_id: *object_id,
-                        bucket_id: *bucket_id,
-                    },
-                )],
-            )?;
-        }
-
         Ok(())
     }
 
     pub fn populate_quilt_patch_index(
         &self,
-        bucket_id: &ObjectID,
-        quilt_id: &BlobId,
-        object_id: &ObjectID,
+        quilt_index_task: &QuiltIndexTask,
         quilt_index: &QuiltIndex,
-        index: u64,
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.primary_index.batch();
 
-        for patch in get_stored_quilt_patches(quilt_index, *quilt_id) {
-            let primary_key = construct_primary_index_key(bucket_id, &patch.identifier);
+        self.apply_insert(
+            &mut batch,
+            &quilt_index_task.bucket_id,
+            &quilt_index_task.identifier,
+            &quilt_index_task.object_id,
+            quilt_index_task.quilt_blob_id,
+            true,
+        )?;
+
+        for patch in get_stored_quilt_patches(quilt_index, quilt_index_task.quilt_blob_id) {
+            let primary_key =
+                construct_primary_index_key(&quilt_index_task.bucket_id, &patch.identifier);
             let quilt_patch_id = QuiltPatchId::from_str(&patch.quilt_patch_id)
                 .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
             let primary_value = IndexTarget::QuiltPatchId(quilt_patch_id.clone());
@@ -364,7 +339,7 @@ impl WalrusIndexStore {
 
             if let Some(patch_blob_id) = patch.patch_blob_id {
                 let quilt_patch_index_key =
-                    construct_quilt_patch_index_key(&patch_blob_id, object_id);
+                    construct_quilt_patch_index_key(&patch_blob_id, &quilt_index_task.object_id);
                 batch.insert_batch(
                     &self.quilt_patch_index,
                     [(quilt_patch_index_key, quilt_patch_id)],
@@ -374,7 +349,10 @@ impl WalrusIndexStore {
 
         batch.delete_batch(
             &self.pending_quilt_index_tasks,
-            [PendingQuiltIndexTaskKey::new(index, *quilt_id)],
+            [QuiltIndexTaskId::new(
+                quilt_index_task.sequence_number,
+                quilt_index_task.quilt_blob_id,
+            )],
         )?;
 
         batch.write()
@@ -481,7 +459,7 @@ impl WalrusIndexStore {
         tracing::debug!("Querying quilt patch for blob_id: {}", blob_id);
         let (start_key, end_key) = get_quilt_patch_key_bounds(blob_id);
         tracing::debug!("Using bounds: start='{}', end='{}'", start_key, end_key);
-        
+
         // Use bounded iteration to find all entries with this blob_id
         for entry in self
             .quilt_patch_index
@@ -498,7 +476,7 @@ impl WalrusIndexStore {
         }
         Ok(None)
     }
-    
+
     /// Get quilt patch ID by both blob_id and object_id (direct lookup).
     pub fn get_quilt_patch_id_by_blob_and_object(
         &self,
@@ -614,7 +592,7 @@ impl WalrusIndexStore {
     /// Returns a vector of (key, value) pairs.
     pub fn get_all_pending_quilt_tasks(
         &self,
-    ) -> Result<Vec<(PendingQuiltIndexTaskKey, PendingQuiltIndexTaskValue)>, TypedStoreError> {
+    ) -> Result<Vec<(QuiltIndexTaskId, QuiltIndexTaskValue)>, TypedStoreError> {
         let mut entries = Vec::new();
         for entry in self.pending_quilt_index_tasks.safe_iter()? {
             let (key, value) = entry?;
@@ -630,6 +608,79 @@ pub struct BucketStats {
     pub primary_count: u32,
     pub secondary_count: u32,
     pub total_blob_count: u32,
+}
+
+/// Implementation of OrderedStore<QuiltIndexTask> for WalrusIndexStore.
+/// This allows the store to be used with AsyncTaskManager for quilt tasks.
+#[async_trait::async_trait]
+impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
+    /// Persist a quilt task to storage.
+    async fn store(&self, task: &crate::indexer::QuiltIndexTask) -> Result<(), TypedStoreError> {
+        let key = QuiltIndexTaskId::new(task.event_index, task.quilt_blob_id);
+        let value = QuiltIndexTaskValue {
+            object_id: task.object_id,
+            bucket_id: task.bucket_id,
+            identifier: task.identifier.clone(),
+        };
+        self.pending_quilt_index_tasks.insert(&key, &value)
+    }
+
+    /// Remove a quilt task from storage by its task ID.
+    async fn remove(&self, task_id: &QuiltIndexTaskId) -> Result<(), TypedStoreError> {
+        self.pending_quilt_index_tasks.remove(task_id)
+    }
+
+    /// Load quilt tasks within a sequence range.
+    async fn read_range(
+        &self,
+        from_seq: Option<u64>,
+        to_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<crate::indexer::QuiltIndexTask>, TypedStoreError> {
+        let from_index = from_seq.unwrap_or(0);
+        let mut tasks = Vec::new();
+        let mut count = 0;
+
+        for entry in self.pending_quilt_index_tasks.safe_iter()? {
+            let (key, value) = entry?;
+
+            if key.sequence <= from_index {
+                continue;
+            }
+
+            if let Some(to_seq) = to_seq {
+                if key.sequence > to_seq {
+                    break;
+                }
+            }
+
+            tasks.push((key, value));
+            count += 1;
+
+            if count >= limit {
+                break;
+            }
+        }
+
+        // Sort by index to ensure proper ordering
+        tasks.sort_by_key(|(key, _)| key.sequence);
+
+        // Convert storage format to QuiltIndexTask
+        let mut result = Vec::new();
+        for (key, value) in tasks {
+            let task = crate::indexer::QuiltIndexTask::new(
+                key.sequence, // Using sequence from key
+                key.quilt_id,
+                value.object_id,
+                value.bucket_id,
+                value.identifier,
+                key.sequence, // Using sequence as event_index
+            );
+            result.push(task);
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -656,7 +707,7 @@ mod tests {
                 (CF_NAME_OBJECT_INDEX, db_options.clone()),
                 (CF_NAME_EVENT_CURSOR, db_options.clone()),
                 (CF_NAME_QUILT_PATCH_INDEX, db_options.clone()),
-                (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options),
+                (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options.clone()),
             ],
         )?);
 
@@ -754,7 +805,7 @@ mod tests {
         // Retrieve via object index (object_id).
         let entry = store.get_by_object_id(&object_id)?;
         assert!(entry.is_some());
-        
+
         let retrieved = entry.unwrap();
         assert_eq!(retrieved.blob_id, blob_id);
         assert_eq!(retrieved.object_id, object_id);
@@ -859,7 +910,10 @@ mod tests {
         // Test deletion.
         let delete_mutation = walrus_sui::types::IndexMutationSet {
             bucket_id,
-            mutations: vec![walrus_sui::types::IndexMutation::Delete { object_id }],
+            mutations: vec![walrus_sui::types::IndexMutation::Delete {
+                object_id,
+                is_quilt: false,
+            }],
             event_id: sui_types::event::EventID {
                 tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
                 event_seq: 1,
@@ -1083,7 +1137,10 @@ mod tests {
         // Test atomic deletion with cursor update
         let delete_mutation = walrus_sui::types::IndexMutationSet {
             bucket_id,
-            mutations: vec![walrus_sui::types::IndexMutation::Delete { object_id }],
+            mutations: vec![walrus_sui::types::IndexMutation::Delete {
+                object_id,
+                is_quilt: false,
+            }],
             event_id: sui_types::event::EventID {
                 tx_digest: sui_types::base_types::TransactionDigest::new([1; 32]),
                 event_seq: 1,

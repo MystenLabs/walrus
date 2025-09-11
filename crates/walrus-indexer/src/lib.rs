@@ -31,18 +31,31 @@
 //! ```
 
 // Module declarations
+pub mod async_task_manager;
+pub mod async_task_sorter;
 pub mod checkpoint_downloader;
 pub mod indexer;
+// pub mod persistent_queue; // Moved traits to lib.rs - file no longer needed
+// pub mod quilt_task_manager; // TODO: Update to use new AsyncTaskManager
 pub mod storage;
+
+#[cfg(test)]
+pub mod test_util;
 
 // Configuration modules
 use std::{net::SocketAddr, path::PathBuf};
 
+use anyhow::Result;
+// Task management types are defined below - no need to re-export undefined symbols
+
+// Async trait and storage imports for traits
+use async_trait::async_trait;
 // Re-export main types for convenience
 pub use indexer::WalrusIndexer;
 use serde::{Deserialize, Serialize};
 pub use storage::{BlobIdentity, BucketStats, WalrusIndexStore};
 use sui_types::base_types::ObjectID;
+use typed_store::TypedStoreError;
 
 /// Configuration for the indexer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +103,57 @@ pub struct Bucket {
     /// Secondary index definitions.
     pub secondary_indices: Vec<String>,
 }
+
+// Centralized trait definitions for async task management
+
+/// Trait for async tasks that can be stored and sorted.
+pub trait AsyncTask: Send + Sync + Clone + Serialize + for<'de> Deserialize<'de> {
+    /// Unique identifier for the task.
+    type TaskId: Send + Sync + Clone + Serialize + for<'de> Deserialize<'de> + Ord;
+
+    /// Returns the task's unique identifier.
+    fn task_id(&self) -> Self::TaskId;
+
+    /// Returns the task's sequence number.
+    fn sequence_number(&self) -> u64;
+}
+
+/// Trait for ordered storage of async tasks.
+/// This abstracts the persistence layer for the task sorter.
+#[async_trait]
+pub trait OrderedStore<T>: Send + Sync
+where
+    T: AsyncTask,
+{
+    /// Persist a task to storage.
+    async fn store(&self, task: &T) -> Result<(), TypedStoreError>;
+
+    /// Remove a task from storage by its ID.
+    async fn remove(&self, task_id: &T::TaskId) -> Result<(), TypedStoreError>;
+
+    /// Load tasks within a sequence range, ordered by sequence number.
+    /// Returns tasks where from_seq <= sequence < to_seq (if both provided).
+    /// Note: This follows RocksDB semantics [start, end) - inclusive start, exclusive end.
+    async fn read_range(
+        &self,
+        from_seq: Option<u64>,
+        to_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<T>, TypedStoreError>;
+}
+
+/// Trait for executing tasks asynchronously.
+#[async_trait]
+pub trait TaskExecutor<T>: Send + Sync
+where
+    T: AsyncTask,
+{
+    /// Execute a task.
+    /// Returns Ok(()) if the task was executed successfully.
+    async fn execute(&self, task: T) -> Result<()>;
+}
+
+// Concrete QuiltIndexTask types are now defined in indexer.rs where they are used
 
 /// Default configuration values for the indexer.
 pub mod default {
