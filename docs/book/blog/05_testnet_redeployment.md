@@ -9,7 +9,7 @@ Some broken links may have been updated or removed.
 
 We are today redeploying the Walrus Testnet to incorporate various improvements, including some
 backwards-incompatible changes. Make sure to get the latest binary and configuration as described
-in the [setup section](../usage/setup.md).
+in the [getting started section](../usage/started.md).
 
 Note that all blob data on the previous Testnet instance has been wiped. All blobs need to be
 re-uploaded to the new Testnet instance, including Walrus Sites. In addition, there is a new version
@@ -49,7 +49,7 @@ also brings several user-facing improvements.
 Along with the redeployment of Walrus, we have also deployed a fresh WAL contract. This
 means that you cannot use any WAL token from the previous Testnet instance with the new Testnet
 instance. You need to request new WAL tokens through the [Testnet WAL
-faucet](../usage/setup.md#testnet-wal-faucet).
+faucet](../usage/started.md#testnet-wal-faucet).
 
 ## Backwards-incompatible changes
 
@@ -61,7 +61,7 @@ There are, however, some changes that may affect you.
 
 The format of the configuration files for storage nodes and clients has been changed. Make sure to
 use the latest version of the configuration files, see the [configuration
-section](../usage/setup.md#configuration).
+section](../usage/started.md#configuration).
 
 ### CLI options
 
