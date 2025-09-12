@@ -11,7 +11,7 @@ portals:
 Currently, only a server-side portal is served at <https://wal.app>.
 
 ```admonish warning title="Important: Testnet Portal Access"
-There is **no public testnet portal** available. From now on, you can only access the mainnet portal at <https://wal.app>.
+<https://wal.app> only supports sites deployed on mainnet.
 For testnet sites, you must either:
 - Run a portal locally (see instructions below)
 - Self-host your own portal with a custom domain
