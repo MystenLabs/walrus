@@ -243,6 +243,7 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
 }
 
 impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
+    #[tracing::instrument(skip_all)]
     async fn write_blob(
         &self,
         blob: &[u8],

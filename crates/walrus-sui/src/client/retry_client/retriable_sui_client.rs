@@ -443,7 +443,7 @@ impl RetriableSuiClient {
     /// Returns the balance for the given coin type owned by address.
     ///
     /// Calls [`sui_sdk::apis::CoinReadApi::get_balance`] internally.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    #[tracing::instrument(level = Level::TRACE, skip_all)]
     pub async fn get_balance(
         &self,
         owner: SuiAddress,
@@ -1074,7 +1074,7 @@ impl RetriableSuiClient {
     }
 
     /// Executes a transaction.
-    #[tracing::instrument(err, skip(self))]
+    #[tracing::instrument(level = Level::DEBUG, err, skip(self, transaction))]
     pub(crate) async fn execute_transaction(
         &self,
         transaction: Transaction,

@@ -238,6 +238,7 @@ impl<'a> ResourceManager<'a> {
     /// The function considers the requirements given to the store operation (epochs ahead,
     /// persistence, force store), the status of the blob on chain, and the available resources in
     /// the wallet.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn register_walrus_store_blobs<T: Debug + Clone + Send + Sync>(
         &self,
         encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,

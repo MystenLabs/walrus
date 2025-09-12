@@ -1321,6 +1321,7 @@ impl SuiContractClient {
     ///
     /// Returns the shared blob object ID if the post store action is Share.
     /// See [`CertifyAndExtendBlobParams`] for the details of the parameters.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn certify_and_extend_blobs(
         &self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
@@ -2714,7 +2715,12 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
         with_credits: bool,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        if blobs_with_certificates.is_empty() {
+            return Ok(vec![]);
+        }
+
         let mut pt_builder = self.transaction_builder()?;
+
         for blob_params in blobs_with_certificates {
             let blob = blob_params.blob;
 

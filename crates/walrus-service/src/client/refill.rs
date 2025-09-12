@@ -9,6 +9,7 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
+use tracing::Instrument;
 use walrus_sdk::client::metrics::ClientMetrics;
 use walrus_sui::client::{SuiContractClient, retry_client::RetriableSuiClient};
 
@@ -135,34 +136,47 @@ impl Refiller {
         let refiller = self.contract_client.clone();
         tokio::spawn(async move {
             loop {
-                interval.tick().await;
-                let sui_client = &sui_client;
-                let _ = try_join_all(addresses.iter().cloned().map(|address| {
-                    let coin_type_inner = coin_type.clone();
-                    let inner_fut = inner_action(refiller.clone(), address);
-                    async move {
-                        if should_refill(
-                            sui_client,
-                            address,
-                            coin_type_inner.clone(),
-                            min_coin_value,
-                        )
-                        .await
-                        {
-                            inner_fut.await
-                        } else {
-                            Ok(())
+                let span =
+                    tracing::debug_span!("periodic_refill", coin_type, min_coin_value, ?period);
+                let inner_span_parent = span.clone();
+                async {
+                    interval.tick().await;
+                    let sui_client = &sui_client;
+                    let _ = try_join_all(addresses.iter().cloned().map(|address| {
+                        let coin_type_inner = coin_type.clone();
+                        let inner_fut = inner_action(refiller.clone(), address);
+
+                        async move {
+                            if should_refill(
+                                sui_client,
+                                address,
+                                coin_type_inner.clone(),
+                                min_coin_value,
+                            )
+                            .await
+                            {
+                                inner_fut.await
+                            } else {
+                                Ok(())
+                            }
                         }
-                    }
-                }))
+                        .instrument(tracing::debug_span!(
+                            parent: inner_span_parent.clone(),
+                            "maybe_refill_address",
+                            address=%address
+                        ))
+                    }))
+                    .instrument(span)
+                    .await
+                    .inspect_err(|error| {
+                        tracing::error!(
+                            ?error,
+                            "error during periodic refill of coin type {:?}",
+                            coin_type
+                        )
+                    });
+                }
                 .await
-                .inspect_err(|error| {
-                    tracing::error!(
-                        ?error,
-                        "error during periodic refill of coin type {:?}",
-                        coin_type
-                    )
-                });
             }
         })
     }

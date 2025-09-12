@@ -38,6 +38,7 @@ use walrus_core::{
     metadata::{BlobMetadataApi as _, QuiltIndex},
 };
 use walrus_sdk::{
+    SuiReadClient,
     client::{
         NodeCommunicationFactory,
         StoreArgs,
@@ -1165,7 +1166,12 @@ impl ClientCommandRunner {
         blobs.print_output(self.json)
     }
 
-    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+    #[tracing::instrument(skip_all)]
+    async fn init_publisher(
+        self,
+        registry: &Registry,
+        args: PublisherArgs,
+    ) -> Result<ClientDaemon<ClientMultiplexer>> {
         args.print_debug_message("attempting to run the Walrus publisher");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -1177,10 +1183,38 @@ impl ClientCommandRunner {
         .await?;
         let auth_config = args.generate_auth_config()?;
 
-        ClientDaemon::new_publisher(client, auth_config, &args, registry)
-            .run()
-            .await?;
+        Ok(ClientDaemon::new_publisher(
+            client,
+            auth_config,
+            &args,
+            registry,
+        ))
+    }
+
+    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+        let publisher = self.init_publisher(registry, args).await?;
+        publisher.run().await?;
         Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn init_aggregator(
+        self,
+        registry: &Registry,
+        rpc_url: Option<String>,
+        daemon_args: DaemonArgs,
+        aggregator_args: AggregatorArgs,
+    ) -> Result<ClientDaemon<WalrusNodeClient<SuiReadClient>>> {
+        tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
+        let client =
+            get_read_client(self.config?, rpc_url, self.wallet, &daemon_args.blocklist).await?;
+        Ok(ClientDaemon::new_aggregator(
+            client,
+            daemon_args.bind_address,
+            registry,
+            aggregator_args.allowed_headers,
+            aggregator_args.allow_quilt_patch_tags_in_response,
+        ))
     }
 
     pub(crate) async fn aggregator(
@@ -1190,27 +1224,20 @@ impl ClientCommandRunner {
         daemon_args: DaemonArgs,
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
-        tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-        let client =
-            get_read_client(self.config?, rpc_url, self.wallet, &daemon_args.blocklist).await?;
-        ClientDaemon::new_aggregator(
-            client,
-            daemon_args.bind_address,
-            registry,
-            aggregator_args.allowed_headers,
-            aggregator_args.allow_quilt_patch_tags_in_response,
-        )
-        .run()
-        .await?;
+        let aggregator = self
+            .init_aggregator(registry, rpc_url, daemon_args, aggregator_args)
+            .await?;
+        aggregator.run().await?;
         Ok(())
     }
 
-    pub(crate) async fn daemon(
+    #[tracing::instrument(skip_all)]
+    async fn init_daemon(
         self,
         registry: &Registry,
         args: PublisherArgs,
         aggregator_args: AggregatorArgs,
-    ) -> Result<()> {
+    ) -> Result<ClientDaemon<ClientMultiplexer>> {
         args.print_debug_message("attempting to run the Walrus daemon");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -1222,9 +1249,23 @@ impl ClientCommandRunner {
         .await?;
         let auth_config = args.generate_auth_config()?;
 
-        ClientDaemon::new_daemon(client, auth_config, registry, &args, &aggregator_args)
-            .run()
-            .await?;
+        Ok(ClientDaemon::new_daemon(
+            client,
+            auth_config,
+            registry,
+            &args,
+            &aggregator_args,
+        ))
+    }
+
+    pub(crate) async fn daemon(
+        self,
+        registry: &Registry,
+        args: PublisherArgs,
+        aggregator_args: AggregatorArgs,
+    ) -> Result<()> {
+        let daemon = self.init_daemon(registry, args, aggregator_args).await?;
+        daemon.run().await?;
         Ok(())
     }
 

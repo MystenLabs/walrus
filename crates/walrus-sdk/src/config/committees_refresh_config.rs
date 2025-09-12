@@ -57,6 +57,7 @@ impl CommitteesRefreshConfig {
     }
 }
 
+#[tracing::instrument(skip_all)]
 async fn build_refresher_and_handle(
     sui_client: impl ReadClient,
     committees_refresh_config: CommitteesRefreshConfig,
