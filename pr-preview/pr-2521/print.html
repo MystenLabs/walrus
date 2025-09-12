@@ -310,7 +310,7 @@ storage node management and blob certification leverages Sui smart contracts.</p
 <ol>
 <li><em>Dev blog</em> contains announcements and other blog posts.</li>
 <li><em>Usage</em> provides concrete information for developers. If you want to get started quickly, you can
-jump directly to the <a href="./usage/setup.html">setup chapter</a>.</li>
+jump directly to the <a href="./usage/started.html">getting started chapter</a>.</li>
 <li><em>Sites</em> describes how you can use Walrus and Sui together to build truly decentralized websites.</li>
 <li><em>Design</em> describes the objectives, security properties, and architecture of Walrus.</li>
 </ol>
@@ -486,7 +486,7 @@ and clients. In this process, all blobs stored on Walrus were wiped. Note that t
 on Devnet and Testnet, but obviously <em>not on the future Mainnet</em>.</p>
 <h2 id="migration-and-re-deployment-of-walrus-sites"><a class="header" href="#migration-and-re-deployment-of-walrus-sites">Migration and Re-deployment of Walrus Sites</a></h2>
 <p>You can obtain the latest version of the <code>walrus</code> binary and the new configuration as described in
-the <a href="blog/../usage/setup.html">setup chapter</a>.</p>
+the <a href="blog/../usage/started.html">getting started chapter</a>.</p>
 <p>If you had deployed any Walrus Sites, the site object on Sui and any SuiNS name are still valid.
 However, you need to re-store all blobs on Walrus. You can achieve this by running the site-builder
 tool (from the <code>walrus-sites</code> directory) as follows:</p>
@@ -643,7 +643,7 @@ need to covet or hoard it, it's just for testing purposes and only issued on Sui
 utility and smart contract to convert Testnet SUI (which also has no value) into Testnet WAL using
 a one-to-one exchange rate. This is chosen arbitrarily, and generally one should not read too much
 into the actual WAL denominated costs of storage on Testnet. They have been chosen arbitrarily.</p>
-<p>Find out how to <a href="blog/../usage/setup.html#testnet-wal-faucet">request Testnet WAL tokens</a> through the CLI.</p>
+<p>Find out how to <a href="blog/../usage/started.html#testnet-wal-faucet">request Testnet WAL tokens</a> through the CLI.</p>
 <h2 id="decentralization-through-staking--unstaking"><a class="header" href="#decentralization-through-staking--unstaking">Decentralization through staking &amp; unstaking</a></h2>
 <p>The WAL token may also be used to stake with storage operators. Staked WAL can be unstaked and
 re-staked with other operators or used to purchase storage.</p>
@@ -698,7 +698,7 @@ Some broken links may have been updated or removed.</p>
 </div>
 <p>We are today redeploying the Walrus Testnet to incorporate various improvements, including some
 backwards-incompatible changes. Make sure to get the latest binary and configuration as described
-in the <a href="blog/../usage/setup.html">setup section</a>.</p>
+in the <a href="blog/../usage/started.html">getting started section</a>.</p>
 <p>Note that all blob data on the previous Testnet instance has been wiped. All blobs need to be
 re-uploaded to the new Testnet instance, including Walrus Sites. In addition, there is a new version
 of the WAL token, so your previous WAL tokens will not work anymore. To use the Testnet v2, you
@@ -727,7 +727,7 @@ section</a> for more details.</li>
 <h2 id="new-wal-token"><a class="header" href="#new-wal-token">New WAL token</a></h2>
 <p>Along with the redeployment of Walrus, we have also deployed a fresh WAL contract. This
 means that you cannot use any WAL token from the previous Testnet instance with the new Testnet
-instance. You need to request new WAL tokens through the <a href="blog/../usage/setup.html#testnet-wal-faucet">Testnet WAL
+instance. You need to request new WAL tokens through the <a href="blog/../usage/started.html#testnet-wal-faucet">Testnet WAL
 faucet</a>.</p>
 <h2 id="backwards-incompatible-changes"><a class="header" href="#backwards-incompatible-changes">Backwards-incompatible changes</a></h2>
 <p>One reason for a full redeployment is to allow us to make some changes that are
@@ -735,7 +735,7 @@ backwards-incompatible. Many of those are related to the contracts and thus less
 There are, however, some changes that may affect you.</p>
 <h3 id="configuration-files"><a class="header" href="#configuration-files">Configuration files</a></h3>
 <p>The format of the configuration files for storage nodes and clients has been changed. Make sure to
-use the latest version of the configuration files, see the <a href="blog/../usage/setup.html#configuration">configuration
+use the latest version of the configuration files, see the <a href="blog/../usage/started.html#configuration">configuration
 section</a>.</p>
 <h3 id="cli-options"><a class="header" href="#cli-options">CLI options</a></h3>
 <p>Several CLI options of the <code>walrus</code> CLI have been changed. Notably, all "short" variants of options
@@ -1156,7 +1156,7 @@ rpc_urls:
 them into the Walrus client configuration file. The latest published package IDs can also be found
 in the <code>Move.lock</code> files in the subdirectories of the <a href="https://github.com/MystenLabs/walrus/tree/main/contracts"><code>contracts</code> directory on
 GitHub</a>.</p>
-<p>The configuration file described on the <a href="usage/./setup.html#configuration">setup page</a> includes both Mainnet
+<p>The configuration file described on the <a href="usage/./started.html#configuration">getting started page</a> includes both Mainnet
 and Testnet configuration. If you want <em>only</em> the Mainnet configuration, you can download the
 <a href="usage/../setup/client_config_mainnet.yaml">Mainnet-only configuration file</a>.</p>
 <h2 id="testnet-configuration"><a class="header" href="#testnet-configuration">Testnet configuration</a></h2>
@@ -1218,11 +1218,11 @@ don't have it yet),</p>
 ╰─────────────────┴────────────────────┴──────────────────╯
 </code></pre>
 <p>The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the <a href="usage/./setup.html#configuration">Walrus configuration file</a>
+different Sui wallet, you can specify this in the <a href="usage/./started.html#configuration">Walrus configuration file</a>
 or when <a href="usage/./interacting.html">running the CLI</a>.</p>
 <h3 id="testnet-parameters"><a class="header" href="#testnet-parameters">Testnet parameters</a></h3>
 <p>The configuration parameters for the Walrus Testnet are included in the configuration file described
-on the <a href="usage/./setup.html#configuration">setup page</a>. If you want <em>only</em> the Testnet configuration, you can
+on the <a href="usage/./started.html#configuration">getting started page</a>. If you want <em>only</em> the Testnet configuration, you can
 get the <a href="usage/../setup/client_config_testnet.yaml">Testnet-only configuration file</a>. The parameters are:</p>
 <pre><code class="language-yaml">system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
 staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
@@ -1286,7 +1286,7 @@ simply <a href="https://docs.sui.io/guides/developer/getting-started/local-netwo
 contracts.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="using-the-walrus-client"><a class="header" href="#using-the-walrus-client">Using the Walrus client</a></h1>
-<p>The <code>walrus</code> binary can be used to interact with Walrus as a client. See the <a href="usage/./setup.html">setup
+<p>The <code>walrus</code> binary can be used to interact with Walrus as a client. See the <a href="usage/./started.html">getting started
 chapter</a> for prerequisites, installation, and configuration.</p>
 <p>Detailed usage information including a full list of available commands can be viewed with</p>
 <pre><code class="language-sh">walrus --help
@@ -1294,7 +1294,7 @@ chapter</a> for prerequisites, installation, and configuration.</p>
 <p>Each sub-command of <code>walrus</code> can also be called with <code>--help</code> to print its specific arguments and
 their meaning.</p>
 <p>If you have multiple <em>contexts</em> in your configuration file (as in the default one included on the
-<a href="usage/./setup.html#configuration">setup page</a>), you can specify the context for each command through the
+<a href="usage/./started.html#configuration">getting started page</a>), you can specify the context for each command through the
 <code>--context</code> option.</p>
 <p>You can generate a bash/zsh/fish completion script with <code>walrus completion</code> and place it in the appropriate
 directory like <code>~/.local/share/bash-completion/completions</code>.</p>
@@ -1701,7 +1701,7 @@ Walrus. This means that the gas for storage is reclaimed by deleting attributes.
 same blob contents may have different attributes for different blob objects for the same blob ID.</p>
 <h2 id="changing-the-default-configuration"><a class="header" href="#changing-the-default-configuration">Changing the default configuration</a></h2>
 <p>Use the <code>--config</code> option to specify a custom path to the
-<a href="usage/../usage/setup.html#configuration">configuration location</a>.</p>
+<a href="usage/../usage/started.html#configuration">configuration location</a>.</p>
 <p>The <code>--wallet &lt;WALLET&gt;</code> argument may be used to specify a non-standard Sui wallet configuration
 file. And a <code>--gas-budget &lt;GAS_BUDGET&gt;</code> argument may be used to change the maximum amount of Sui (in
 MIST) that the command is allowed to use.</p>
@@ -2320,7 +2320,7 @@ read blob contents, which can be very large.</p>
 <li>Changes to these objects emit <em>Walrus-related events</em>.</li>
 </ul>
 <p>The Walrus system object ID can be found in the Walrus <code>client_config.yaml</code> file (see
-<a href="dev-guide/../usage/setup.html#configuration">Configuration</a>). You may use any Sui explorer to look at its
+<a href="dev-guide/../usage/started.html#configuration">Configuration</a>). You may use any Sui explorer to look at its
 content, as well as explore the content of blob objects. There is more information about these in
 the <a href="dev-guide/sui-struct.html">quick reference to the Walrus Sui structures</a>.</p>
 <p>Walrus is also composed of a number of Walrus-specific services and binaries:</p>
@@ -3097,7 +3097,7 @@ they remain accessible.</p>
 <p>To set the authorization to receive the commission and perform governance operations you can either
 use the <code>walrus</code> binary in your CLI, or you can use the <a href="https://stake-wal.wal.app/node-operations">node operations web interface</a>.</p>
 <h3 id="using-the-cli"><a class="header" href="#using-the-cli">Using the CLI</a></h3>
-<p>The following assumes that you have the <code>walrus</code> binary <a href="operator-guide/../usage/setup.html">correctly set up</a>, using
+<p>The following assumes that you have the <code>walrus</code> binary <a href="operator-guide/../usage/started.html">correctly set up</a>, using
 the wallet that is currently authorized to perform these operations. If this is the first time
 updating the authorized entities, this will be the wallet that you used to setup the storage node.
 To specify a wallet and/or config that are not in the standard locations, you can specify them using
@@ -3752,23 +3752,23 @@ the Walrus objects.</p>
 </div>
 </div>
 <h2 id="latest-binary"><a class="header" href="#latest-binary">Latest binary</a></h2>
-<p>Before undertaking any other steps, make sure you have the <a href="usage/./setup.html#installation">latest <code>walrus</code>
+<p>Before undertaking any other steps, make sure you have the <a href="usage/./started.html#installation">latest <code>walrus</code>
 binary</a>. If you have multiple versions in different locations, find the
 binary that will actually be used with <code>which walrus</code>.</p>
 <h2 id="old-hardware-or-incompatible-vms"><a class="header" href="#old-hardware-or-incompatible-vms">Old hardware or incompatible VMs</a></h2>
 <p>Our standard Ubuntu binary is known to cause problems on certain old hardware and in certain
 virtualized environments. If you experience errors like "Illegal instruction (core dumped)",
-<a href="usage/./setup.html#installation">install</a> the <code>ubuntu-x86_64-generic</code> version instead, which is compiled
+<a href="usage/./started.html#installation">install</a> the <code>ubuntu-x86_64-generic</code> version instead, which is compiled
 specifically to be compatible with almost all physical and virtual x86-64 CPUs.</p>
 <h2 id="correct-sui-network-configuration"><a class="header" href="#correct-sui-network-configuration">Correct Sui network configuration</a></h2>
 <p>If you get an error like "the specified Walrus system object does not exist", make sure your wallet
 is set up for the correct Sui network (Mainnet or Testnet as you may require) and you use the latest
-<a href="usage/./setup.html#configuration">configuration</a>.</p>
+<a href="usage/./started.html#configuration">configuration</a>.</p>
 <h2 id="latest-walrus-configuration"><a class="header" href="#latest-walrus-configuration">Latest Walrus configuration</a></h2>
 <p>The Walrus Testnet is wiped periodically and requires updating to the latest binary and
 configuration. If you get an error like "could not retrieve enough confirmations to certify the
 blob", you are probably using an outdated configuration pointing to an inactive Walrus system. In
-this case, update your configuration file with the latest <a href="usage/./setup.html#configuration">configuration</a>
+this case, update your configuration file with the latest <a href="usage/./started.html#configuration">configuration</a>
 and make sure the CLI uses the intended configuration.</p>
 <div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
 <div class="admonition-title">
@@ -3853,7 +3853,7 @@ prepare your environment for development.</p>
 <p>Before you start, make sure you</p>
 <ul>
 <li>have a recent version of <a href="https://www.rust-lang.org/tools/install">Rust</a> installed;</li>
-<li>followed all <a href="walrus-sites/../usage/setup.html">Walrus setup instructions</a>.</li>
+<li>followed all <a href="walrus-sites/../usage/started.html">Walrus setup instructions</a>.</li>
 </ul>
 <p>Then, follow these additional setup steps.</p>
 <h2 id="installation-2"><a class="header" href="#installation-2">Installation</a></h2>
@@ -4384,7 +4384,7 @@ wallet to use, the gas budget, and other operational details. Most of these are 
 through sensible defaults, so you should not need to touch them. Yet, for completeness, we provide
 here the details for all the configuration options.</p>
 <h2 id="minimal-configuration"><a class="header" href="#minimal-configuration">Minimal configuration</a></h2>
-<p>The config file is expected to be in one of the <a href="walrus-sites/../usage/setup.html#config-custom-path">default
+<p>The config file is expected to be in one of the <a href="walrus-sites/../usage/started.html#config-custom-path">default
 locations</a>, and it is possible to point elsewhere with the
 <code>--config</code> flag. For your first run, it should be sufficient to call the <code>site-builder</code> without
 specifying the config explicitly, which is already configured if you followed thoroughly the
@@ -4408,7 +4408,7 @@ the wallet.</li>
 one from <code>sui client addresses</code>).</li>
 <li><code>walrus_binary</code>: Pointer to the <code>walrus</code> binary. By default, this is expected to be run from
 <code>$PATH</code>.</li>
-<li><code>walrus_config</code>: The configuration for the <code>walrus</code> client binary, see the <a href="walrus-sites/../usage/setup.html">relevant
+<li><code>walrus_config</code>: The configuration for the <code>walrus</code> client binary, see the <a href="walrus-sites/../usage/started.html">relevant
 chapter</a>.</li>
 <li><code>gas_budget</code>: The maximum amount of gas to be spent for transactions (default: 500M MIST).</li>
 </ul>
