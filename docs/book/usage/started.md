@@ -1,4 +1,4 @@
-# Setup
+# Getting Started
 
 We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
 supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
