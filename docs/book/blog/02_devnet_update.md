@@ -14,7 +14,7 @@ on Devnet and Testnet, but obviously *not on the future Mainnet*.
 ## Migration and Re-deployment of Walrus Sites
 
 You can obtain the latest version of the `walrus` binary and the new configuration as described in
-the [setup chapter](../usage/setup.md).
+the [getting started chapter](../usage/started.md).
 
 If you had deployed any Walrus Sites, the site object on Sui and any SuiNS name are still valid.
 However, you need to re-store all blobs on Walrus. You can achieve this by running the site-builder

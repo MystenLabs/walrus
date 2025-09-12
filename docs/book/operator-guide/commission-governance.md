@@ -27,7 +27,7 @@ use the `walrus` binary in your CLI, or you can use the [node operations web int
 
 ### Using the CLI
 
-The following assumes that you have the `walrus` binary [correctly set up](../usage/setup.md), using
+The following assumes that you have the `walrus` binary [correctly set up](../usage/started.md), using
 the wallet that is currently authorized to perform these operations. If this is the first time
 updating the authorized entities, this will be the wallet that you used to setup the storage node.
 To specify a wallet and/or config that are not in the standard locations, you can specify them using

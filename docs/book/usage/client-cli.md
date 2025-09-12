@@ -1,7 +1,7 @@
 # Using the Walrus client
 
-The `walrus` binary can be used to interact with Walrus as a client. See the [setup
-chapter](./setup.md) for prerequisites, installation, and configuration.
+The `walrus` binary can be used to interact with Walrus as a client. See the [getting started
+chapter](./started.md) for prerequisites, installation, and configuration.
 
 Detailed usage information including a full list of available commands can be viewed with
 
@@ -13,7 +13,7 @@ Each sub-command of `walrus` can also be called with `--help` to print its speci
 their meaning.
 
 If you have multiple *contexts* in your configuration file (as in the default one included on the
-[setup page](./setup.md#configuration)), you can specify the context for each command through the
+[getting started page](./started.md#configuration)), you can specify the context for each command through the
 `--context` option.
 
 You can generate a bash/zsh/fish completion script with `walrus completion` and place it in the appropriate
@@ -431,7 +431,7 @@ same blob contents may have different attributes for different blob objects for 
 ## Changing the default configuration
 
 Use the `--config` option to specify a custom path to the
-[configuration location](../usage/setup.md#configuration).
+[configuration location](../usage/started.md#configuration).
 
 The `--wallet <WALLET>` argument may be used to specify a non-standard Sui wallet configuration
 file. And a `--gas-budget <GAS_BUDGET>` argument may be used to change the maximum amount of Sui (in

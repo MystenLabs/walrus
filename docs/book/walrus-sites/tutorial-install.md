@@ -8,7 +8,7 @@ prepare your environment for development.
 Before you start, make sure you
 
 - have a recent version of [Rust](https://www.rust-lang.org/tools/install) installed;
-- followed all [Walrus setup instructions](../usage/setup.md).
+- followed all [Walrus setup instructions](../usage/started.md).
 
 Then, follow these additional setup steps.
 
