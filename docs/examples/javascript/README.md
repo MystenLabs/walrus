@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Set up Sui and Walrus as described in the
-  [documentation](https://docs.wal.app/usage/setup.html).
+  [documentation](https://docs.wal.app/usage/started.html).
 - If you don't want to use the public aggregator and publisher: Run the client in [daemon
   mode](https://docs.wal.app/usage/web-api.html).
 

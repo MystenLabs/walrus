@@ -99,7 +99,7 @@ be repeated. To vote for an upgrade, complete the following steps.
 
 Operators should compute the package digest of the package to upgrade. It is important here that
 the same compiler version is used and the correct Sui network is specified. If you use a standard
-[Walrus Configuration](../usage/setup.html#configuration), the Sui network will be selected
+[Walrus Configuration](../usage/started.html#configuration), the Sui network will be selected
 automatically when specifying the Walrus network using the `--context` flag and using the up-to-date
 `walrus` version will ensure that the compiler version is consistent across all voters.
 

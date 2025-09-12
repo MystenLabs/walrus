@@ -90,7 +90,7 @@ and more extensive tests:
 ## Using the Walrus client
 
 If you just want to use the Walrus Mainnet or Testnet, please follow the [setup instructions in our
-documentation](https://docs.wal.app/usage/setup.html). Further information about the usage is
+documentation](https://docs.wal.app/usage/started.html). Further information about the usage is
 also available in the [public documentation](https://docs.wal.app/usage/interacting.html).
 
 If you want to build the binary from source or run local tests, see the instructions
