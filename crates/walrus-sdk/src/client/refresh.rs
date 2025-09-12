@@ -5,6 +5,7 @@
 //! when needed.
 
 use std::{
+    ops::ControlFlow,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -94,64 +95,72 @@ impl<T: ReadClient> CommitteesRefresher<T> {
         })
     }
 
+    #[tracing::instrument(skip_all)]
+    async fn run_refresh_once(&mut self) -> ControlFlow<()> {
+        let timer_interval = self.next_refresh_interval();
+        tokio::select! {
+            _ = tokio::time::sleep(timer_interval) => {
+                // Refresh automatically.
+                // This is a safeguard against the case where only very long operations occur
+                // during epoch change. When close to the next epoch change, the refresh timer
+                // goes down to `MIN_AUTO_REFRESH_INTERVAL`, ensuring that when epoch change
+                // occurs it is detected and the operations are notified.
+                //
+                // This is a force refresh (ignores cache staleness). However, the
+                // `last_refresh` instant is not updated, so that if a running store
+                // operation detects epoch change it can still force the refresh.
+                tracing::debug!(
+                    ?timer_interval,
+                    "auto-refreshing the active committee"
+                );
+                let _ = self.refresh().await.inspect_err(|error| {
+                    tracing::warn!(
+                        %error,
+                        "failed to refresh the active committee; \
+                        retrying again at the next interval",
+                    )
+                });
+            }
+            request = self.req_rx.recv() => {
+                if let Some(request) = request {
+                    tracing::trace!(
+                        "received a request"
+                    );
+                    if request.is_refresh() {
+                        let _ = self.refresh_if_stale().await.inspect_err(|error| {
+                            tracing::warn!(
+                                %error,
+                                "failed to refresh the active committee; \
+                                retrying again at the next interval",
+                            )
+                        });
+                    }
+                    let _ = request
+                        .into_reply_channel()
+                        .send((
+                            self.last_committees.clone(),
+                            self.last_price_computation.clone(),
+                        ))
+                        .inspect_err(|_| {
+                            // This may happen because the client was notified of a committee
+                            // change, and therefore the receiver end of the channel was
+                            // dropped.
+                            tracing::info!("failed to send the committee and price")
+                        });
+                } else {
+                    tracing::debug!("the channel is closed, stopping the refresher");
+                    return ControlFlow::Break(());
+                }
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
     /// Runs the refresher cache.
     pub async fn run(&mut self) {
         loop {
-            let timer_interval = self.next_refresh_interval();
-            tokio::select! {
-                _ = tokio::time::sleep(timer_interval) => {
-                    // Refresh automatically.
-                    // This is a safeguard against the case where only very long operations occur
-                    // during epoch change. When close to the next epoch change, the refresh timer
-                    // goes down to `MIN_AUTO_REFRESH_INTERVAL`, ensuring that when epoch change
-                    // occurs it is detected and the operations are notified.
-                    //
-                    // This is a force refresh (ignores cache staleness). However, the
-                    // `last_refresh` instant is not updated, so that if a running store
-                    // operation detects epoch change it can still force the refresh.
-                    tracing::debug!(
-                        ?timer_interval,
-                        "auto-refreshing the active committee"
-                    );
-                    let _ = self.refresh().await.inspect_err(|error| {
-                        tracing::warn!(
-                            %error,
-                            "failed to refresh the active committee; \
-                            retrying again at the next interval",
-                        )
-                    });
-                }
-                request = self.req_rx.recv() => {
-                    if let Some(request) = request {
-                        tracing::trace!(
-                            "received a request"
-                        );
-                        if request.is_refresh() {
-                            let _ = self.refresh_if_stale().await.inspect_err(|error| {
-                                tracing::warn!(
-                                    %error,
-                                    "failed to refresh the active committee; \
-                                    retrying again at the next interval",
-                                )
-                            });
-                        }
-                        let _ = request
-                            .into_reply_channel()
-                            .send((
-                                self.last_committees.clone(),
-                                self.last_price_computation.clone(),
-                            ))
-                            .inspect_err(|_| {
-                                // This may happen because the client was notified of a committee
-                                // change, and therefore the receiver end of the channel was
-                                // dropped.
-                                tracing::info!("failed to send the committee and price")
-                            });
-                    } else {
-                        tracing::debug!("the channel is closed, stopping the refresher");
-                        break;
-                    }
-                }
+            if self.run_refresh_once().await.is_break() {
+                break;
             }
         }
     }

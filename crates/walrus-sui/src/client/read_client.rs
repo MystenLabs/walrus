@@ -408,6 +408,7 @@ impl SuiReadClient {
     }
 
     /// Fetches the system and staking objects and the fixed system parameters and caches them.
+    #[tracing::instrument(skip_all)]
     pub async fn init_cache(&self) -> SuiClientResult<()> {
         let _ = self.get_and_cache_system_and_staking_objects().await?;
         let _ = self.fixed_system_parameters().await?;

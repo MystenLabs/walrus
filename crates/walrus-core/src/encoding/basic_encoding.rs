@@ -88,7 +88,7 @@ impl<'a> ReedSolomonEncoder<'a> {
     /// Returns an [`EncodeError`] if the `data` is empty, not a multiple of `n_source_symbols`, or
     /// too large to be encoded with the provided `n_source_symbols`.
     #[tracing::instrument(
-        level = Level::ERROR,
+        level = Level::TRACE,
         err(level = Level::WARN),
         skip(data)
     )]
