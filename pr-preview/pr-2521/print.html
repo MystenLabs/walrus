@@ -3149,7 +3149,7 @@ be repeated. To vote for an upgrade, complete the following steps.</p>
 <h4 id="computing-the-upgrade-digest"><a class="header" href="#computing-the-upgrade-digest">Computing the upgrade digest</a></h4>
 <p>Operators should compute the package digest of the package to upgrade. It is important here that
 the same compiler version is used and the correct Sui network is specified. If you use a standard
-<a href="operator-guide/../usage/setup.html#configuration">Walrus Configuration</a>, the Sui network will be selected
+<a href="operator-guide/../usage/started.html#configuration">Walrus Configuration</a>, the Sui network will be selected
 automatically when specifying the Walrus network using the <code>--context</code> flag and using the up-to-date
 <code>walrus</code> version will ensure that the compiler version is consistent across all voters.</p>
 <p>To compute the digest of a proposed upgrade, you should use the <code>walrus node-admin</code> command.
@@ -3590,7 +3590,7 @@ relay. For the sake of the example below, we're assuming that:</p>
 configuration for the <code>walrus-upload-relay</code>, as described <a href="operator-guide/upload-relay.html#relay-specific-configuration">in the configuration
 section</a>.</li>
 <li><code>$HOME/.config/walrus/client_config.yaml</code> exists on the host machine and contains Walrus client
-configuration as specified <a href="operator-guide/../usage/setup.html#configuration">in the CLI setup section</a>.</li>
+configuration as specified <a href="operator-guide/../usage/started.html#configuration">in the CLI setup section</a>.</li>
 <li>Port 3000 is available for the relay to bind to (change this to whichever port you'd like to
 expose from your host.)</li>
 </ul>
