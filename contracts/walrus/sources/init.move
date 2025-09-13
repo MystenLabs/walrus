@@ -51,7 +51,8 @@ public fun initialize_walrus(
     id.delete();
     let package_id = upgrade_cap.package();
     assert!(
-        type_name::get<InitCap>().get_address() == package_id.to_address().to_ascii_string(),
+        type_name::with_defining_ids<InitCap>().address_string()
+            == package_id.to_address().to_ascii_string(),
         EInvalidUpgradeCap,
     );
     system::create_empty(max_epochs_ahead, package_id, ctx);
