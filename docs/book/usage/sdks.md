@@ -22,6 +22,7 @@ with the [HTTP API](./web-api.md#http-api-usage) exposed by Walrus aggregators a
 - [Walrus PHP SDK](https://github.com/suicore/walrus-sdk-php) (maintained by the *Suicore* team)
 - [Walrus Python SDK](https://github.com/standard-crypto/walrus-python) (maintained by the *Standard
   Crypto* team)
+- [Walrus Rust SDK](https://github.com/pwh-pwh/walrus_rs) (maintained by the *pwh-pwh*)
 
 Finally, there is [Tusky](https://docs.tusky.io/about/about-tusky), a complete data storage platform
 built on Walrus, including encryption, HTTP APIs, sharing capabilities, and more.
