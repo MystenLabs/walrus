@@ -2,14 +2,35 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import base64
+import os
+from pathlib import Path
+from itertools import product
 
 # Configure these paths to match your system
 FULL_NODE_URL = "https://fullnode.testnet.sui.io:443"
 PATH_TO_WALRUS = "../CONFIG/bin/walrus"
-PATH_TO_WALRUS_CONFIG = "../CONFIG/config_dir/client_config.yaml"
+# TODO: Fix the path below to point to your walrus config file. By default, it is assumed to be in
+# ~/.config/walrus/client_config.yaml.
+PATH_TO_WALRUS_CONFIG = str(Path.home() / ".config" / "walrus" / "client_config.yaml")
 
 
-# Convert a numeric (u256) blob_id to a base64 encoded Blob ID
+def default_configuration_paths():
+    walrus_config_file_names = ["client_config.yaml", "client_config.yml"]
+    directories = [Path(".")]
+
+    if xdg_config_dir := os.environ.get("XDG_CONFIG_HOME"):
+        directories.append(Path(xdg_config_dir))
+
+    if home_dir := Path.home():
+        directories.append(home_dir / ".config" / "walrus")
+        directories.append(home_dir / ".walrus")
+
+    return [
+        directory / file_name
+        for directory, file_name in product(directories, walrus_config_file_names)
+    ]
+
+
 def num_to_blob_id(blob_id_num):
     extracted_bytes = []
     for i in range(32):
