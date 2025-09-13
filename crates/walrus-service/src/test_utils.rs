@@ -1174,6 +1174,10 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            shard_sync_config: ShardSyncConfig {
+                shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(10),
+                ..Default::default()
+            },
             ..storage_node_config().inner
         };
 

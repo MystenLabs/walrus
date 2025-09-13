@@ -1672,7 +1672,7 @@ impl StorageNode {
             .blob_retirement_notifier
             .epoch_change_notify_all_pending_blob_retirement(self.inner.clone())?;
 
-        if event.epoch < self.inner.current_epoch() {
+        if event.epoch < self.inner.current_committee_epoch() {
             // We have not caught up to the latest epoch yet, so we can skip the event.
             event_handle.mark_as_complete();
             return Ok(());
@@ -1954,6 +1954,10 @@ impl StorageNode {
         let shard_diff_calculator =
             ShardDiffCalculator::new(&committees, public_key, shard_map_lock.existing_shards());
 
+        if cfg!(msim) {
+            tracing::info!("EpochChangeStart shard diffs: {:?}", shard_diff_calculator);
+        }
+
         let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
         self.create_new_shards_and_start_sync(
             shard_map_lock,
@@ -2232,7 +2236,10 @@ impl StorageNodeInner {
     ) -> anyhow::Result<bool> {
         for shard in shards {
             match self.storage.is_stored_at_shard(blob_id, *shard).await {
-                Ok(false) => return Ok(false),
+                Ok(false) => {
+                    tracing::info!("ZZZZZ blob {} is not stored at shard {}", blob_id, shard);
+                    return Ok(false);
+                }
                 Ok(true) => continue,
                 Err(error) => {
                     tracing::warn!(?error, "failed to check if blob is stored at shard");
@@ -2328,7 +2335,7 @@ impl StorageNodeInner {
         *self.latest_event_epoch_watcher.borrow()
     }
 
-    fn current_epoch(&self) -> Epoch {
+    fn current_committee_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }
 
@@ -2370,7 +2377,10 @@ impl StorageNodeInner {
         self.storage
             .shard_storage(shard_index)
             .await
-            .ok_or(ShardNotAssigned(shard_index, self.current_epoch()))
+            .ok_or(ShardNotAssigned(
+                shard_index,
+                self.current_committee_epoch(),
+            ))
     }
 
     fn init_gauges(&self) -> Result<(), TypedStoreError> {
@@ -2449,8 +2459,16 @@ impl StorageNodeInner {
             .status()
             .context("Unable to retrieve shard status")?;
 
+        tracing::info!(
+            "ZZZZZ shard_status: {}, shard_id: {}",
+            shard_status,
+            shard_storage.id()
+        );
+
         if !shard_status.is_owned_by_node() {
-            return Err(ShardNotAssigned(shard_storage.id(), self.current_epoch()).into());
+            return Err(
+                ShardNotAssigned(shard_storage.id(), self.current_committee_epoch()).into(),
+            );
         }
 
         if shard_storage
@@ -2505,15 +2523,22 @@ impl StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(self.current_epoch())))
+            .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
     }
 
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
+        let blob_certfied = self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+            .is_some_and(|blob_info| blob_info.is_certified(self.current_committee_epoch()));
+        tracing::info!(
+            "ZZZZZ is_blob_certified: {}, current_epoch: {}, is_certified: {}",
+            blob_id,
+            self.current_committee_epoch(),
+            blob_certfied
+        );
+        Ok(blob_certfied)
     }
 
     /// Returns true if the blob is currently not certified.
@@ -2790,7 +2815,7 @@ impl ServiceState for StorageNodeInner {
         }
 
         ensure!(
-            blob_info.is_registered(self.current_epoch()),
+            blob_info.is_registered(self.current_committee_epoch()),
             StoreMetadataError::NotCurrentlyRegistered,
         );
 
@@ -2921,13 +2946,16 @@ impl ServiceState for StorageNodeInner {
                 .context("database error when checking per object info")?
                 .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
             ensure!(
-                per_object_info.is_registered(self.current_epoch()),
+                per_object_info.is_registered(self.current_committee_epoch()),
                 ComputeStorageConfirmationError::NotCurrentlyRegistered,
             );
         }
 
-        let confirmation =
-            Confirmation::new(self.current_epoch(), *blob_id, *blob_persistence_type);
+        let confirmation = Confirmation::new(
+            self.current_committee_epoch(),
+            *blob_id,
+            *blob_persistence_type,
+        );
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 
         self.metrics.storage_confirmations_issued_total.inc();
@@ -2940,7 +2968,7 @@ impl ServiceState for StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(|blob_info| blob_info.to_blob_status(self.current_epoch()))
+            .map(|blob_info| blob_info.to_blob_status(self.current_committee_epoch()))
             .unwrap_or_default())
     }
 
@@ -2953,7 +2981,7 @@ impl ServiceState for StorageNodeInner {
 
         inconsistency_proof.verify(metadata.as_ref(), &self.encoding_config)?;
 
-        let message = InvalidBlobIdMsg::new(self.current_epoch(), blob_id.to_owned());
+        let message = InvalidBlobIdMsg::new(self.current_committee_epoch(), blob_id.to_owned());
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
@@ -3100,7 +3128,7 @@ impl ServiceState for StorageNodeInner {
 
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
-            epoch: self.current_epoch(),
+            epoch: self.current_committee_epoch(),
             public_key: self.public_key().clone(),
             node_status: self
                 .storage
@@ -3150,16 +3178,16 @@ impl ServiceState for StorageNodeInner {
 
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() != self.current_epoch() {
+        if request.epoch() != self.current_committee_epoch() {
             return Err(InvalidEpochError {
                 request_epoch: request.epoch(),
-                server_epoch: self.current_epoch(),
+                server_epoch: self.current_committee_epoch(),
             }
             .into());
         }
 
         self.storage
-            .handle_sync_shard_request(request, self.current_epoch())
+            .handle_sync_shard_request(request, self.current_committee_epoch())
             .await
     }
 }
@@ -3365,7 +3393,7 @@ mod tests {
 
             assert_eq!(
                 confirmation.as_ref().epoch(),
-                storage_node.as_ref().inner.current_epoch()
+                storage_node.as_ref().inner.current_committee_epoch()
             );
 
             assert_eq!(confirmation.as_ref().contents().blob_id, BLOB_ID);
@@ -3528,7 +3556,7 @@ mod tests {
         advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
 
         let node = &cluster.nodes[0];
-        println!("{}", node.storage_node.inner.current_epoch());
+        println!("{}", node.storage_node.inner.current_committee_epoch());
 
         let blob_events: Vec<BlobEvent> = vec![
             BlobRegistered {
@@ -3765,7 +3793,7 @@ mod tests {
 
             assert_eq!(
                 invalid_blob_msg.as_ref().epoch(),
-                node.as_ref().inner.current_epoch()
+                node.as_ref().inner.current_committee_epoch()
             );
             assert_eq!(*invalid_blob_msg.as_ref().contents(), blob_id);
 
