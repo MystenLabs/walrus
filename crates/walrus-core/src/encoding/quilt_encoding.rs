@@ -37,7 +37,7 @@ use crate::{
         EncodingAxis,
         QuiltError,
         blob_encoding::BlobEncoder,
-        config::EncodingConfigTrait as _,
+        config::EncodingFactory as _,
     },
     metadata::{
         QuiltIndex,
@@ -76,6 +76,86 @@ pub const PATCH_BLOB_ID_TAG: &str = "_blob_id";
 /// Gets the quilt version enum from the data.
 pub fn get_quilt_version_enum(data: &[u8]) -> Result<QuiltVersionEnum, QuiltError> {
     QuiltVersionEnum::try_from(utils::get_quilt_version_byte(data)?)
+}
+
+/// Returns if an identifier is valid.
+///
+/// Validates that:
+/// - The identifier is not empty
+/// - The identifier is not too long (max length enforced)
+/// - The identifier has no trailing whitespace
+///
+/// # Examples
+///
+/// Valid identifiers:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("test").is_ok());
+/// assert!(validate_quilt_identifier("test123").is_ok());
+/// assert!(validate_quilt_identifier("123test").is_ok());
+/// assert!(validate_quilt_identifier("a").is_ok());
+/// assert!(validate_quilt_identifier("A123").is_ok());
+/// assert!(validate_quilt_identifier("_test").is_ok());
+/// assert!(validate_quilt_identifier("-test").is_ok());
+/// assert!(validate_quilt_identifier(".test").is_ok());
+/// assert!(validate_quilt_identifier("test blob").is_ok());
+/// assert!(validate_quilt_identifier("test-blob").is_ok());
+/// assert!(validate_quilt_identifier("test_blob").is_ok());
+/// assert!(validate_quilt_identifier("test.blob").is_ok());
+/// ```
+///
+/// Invalid identifier - empty:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("").is_err());
+/// ```
+///
+/// Invalid identifiers - has trailing whitespace:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("test ").is_err());
+/// assert!(validate_quilt_identifier("test\t").is_err());
+/// assert!(validate_quilt_identifier("test\n").is_err());
+/// assert!(validate_quilt_identifier("test\r").is_err());
+/// assert!(validate_quilt_identifier("test   ").is_err());
+/// ```
+///
+/// Invalid identifiers - contains control characters:
+/// ```
+/// # use walrus_core::encoding::quilt_encoding::validate_quilt_identifier;
+/// assert!(validate_quilt_identifier("te\x08st").is_err());  // Backspace in middle
+/// assert!(validate_quilt_identifier("\x1Btest").is_err());  // ESC at start
+/// assert!(validate_quilt_identifier("test\x00").is_err());  // Null at end
+/// assert!(validate_quilt_identifier("test\x01").is_err());  // SOH at end
+/// assert!(validate_quilt_identifier("test\x1F").is_err());  // US (Unit Separator) at end
+/// assert!(validate_quilt_identifier("test\x7F").is_err());  // DEL at end
+/// assert!(validate_quilt_identifier("test\u{0080}").is_err());  // PAD (C1 control) at end
+/// assert!(validate_quilt_identifier("test\u{0081}").is_err());  // HOP (C1 control) at end
+/// assert!(validate_quilt_identifier("test\u{009F}").is_err());  // APC (C1 control) at end
+/// ```
+pub fn validate_quilt_identifier(identifier: &str) -> Result<(), QuiltError> {
+    if identifier.len() > MAX_BLOB_IDENTIFIER_BYTES_LENGTH {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "identifier too long: {}",
+            identifier.len()
+        )));
+    }
+    if identifier.is_empty() {
+        return Err(QuiltError::InvalidIdentifier(
+            "identifier is empty".to_string(),
+        ));
+    }
+    if identifier.trim_end() != identifier {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "identifier contains trailing whitespace: {identifier}",
+        )));
+    }
+    if identifier.chars().any(|c| c.is_control()) {
+        return Err(QuiltError::InvalidIdentifier(format!(
+            "identifier contains control characters: {identifier}",
+        )));
+    }
+    Ok(())
 }
 
 /// The version of the quilt.
@@ -487,63 +567,10 @@ pub struct QuiltStoreBlob<'a> {
 }
 
 impl<'a> QuiltStoreBlob<'a> {
-    /// Returns if an identifier is valid.
-    ///
-    /// Note an empty identifier is not valid.
-    ///
-    /// # Examples
-    ///
-    /// Valid identifiers:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test123").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("123test").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("a").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("A123").is_ok());
-    /// ```
-    ///
-    /// Invalid identifiers - doesn't start with alphanumeric:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("_test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("-test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier(" test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier(".test").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("").is_err());
-    /// ```
-    ///
-    /// Invalid identifiers - has trailing whitespace:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test ").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\t").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\n").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test\r").is_err());
-    /// assert!(QuiltStoreBlob::check_identifier("test   ").is_err());
-    /// ```
-    ///
-    /// Valid identifiers with spaces/special chars in the middle:
-    /// ```
-    /// # use walrus_core::encoding::quilt_encoding::QuiltStoreBlob;
-    /// assert!(QuiltStoreBlob::check_identifier("test blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test-blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test_blob").is_ok());
-    /// assert!(QuiltStoreBlob::check_identifier("test.blob").is_ok());
-    /// ```
-    pub fn check_identifier(identifier: impl AsRef<str>) -> Result<(), QuiltError> {
-        let id = identifier.as_ref();
-        if id.starts_with(|c: char| c.is_alphanumeric()) && id == id.trim_end() {
-            Ok(())
-        } else {
-            Err(QuiltError::InvalidIdentifier(id.to_string()))
-        }
-    }
-
     /// Creates a new `QuiltStoreBlob` from a borrowed blob and an identifier.
     pub fn new(blob: &'a [u8], identifier: impl Into<String>) -> Result<Self, QuiltError> {
         let identifier = identifier.into();
-        Self::check_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             blob: Cow::Borrowed(blob),
@@ -572,7 +599,7 @@ impl<'a> QuiltStoreBlob<'a> {
     /// Creates a new `QuiltStoreBlob` from an owned blob and an identifier.
     pub fn new_owned(blob: Vec<u8>, identifier: impl Into<String>) -> Result<Self, QuiltError> {
         let identifier = identifier.into();
-        Self::check_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             blob: Cow::Owned(blob),
@@ -2388,20 +2415,16 @@ mod tests {
             }
         }
 
-        let mut decoder = config
-            .get_blob_decoder::<Secondary>(quilt_metadata_v1.metadata.unencoded_length())
-            .expect("Should create decoder");
-
-        let (quilt_blob, metadata_with_id) = decoder
+        let (quilt_blob, metadata_with_id) = config
             .decode_and_verify(
                 &quilt_metadata_v1.quilt_id,
+                quilt_metadata_v1.metadata.unencoded_length(),
                 sliver_pairs
                     .iter()
                     .map(|s| s.secondary.clone())
                     .collect::<Vec<_>>(),
             )
-            .expect("Should decode and verify quilt")
-            .expect("Should decode quilt");
+            .expect("should decode and verify quilt");
 
         assert_eq!(metadata_with_id.metadata(), &quilt_metadata_v1.metadata);
 

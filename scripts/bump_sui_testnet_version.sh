@@ -2,13 +2,12 @@
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 #
-# This script creates a PR branch and updates Sui testnet versions in
-# selected files.
+# This script creates a Sui Testnet Version Bump PR
 
 set -Eeuo pipefail
 
 # Ensure required binaries are available
-for cmd in gh sui git; do
+for cmd in cargo gh sui git; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Error: required command '$cmd' not found in PATH." >&2
     exit 1
@@ -96,21 +95,35 @@ git config user.name "github-actions[bot]"
 git config user.email \
   "41898282+github-actions[bot]@users.noreply.github.com"
 
-git commit -m "chore: bump Sui version to ${NEW_TAG}"
+# Push branch
+git commit -m "ci: bump Sui testnet version to ${NEW_TAG}"
 git push -u origin "$BRANCH"
 
 # Generate PR body
-BODY=$(cat <<-EOF
-This PR updates the Sui testnet version to ${NEW_TAG}
-EOF
-)
+BODY="This PR updates the Sui testnet version to ${NEW_TAG}"
 
-PR_URL=$(gh pr create \
+# Create PR
+echo "Creating pull request..."
+if PR_OUTPUT=$(gh pr create \
   --base main \
   --head "$BRANCH" \
-  --title "chore: bump Sui version to ${NEW_TAG}" \
-  --reviewer "ebmifa,mlegner,wbbradley" \
-  --body "$BODY" \
-  2>&1 | grep -Eo 'https://github.com/[^ ]+')
+  --title "ci: bump Sui testnet version to ${NEW_TAG}" \
+  --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
+  --body "$BODY" 2>&1); then
 
-echo "Pull request created: $PR_URL"
+  # Extract PR URL from output
+  if PR_URL=$(echo "$PR_OUTPUT" | grep -Eo 'https://github.com/[^ ]+'); then
+    echo "Successfully created PR: $PR_URL"
+  else
+    echo "Warning: PR created but could not extract URL from output:"
+    echo "$PR_OUTPUT"
+    PR_URL="(URL extraction failed)"
+  fi
+else
+  echo "Error: Failed to create pull request:" >&2
+  echo "$PR_OUTPUT" >&2
+  exit 1
+fi
+
+# Setting the PR to auto merge
+gh pr merge --auto --squash --delete-branch "$BRANCH"

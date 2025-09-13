@@ -5,9 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       new_tag:
-        description: "New Sui tag (e.g., testnet-v1.55.0), if empty will default to current sui testnet version"
+        description: "New Sui tag (e.g., testnet-v1.55.0), if empty defaults to current"
         required: false
         type: string
+
+  repository_dispatch:
+    types: [update-walrus-sui-testnet-tag]
 
 concurrency: ${{ github.workflow }}-${{ inputs.new_tag }}
 
@@ -16,7 +19,7 @@ permissions:
   pull-requests: write
 
 env:
-  NEW_TAG: ${{ inputs.new_tag || '' }}
+  NEW_TAG: ${{ github.event.client_payload.new_tag || inputs.new_tag || '' }}
 
 jobs:
   bump:

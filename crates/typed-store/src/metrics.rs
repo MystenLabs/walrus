@@ -411,6 +411,14 @@ pub struct OperationMetrics {
     pub rocksdb_bloom_filter_prefix_useful_total: IntGaugeVec,
     /// Number of times prefix filter found a key matching the point query
     pub rocksdb_bloom_filter_prefix_true_positive_total: IntGaugeVec,
+    /// Number of bytes the compaction algorithm copied
+    pub rocksdb_compaction_num_bytes_written: IntGaugeVec,
+    /// Number of bytes read by the compaction algorithm
+    pub rocksdb_compaction_num_bytes_read: IntGaugeVec,
+    /// Number of bytes read
+    pub rocksdb_num_bytes_read: IntGaugeVec,
+    /// Number of bytes written
+    pub rocksdb_num_bytes_written: IntGaugeVec,
 }
 
 impl OperationMetrics {
@@ -690,6 +698,34 @@ impl OperationMetrics {
             rocksdb_bloom_filter_prefix_true_positive_total: register_int_gauge_vec_with_registry!(
                 "rocksdb_bloom_filter_prefix_true_positive_total",
                 "Number of times prefix filter found a key matching the point query",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_compaction_num_bytes_written: register_int_gauge_vec_with_registry!(
+                "rocksdb_compaction_num_bytes_written",
+                "Number of bytes the compaction algorithm copied",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_compaction_num_bytes_read: register_int_gauge_vec_with_registry!(
+                "rocksdb_compaction_num_bytes_read",
+                "Number of bytes read by the compaction algorithm",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_num_bytes_read: register_int_gauge_vec_with_registry!(
+                "rocksdb_num_bytes_read",
+                "Number of bytes read by the db",
+                &["db_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_num_bytes_written: register_int_gauge_vec_with_registry!(
+                "rocksdb_num_bytes_written",
+                "Number of bytes written by the db",
                 &["db_name"],
                 registry,
             )

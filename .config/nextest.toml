@@ -9,7 +9,7 @@ filter = 'package(walrus-e2e-tests)'
 threads-required = 4
 
 [profile.ci]
-retries = 2 # retry twice for a total of 3 attempts
+retries = 1 # retry once for a total of 2 attempts
 slow-timeout = { period = "1m", terminate-after = 10 } # Timeout tests after 10 minutes
 
 [[profile.ci.overrides]]
@@ -18,7 +18,9 @@ slow-timeout = { period = "2m", terminate-after = 5 } # Mark E2E tests as slow o
 threads-required = 4
 
 [[profile.ci.overrides]]
-filter = 'test(check_and_update_example_config) or test(check_and_update_openapi)'
+# We have some tests that keep example files in sync with the code. If the files are not in sync,
+# the test fails and overwrites these example files. If we retry them, they always succeed.
+filter = 'test(~check_and_update)'
 retries = 0 # Do not retry these tests as they always succeed on the second run
 
 [profile.simtest]

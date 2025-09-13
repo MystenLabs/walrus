@@ -49,8 +49,8 @@ impl Wallet {
     }
 
     /// Passes through to the `WalletContext` to sign a transaction.
-    pub fn sign_transaction(&self, transaction_data: &TransactionData) -> Transaction {
-        self.wallet_context.sign_transaction(transaction_data)
+    pub async fn sign_transaction(&self, transaction_data: &TransactionData) -> Transaction {
+        self.wallet_context.sign_transaction(transaction_data).await
     }
 
     // TODO: WAL-820 move callsites to the RetriableSuiClient.

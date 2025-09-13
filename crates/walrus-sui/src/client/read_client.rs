@@ -11,7 +11,7 @@ use std::{
     ops::ControlFlow,
     path::PathBuf,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -49,7 +49,7 @@ use super::{
     retry_client::{MULTI_GET_OBJ_LIMIT, RetriableSuiClient},
 };
 use crate::{
-    contracts::{self, AssociatedContractStruct, TypeOriginMap},
+    contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     system_setup::compile_package,
     types::{
         BlobEvent,
@@ -63,6 +63,7 @@ use crate::{
             Blob,
             BlobAttribute,
             BlobWithAttribute,
+            Credits,
             EpochState,
             EventBlob,
             NodeMetadata,
@@ -246,6 +247,9 @@ pub trait ReadClient: Send + Sync {
 
     /// Returns the version of the system object.
     fn system_object_version(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
+
+    /// Flushes any cached data to ensure that the next requests are not affected by stale data.
+    fn flush_cache(&self) -> impl Future<Output = ()> + Send;
 }
 
 /// The mutability of a shared object.
@@ -287,7 +291,36 @@ pub struct SharedObjectWithPkgConfig {
     type_origin_map: TypeOriginMap,
 }
 
-/// Client implementation for interacting with the Walrus smart contracts.
+/// Cached Walrus system and staking objects with an expiration time.
+#[derive(Debug, Clone)]
+pub struct CachedObjects {
+    /// The cached system object.
+    pub system_object: SystemObject,
+    /// The cached staking object.
+    pub staking_object: StakingObject,
+    /// The expiration time of the cached objects.
+    pub expiration_time: SystemTime,
+}
+
+impl CachedObjects {
+    pub fn new(
+        system_object: SystemObject,
+        staking_object: StakingObject,
+        expiration_time: SystemTime,
+    ) -> Self {
+        Self {
+            system_object,
+            staking_object,
+            expiration_time,
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        self.expiration_time < SystemTime::now()
+    }
+}
+
+/// Client implementation for reading data related to the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
     walrus_package_id: Arc<RwLock<ObjectID>>,
@@ -297,9 +330,13 @@ pub struct SuiReadClient {
     type_origin_map: Arc<RwLock<TypeOriginMap>>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
+    fixed_system_parameters: OnceCell<FixedSystemParameters>,
     credits: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
     walrus_subsidies: Arc<RwLock<Option<SharedObjectWithPkgConfig>>>,
     wal_type: String,
+    cache_ttl: Duration,
+    // Using a tokio RwLock here as the guard is held across an `await` point.
+    cached_walrus_objects: Arc<tokio::sync::RwLock<Option<CachedObjects>>>,
 }
 
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
@@ -314,10 +351,11 @@ impl SuiReadClient {
         let walrus_package_id = sui_client
             .get_system_package_id_from_system_object(contract_config.system_object)
             .await?;
-        let type_origin_map = sui_client
-            .type_origin_map_for_package(walrus_package_id)
-            .await?;
-        let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
+        let (type_origin_map, wal_type) = tokio::try_join!(
+            sui_client.type_origin_map_for_package(walrus_package_id),
+            sui_client.wal_type_from_package(walrus_package_id)
+        )?;
+
         let client = Self {
             walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
             sui_client,
@@ -326,18 +364,29 @@ impl SuiReadClient {
             type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
+            fixed_system_parameters: OnceCell::new(),
             credits: Arc::new(RwLock::new(None)),
             walrus_subsidies: Arc::new(RwLock::new(None)),
             wal_type,
+            cache_ttl: contract_config.cache_ttl,
+            cached_walrus_objects: Arc::new(tokio::sync::RwLock::new(None)),
         };
-        if let Some(credits_object_id) = contract_config.credits_object {
-            client.set_credits_object(credits_object_id).await?;
+
+        tokio::try_join!(
+            client.set_credits_object(contract_config.credits_object),
+            client.set_walrus_subsidies_object(contract_config.walrus_subsidies_object),
+        )?;
+
+        // Initialize the cache in a background task.
+        if !contract_config.cache_ttl.is_zero() {
+            tokio::spawn({
+                let client = client.clone();
+                async move {
+                    let _ = client.init_cache().await;
+                }
+            });
         }
-        if let Some(walrus_subsidies_object_id) = contract_config.walrus_subsidies_object {
-            client
-                .set_walrus_subsidies_object(walrus_subsidies_object_id)
-                .await?;
-        }
+
         Ok(client)
     }
 
@@ -356,6 +405,19 @@ impl SuiReadClient {
     /// Gets the [`RetriableSuiClient`] from the associated read client.
     pub fn retriable_sui_client(&self) -> &RetriableSuiClient {
         &self.sui_client
+    }
+
+    /// Fetches the system and staking objects and the fixed system parameters and caches them.
+    pub async fn init_cache(&self) -> SuiClientResult<()> {
+        let _ = self.get_and_cache_system_and_staking_objects().await?;
+        let _ = self.fixed_system_parameters().await?;
+
+        Ok(())
+    }
+
+    /// Flushes the cached system and staking objects.
+    pub async fn flush_cache(&self) {
+        *self.cached_walrus_objects.write().await = None;
     }
 
     pub(crate) async fn object_arg_for_shared_obj(
@@ -523,6 +585,7 @@ impl SuiReadClient {
                 .expect("mutex should not be poisoned")
                 .as_ref()
                 .map(|s| s.object_id),
+            cache_ttl: self.cache_ttl,
         }
     }
 
@@ -761,8 +824,8 @@ impl SuiReadClient {
         &self.wal_type
     }
 
-    /// Returns the system object.
-    pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+    /// Gets the current system object from the RPC node.
+    async fn get_system_object_from_rpc(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization {
             id,
             version,
@@ -790,52 +853,8 @@ impl SuiReadClient {
         })
     }
 
-    /// Checks if the walrus subsidies object
-    /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) exist on chain and returns the object.
-    pub async fn get_walrus_subsidies_object(
-        &self,
-        with_inner: bool,
-    ) -> SuiClientResult<WalrusSubsidies> {
-        let walrus_subsidies = self
-            .walrus_subsidies
-            .read()
-            .expect("RwLock should not be poisoned")
-            .as_ref()
-            .cloned();
-
-        let Some(walrus_subsidies) = walrus_subsidies else {
-            return Err(SuiClientError::WalrusSubsidiesNotConfigured);
-        };
-
-        let deserialized_object = self
-            .sui_client
-            .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id)
-            .await?;
-        let inner = if with_inner {
-            let key_tag = contracts::walrus_subsidies::SubsidiesInnerKey
-                .to_move_struct_tag_with_type_map(&walrus_subsidies.type_origin_map, &[])?;
-            let inner = self
-                .sui_client
-                .get_dynamic_field::<SubsidiesInnerKey, WalrusSubsidiesInner>(
-                    walrus_subsidies.object_id,
-                    key_tag.into(),
-                    SubsidiesInnerKey { dummy_field: false },
-                )
-                .await?;
-            Some(inner)
-        } else {
-            None
-        };
-        Ok(WalrusSubsidies {
-            id: deserialized_object.id,
-            version: deserialized_object.version,
-            package_id: deserialized_object.package_id,
-            inner,
-        })
-    }
-
-    /// Returns the staking object.
-    pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
+    /// Gets the current staking object from the RPC node.
+    async fn get_staking_object_from_rpc(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization {
             id,
             version,
@@ -863,53 +882,202 @@ impl SuiReadClient {
         Ok(staking_object)
     }
 
+    /// Gets the current system and staking objects from the RPC node.
+    async fn get_system_and_staking_objects_from_rpc(
+        &self,
+    ) -> SuiClientResult<(SystemObject, StakingObject)> {
+        tokio::try_join!(
+            self.get_system_object_from_rpc(),
+            self.get_staking_object_from_rpc(),
+        )
+    }
+
+    /// Gets the current system and staking objects from the RPC node and caches them.
+    ///
+    /// This does *not* overwrite existing cached objects if those are still valid; use
+    /// [`Self::flush_cache`] to clear the cache.
+    async fn get_and_cache_system_and_staking_objects(
+        &self,
+    ) -> SuiClientResult<(SystemObject, StakingObject)> {
+        // Get a write lock at the beginning to avoid multiple simultaneous operations.
+        let mut cached_walrus_objects = self.cached_walrus_objects.write().await;
+        if let Some(cached_objects) = cached_walrus_objects.as_ref()
+            && !cached_objects.is_expired()
+        {
+            // Return the cached objects if they are still valid or were set since this function was
+            // called.
+            return Ok((
+                cached_objects.system_object.clone(),
+                cached_objects.staking_object.clone(),
+            ));
+        }
+
+        let (system_object, staking_object) =
+            self.get_system_and_staking_objects_from_rpc().await?;
+        let expiration_time = (SystemTime::now() + self.cache_ttl)
+            .min(staking_object.earliest_state_transition_time());
+        *cached_walrus_objects = Some(CachedObjects::new(
+            system_object.clone(),
+            staking_object.clone(),
+            expiration_time,
+        ));
+        Ok((system_object, staking_object))
+    }
+
+    async fn get_valid_cached_objects(&self) -> Option<(SystemObject, StakingObject)> {
+        let cached_walrus_objects = self.cached_walrus_objects.read().await;
+        match cached_walrus_objects.as_ref() {
+            Some(cached_objects) if !cached_objects.is_expired() => Some((
+                cached_objects.system_object.clone(),
+                cached_objects.staking_object.clone(),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Returns the system object.
+    ///
+    /// If `self` contains cached Walrus objects that are not yet expired, the cached system object
+    /// is returned. If not, the system and staking objects are fetched from the chain and cached,
+    /// and the system object is returned.
+    pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+        if self.cache_ttl.is_zero() {
+            // Don't perform any caching if the TTL is zero.
+            return self.get_system_object_from_rpc().await;
+        }
+
+        if let Some((system_object, _)) = self.get_valid_cached_objects().await {
+            return Ok(system_object.clone());
+        }
+
+        let (system_object, _) = self.get_and_cache_system_and_staking_objects().await?;
+        Ok(system_object)
+    }
+
+    /// Returns the staking object.
+    ///
+    /// If `self` contains cached Walrus objects that are not yet expired, the cached staking object
+    /// is returned. If not, the system and staking objects are fetched from the chain and cached,
+    /// and the staking object is returned.
+    pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
+        if self.cache_ttl.is_zero() {
+            // Don't perform any caching if the TTL is zero.
+            return self.get_staking_object_from_rpc().await;
+        }
+
+        if let Some((_, staking_object)) = self.get_valid_cached_objects().await {
+            return Ok(staking_object.clone());
+        }
+
+        let (_, staking_object) = self.get_and_cache_system_and_staking_objects().await?;
+        Ok(staking_object)
+    }
+
+    /// Checks if the walrus subsidies object ([`contracts::walrus_subsidies::WalrusSubsidies`])
+    /// exist on chain and returns the object.
+    pub async fn get_walrus_subsidies_object(
+        &self,
+        with_inner: bool,
+    ) -> SuiClientResult<WalrusSubsidies> {
+        let walrus_subsidies = self
+            .walrus_subsidies
+            .read()
+            .expect("RwLock should not be poisoned")
+            .as_ref()
+            .cloned();
+
+        let Some(walrus_subsidies) = walrus_subsidies else {
+            return Err(SuiClientError::WalrusSubsidiesNotConfigured);
+        };
+
+        let deserialized_object_future = self
+            .sui_client
+            .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id);
+        let inner_future = async {
+            if with_inner {
+                let key_tag = contracts::walrus_subsidies::SubsidiesInnerKey
+                    .to_move_struct_tag_with_type_map(&walrus_subsidies.type_origin_map, &[])?;
+                let inner = self
+                    .sui_client
+                    .get_dynamic_field::<SubsidiesInnerKey, WalrusSubsidiesInner>(
+                        walrus_subsidies.object_id,
+                        key_tag.into(),
+                        SubsidiesInnerKey { dummy_field: false },
+                    )
+                    .await?;
+                Ok(Some(inner))
+            } else {
+                Ok(None)
+            }
+        };
+        let (deserialized_object, inner) =
+            tokio::try_join!(deserialized_object_future, inner_future)?;
+
+        Ok(WalrusSubsidies {
+            id: deserialized_object.id,
+            version: deserialized_object.version,
+            package_id: deserialized_object.package_id,
+            inner,
+        })
+    }
+
     /// Sets a credit (`subsidies::Subsidies` in Move) object to be used by the client.
-    pub async fn set_credits_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
-        let package_id = self
-            .sui_client
-            .get_credits_object(object_id)
-            .await?
-            .package_id;
-        let initial_version = self
-            .sui_client
-            .get_shared_object_initial_version(object_id)
-            .await?;
-        let type_origin_map = self
-            .sui_client
-            .type_origin_map_for_package(package_id)
-            .await?;
-        *self.credits_mut() = Some(SharedObjectWithPkgConfig {
-            package_id,
-            object_id,
-            initial_version,
-            type_origin_map,
-        });
+    pub async fn set_credits_object(&self, object_id: Option<ObjectID>) -> SuiClientResult<()> {
+        let Some(object_id) = object_id else {
+            *self.credits_mut() = None;
+            return Ok(());
+        };
+
+        *self.credits_mut() = Some(
+            self.get_shared_object_with_pkg_config::<Credits>(object_id)
+                .await?,
+        );
         Ok(())
     }
 
     /// Sets a walrus subsidies ([`contracts::walrus_subsidies::WalrusSubsidies`]) object to be
     /// used by the client.
-    pub async fn set_walrus_subsidies_object(&self, object_id: ObjectID) -> SuiClientResult<()> {
-        let package_id = self
-            .sui_client
-            .get_sui_object::<WalrusSubsidiesForDeserialization>(object_id)
-            .await?
-            .package_id;
-        let initial_version = self
-            .sui_client
-            .get_shared_object_initial_version(object_id)
-            .await?;
-        let type_origin_map = self
-            .sui_client
-            .type_origin_map_for_package(package_id)
-            .await?;
-        *self.walrus_subsidies_mut() = Some(SharedObjectWithPkgConfig {
+    pub async fn set_walrus_subsidies_object(
+        &self,
+        object_id: Option<ObjectID>,
+    ) -> SuiClientResult<()> {
+        let Some(object_id) = object_id else {
+            *self.walrus_subsidies_mut() = None;
+            return Ok(());
+        };
+
+        *self.walrus_subsidies_mut() = Some(
+            self.get_shared_object_with_pkg_config::<WalrusSubsidiesForDeserialization>(object_id)
+                .await?,
+        );
+        Ok(())
+    }
+
+    async fn get_shared_object_with_pkg_config<T: AssociatedContractStructWithPkgId>(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SharedObjectWithPkgConfig> {
+        let package_id_and_origin_map_future = async {
+            let package_id = self
+                .sui_client
+                .get_sui_object::<T>(object_id)
+                .await?
+                .package_id();
+            let type_origin_map = self
+                .sui_client
+                .type_origin_map_for_package(package_id)
+                .await?;
+            Ok((package_id, type_origin_map))
+        };
+        let initial_version_future = self.sui_client.get_shared_object_initial_version(object_id);
+        let ((package_id, type_origin_map), initial_version) =
+            tokio::try_join!(package_id_and_origin_map_future, initial_version_future)?;
+        Ok(SharedObjectWithPkgConfig {
             package_id,
             object_id,
             initial_version,
             type_origin_map,
-        });
-        Ok(())
+        })
     }
 
     async fn refresh_package_id_with_id(&self, walrus_package_id: ObjectID) -> SuiClientResult<()> {
@@ -960,7 +1128,7 @@ impl SuiReadClient {
         Committee::new(nodes, epoch, n_shards).map_err(|err| SuiClientError::Internal(err.into()))
     }
 
-    /// Queries the full note and gets the requested committee from the staking object.
+    /// Queries the full node and gets the requested committee from the staking object.
     async fn query_staking_for_committee(
         &self,
         which_committee: WhichCommittee,
@@ -1232,19 +1400,27 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
+        if let Some(fixed_system_parameters) = self.fixed_system_parameters.get() {
+            // Return the cached value.
+            return Ok(*fixed_system_parameters);
+        }
+
         let staking_object = self.get_staking_object().await?.inner;
         let system_object = self.get_system_object().await?;
         let first_epoch_start = i64::try_from(staking_object.first_epoch_start)
-            .context("first-epoch start time does not fit in i64")?;
+            .context("first-epoch start time should fit into an i64")?;
 
-        Ok(FixedSystemParameters {
+        let fixed_system_parameters = FixedSystemParameters {
             n_shards: staking_object.n_shards,
             max_epochs_ahead: system_object.future_accounting().length(),
-            epoch_duration: Duration::from_millis(staking_object.epoch_duration),
+            epoch_duration: staking_object.epoch_duration(),
             epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(first_epoch_start).ok_or_else(
                 || anyhow!("invalid first_epoch_start timestamp received from contracts"),
             )?,
-        })
+        };
+        // We don't care if the value is already set.
+        let _ = self.fixed_system_parameters.set(fixed_system_parameters);
+        Ok(fixed_system_parameters)
     }
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
@@ -1271,14 +1447,14 @@ impl ReadClient for SuiReadClient {
 
     async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
         if let Some(credits_object_id) = self.get_credits_object_id() {
-            self.set_credits_object(credits_object_id).await?;
+            self.set_credits_object(Some(credits_object_id)).await?;
         }
         Ok(())
     }
 
     async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
         if let Some(walrus_subsidies_object_id) = self.get_walrus_subsidies_object_id() {
-            self.set_walrus_subsidies_object(walrus_subsidies_object_id)
+            self.set_walrus_subsidies_object(Some(walrus_subsidies_object_id))
                 .await?;
         }
         Ok(())
@@ -1286,6 +1462,10 @@ impl ReadClient for SuiReadClient {
 
     async fn system_object_version(&self) -> SuiClientResult<u64> {
         Ok(self.system_object_for_deserialization().await?.version)
+    }
+
+    async fn flush_cache(&self) {
+        self.flush_cache().await
     }
 }
 

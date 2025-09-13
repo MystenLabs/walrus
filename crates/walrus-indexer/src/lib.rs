@@ -187,7 +187,7 @@ pub mod default {
 mod tests {
     use anyhow::Result;
     use tempfile::TempDir;
-    use walrus_core::encoding::EncodingConfigTrait;
+    use walrus_core::encoding::EncodingFactory;
     use walrus_sui::{
         test_utils::event_id_for_testing,
         types::{IndexMutation, IndexMutationSet},

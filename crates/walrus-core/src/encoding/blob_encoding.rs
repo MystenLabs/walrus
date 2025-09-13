@@ -9,8 +9,8 @@ use tracing::{Level, Span};
 
 use super::{
     DataTooLargeError,
+    DecodeError,
     DecodingSymbol,
-    DecodingVerificationError,
     EncodingAxis,
     EncodingConfigEnum,
     Primary,
@@ -18,14 +18,14 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
-    basic_encoding::{Decoder, ReedSolomonDecoder},
+    basic_encoding::Decoder,
     utils,
 };
 use crate::{
     BlobId,
     SliverIndex,
     SliverPairIndex,
-    encoding::config::EncodingConfigTrait as _,
+    encoding::config::EncodingFactory as _,
     merkle::{MerkleTree, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
@@ -451,28 +451,6 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 }
 
-/// A wrapper around the blob decoder for different encoding types.
-#[derive(Debug)]
-pub enum BlobDecoderEnum<'a, E: EncodingAxis> {
-    /// The Reed-Solomon decoder.
-    ReedSolomon(BlobDecoder<'a, ReedSolomonDecoder, E>),
-}
-
-impl<E: EncodingAxis> BlobDecoderEnum<'_, E> {
-    /// Attempts to decode the source blob from the provided slivers.
-    ///
-    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
-    pub fn decode_and_verify(
-        &mut self,
-        blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = SliverData<E>>,
-    ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
-        match self {
-            Self::ReedSolomon(d) => d.decode_and_verify(blob_id, slivers),
-        }
-    }
-}
-
 /// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
 /// [`Sliver`s][SliverData].
 #[derive(Debug)]
@@ -497,8 +475,10 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     ///
     /// # Errors
     ///
-    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DataTooLargeError> {
+    /// Returns a [`DecodeError::DataTooLarge`] if the `blob_size` is too large to be decoded.
+    /// Returns a [`DecodeError::IncompatibleParameters`] if the parameters are incompatible with
+    /// the decoder.
+    pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DecodeError> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
         let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
@@ -511,7 +491,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
                     symbol_size,
                 )
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
             _decoding_axis: PhantomData,
@@ -525,9 +505,13 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
 
     /// Attempts to decode the source blob from the provided slivers.
     ///
-    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
+    /// Returns the source blob as a byte vector if decoding succeeds.
     ///
     /// Slivers of incorrect length are dropped with a warning.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError::DecodingUnsuccessful`] if decoding was unsuccessful.
     ///
     /// If decoding failed due to an insufficient number of provided slivers, it can be continued by
     /// additional calls to [`decode`][Self::decode] providing more slivers.
@@ -536,7 +520,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     ///
     /// This function can panic if there is insufficient virtual memory for the decoded blob in
     /// addition to the slivers, notably on 32-bit architectures.
-    pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
+    pub fn decode<S>(&mut self, slivers: S) -> Result<Vec<u8>, DecodeError>
     where
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis,
@@ -564,7 +548,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
                 continue;
             }
             for (decoder, symbol) in self.decoders.iter_mut().zip(sliver.symbols.to_symbols()) {
-                if let Some(decoded_data) = decoder
+                if let Ok(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
                     .decode([DecodingSymbol::<E>::new(sliver.index.0, symbol.into())])
@@ -584,7 +568,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
 
         if !decoding_successful {
             tracing::debug!("decoding attempt unsuccessful");
-            return None;
+            return Err(DecodeError::DecodingUnsuccessful);
         }
 
         let mut blob: Vec<_> = if E::IS_PRIMARY {
@@ -611,7 +595,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
 
         blob.truncate(self.blob_size);
         tracing::debug!("returning truncated decoded blob");
-        Some(blob)
+        Ok(blob)
     }
 
     /// Attempts to decode the source blob from the provided slivers, and to verify that the decoded
@@ -624,14 +608,14 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     /// * the reconstructed source blob as a byte vector; and
     /// * the [`VerifiedBlobMetadataWithId`] corresponding to the source blob.
     ///
-    /// It returns `None` if the decoding fails. If decoding failed due to an insufficient number of
-    /// provided slivers, the decoding can be continued by additional calls to
-    /// [`decode_and_verify`][Self::decode_and_verify] providing more slivers.
-    ///
     /// # Errors
     ///
+    /// Returns a [`DecodeError::DecodingUnsuccessful`] if decoding was unsuccessful. If decoding
+    /// failed due to an insufficient number of provided slivers, the decoding can be continued by
+    /// additional calls to [`decode_and_verify`][Self::decode_and_verify] providing more slivers.
+    ///
     /// If, upon successful decoding, the recomputed blob ID does not match the input blob ID,
-    /// returns a [`DecodingVerificationError`].
+    /// returns a [`DecodeError::VerificationError`].
     ///
     /// # Panics
     ///
@@ -643,18 +627,16 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
         &mut self,
         blob_id: &BlobId,
         slivers: impl IntoIterator<Item = SliverData<E>>,
-    ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
-        let Some(decoded_blob) = self.decode(slivers) else {
-            return Ok(None);
-        };
+    ) -> Result<(Vec<u8>, VerifiedBlobMetadataWithId), DecodeError> {
+        let decoded_blob = self.decode(slivers)?;
         let blob_metadata = self
             .config
             .compute_metadata(&decoded_blob)
             .expect("the blob size cannot be too large since we were able to decode");
         if blob_metadata.blob_id() == blob_id {
-            Ok(Some((decoded_blob, blob_metadata)))
+            Ok((decoded_blob, blob_metadata))
         } else {
-            Err(DecodingVerificationError)
+            Err(DecodeError::VerificationError)
         }
     }
 }
@@ -860,7 +842,6 @@ mod tests {
             .get_blob_decoder(blob_size)
             .unwrap()
             .decode_and_verify(metadata_enc.blob_id(), slivers_for_decoding)
-            .unwrap()
             .unwrap();
 
         assert_eq!(blob, blob_dec);

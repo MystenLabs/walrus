@@ -338,8 +338,12 @@ impl EventProcessor {
                         continue;
                     }
                     let mut write_batch = self.stores.event_store.batch();
-                    write_batch.schedule_delete_range(&self.stores.event_store, &0, &commit_index)?;
-                    write_batch.schedule_delete_range(&self.stores.init_state, &0, &commit_index)?;
+                    let range_delete_handle = self.stores.event_store.rocksdb.as_range_delete()
+                        .expect("range delete handle required");
+                    write_batch.schedule_delete_range(
+                        &self.stores.event_store, &0, &commit_index, &range_delete_handle)?;
+                    write_batch.schedule_delete_range(
+                        &self.stores.init_state, &0, &commit_index, &range_delete_handle)?;
                     write_batch.write()?;
 
                     // This will prune the event store by deleting all the sst files relevant to the

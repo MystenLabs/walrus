@@ -25,7 +25,7 @@ use crate::{
         DataTooLargeError,
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         QuiltError,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{
@@ -35,6 +35,7 @@ use crate::{
             QuiltPatchInternalIdApi,
             QuiltVersion,
             QuiltVersionV1,
+            validate_quilt_identifier,
         },
         source_symbols_for_n_shards,
     },
@@ -107,7 +108,7 @@ impl QuiltPatchApi<QuiltVersionV1> for QuiltPatchV1 {
 impl QuiltPatchV1 {
     /// Returns a new [`QuiltPatchV1`].
     pub fn new(identifier: String) -> Result<Self, QuiltError> {
-        Self::validate_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             identifier,
@@ -122,7 +123,7 @@ impl QuiltPatchV1 {
         identifier: String,
         tags: T,
     ) -> Result<Self, QuiltError> {
-        Self::validate_identifier(&identifier)?;
+        validate_quilt_identifier(&identifier)?;
 
         Ok(Self {
             identifier,
@@ -130,21 +131,6 @@ impl QuiltPatchV1 {
             end_index: 0,
             tags: tags.into_iter().collect(),
         })
-    }
-
-    fn validate_identifier(identifier: &str) -> Result<(), QuiltError> {
-        // Validate identifier
-        if !identifier
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-        {
-            return Err(QuiltError::Other(
-                "Invalid identifier: must contain only alphanumeric, underscore, hyphen, or \
-                period characters"
-                    .to_string(),
-            ));
-        }
-        Ok(())
     }
 
     /// Sets the range of the quilt patch.

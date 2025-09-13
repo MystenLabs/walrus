@@ -20,7 +20,7 @@ use sui_types::gas::GasCostSummary;
 use walrus_core::{
     BlobId,
     EncodingType,
-    encoding::{EncodingConfig, EncodingConfigTrait},
+    encoding::{EncodingConfig, EncodingFactory},
     ensure,
     merkle::Node,
 };

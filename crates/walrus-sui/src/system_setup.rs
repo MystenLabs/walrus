@@ -226,7 +226,7 @@ pub(crate) async fn publish_package(
 
     #[allow(deprecated)]
     let response = wallet
-        .execute_transaction_may_fail(wallet.sign_transaction(&tx_data))
+        .execute_transaction_may_fail(wallet.sign_transaction(&tx_data).await)
         .await?;
 
     // Update the lock file with the new package ID.
@@ -516,7 +516,7 @@ pub async fn create_system_and_staking_objects(
         TransactionData::new_programmable(address, gas_coins, ptb, gas_budget, gas_price);
 
     // sign and send transaction
-    let signed_transaction = wallet.sign_transaction(&transaction);
+    let signed_transaction = wallet.sign_transaction(&transaction).await;
     #[allow(deprecated)]
     let response = wallet
         .execute_transaction_may_fail(signed_transaction)

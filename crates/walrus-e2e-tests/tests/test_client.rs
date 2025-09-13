@@ -33,7 +33,7 @@ use walrus_core::{
     SliverPairIndex,
     encoding::{
         BLOB_TYPE_ATTRIBUTE_KEY,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         QUILT_TYPE_VALUE,
         encoded_blob_length_for_n_shards,
@@ -891,7 +891,8 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 
     assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
 
-    client.delete_owned_blob(&blob_id).await?;
+    let count_deleted = client.delete_owned_blob(&blob_id).await?;
+    assert_eq!(count_deleted, 1, "should have deleted one blob");
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
@@ -2339,7 +2340,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         None,
     )?;
     let env = cluster_wallet.get_active_env()?.to_owned();
-    let mut wallet = test_utils::temp_dir_wallet(None, env)?;
+    let mut wallet = test_utils::temp_dir_wallet(None, env).await?;
 
     let sui = |sui: u64| (sui * 1_000_000_000);
 

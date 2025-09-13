@@ -33,6 +33,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    QuiltPatchId,
     encoding::{
         QuiltError,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionEnum, QuiltVersionV1},
@@ -78,6 +79,8 @@ pub const QUILT_PATCH_BY_ID_GET_ENDPOINT: &str = "/v1/blobs/by-quilt-patch-id/{q
 /// The path to get blob from quilt by quilt ID and identifier.
 pub const QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT: &str =
     "/v1/blobs/by-quilt-id/{quilt_id}/{identifier}";
+/// The path to list patches in a quilt.
+pub const LIST_PATCHES_IN_QUILT_ENDPOINT: &str = "/v1/quilts/{quilt_id}/patches";
 /// Custom header for quilt patch identifier.
 const X_QUILT_PATCH_IDENTIFIER: &str = "X-Quilt-Patch-Identifier";
 
@@ -463,7 +466,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     path = QUILT_PATCH_BY_ID_GET_ENDPOINT,
     params(
         (
-            "quilt_patch_id" = String, Path,
+            "quilt_patch_id" = QuiltPatchId,
             description = "The QuiltPatchId encoded as URL-safe base64",
             example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
         )
@@ -591,12 +594,12 @@ fn build_quilt_patch_response(
     path = QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
     params(
         (
-            "quilt_id" = String, Path,
+            "quilt_id" = BlobId, Path,
             description = "The quilt ID encoded as URL-safe base64",
             example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
         ),
         (
-            "identifier" = String, Path,
+            "identifier" = String,
             description = "The identifier of the blob within the quilt",
             example = "my-file.txt"
         )
@@ -618,21 +621,14 @@ fn build_quilt_patch_response(
 pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
-    Path((quilt_id_str, identifier)): Path<(String, String)>,
+    Path((quilt_id, identifier)): Path<(BlobIdString, String)>,
 ) -> Response {
+    let quilt_id = quilt_id.0;
     tracing::debug!(
         "starting to read quilt blob by ID and identifier: {} / {}",
-        quilt_id_str,
+        quilt_id,
         identifier
     );
-
-    let quilt_id = match BlobId::from_str(&quilt_id_str) {
-        Ok(id) => id,
-        Err(_) => {
-            tracing::error!("invalid quilt ID format: {}", quilt_id_str);
-            return GetBlobError::BlobNotFound.to_response();
-        }
-    };
 
     match client
         .get_blob_by_quilt_id_and_identifier(&quilt_id, &identifier)
@@ -641,7 +637,7 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
         Ok(blob) => build_quilt_patch_response(
             blob,
             &request_headers,
-            &quilt_id_str,
+            &quilt_id.to_string(),
             &response_header_config,
         ),
         Err(error) => {
@@ -649,20 +645,104 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
 
             match &error {
                 GetBlobError::BlobNotFound => {
-                    tracing::info!(
-                        "requested quilt blob with ID {} does not exist",
-                        quilt_id_str,
-                    )
+                    tracing::info!("requested quilt blob with ID {} does not exist", quilt_id,)
                 }
                 GetBlobError::QuiltPatchNotFound => {
                     tracing::info!(
                         "requested quilt patch {} does not exist in quilt {}",
                         identifier,
-                        quilt_id_str,
+                        quilt_id,
                     )
                 }
                 GetBlobError::Internal(error) => {
                     tracing::info!(?error, "error retrieving quilt blob by ID and identifier")
+                }
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Response item for a patch in a quilt.
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct QuiltPatchItem {
+    /// The identifier of the patch (e.g., filename).
+    pub identifier: String,
+    /// The QuiltPatchId for this patch, encoded as URL-safe base64.
+    #[serde_as(as = "DisplayFromStr")]
+    pub patch_id: QuiltPatchId,
+    /// Tags for the patch.
+    pub tags: BTreeMap<String, String>,
+}
+
+/// List patches in a quilt.
+///
+/// Returns a list of identifiers and QuiltPatchIds for all patches contained in the specified
+/// quilt.
+///
+/// # Example
+/// ```bash
+/// curl -X GET "http://localhost:31415/v1/quilts/patches-by-id/\
+/// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+/// ```
+///
+/// Response:
+/// ```json
+/// [
+///   {
+///     "identifier": "walrus-38.jpeg",
+///     "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABAQANAA"
+///   },
+///   {
+///     "identifier": "walrus-39.avif",
+///     "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABDQBnAA"
+///   }
+/// ]
+/// ```
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+#[utoipa::path(
+    get,
+    path = LIST_PATCHES_IN_QUILT_ENDPOINT,
+    params(
+        (
+            "quilt_id" = BlobId,
+            description = "The quilt ID encoded as URL-safe base64",
+            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        )
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Successfully retrieved the list of patches in the quilt",
+            body = Vec<QuiltPatchItem>
+        ),
+        GetBlobError,
+    ),
+    summary = "List patches in a quilt",
+    description = "Retrieve a list of patches contained in a quilt with their identifiers and \
+                QuiltPatchIds. Each QuiltPatchId can be used with the \
+                /v1/blobs/by-quilt-patch-id endpoint to retrieve the actual blob data.",
+)]
+pub(super) async fn list_patches_in_quilt<T: WalrusReadClient>(
+    State(client): State<Arc<T>>,
+    Path(BlobIdString(quilt_id)): Path<BlobIdString>,
+) -> Response {
+    tracing::debug!("starting to list patches in quilt: {}", quilt_id);
+
+    match client.list_patches_in_quilt(&quilt_id).await {
+        Ok(patches) => (StatusCode::OK, Json(patches)).into_response(),
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(?quilt_id, "the requested quilt ID does not exist")
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::error!(?error, "error retrieving quilt patches")
                 }
                 _ => (),
             }

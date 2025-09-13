@@ -29,7 +29,7 @@ use walrus_core::{
     SUPPORTED_ENCODING_TYPES,
     encoding::{
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
@@ -1010,7 +1010,7 @@ impl ClientCommandRunner {
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
             let staking_object = sui_read_client.get_staking_object().await?;
-            let epoch_duration = Duration::from_millis(staking_object.epoch_duration());
+            let epoch_duration = staking_object.epoch_duration();
             let epoch_state = staking_object.epoch_state();
             let current_epoch = staking_object.epoch();
 
@@ -1212,15 +1212,16 @@ impl ClientCommandRunner {
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
-        let auth_config = args.generate_auth_config()?;
-
-        let client = get_contract_client(
-            self.config?,
-            self.wallet,
+        let client = ClientMultiplexer::new(
+            self.wallet?,
+            &self.config?,
             self.gas_budget,
-            &args.daemon_args.blocklist,
+            registry,
+            &args,
         )
         .await?;
+        let auth_config = args.generate_auth_config()?;
+
         ClientDaemon::new_daemon(client, auth_config, registry, &args, &aggregator_args)
             .run()
             .await?;
@@ -1664,7 +1665,7 @@ async fn get_epochs_ahead(
             );
             let delta =
                 (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
-            (delta / staking_object.epoch_duration() + 1)
+            (delta / staking_object.epoch_duration_millis() + 1)
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("expiry time is too far in the future"))?
         }

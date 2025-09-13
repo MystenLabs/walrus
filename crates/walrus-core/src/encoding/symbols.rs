@@ -671,7 +671,7 @@ mod tests {
         EncodingType,
         SliverPairIndex,
         SliverType,
-        encoding::EncodingConfigTrait as _,
+        encoding::EncodingFactory as _,
         test_utils,
     };
 

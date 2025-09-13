@@ -343,7 +343,7 @@ impl WalrusIndexStore {
     ) -> Result<(), TypedStoreError> {
         // NOTE: This uses DBBatch for atomic writes but not true RocksDB transactions.
         // There's a small race condition window between checking task existence and writing.
-        // To use true transactions, typed-store would need to use TransactionDB instead of 
+        // To use true transactions, typed-store would need to use TransactionDB instead of
         // regular DB.
         let task_id = quilt_index_task.task_id();
 

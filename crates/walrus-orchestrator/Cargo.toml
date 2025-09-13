@@ -7,9 +7,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aws-config = { version = "1.5.18", default-features = false }
+aws-config = { version = "1.8.6", default-features = false }
 aws-runtime = { version = "1.5.10", default-features = false }
-aws-sdk-ec2 = { version = "1.160.0", default-features = false }
+aws-sdk-ec2 = { version = "1.164.0", default-features = false }
 clap.workspace = true
 color-eyre = "0.6.5"
 crossterm = "0.29.0"

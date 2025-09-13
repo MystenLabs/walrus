@@ -371,7 +371,7 @@ impl<'a> SubClientLoader<'a> {
         sub_wallet_idx: usize,
         refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<WalrusNodeClient<SuiContractClient>> {
-        let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
+        let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx).await?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
             .await?;
 
@@ -395,7 +395,7 @@ impl<'a> SubClientLoader<'a> {
     /// file. Otherwise, it creates a new wallet and saves it to the file.
     ///
     /// The corresponding keystore files are named `sui_<sub_wallet_idx>.keystore`.
-    fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<Wallet> {
+    async fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<Wallet> {
         let wallet_config_path = self
             .sub_wallets_dir
             .join(format!("sui_client_{sub_wallet_idx}.yaml"));
@@ -415,6 +415,7 @@ impl<'a> SubClientLoader<'a> {
                 Some(&keystore_filename),
                 self.config.communication_config.sui_client_request_timeout,
             )
+            .await
         }
     }
 

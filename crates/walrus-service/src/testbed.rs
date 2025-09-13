@@ -14,7 +14,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, ensure};
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all, stream::FuturesOrdered};
 use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
@@ -363,7 +363,8 @@ pub async fn deploy_walrus_contract(
             sui_network.env(),
             Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
             None,
-        )?;
+        )
+        .await?;
 
         // Print the wallet address.
         println!("Admin wallet address:");
@@ -480,7 +481,8 @@ pub async fn create_client_config(
         sui_network.env(),
         Some(&format!("{wallet_name}.keystore")),
         sui_client_request_timeout,
-    )?;
+    )
+    .await?;
 
     let client_address = sui_client_wallet_context.active_address()?;
 
@@ -742,7 +744,7 @@ pub async fn create_storage_node_configs(
             thread_pool: Default::default(),
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                enable_sliver_data_existence_check: false,
+                enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
@@ -838,19 +840,26 @@ async fn create_storage_node_wallets(
     admin_wallet: &mut Wallet,
     sui_amount: u64,
 ) -> anyhow::Result<Vec<Wallet>> {
-    // Create wallets for the storage nodes
-    let mut storage_node_wallets = (0..n_nodes.get())
-        .map(|index| {
-            let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
-            create_wallet(
-                &wallet_path,
-                sui_network.env(),
-                Some(&format!("{name}.keystore")),
-                None,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    // Create wallets for the storage nodes.
+    // Use FuturesOrdered to ensure that the wallets are returned in the same order as the
+    // node index.
+    let mut futures = FuturesOrdered::new();
+    for index in 0..n_nodes.get() {
+        let name = node_config_name_prefix(index, n_nodes);
+        let wallet_path = working_dir.join(format!("{name}-sui.yaml"));
+        let env = sui_network.env();
+        let keystore = format!("{name}.keystore");
+        futures.push_back(async move {
+            let wallet = create_wallet(&wallet_path, env, Some(&keystore), None).await?;
+            Ok::<Wallet, anyhow::Error>(wallet)
+        });
+    }
+
+    let mut storage_node_wallets = Vec::with_capacity(n_nodes.get() as usize);
+    while let Some(result) = futures.next().await {
+        let wallet = result?;
+        storage_node_wallets.push(wallet);
+    }
 
     print_wallet_addresses(&mut storage_node_wallets)?;
 

@@ -20,6 +20,8 @@ ignore = [
   "RUSTSEC-2025-0012",
   # Crash due to uncontrolled recursion in `protobuf` crate.
   "RUSTSEC-2024-0437",
+  # `fxhash` is unmaintained (indirect dependency via starlark_map).
+  "RUSTSEC-2025-0057",
 ]
 
 

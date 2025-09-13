@@ -53,10 +53,10 @@ use crate::{
     encoding::{
         EncodingAxis,
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         Primary,
         RecoverySymbol,
-        RequiredSymbolsCount,
+        RequiredCount,
         Secondary,
         SliverData,
         SliverVerificationError,
@@ -137,7 +137,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
     ) -> Result<(), InconsistencyVerificationError> {
         // Note: The following code may have to be changed if we add encodings that require a
         // variable number of symbols to recover a sliver.
-        let RequiredSymbolsCount::Exact(expected_symbol_count) = encoding_config
+        let RequiredCount::Exact(expected_symbol_count) = encoding_config
             .get_for_type(metadata.encoding_type())
             .n_symbols_for_recovery::<T>();
         ensure!(
@@ -180,7 +180,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
             symbol_size,
             &encoding_config.get_for_type(metadata.encoding_type()),
         )
-        .ok_or(InconsistencyVerificationError::RecoveryFailure)?;
+        .map_err(|_| InconsistencyVerificationError::RecoveryFailure)?;
         match sliver.verify(encoding_config, metadata) {
             Ok(()) => Err(InconsistencyVerificationError::SliverNotInconsistent),
             Err(SliverVerificationError::MerkleRootMismatch) => Ok(()),

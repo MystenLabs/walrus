@@ -583,12 +583,16 @@ impl BlobSynchronizer {
         let futures_iter = self
             .node
             .owned_shards_at_epoch(latest_event_epoch)
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|error| {
                 tracing::error!(
-                    "shard assignment must be found at the certified epoch {}",
-                    latest_event_epoch
+                    certified_epoch = latest_event_epoch,
+                    ?error,
+                    "shard assignment must be found at the certified epoch",
                 );
-                panic!("shard assignment must be found at the certified epoch {latest_event_epoch}")
+                panic!(
+                    "shard assignment must be found at the certified epoch {latest_event_epoch}, \
+                    error: {error}",
+                )
             })
             .into_iter()
             .map(|shard| {

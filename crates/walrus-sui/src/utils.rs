@@ -17,7 +17,13 @@ use move_core_types::language_storage::StructTag as MoveStructTag;
 use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
 use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
-use sui_keys::keystore::{AccountKeystore as _, FileBasedKeystore, Keystore};
+use sui_keys::keystore::{
+    AccountKeystore as _,
+    FileBasedKeystore,
+    GenerateOptions,
+    GeneratedKey,
+    Keystore,
+};
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
@@ -25,7 +31,6 @@ use sui_sdk::{
 };
 use sui_types::{
     base_types::SuiAddress,
-    crypto::SignatureScheme,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::TransactionData,
 };
@@ -310,7 +315,7 @@ impl std::fmt::Display for SuiNetwork {
 ///
 /// `request_time` is a configuration that is set in the wallet, and automatically populated to
 /// the SuiClient created from the wallet.
-pub fn create_wallet(
+pub async fn create_wallet(
     config_path: &Path,
     sui_env: SuiEnv,
     keystore_filename: Option<&str>,
@@ -321,15 +326,19 @@ pub fn create_wallet(
         .map_or_else(sui_config_dir, |path| Ok(path.to_path_buf()))?
         .join(keystore_filename.unwrap_or(SUI_KEYSTORE_FILENAME));
 
-    let mut keystore = FileBasedKeystore::new(&keystore_path)?;
-    let (new_address, _phrase, _scheme) =
-        keystore.generate(SignatureScheme::ED25519, None, None, None)?;
+    let mut keystore = FileBasedKeystore::load_or_create(&keystore_path)?;
+    let GeneratedKey {
+        address: new_address,
+        public_key: _,
+        scheme: _,
+    } = keystore.generate(None, GenerateOptions::default()).await?;
 
     let keystore = Keystore::from(keystore);
 
     let alias = sui_env.alias.clone();
     SuiClientConfig {
         keystore,
+        external_keys: None,
         envs: vec![sui_env],
         active_address: Some(new_address),
         active_env: Some(alias),
@@ -441,7 +450,7 @@ pub async fn get_sui_from_wallet_or_faucet(
 
         #[allow(deprecated)]
         wallet
-            .execute_transaction_may_fail(wallet.sign_transaction(&transaction))
+            .execute_transaction_may_fail(wallet.sign_transaction(&transaction).await)
             .await?;
 
         Ok(())

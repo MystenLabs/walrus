@@ -28,11 +28,11 @@ use walrus_core::{
     bft,
     encoding::{
         EncodingConfig,
-        EncodingConfigTrait as _,
+        EncodingFactory as _,
         GeneralRecoverySymbol,
         Primary,
         PrimaryRecoverySymbol,
-        RequiredSymbolsCount,
+        RequiredCount,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -455,7 +455,7 @@ fn recovery_symbols_by_shard(
     let encoding_config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
     let (sliver_pairs, metadata) = encoding_config_enum.encode_with_metadata(&blob)?;
 
-    let RequiredSymbolsCount::Exact(n_symbols_for_recovery) =
+    let RequiredCount::Exact(n_symbols_for_recovery) =
         encoding_config_enum.n_symbols_for_recovery::<Primary>();
     let recovery_symbols = sliver_pairs
         .iter()

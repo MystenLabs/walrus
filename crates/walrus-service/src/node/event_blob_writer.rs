@@ -29,7 +29,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     Epoch,
     Sliver,
-    encoding::EncodingConfigTrait as _,
+    encoding::EncodingFactory as _,
     ensure,
     metadata::VerifiedBlobMetadataWithId,
 };

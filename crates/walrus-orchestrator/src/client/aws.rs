@@ -72,7 +72,7 @@ impl AwsClient {
 
         let mut clients = HashMap::new();
         for region in settings.regions.clone() {
-            let sdk_config = aws_config::defaults(BehaviorVersion::v2025_01_17())
+            let sdk_config = aws_config::defaults(BehaviorVersion::v2025_08_07())
                 .region(Region::new(region.clone()))
                 .profile_files(profile_files.clone())
                 .load()

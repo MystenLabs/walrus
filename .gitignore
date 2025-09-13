@@ -38,6 +38,7 @@ working_dir/
 venv/
 **/tmp
 out/
+**/node_modules
 
 # Deployment assets
 crates/walrus-orchestrator/assets/

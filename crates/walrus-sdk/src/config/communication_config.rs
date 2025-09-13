@@ -7,10 +7,10 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_with::{DurationMilliSeconds, serde_as};
+use serde_with::{DefaultOnNull, DurationMilliSeconds, serde_as};
 use walrus_core::{
     EncodingType,
-    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
+    encoding::{EncodingConfig, EncodingFactory as _, Primary},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -37,7 +37,9 @@ pub struct ClientCommunicationConfig {
     /// The maximum number of nodes the client contacts to get a blob status in parallel.
     pub max_concurrent_status_reads: Option<usize>,
     /// The maximum amount of data (in bytes) associated with concurrent requests.
-    pub max_data_in_flight: Option<usize>,
+    // The `serde_as` attribute is added for backwards compatibility.
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub max_data_in_flight: usize,
     /// The configuration for the `reqwest` client.
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
@@ -73,7 +75,7 @@ impl Default for ClientCommunicationConfig {
             max_concurrent_metadata_reads:
                 super::communication_config::default::max_concurrent_metadata_reads(),
             max_concurrent_status_reads: Default::default(),
-            max_data_in_flight: Default::default(),
+            max_data_in_flight: default::max_data_in_flight(),
             reqwest_config: Default::default(),
             request_rate_config: Default::default(),
             disable_proxy: Default::default(),
@@ -154,16 +156,13 @@ impl CommunicationLimits {
         let max_concurrent_status_reads = communication_config
             .max_concurrent_status_reads
             .unwrap_or(default::max_concurrent_status_reads(n_shards));
-        let max_data_in_flight = communication_config
-            .max_data_in_flight
-            .unwrap_or(default::max_data_in_flight());
 
         Self {
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
             max_concurrent_status_reads,
-            max_data_in_flight,
+            max_data_in_flight: communication_config.max_data_in_flight,
         }
     }
 
@@ -266,7 +265,7 @@ pub(crate) mod default {
         3
     }
 
-    /// This corresponds to 100Mb, i.e., 1 second on a 100 Mbps connection.
+    // This corresponds to 100Mb, i.e., 1 second on a 100 Mbps connection.
     pub fn max_data_in_flight() -> usize {
         12_500_000_000
     }

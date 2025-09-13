@@ -16,6 +16,7 @@ use rocksdb::{
 
 /// A wrapper for BackupEngineInfo that provides human-readable display formatting.
 pub struct DisplayableDbCheckpointInfo {
+    /// The RocksDB backup engine info.
     pub inner: BackupEngineInfo,
 }
 
@@ -397,25 +398,6 @@ impl DbCheckpointManager {
         Ok(result)
     }
 
-    /// List all db_checkpoints in the db_checkpoint directory.
-    ///
-    /// If no db_checkpoint_dir is provided, the directory configured in DbCheckpointConfig will be
-    /// used. If none of these are provided an error will be returned.
-    pub fn list_db_checkpoints(
-        &self,
-        db_checkpoint_dir: Option<&Path>,
-    ) -> Result<Vec<DisplayableDbCheckpointInfo>, DbCheckpointError> {
-        let db_checkpoint_dir = db_checkpoint_dir
-            .or(self.config.db_checkpoint_dir.as_deref())
-            .ok_or_else(|| {
-                DbCheckpointError::Other(anyhow::anyhow!("No db_checkpoint directory specified"))
-            })?;
-        let engine = Self::create_backup_engine(db_checkpoint_dir, None)?;
-        let backup_info = engine.get_backup_info();
-
-        Ok(backup_info.into_iter().map(|info| info.into()).collect())
-    }
-
     /// The background task that handles db_checkpoint requests.
     async fn execution_loop(
         db: Arc<RocksDB>,
@@ -718,7 +700,7 @@ impl DbCheckpointManager {
         skip(db),
         fields(
             db_checkpoint_dir = ?db_checkpoint_dir,
-            db_path = ?db.db_path
+            db_path = ?db.path()
         ),
         err
     )]
@@ -732,9 +714,7 @@ impl DbCheckpointManager {
 
         tracing::info!("start creating RocksDB backup");
 
-        let db_ref = &db.underlying;
-        engine
-            .create_new_backup_flush(db_ref, flush_before_backup)
+        db.create_new_backup_flush(&mut engine, flush_before_backup)
             .map_err(|e| DbCheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)))?;
 
         tracing::info!("rocksDB backup created successfully");

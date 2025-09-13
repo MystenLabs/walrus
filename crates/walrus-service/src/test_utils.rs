@@ -261,6 +261,15 @@ pub struct StorageNodeHandle {
     pub node_runtime_handle: Option<JoinHandle<()>>,
 }
 
+impl Drop for StorageNodeHandle {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(handle) = self.node_runtime_handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 impl StorageNodeHandleTrait for StorageNodeHandle {
     fn cancel(&self) {
         self.cancel.cancel();
@@ -694,6 +703,10 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
 impl Drop for SimStorageNodeHandle {
     fn drop(&mut self) {
         self.cancel_token.cancel();
+        if let Some(node_id) = self.node_id {
+            tracing::info!("shutting down storage node: {:?}", node_id);
+            sui_simulator::runtime::Handle::try_current().map(|h| h.delete_node(node_id));
+        }
     }
 }
 
@@ -1657,6 +1670,10 @@ impl SystemContractService for StubContractService {
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
+
+    async fn flush_cache(&self) {
+        // No-op
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -2422,6 +2439,10 @@ where
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         self.as_ref().inner.last_walrus_subsidies_call().await
     }
+
+    async fn flush_cache(&self) {
+        self.as_ref().inner.flush_cache().await;
+    }
 }
 
 /// Returns a test-committee with members with the specified number of shards ehortach.
@@ -2984,11 +3005,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             // Turn on all consistency checks in integration tests.
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
-                // TODO(WAL-875): re-enable blob data consistency check by tracking epoch in the
-                // event.
-                // Currently, the consistency check is not compatible with parallel event
-                // processing since the node does know whether a blob needs recovery or not.
-                enable_sliver_data_existence_check: false,
+                enable_sliver_data_existence_check: true,
                 sliver_data_existence_check_sample_rate_percentage: 100,
             },
             checkpoint_config: Default::default(),
