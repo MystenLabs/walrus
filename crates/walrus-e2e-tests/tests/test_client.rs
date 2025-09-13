@@ -1796,8 +1796,8 @@ async fn test_store_blob_with_random_attributes() -> TestResult {
     }
 
     let blob_data = walrus_test_utils::random_data(1024);
-    let blobs = vec![blob_data.as_slice()];
-    let attributes = vec![attribute.clone()];
+    let blobs = [blob_data.as_slice()];
+    let attributes = [attribute.clone()];
 
     // Store the blob with attributes.
     let store_args = StoreArgs::default_with_epochs(2).no_store_optimizations();

@@ -1142,6 +1142,234 @@ impl<K, V> DBMap<K, V> {
 
         readopts
     }
+
+    // Raw string API methods that bypass bincode serialization for keys.
+    // These methods treat keys as raw strings, allowing proper lexicographic ordering
+    // and prefix-based queries.
+
+    /// Insert a key-value pair with a raw string key (bypasses bincode serialization).
+    pub fn insert_with_raw_string<V2: Serialize>(
+        &self,
+        key: &str,
+        value: &V2,
+    ) -> Result<(), TypedStoreError> {
+        let timer = self
+            .db_metrics
+            .op_metrics
+            .rocksdb_put_latency_seconds
+            .with_label_values(&[&self.cf])
+            .start_timer();
+        let perf_ctx = if self.write_sample_interval.sample() {
+            Some(RocksDBPerfContext)
+        } else {
+            None
+        };
+
+        // Use raw string as key directly
+        let key_buf = key.as_bytes();
+        let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
+
+        self.db_metrics
+            .op_metrics
+            .rocksdb_put_key_bytes
+            .with_label_values(&[&self.cf])
+            .observe(key_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_put_value_bytes
+            .with_label_values(&[&self.cf])
+            .observe(value_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_put_bytes
+            .with_label_values(&[&self.cf])
+            .observe(key_buf.len() as f64 + value_buf.len() as f64);
+
+        if perf_ctx.is_some() {
+            self.db_metrics
+                .write_perf_ctx_metrics
+                .report_metrics(&self.cf);
+        }
+
+        self.rocksdb
+            .put_cf(&self.cf()?, key_buf, &value_buf, &self.opts.writeopts())
+            .map_err(typed_store_err_from_rocks_err)?;
+
+        let elapsed = timer.stop_and_record();
+        if elapsed > 1.0 {
+            tracing::warn!(?elapsed, cf = ?self.cf, "very slow insert");
+            self.db_metrics
+                .op_metrics
+                .rocksdb_very_slow_puts_count
+                .with_label_values(&[&self.cf])
+                .inc();
+            self.db_metrics
+                .op_metrics
+                .rocksdb_very_slow_puts_duration_ms
+                .with_label_values(&[&self.cf])
+                .inc_by((elapsed * 1000.0) as u64);
+        }
+
+        Ok(())
+    }
+
+    /// Get a value by raw string key (bypasses bincode serialization).
+    pub fn get_with_raw_string<V2: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<Option<V2>, TypedStoreError> {
+        let start = std::time::Instant::now();
+        let perf_ctx = if self.get_sample_interval.sample() {
+            Some(RocksDBPerfContext)
+        } else {
+            None
+        };
+
+        // Use raw string as key directly
+        let key_buf = key.as_bytes();
+        let res = self
+            .rocksdb
+            .get_pinned_cf_opt(&self.cf()?, key_buf, &self.opts.readopts())
+            .map_err(typed_store_err_from_rocks_err)?;
+
+        let found = res.is_some();
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_latency_seconds
+            .with_label_values(&[&self.cf, &found.to_string()])
+            .observe(start.elapsed().as_secs_f64());
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_key_bytes
+            .with_label_values(&[&self.cf])
+            .observe(key_buf.len() as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_bytes
+            .with_label_values(&[&self.cf])
+            .observe(key_buf.len() as f64 + res.as_ref().map_or(0.0, |v| v.len() as f64));
+        self.db_metrics
+            .op_metrics
+            .rocksdb_get_value_bytes
+            .with_label_values(&[&self.cf])
+            .observe(res.as_ref().map_or(0.0, |v| v.len() as f64));
+
+        if perf_ctx.is_some() {
+            self.db_metrics
+                .read_perf_ctx_metrics
+                .report_metrics(&self.cf);
+        }
+
+        match res {
+            Some(data) => Ok(Some(
+                bcs::from_bytes(&data).map_err(typed_store_err_from_bcs_err)?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    /// Iterate over entries with raw string keys, optionally with bounds.
+    /// Returns an iterator of (String, V) pairs.
+    pub fn iter_with_raw_string<'a, V2: DeserializeOwned + 'a>(
+        &'a self,
+        lower_bound: Option<&str>,
+        upper_bound: Option<&str>,
+    ) -> Result<impl Iterator<Item = Result<(String, V2), TypedStoreError>> + 'a, TypedStoreError>
+    {
+        let mut readopts = self.opts.readopts();
+
+        // Set bounds using raw strings
+        if let Some(lower) = lower_bound {
+            readopts.set_iterate_lower_bound(lower.as_bytes().to_vec());
+        }
+        if let Some(upper) = upper_bound {
+            readopts.set_iterate_upper_bound(upper.as_bytes().to_vec());
+        }
+
+        let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
+        let iter_context = self.create_iter_context();
+
+        Ok(RawStringIter::new(
+            self.cf.clone(),
+            db_iter,
+            iter_context,
+            Some(self.db_metrics.clone()),
+        ))
+    }
+}
+
+/// Iterator for raw string keys
+struct RawStringIter<'a, V> {
+    cf_name: String,
+    db_iter: RocksDBRawIter<'a>,
+    _iter_context: IterContext,
+    db_metrics: Option<Arc<DBMetrics>>,
+    _phantom: PhantomData<V>,
+}
+
+impl<'a, V> RawStringIter<'a, V> {
+    fn new(
+        cf_name: String,
+        mut db_iter: RocksDBRawIter<'a>,
+        iter_context: IterContext,
+        db_metrics: Option<Arc<DBMetrics>>,
+    ) -> Self {
+        db_iter.seek_to_first();
+        RawStringIter {
+            cf_name,
+            db_iter,
+            _iter_context: iter_context,
+            db_metrics,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, V: DeserializeOwned> Iterator for RawStringIter<'a, V> {
+    type Item = Result<(String, V), TypedStoreError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.db_iter.valid() {
+            return None;
+        }
+
+        let key = self.db_iter.key()?;
+        let value = self.db_iter.value()?;
+
+        // Convert key bytes to string
+        let key_str = match String::from_utf8(key.to_vec()) {
+            Ok(s) => s,
+            Err(e) => return Some(Err(TypedStoreError::SerializationError(e.to_string()))),
+        };
+
+        // Deserialize value using bcs
+        let value_obj = match bcs::from_bytes(value) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(typed_store_err_from_bcs_err(e))),
+        };
+
+        // Record metrics
+        if let Some(ref metrics) = self.db_metrics {
+            metrics
+                .op_metrics
+                .rocksdb_iter_key_bytes
+                .with_label_values(&[&self.cf_name])
+                .observe(key.len() as f64);
+            metrics
+                .op_metrics
+                .rocksdb_iter_value_bytes
+                .with_label_values(&[&self.cf_name])
+                .observe(value.len() as f64);
+            metrics
+                .op_metrics
+                .rocksdb_iter_keys
+                .with_label_values(&[&self.cf_name])
+                .observe(1.0);
+        }
+
+        self.db_iter.next();
+        Some(Ok((key_str, value_obj)))
+    }
 }
 
 /// Provides a mutable struct to form a collection of database write operations, and execute them.
@@ -1390,6 +1618,60 @@ impl DBBatch {
                 Ok(())
             })?;
         Ok(self)
+    }
+
+    /// Insert a batch of (key, value) pairs with raw string keys (bypasses bincode serialization).
+    pub fn insert_batch_with_raw_string<K, V: Serialize>(
+        &mut self,
+        db: &DBMap<K, V>,
+        new_vals: impl IntoIterator<Item = (String, V)>,
+    ) -> Result<&mut Self, TypedStoreError> {
+        if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
+            return Err(TypedStoreError::CrossDBBatch);
+        }
+        let mut key_total = 0usize;
+        let mut value_total = 0usize;
+        new_vals
+            .into_iter()
+            .try_for_each::<_, Result<_, TypedStoreError>>(|(k, v)| {
+                let k_buf = k.as_bytes();
+                let v_buf = bcs::to_bytes(&v).map_err(typed_store_err_from_bcs_err)?;
+                key_total += k_buf.len();
+                value_total += v_buf.len();
+                self.batch.put_cf(&db.cf()?, k_buf, v_buf);
+                Ok(())
+            })?;
+        self.db_metrics
+            .op_metrics
+            .rocksdb_batch_put_key_bytes
+            .with_label_values(&[&db.cf])
+            .observe(key_total as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_batch_put_value_bytes
+            .with_label_values(&[&db.cf])
+            .observe(value_total as f64);
+        Ok(self)
+    }
+
+    /// Delete a batch of keys with raw string keys (bypasses bincode serialization).
+    pub fn delete_batch_with_raw_string<K, V>(
+        &mut self,
+        db: &DBMap<K, V>,
+        purged_vals: impl IntoIterator<Item = String>,
+    ) -> Result<(), TypedStoreError> {
+        if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
+            return Err(TypedStoreError::CrossDBBatch);
+        }
+
+        purged_vals
+            .into_iter()
+            .try_for_each::<_, Result<_, TypedStoreError>>(|k| {
+                let k_buf = k.as_bytes();
+                self.batch.delete_cf(&db.cf()?, k_buf);
+                Ok(())
+            })?;
+        Ok(())
     }
 }
 

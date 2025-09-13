@@ -11,7 +11,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use tokio::{select, sync::RwLock};
-use walrus_core::{BlobId, encoding::quilt_encoding::QuiltIndexApi};
+use walrus_core::{BlobId, metadata::QuiltIndex};
 use walrus_sdk::client::WalrusNodeClient;
 use walrus_service::{
     common::config::SuiReaderConfig,
@@ -33,7 +33,7 @@ use crate::{
     IndexerConfig,
     TaskExecutor,
     async_task_manager::{AsyncTaskManager, AsyncTaskManagerConfig},
-    storage::{BlobIdentity, BucketStats, WalrusIndexStore},
+    storage::{BlobIdentity, BucketStats, IndexTarget, WalrusIndexStore},
 };
 
 /// Unique identifier for quilt index tasks.
@@ -112,17 +112,27 @@ impl AsyncTask for QuiltIndexTask {
     fn task_id(&self) -> Self::TaskId {
         QuiltIndexTaskId::new(self.sequence_number, self.quilt_blob_id)
     }
+}
 
-    fn sequence_number(&self) -> u64 {
-        self.sequence_number
+#[derive(Debug)]
+struct QuiltTaskExecutorConfig {
+    pub fetch_quilt_patch_timeout: std::time::Duration,
+}
+
+impl Default for QuiltTaskExecutorConfig {
+    fn default() -> Self {
+        Self {
+            fetch_quilt_patch_timeout: std::time::Duration::from_secs(60),
+        }
     }
 }
 
 /// Executor for quilt indexing tasks.
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct QuiltTaskExecutor {
     storage: Arc<WalrusIndexStore>,
     walrus_client: Option<Arc<WalrusNodeClient<SuiContractClient>>>,
+    config: QuiltTaskExecutorConfig,
 }
 
 impl QuiltTaskExecutor {
@@ -133,6 +143,7 @@ impl QuiltTaskExecutor {
         Self {
             storage,
             walrus_client,
+            config: QuiltTaskExecutorConfig::default(),
         }
     }
 }
@@ -140,7 +151,7 @@ impl QuiltTaskExecutor {
 #[async_trait]
 impl TaskExecutor<QuiltIndexTask> for QuiltTaskExecutor {
     async fn execute(&self, task: QuiltIndexTask) -> Result<()> {
-        tracing::info!(
+        tracing::debug!(
             "Executing quilt index task: sequence={}, quilt_id={}, object_id={}",
             task.sequence_number,
             task.quilt_blob_id,
@@ -153,26 +164,51 @@ impl TaskExecutor<QuiltIndexTask> for QuiltTaskExecutor {
             return Ok(());
         }
 
-        let quilt_metadata = self
-            .walrus_client
-            .as_ref()
-            .unwrap()
-            .quilt_client()
-            .get_quilt_metadata(&task.quilt_blob_id)
-            .await?;
-        let quilt_index = quilt_metadata.get_quilt_index();
-
-        // Step 2: Populate quilt index and remove task atomically
-        self.storage
-            .populate_quilt_patch_index(&task, &quilt_index)
-            .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
-
-        tracing::info!(
-            "Successfully processed quilt index for quilt {} with patches",
-            task.quilt_blob_id
-        );
+        // TODO(heliu): This could fail because we are either too early or too late.
+        // Let's create a retry queue for the failed tasks.
+        match self.fetch_quilt_patch(task.quilt_blob_id).await {
+            Ok(quilt_index) => {
+                tracing::debug!("Indexer fetched quilt index: {:?}", quilt_index);
+                self.storage
+                    .populate_quilt_patch_index(&task, &quilt_index)
+                    .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch quilt patch: {}", e);
+                unreachable!("Failed to fetch quilt patch: {}", e);
+                // TODO(heliu): Create a retry queue for the failed tasks.
+            }
+        }
 
         Ok(())
+    }
+}
+
+impl QuiltTaskExecutor {
+    async fn fetch_quilt_patch(&self, quilt_blob_id: BlobId) -> Result<QuiltIndex> {
+        let start_time = std::time::Instant::now();
+        loop {
+            if start_time.elapsed() > self.config.fetch_quilt_patch_timeout {
+                return Err(anyhow::anyhow!(
+                    "Failed to fetch quilt patch {}",
+                    quilt_blob_id
+                ));
+            }
+            match self
+                .walrus_client
+                .as_ref()
+                .unwrap()
+                .quilt_client()
+                .get_quilt_metadata(&quilt_blob_id)
+                .await
+            {
+                Ok(quilt_metadata) => return Ok(quilt_metadata.get_quilt_index()),
+                Err(e) => {
+                    tracing::warn!("Failed to fetch quilt patch {}: {}", quilt_blob_id, e);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
     }
 }
 
@@ -205,6 +241,9 @@ pub struct WalrusIndexer {
 
     /// Sequence counter for generating task IDs.
     task_sequence_counter: Arc<std::sync::atomic::AtomicU64>,
+
+    /// Test-only counter for tracking total events processed.
+    pub(crate) event_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WalrusIndexer {
@@ -213,17 +252,17 @@ impl WalrusIndexer {
     /// The indexer will not start any background services until run() is called.
     pub async fn new(config: IndexerConfig) -> Result<Arc<Self>> {
         // Create storage layer by opening the database
-        let mut storage = WalrusIndexStore::open(&config.db_path).await?;
+        let storage = WalrusIndexStore::open(&config.db_path).await?;
 
         // Create SuiReadClient and WalrusNodeClient if sui_config is provided
         let walrus_client = if let Some(ref sui_config) = config.sui_config {
-            let read_client = Arc::new(
+            // Note: read_client is created but not currently used by storage.
+            let _read_client = Arc::new(
                 sui_config
                     .new_read_client()
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to create SuiReadClient: {}", e))?,
             );
-            storage = storage.with_read_client(read_client.clone());
 
             // Create WalrusNodeClient for reading blob data
             let contract_client = sui_config
@@ -259,6 +298,7 @@ impl WalrusIndexer {
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             quilt_task_manager: Arc::new(RwLock::new(None)), // Will be set in run() method
             task_sequence_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            event_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         });
 
         Ok(indexer)
@@ -357,7 +397,7 @@ impl WalrusIndexer {
     pub async fn list_blobs_in_bucket(
         &self,
         bucket_id: &ObjectID,
-    ) -> Result<HashMap<String, BlobIdentity>> {
+    ) -> Result<HashMap<String, IndexTarget>> {
         self.storage
             .list_blobs_in_bucket_entries(bucket_id)
             .map_err(|e| anyhow::anyhow!("Failed to list bucket entries: {}", e))
@@ -478,20 +518,6 @@ impl WalrusIndexer {
         anyhow::bail!("event stream for indexer stopped")
     }
 
-    /// Process a contract event from Sui.
-    pub async fn process_event(&self, event: ContractEvent) -> Result<()> {
-        tracing::info!(?event, "Processing contract event in indexer");
-        match event {
-            ContractEvent::IndexEvent(index_event) => {
-                self.process_index_event(index_event).await?;
-            }
-            _ => {
-                tracing::warn!("Skipping non-index event: {:?}", event);
-            }
-        }
-        Ok(())
-    }
-
     /// Process a contract event from Sui with atomic cursor update.
     pub async fn process_event_with_cursor(&self, event: ContractEvent, cursor: u64) -> Result<()> {
         tracing::info!(
@@ -506,24 +532,6 @@ impl WalrusIndexer {
             }
             _ => {
                 tracing::warn!("Skipping non-index event: {:?}", event);
-            }
-        }
-        Ok(())
-    }
-
-    /// Process an index event from Sui.
-    pub async fn process_index_event(&self, index_event: IndexEvent) -> Result<()> {
-        match index_event {
-            IndexEvent::BlobIndexOperation(mutation_set) => {
-                // Note: Without cursor, we cannot track quilts for background processing
-                // since we don't have the event index. Quilts will be stored but patches
-                // won't be indexed automatically.
-                self.storage.apply_index_mutations(vec![mutation_set])?;
-
-                tracing::warn!(
-                    "Processing index event without cursor - quilt patches won't be \
-                     indexed automatically"
-                );
             }
         }
         Ok(())
@@ -592,6 +600,11 @@ impl WalrusIndexer {
                         .set_last_processed_event_index(cursor)
                         .map_err(|e| anyhow::anyhow!("Failed to update event cursor: {}", e))?;
                 }
+
+                // Increment test counter
+                #[cfg(test)]
+                self.event_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
         Ok(())
@@ -617,68 +630,6 @@ impl WalrusIndexer {
         Ok(EventStreamCursor::new(None, 0))
     }
 
-    /// Process quilt index in background - fetches quilt data and populates patch indices.
-    pub async fn process_quilt_index_background(
-        &self,
-        quilt_id: BlobId,
-        object_id: ObjectID,
-        bucket_id: ObjectID,
-        index: u64,
-    ) -> Result<()> {
-        tracing::info!(
-            "Processing quilt index in background for blob {} (object: {}, bucket: {})",
-            quilt_id,
-            object_id,
-            bucket_id
-        );
-
-        // Check if we have a Walrus client configured
-        if self.walrus_client.is_none() {
-            tracing::warn!("No Walrus client configured, skipping quilt index processing");
-            return Ok(());
-        }
-
-        let quilt_metadata = self
-            .walrus_client
-            .as_ref()
-            .unwrap()
-            .quilt_client()
-            .get_quilt_metadata(&quilt_id)
-            .await?;
-        let quilt_index = quilt_metadata.get_quilt_index();
-        tracing::info!("Indexer fetched quilt index: {:?}", quilt_index);
-        tracing::info!(
-            "quilt index in background for blob {} (object: {}, bucket: {})",
-            quilt_id,
-            object_id,
-            bucket_id
-        );
-
-        // Create a temporary QuiltIndexTask for the populate call
-        let temp_task = QuiltIndexTask::new(
-            0, // sequence_number
-            quilt_id,
-            object_id,
-            bucket_id,
-            format!("quilt_{}", quilt_id), // identifier
-            index,                         // event_index
-        );
-
-        self.storage
-            .populate_quilt_patch_index(&temp_task, &quilt_index)
-            .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
-
-        tracing::info!(
-            "Successfully processed quilt index for quilt {} with {} patches",
-            quilt_id,
-            match &quilt_index {
-                walrus_core::metadata::QuiltIndex::V1(v1) => v1.patches().len(),
-            }
-        );
-
-        Ok(())
-    }
-
     /// Submit quilt processing tasks to the async task manager.
     async fn submit_quilt_tasks(&self, tasks: Vec<QuiltIndexTask>) -> Result<()> {
         if let Some(ref task_manager) = *self.quilt_task_manager.read().await {
@@ -686,7 +637,7 @@ impl WalrusIndexer {
                 // Submit the task to the async task manager
                 task_manager.submit(task.clone()).await?;
 
-                tracing::info!(
+                tracing::debug!(
                     "Submitted quilt processing task for blob_id={}, sequence={}, event_index={}",
                     task.quilt_blob_id,
                     task.sequence_number,
@@ -709,6 +660,35 @@ impl WalrusIndexer {
         if let Some(ref task_manager) = *self.quilt_task_manager.read().await {
             task_manager.shutdown().await;
             tracing::info!("Task manager shutdown complete");
+        }
+    }
+
+    /// Test-only method to get the current event count.
+    pub fn get_event_count(&self) -> u64 {
+        self.event_counter
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Test-only method to wait for a specific number of events to be processed.
+    pub async fn wait_for_events(
+        &self,
+        expected_count: u64,
+        timeout: std::time::Duration,
+    ) -> Result<()> {
+        let start = std::time::Instant::now();
+        loop {
+            let current_count = self.get_event_count();
+            if current_count >= expected_count {
+                return Ok(());
+            }
+            if start.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout waiting for events: expected {}, got {}",
+                    expected_count,
+                    current_count
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     }
 }

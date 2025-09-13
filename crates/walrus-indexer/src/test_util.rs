@@ -31,24 +31,17 @@ impl AsyncTask for TestTask {
     fn task_id(&self) -> Self::TaskId {
         self.sequence
     }
-
-    fn sequence_number(&self) -> u64 {
-        self.sequence
-    }
 }
 
 /// Ordered in-memory store.
 pub struct OrderedTestStore {
     tasks: Arc<Mutex<BTreeMap<u64, TestTask>>>,
-    // Track read_range calls.
-    read_calls: Arc<Mutex<Vec<(Option<u64>, Option<u64>, usize)>>>,
 }
 
 impl OrderedTestStore {
     pub fn new() -> Self {
         Self {
             tasks: Arc::new(Mutex::new(BTreeMap::new())),
-            read_calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -56,19 +49,8 @@ impl OrderedTestStore {
     pub async fn populate_with_tasks(&self, tasks: Vec<TestTask>) {
         let mut store = self.tasks.lock().await;
         for task in tasks {
-            store.insert(task.sequence_number(), task);
+            store.insert(task.task_id(), task);
         }
-    }
-
-    /// Get read call history for testing.
-    pub async fn get_read_calls(&self) -> Vec<(Option<u64>, Option<u64>, usize)> {
-        self.read_calls.lock().await.clone()
-    }
-
-    /// Clear read call history.
-    #[allow(dead_code)]
-    pub async fn clear_read_calls(&self) {
-        self.read_calls.lock().await.clear();
     }
 
     /// Get current task count.
@@ -77,12 +59,18 @@ impl OrderedTestStore {
     }
 }
 
+impl Default for OrderedTestStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl OrderedStore<TestTask> for OrderedTestStore {
     async fn store(&self, task: &TestTask) -> Result<(), TypedStoreError> {
         let mut tasks = self.tasks.lock().await;
-        tasks.insert(task.sequence_number(), task.clone());
-        tracing::debug!("Stored task: seq={}", task.sequence_number());
+        tasks.insert(task.task_id(), task.clone());
+        tracing::debug!("Stored task: id={}", task.task_id());
         Ok(())
     }
 
@@ -94,28 +82,23 @@ impl OrderedStore<TestTask> for OrderedTestStore {
 
     async fn read_range(
         &self,
-        from_seq: Option<u64>,
-        to_seq: Option<u64>,
+        from_task_id: Option<u64>,
+        to_task_id: Option<u64>,
         limit: usize,
     ) -> Result<Vec<TestTask>, TypedStoreError> {
-        {
-            let mut calls = self.read_calls.lock().await;
-            calls.push((from_seq, to_seq, limit));
-        }
-
         let tasks = self.tasks.lock().await;
         let mut result = Vec::new();
         let mut count = 0;
 
-        for (seq, task) in tasks.iter() {
-            if let Some(from) = from_seq {
-                if *seq < from {
+        for (task_id, task) in tasks.iter() {
+            if let Some(from) = from_task_id {
+                if *task_id <= from {
                     continue;
                 }
             }
 
-            if let Some(to) = to_seq {
-                if *seq >= to {
+            if let Some(to) = to_task_id {
+                if *task_id >= to {
                     break;
                 }
             }
@@ -129,9 +112,9 @@ impl OrderedStore<TestTask> for OrderedTestStore {
         }
 
         tracing::debug!(
-            "Read range: from_seq={:?}, to_seq={:?}, limit={}, returned={}",
-            from_seq,
-            to_seq,
+            "Read range: from_task_id={:?}, to_task_id={:?}, limit={}, returned={}",
+            from_task_id,
+            to_task_id,
             limit,
             result.len()
         );

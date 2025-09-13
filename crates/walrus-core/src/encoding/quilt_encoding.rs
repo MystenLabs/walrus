@@ -482,6 +482,7 @@ pub struct QuiltStoreBlob<'a> {
     identifier: String,
     /// The tags of the blob.
     pub tags: BTreeMap<String, String>,
+    /// The blob id of the blob.
     pub blob_id: Option<BlobId>,
 }
 
@@ -552,15 +553,13 @@ impl<'a> QuiltStoreBlob<'a> {
         })
     }
 
-    pub fn with_blob_id(
-        mut self,
-        encoder_config: &EncodingConfigEnum<'_>,
-    ) -> Result<Self, QuiltError> {
+    /// Sets the blob id of the blob.
+    pub fn with_blob_id(self, encoder_config: &EncodingConfigEnum<'_>) -> Result<Self, QuiltError> {
         let metadata = encoder_config
             .compute_metadata(&self.blob)
             .map_err(|e| QuiltError::Other(format!("Failed to compute blob metadata: {}", e)))?;
         Ok(Self {
-            blob_id: Some(metadata.blob_id().clone()),
+            blob_id: Some(*metadata.blob_id()),
             ..self
         })
     }

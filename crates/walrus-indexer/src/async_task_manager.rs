@@ -110,7 +110,7 @@ where
 
         let handle = tokio::spawn(async move {
             let result =
-                Self::process_until_empty_static(task_sorter, executor, config, cancel_token).await;
+                Self::process_until_empty(task_sorter, executor, config, cancel_token).await;
 
             if let Err(e) = result {
                 tracing::error!("Error in processing task: {}", e);
@@ -126,23 +126,8 @@ where
         Ok(())
     }
 
-    /// Process tasks until the queue is empty or cancellation is requested.
-    /// Tasks are processed one at a time to ensure serialized execution.
-    async fn process_until_empty(
-        &self,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) -> Result<()> {
-        Self::process_until_empty_static(
-            Arc::clone(&self.task_sorter),
-            Arc::clone(&self.executor),
-            self.config.clone(),
-            cancel_token,
-        )
-        .await
-    }
-
     /// Static version of process_until_empty that doesn't borrow self.
-    async fn process_until_empty_static(
+    async fn process_until_empty(
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
@@ -196,22 +181,7 @@ where
         // Cancel the shutdown token to stop processing.
         self.shutdown_token.cancel();
 
-        // Wait for the active task to complete or timeout.
-        let mut active_handle = self.active_task_handle.lock().await;
-        if let Some(handle) = active_handle.take() {
-            // Wait for the task to complete with a timeout.
-            let timeout_duration = Duration::from_millis(5000); // 5 second timeout.
-            match tokio::time::timeout(timeout_duration, handle).await {
-                Ok(_) => {
-                    tracing::info!("Active task completed gracefully");
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        "Active task did not complete within timeout, may have been cancelled"
-                    );
-                }
-            }
-        }
+        let _ = self.active_task_handle.lock().await.take();
     }
 
     /// Get queue statistics.
@@ -236,11 +206,6 @@ where
         } else {
             false
         }
-    }
-
-    /// Get the underlying task sorter (for advanced usage).
-    pub fn task_sorter(&self) -> &Arc<AsyncTaskSorter<T, S>> {
-        &self.task_sorter
     }
 }
 
@@ -293,12 +258,12 @@ mod tests {
 
             let count = EXECUTION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
             assert_eq!(
-                task.sequence_number(),
+                task.task_id(),
                 LAST_EXECUTED_SEQUENCE.load(Ordering::SeqCst) + 1
             );
-            LAST_EXECUTED_SEQUENCE.store(task.sequence_number(), Ordering::SeqCst);
+            LAST_EXECUTED_SEQUENCE.store(task.task_id(), Ordering::SeqCst);
 
-            tracing::info!("Executed task #{}: seq={}", count, task.sequence_number());
+            tracing::info!("Executed task #{}: id={}", count, task.task_id());
 
             Ok(())
         }

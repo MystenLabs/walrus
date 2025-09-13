@@ -5,11 +5,11 @@
 
 use alloc::{
     collections::BTreeMap,
+    str::FromStr,
     string::{String, ToString},
     vec::Vec,
 };
 use core::{fmt::Debug, num::NonZeroU16};
-use std::str::FromStr;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};

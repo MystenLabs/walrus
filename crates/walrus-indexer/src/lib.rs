@@ -107,15 +107,12 @@ pub struct Bucket {
 // Centralized trait definitions for async task management
 
 /// Trait for async tasks that can be stored and sorted.
-pub trait AsyncTask: Send + Sync + Clone + Serialize + for<'de> Deserialize<'de> {
+pub trait AsyncTask: Send + Sync + Clone {
     /// Unique identifier for the task.
-    type TaskId: Send + Sync + Clone + Serialize + for<'de> Deserialize<'de> + Ord;
+    type TaskId: Send + Sync + Clone + Ord + std::fmt::Debug;
 
     /// Returns the task's unique identifier.
     fn task_id(&self) -> Self::TaskId;
-
-    /// Returns the task's sequence number.
-    fn sequence_number(&self) -> u64;
 }
 
 /// Trait for ordered storage of async tasks.
@@ -131,13 +128,13 @@ where
     /// Remove a task from storage by its ID.
     async fn remove(&self, task_id: &T::TaskId) -> Result<(), TypedStoreError>;
 
-    /// Load tasks within a sequence range, ordered by sequence number.
-    /// Returns tasks where from_seq <= sequence < to_seq (if both provided).
-    /// Note: This follows RocksDB semantics [start, end) - inclusive start, exclusive end.
+    /// Load tasks within a task_id range, ordered by task_id.
+    /// Returns tasks in (from_task_id, to_task_id), exclusive on both ends, with a maximum limit.
+    /// If from_task_id is None, starts from beginning. If to_task_id is None, goes to end.
     async fn read_range(
         &self,
-        from_seq: Option<u64>,
-        to_seq: Option<u64>,
+        from_task_id: Option<T::TaskId>,
+        to_task_id: Option<T::TaskId>,
         limit: usize,
     ) -> Result<Vec<T>, TypedStoreError>;
 }

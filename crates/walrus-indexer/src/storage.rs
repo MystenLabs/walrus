@@ -10,7 +10,7 @@
 use std::{collections::HashMap, path::Path, str::FromStr, sync::Arc};
 
 use anyhow::Result;
-use rocksdb::Options;
+use rocksdb::Options as RocksDbOptions;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use typed_store::{
@@ -20,9 +20,11 @@ use typed_store::{
 };
 use walrus_core::{BlobId, QuiltPatchId, metadata::QuiltIndex};
 use walrus_sdk::client::client_types::get_stored_quilt_patches;
-use walrus_sui::client::SuiReadClient;
 
-use crate::indexer::{QuiltIndexTask, QuiltIndexTaskId};
+use crate::{
+    AsyncTask,
+    indexer::{QuiltIndexTask, QuiltIndexTaskId},
+};
 
 // Column family names
 const CF_NAME_PRIMARY_INDEX: &str = "walrus_index_primary";
@@ -30,6 +32,7 @@ const CF_NAME_OBJECT_INDEX: &str = "walrus_index_object";
 const CF_NAME_EVENT_CURSOR: &str = "walrus_event_cursor";
 const CF_NAME_QUILT_PATCH_INDEX: &str = "walrus_quilt_patch";
 const CF_NAME_PENDING_QUILT_INDEX_TASKS: &str = "walrus_pending_quilt_index_tasks";
+const CURSOR_KEY: &str = "last_processed_index";
 
 /// The target of an index entry, it could be a blob, a quilt patch or a quilt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -57,27 +60,30 @@ fn construct_primary_index_key(bucket_id: &ObjectID, identifier: &str) -> String
     format!("{}/{}", bucket_id, identifier)
 }
 
+fn get_primary_index_bounds(bucket_id: &ObjectID) -> (String, String) {
+    let lower_bound = format!("{}/", bucket_id);
+    let upper_bound = format!("{}0", bucket_id);
+    (lower_bound, upper_bound)
+}
+
 fn construct_object_index_key(object_id: &ObjectID) -> String {
     object_id.to_string()
 }
 
 fn construct_quilt_patch_index_key(patch_blob_id: &BlobId, object_id: &ObjectID) -> String {
-    // Use a simpler format with a delimiter that won't appear in base64
-    format!("{}#{}", patch_blob_id, object_id)
+    // Use \x00 as delimiter since it's a control character that won't appear in blob/object IDs
+    // This allows us to use \x01 as a clean upper bound for prefix searches
+    format!("{}\x00{}", patch_blob_id, object_id)
 }
 
-fn get_quilt_patch_key_bounds(patch_blob_id: &BlobId) -> (String, String) {
-    // The key format is "{blob_id}#{object_id}"
-    // To get all keys with this blob_id, we need:
-    // - Start: "{blob_id}#" (inclusive)
-    // - End: "{blob_id}$" (exclusive, $ comes after # in ASCII)
-    let start = format!("{}#", patch_blob_id);
-    let end = format!("{}$", patch_blob_id);
-    (start, end)
+fn get_quilt_patch_index_bounds(patch_blob_id: &BlobId) -> (String, String) {
+    let lower_bound = format!("{}", patch_blob_id);
+    let upper_bound = format!("{}\x01", patch_blob_id);
+    (lower_bound, upper_bound)
 }
 
-fn parse_quilt_patch_index_key(key: &String) -> (BlobId, ObjectID) {
-    let parts = key.split('#').collect::<Vec<&str>>();
+fn parse_quilt_patch_index_key(key: &str) -> (BlobId, ObjectID) {
+    let parts = key.split('\x00').collect::<Vec<&str>>();
     let patch_blob_id = BlobId::from_str(parts[0]).unwrap();
     let object_id = ObjectID::from_str(parts[1]).unwrap();
     (patch_blob_id, object_id)
@@ -113,8 +119,6 @@ pub struct WalrusIndexStore {
     quilt_patch_index: DBMap<String, QuiltPatchId>,
     /// Pending quilt index tasks: stores the quilt index tasks that are pending to be processed.
     pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
-    /// Walrus read client.
-    read_client: Option<Arc<SuiReadClient>>,
 }
 
 // Constants for future pagination implementation.
@@ -125,7 +129,7 @@ impl WalrusIndexStore {
     /// Create a new WalrusIndexStore by opening the database at the specified path.
     /// This initializes all required column families for the indexer.
     pub async fn open(db_path: &Path) -> Result<Self> {
-        let db_options = Options::default();
+        let db_options = RocksDbOptions::default();
         let db = Arc::new(open_cf_opts(
             db_path,
             None,
@@ -181,16 +185,7 @@ impl WalrusIndexStore {
             event_cursor_store,
             quilt_patch_index,
             pending_quilt_index_tasks,
-            read_client: None,
         })
-    }
-
-    /// Create a new WalrusIndexStore with a Sui read client.
-    pub fn with_read_client(self, read_client: Arc<SuiReadClient>) -> Self {
-        Self {
-            read_client: Some(read_client),
-            ..self
-        }
     }
 
     /// Create a new WalrusIndexStore from existing DBMap instances.
@@ -208,7 +203,6 @@ impl WalrusIndexStore {
             event_cursor_store,
             quilt_patch_index,
             pending_quilt_index_tasks,
-            read_client: None,
         }
     }
 
@@ -245,7 +239,7 @@ impl WalrusIndexStore {
         if let Some(cursor_value) = cursor_update {
             batch.insert_batch(
                 &self.event_cursor_store,
-                [("last_processed_index".to_string(), cursor_value)],
+                [(CURSOR_KEY.to_string(), cursor_value)],
             )?;
         }
 
@@ -259,7 +253,7 @@ impl WalrusIndexStore {
         batch: &mut DBBatch,
         bucket_id: &ObjectID, // bucket_id comes from the MutationSet
         mutation: walrus_sui::types::IndexMutation,
-        cursor_update: Option<u64>,
+        _cursor_update: Option<u64>,
     ) -> Result<(), TypedStoreError> {
         match mutation {
             walrus_sui::types::IndexMutation::Insert {
@@ -306,8 +300,9 @@ impl WalrusIndexStore {
             identifier: identifier.to_string(),
         };
 
-        batch.insert_batch(&self.primary_index, [(primary_key, index_target)])?;
-        batch.insert_batch(&self.object_index, [(object_key, object_value)])?;
+        // Use raw string API for primary index to avoid bincode string serialization issues
+        batch.insert_batch_with_raw_string(&self.primary_index, [(primary_key, index_target)])?;
+        batch.insert_batch_with_raw_string(&self.object_index, [(object_key, object_value)])?;
 
         Ok(())
     }
@@ -335,12 +330,34 @@ impl WalrusIndexStore {
                 .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
             let primary_value = IndexTarget::QuiltPatchId(quilt_patch_id.clone());
 
-            batch.insert_batch(&self.primary_index, [(primary_key, primary_value)])?;
+            tracing::debug!(
+                ?primary_key,
+                ?primary_value,
+                "Inserted quilt patch primary index key",
+            );
+
+            // Use raw string API for primary index
+            batch.insert_batch_with_raw_string(
+                &self.primary_index,
+                [(primary_key, primary_value)],
+            )?;
 
             if let Some(patch_blob_id) = patch.patch_blob_id {
                 let quilt_patch_index_key =
                     construct_quilt_patch_index_key(&patch_blob_id, &quilt_index_task.object_id);
-                batch.insert_batch(
+
+                tracing::debug!(
+                    patch_blob_id = patch_blob_id.to_string(),
+                    quilt_patch_id = quilt_patch_id.to_string(),
+                    object_id = quilt_index_task.object_id.to_string(),
+                    bucket_id = quilt_index_task.bucket_id.to_string(),
+                    identifier = patch.identifier,
+                    quilt_id = quilt_index_task.quilt_blob_id.to_string(),
+                    key = quilt_patch_index_key,
+                    "Inserted quilt patch index key",
+                );
+                // Use raw string API to bypass bincode serialization
+                batch.insert_batch_with_raw_string(
                     &self.quilt_patch_index,
                     [(quilt_patch_index_key, quilt_patch_id)],
                 )?;
@@ -349,10 +366,7 @@ impl WalrusIndexStore {
 
         batch.delete_batch(
             &self.pending_quilt_index_tasks,
-            [QuiltIndexTaskId::new(
-                quilt_index_task.sequence_number,
-                quilt_index_task.quilt_blob_id,
-            )],
+            [quilt_index_task.task_id()],
         )?;
 
         batch.write()
@@ -381,17 +395,26 @@ impl WalrusIndexStore {
     }
 
     /// Delete all entries in a bucket.
+    //
+    // TODO(heliu): This doesn't handle quilt patches.
     pub fn delete_bucket(&self, bucket_id: &ObjectID) -> Result<(), TypedStoreError> {
         let prefix = construct_primary_index_key(bucket_id, "");
         let mut batch = self.primary_index.batch();
 
+        // Use raw string API with bounds for efficient prefix scanning
+        let lower_bound = prefix.clone();
+        // Use control character for clean upper bound
+        let mut upper_bound = prefix.clone();
+        upper_bound.push('\u{ff}');
+
         // Delete from both indices.
-        for entry in self.primary_index.safe_iter()? {
+        for entry in self
+            .primary_index
+            .iter_with_raw_string::<IndexTarget>(Some(&lower_bound), Some(&upper_bound))?
+        {
             let (key, _value) = entry?;
-            if key.starts_with(&prefix) {
-                // Delete from both indices.
-                self.apply_delete_by_key(&mut batch, key)?;
-            }
+            // Delete from both indices.
+            self.apply_delete_by_key(&mut batch, key)?;
         }
 
         batch.write()
@@ -404,7 +427,7 @@ impl WalrusIndexStore {
         primary_key: String,
     ) -> Result<(), TypedStoreError> {
         // Look up the primary value to get the object_id.
-        if let Some(index_target) = self.primary_index.get(&primary_key)? {
+        if let Some(index_target) = self.primary_index.get_with_raw_string(&primary_key)? {
             // Extract object_id based on the IndexTarget variant
             let object_id = match &index_target {
                 IndexTarget::Blob(blob_identity) => &blob_identity.object_id,
@@ -415,8 +438,8 @@ impl WalrusIndexStore {
                 IndexTarget::QuiltId(quilt_id) => quilt_id,
             };
             let object_key = construct_object_index_key(object_id);
-            batch.delete_batch(&self.primary_index, [primary_key])?;
-            batch.delete_batch(&self.object_index, [object_key])?;
+            batch.delete_batch_with_raw_string(&self.primary_index, [primary_key])?;
+            batch.delete_batch_with_raw_string(&self.object_index, [object_key])?;
         }
 
         // If the primary key doesn't exist, it's already deleted - no error.
@@ -431,11 +454,14 @@ impl WalrusIndexStore {
     ) -> Result<(), TypedStoreError> {
         let object_key = construct_object_index_key(object_id);
         // Get the bucket_id and identifier from object index.
-        if let Some(object_value) = self.object_index.get(&object_key)? {
+        if let Some(object_value) = self
+            .object_index
+            .get_with_raw_string::<ObjectIndexValue>(&object_key)?
+        {
             let primary_key =
                 construct_primary_index_key(&object_value.bucket_id, &object_value.identifier);
-            batch.delete_batch(&self.primary_index, [primary_key])?;
-            batch.delete_batch(&self.object_index, [object_key])?;
+            batch.delete_batch_with_raw_string(&self.primary_index, [primary_key])?;
+            batch.delete_batch_with_raw_string(&self.object_index, [object_key])?;
         }
 
         // If the object doesn't exist, it's already deleted - no error.
@@ -449,7 +475,7 @@ impl WalrusIndexStore {
         identifier: &str,
     ) -> Result<Option<IndexTarget>, TypedStoreError> {
         let key = construct_primary_index_key(bucket_id, identifier);
-        self.primary_index.get(&key)
+        self.primary_index.get_with_raw_string(&key)
     }
 
     pub fn get_quilt_patch_id_by_blob_id(
@@ -457,34 +483,27 @@ impl WalrusIndexStore {
         blob_id: &BlobId,
     ) -> Result<Option<QuiltPatchId>, TypedStoreError> {
         tracing::debug!("Querying quilt patch for blob_id: {}", blob_id);
-        let (start_key, end_key) = get_quilt_patch_key_bounds(blob_id);
-        tracing::debug!("Using bounds: start='{}', end='{}'", start_key, end_key);
 
-        // Use bounded iteration to find all entries with this blob_id
+        // Use raw string API with bounded iteration for efficient prefix search.
+        // Raw string keys preserve lexicographic ordering, allowing proper
+        // prefix-based queries.
+        // Since we use \x00 as delimiter, we can use \x01 as a clean upper bound
+
+        let (lower_bound, upper_bound) = get_quilt_patch_index_bounds(blob_id);
+        // Use raw string iterator with bounds
         for entry in self
             .quilt_patch_index
-            .safe_iter_with_bounds(Some(start_key), Some(end_key))?
+            .iter_with_raw_string(Some(&lower_bound), Some(&upper_bound))?
         {
             let (key, value) = entry?;
-            tracing::debug!("Found matching key: '{}', value: {:?}", key, value);
-            // Since we're using proper bounds, any key in this range should match
-            // but let's verify just to be safe
+            // Parse and verify it's the correct blob_id (defensive check)
             let (patch_blob_id, _object_id) = parse_quilt_patch_index_key(&key);
             if patch_blob_id == *blob_id {
                 return Ok(Some(value));
             }
         }
-        Ok(None)
-    }
 
-    /// Get quilt patch ID by both blob_id and object_id (direct lookup).
-    pub fn get_quilt_patch_id_by_blob_and_object(
-        &self,
-        blob_id: &BlobId,
-        object_id: &ObjectID,
-    ) -> Result<Option<QuiltPatchId>, TypedStoreError> {
-        let key = construct_quilt_patch_index_key(blob_id, object_id);
-        self.quilt_patch_index.get(&key)
+        Ok(None)
     }
 
     /// Get an index entry by object_id (object index).
@@ -494,11 +513,14 @@ impl WalrusIndexStore {
     ) -> Result<Option<BlobIdentity>, TypedStoreError> {
         // First get the bucket_identifier from object index.
         let object_key = construct_object_index_key(object_id);
-        if let Some(object_value) = self.object_index.get(&object_key)? {
+        if let Some(object_value) = self
+            .object_index
+            .get_with_raw_string::<ObjectIndexValue>(&object_key)?
+        {
             // Then get the actual blob identity from primary index.
             let primary_key =
                 construct_primary_index_key(&object_value.bucket_id, &object_value.identifier);
-            match self.primary_index.get(&primary_key)? {
+            match self.primary_index.get_with_raw_string(&primary_key)? {
                 Some(IndexTarget::Blob(blob_identity)) => Ok(Some(blob_identity)),
                 Some(_) => Ok(None), // Other variants are not BlobIdentity
                 None => Ok(None),
@@ -512,23 +534,20 @@ impl WalrusIndexStore {
     pub fn list_blobs_in_bucket_entries(
         &self,
         bucket_id: &ObjectID,
-    ) -> Result<HashMap<String, BlobIdentity>, TypedStoreError> {
-        let prefix = construct_primary_index_key(bucket_id, "");
+    ) -> Result<HashMap<String, IndexTarget>, TypedStoreError> {
+        let (lower_bound, upper_bound) = get_primary_index_bounds(bucket_id);
         let mut result = HashMap::new();
 
-        // TODO: use prefix scan.
-        for entry in self.primary_index.safe_iter()? {
+        // Use raw string API with bounds for efficient prefix scanning
+
+        for entry in self
+            .primary_index
+            .iter_with_raw_string::<IndexTarget>(Some(&lower_bound), Some(&upper_bound))?
+        {
             let (key, value) = entry?;
-            if key.starts_with(&prefix) {
-                // Extract the primary key after bucket_id/.
-                if let Some(primary_key) = key.strip_prefix(&prefix) {
-                    // Only include Blob variants in the result
-                    if let IndexTarget::Blob(blob_identity) = value {
-                        result.insert(primary_key.to_string(), blob_identity);
-                    }
-                }
-            }
+            result.insert(key.to_string(), value);
         }
+
         Ok(result)
     }
 
@@ -539,7 +558,10 @@ impl WalrusIndexStore {
         primary_key: &str,
     ) -> Result<bool, TypedStoreError> {
         let key = construct_primary_index_key(bucket_id, primary_key);
-        self.primary_index.contains_key(&key)
+        Ok(self
+            .primary_index
+            .get_with_raw_string::<IndexTarget>(&key)?
+            .is_some())
     }
 
     /// Get statistics about a bucket.
@@ -547,12 +569,17 @@ impl WalrusIndexStore {
         let prefix = construct_primary_index_key(bucket_id, "");
         let mut primary_count = 0u32;
 
-        // Count primary entries.
-        for entry in self.primary_index.safe_iter()? {
-            let (key, _) = entry?;
-            if key.starts_with(&prefix) {
-                primary_count += 1;
-            }
+        // Use the control character for clean upper bound.
+        let mut upper_bound = prefix.clone();
+        upper_bound.push('\u{ff}');
+
+        // Count primary entries using raw string iterator.
+        for entry in self
+            .primary_index
+            .iter_with_raw_string::<IndexTarget>(Some(&prefix), Some(&upper_bound))?
+        {
+            let (_, _) = entry?;
+            primary_count += 1;
         }
 
         Ok(BucketStats {
@@ -565,14 +592,13 @@ impl WalrusIndexStore {
     /// Get the last processed event index from storage.
     /// Returns None if no event has been processed yet.
     pub fn get_last_processed_event_index(&self) -> Result<Option<u64>, TypedStoreError> {
-        self.event_cursor_store
-            .get(&"last_processed_index".to_string())
+        self.event_cursor_store.get(&CURSOR_KEY.to_string())
     }
 
     /// Set the last processed event index in storage.
     pub fn set_last_processed_event_index(&self, index: u64) -> Result<(), TypedStoreError> {
         self.event_cursor_store
-            .insert(&"last_processed_index".to_string(), &index)
+            .insert(&CURSOR_KEY.to_string(), &index)
     }
 
     /// Get all entries from the quilt patch index.
@@ -581,7 +607,7 @@ impl WalrusIndexStore {
         &self,
     ) -> Result<Vec<(String, QuiltPatchId)>, TypedStoreError> {
         let mut entries = Vec::new();
-        for entry in self.quilt_patch_index.safe_iter()? {
+        for entry in self.quilt_patch_index.iter_with_raw_string(None, None)? {
             let (key, value) = entry?;
             entries.push((key, value));
         }
@@ -610,8 +636,6 @@ pub struct BucketStats {
     pub total_blob_count: u32,
 }
 
-/// Implementation of OrderedStore<QuiltIndexTask> for WalrusIndexStore.
-/// This allows the store to be used with AsyncTaskManager for quilt tasks.
 #[async_trait::async_trait]
 impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
     /// Persist a quilt task to storage.
@@ -622,7 +646,13 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
             bucket_id: task.bucket_id,
             identifier: task.identifier.clone(),
         };
-        self.pending_quilt_index_tasks.insert(&key, &value)
+        let mut batch = self.pending_quilt_index_tasks.batch();
+        batch.insert_batch(&self.pending_quilt_index_tasks, [(key, value)])?;
+        batch.insert_batch(
+            &self.event_cursor_store,
+            [("last_processed_index".to_string(), task.event_index)],
+        )?;
+        batch.write()
     }
 
     /// Remove a quilt task from storage by its task ID.
@@ -630,53 +660,47 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
         self.pending_quilt_index_tasks.remove(task_id)
     }
 
-    /// Load quilt tasks within a sequence range.
+    /// Load quilt tasks within a task_id range (exclusive on both ends).
     async fn read_range(
         &self,
-        from_seq: Option<u64>,
-        to_seq: Option<u64>,
+        from_task_id: Option<QuiltIndexTaskId>,
+        to_task_id: Option<QuiltIndexTaskId>,
         limit: usize,
     ) -> Result<Vec<crate::indexer::QuiltIndexTask>, TypedStoreError> {
-        let from_index = from_seq.unwrap_or(0);
-        let mut tasks = Vec::new();
         let mut count = 0;
+        let mut result = Vec::new();
 
-        for entry in self.pending_quilt_index_tasks.safe_iter()? {
+        for entry in self
+            .pending_quilt_index_tasks
+            .safe_iter_with_bounds(from_task_id.clone(), to_task_id.clone())?
+        {
             let (key, value) = entry?;
 
-            if key.sequence <= from_index {
-                continue;
+            if let Some(ref from) = from_task_id {
+                if key <= *from {
+                    continue;
+                }
             }
 
-            if let Some(to_seq) = to_seq {
-                if key.sequence > to_seq {
+            if let Some(ref to) = to_task_id {
+                if key >= *to {
                     break;
                 }
             }
 
-            tasks.push((key, value));
+            result.push(crate::indexer::QuiltIndexTask::new(
+                key.sequence,
+                key.quilt_id,
+                value.object_id,
+                value.bucket_id,
+                value.identifier,
+                key.sequence,
+            ));
             count += 1;
 
             if count >= limit {
                 break;
             }
-        }
-
-        // Sort by index to ensure proper ordering
-        tasks.sort_by_key(|(key, _)| key.sequence);
-
-        // Convert storage format to QuiltIndexTask
-        let mut result = Vec::new();
-        for (key, value) in tasks {
-            let task = crate::indexer::QuiltIndexTask::new(
-                key.sequence, // Using sequence from key
-                key.quilt_id,
-                value.object_id,
-                value.bucket_id,
-                value.identifier,
-                key.sequence, // Using sequence as event_index
-            );
-            result.push(task);
         }
 
         Ok(result)
@@ -687,7 +711,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
 mod tests {
     use std::sync::Arc;
 
-    use rocksdb::Options;
+    use rocksdb::Options as RocksDbOptions;
     use tempfile::TempDir;
     use typed_store::rocks::{MetricConf, open_cf_opts};
 
@@ -695,7 +719,7 @@ mod tests {
 
     fn create_test_store() -> Result<(WalrusIndexStore, TempDir), Box<dyn std::error::Error>> {
         let temp_dir = TempDir::new()?;
-        let db_options = Options::default();
+        let db_options = RocksDbOptions::default();
 
         // Use default metric configuration.
         let db = Arc::new(open_cf_opts(
@@ -1055,7 +1079,7 @@ mod tests {
         assert!(regular_entry.is_some());
         match regular_entry.unwrap() {
             IndexTarget::Blob(regular_blob) => {
-                assert_eq!(regular_blob.is_quilt, false);
+                assert!(!regular_blob.is_quilt);
                 assert_eq!(regular_blob.blob_id, regular_blob_id);
             }
             _ => panic!("Expected IndexTarget::Blob for regular blob"),
@@ -1066,7 +1090,7 @@ mod tests {
         assert!(quilt_entry.is_some());
         match quilt_entry.unwrap() {
             IndexTarget::Blob(quilt_blob) => {
-                assert_eq!(quilt_blob.is_quilt, true);
+                assert!(quilt_blob.is_quilt);
                 assert_eq!(quilt_blob.blob_id, quilt_blob_id);
             }
             _ => panic!("Expected IndexTarget::Blob for quilt blob"),
@@ -1075,11 +1099,11 @@ mod tests {
         // Verify retrieval by object_id also preserves is_quilt
         let regular_by_obj = store.get_by_object_id(&regular_object_id)?;
         assert!(regular_by_obj.is_some());
-        assert_eq!(regular_by_obj.unwrap().is_quilt, false);
+        assert!(!regular_by_obj.unwrap().is_quilt);
 
         let quilt_by_obj = store.get_by_object_id(&quilt_object_id)?;
         assert!(quilt_by_obj.is_some());
-        assert_eq!(quilt_by_obj.unwrap().is_quilt, true);
+        assert!(quilt_by_obj.unwrap().is_quilt);
 
         println!("✅ is_quilt field properly stored and retrieved");
 

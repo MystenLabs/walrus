@@ -14,9 +14,9 @@ use tokio::{
 
 /// Error type for queue buffer operations.
 #[derive(Error, Debug)]
-enum BufferError {
+enum BufferError<T: AsyncTask> {
     #[error("Catchup queue is empty, need to load from storage")]
-    CatchupQueueEmpty(Option<u64>, Option<u64>),
+    CatchupQueueEmpty(Option<T::TaskId>, Option<T::TaskId>),
 }
 
 // Import traits from lib.rs
@@ -60,8 +60,8 @@ struct TaskBuffer<T: AsyncTask> {
     catchup_queue: VecDeque<T>,
     /// Queue for latest tasks (real-time).
     latest_queue: VecDeque<T>,
-    /// Highest sequence number seen in catchup queue.
-    last_catchup_seq: Option<u64>,
+    /// Highest task_id seen in catchup queue.
+    last_catchup_task_id: Option<T::TaskId>,
     /// Grace period start time.
     grace_period_start: Option<Instant>,
     /// State of the queue.
@@ -74,7 +74,7 @@ impl<T: AsyncTask> TaskBuffer<T> {
             lock: std::sync::Mutex::new(()),
             catchup_queue: VecDeque::new(),
             latest_queue: VecDeque::new(),
-            last_catchup_seq: None,
+            last_catchup_task_id: None,
             grace_period_start: None,
             state: QueueState::CatchingUp,
         }
@@ -101,6 +101,7 @@ impl<T: AsyncTask> TaskBuffer<T> {
     }
 
     /// Add newly loaded tasks to the buffer.
+    /// Tasks should be pre-sorted by task_id.
     fn add_loaded_tasks(&mut self, tasks: Vec<T>) {
         let _lock = self.lock.lock().expect("Failed to lock buffer");
         assert!(self.state == QueueState::CatchingUp);
@@ -110,43 +111,42 @@ impl<T: AsyncTask> TaskBuffer<T> {
             return;
         }
 
-        let max_seq = tasks.last().expect("Tasks is not empty").sequence_number();
+        let max_task_id = tasks.last().expect("Tasks is not empty").task_id();
         let up_to_date = self
             .latest_queue
             .front()
-            .map_or(false, |task| task.sequence_number() <= max_seq);
+            .is_some_and(|task| task.task_id() <= max_task_id);
         if up_to_date {
-            let upper_seq = self
+            let upper_task_id = self
                 .latest_queue
                 .front()
                 .expect("Latest queue is not empty")
-                .sequence_number();
+                .task_id();
             tasks.iter().rev().for_each(|task| {
-                if task.sequence_number() < upper_seq {
+                if task.task_id() < upper_task_id {
                     self.latest_queue.push_front(task.clone());
                 }
             });
             self.state = QueueState::UpToDate;
             self.grace_period_start = Some(Instant::now());
         } else {
-            // Update last_catchup_seq with the max sequence we're adding.
-            self.last_catchup_seq = Some(max_seq.clone());
+            // Update last_catchup_task_id with the max task_id we're adding.
+            self.last_catchup_task_id = Some(max_task_id.clone());
             self.catchup_queue.extend(tasks);
         }
     }
 
-    /// Pull the oldest task from either queue.
+    /// Pull the task with the smallest task_id from either queue.
     /// Prioritizes catchup queue over latest queue.
     /// Returns Err(BufferError::CatchupQueueEmpty) when in CatchingUp state, catchup queue
     /// is empty, and latest queue is also empty (indicating we should try loading from storage).
-    fn pull(&mut self) -> Result<Option<T>, BufferError> {
+    fn pull(&mut self) -> Result<Option<T>, BufferError<T>> {
         let _lock = self.lock.lock().expect("Failed to lock buffer");
 
         // If we're up to date, only use latest queue.
         if self.state == QueueState::UpToDate {
-            return Ok(self.latest_queue.pop_front().map(|task| {
-                self.last_catchup_seq = Some(task.sequence_number().clone());
-                task
+            return Ok(self.latest_queue.pop_front().inspect(|task| {
+                self.last_catchup_task_id = Some(task.task_id().clone());
             }));
         }
 
@@ -158,12 +158,9 @@ impl<T: AsyncTask> TaskBuffer<T> {
         }
 
         // Both queues empty, need to load more - provide the range hints.
-        let from_seq = self.last_catchup_seq.map(|seq| seq + 1);
-        let to_seq = self
-            .latest_queue
-            .front()
-            .map(|task| task.sequence_number() + 1);
-        return Err(BufferError::CatchupQueueEmpty(from_seq, to_seq));
+        let from_task_id = self.last_catchup_task_id.clone();
+        let to_task_id = self.latest_queue.front().map(|task| task.task_id().clone());
+        Err(BufferError::CatchupQueueEmpty(from_task_id, to_task_id))
     }
 
     /// Check if both queues are empty.
@@ -248,9 +245,9 @@ where
                 Ok(result) => {
                     return Ok(result);
                 }
-                Err(BufferError::CatchupQueueEmpty(from_seq, to_seq)) => {
+                Err(BufferError::CatchupQueueEmpty(from_task_id, to_task_id)) => {
                     // Catchup queue is empty, trigger background loading task.
-                    self.spawn_background_load_task(from_seq, to_seq);
+                    self.spawn_background_load_task(from_task_id, to_task_id);
 
                     // Wait for notification that items are available.
                     self.item_available.notified().await;
@@ -260,7 +257,11 @@ where
     }
 
     /// Spawn a background task to load tasks from the store with a specific range.
-    fn spawn_background_load_task(&self, from_seq: Option<u64>, to_seq: Option<u64>) {
+    fn spawn_background_load_task(
+        &self,
+        from_task_id: Option<T::TaskId>,
+        to_task_id: Option<T::TaskId>,
+    ) {
         // Check if there are already running background tasks.
         if let Ok(mut handles) = self.background_task_handles.try_write() {
             // Clean up finished tasks.
@@ -286,7 +287,11 @@ where
         let handle = tokio::spawn(async move {
             // Load tasks from storage with the provided range.
             let result = store
-                .read_range(from_seq.clone(), to_seq.clone(), config.load_batch_size)
+                .read_range(
+                    from_task_id.clone(),
+                    to_task_id.clone(),
+                    config.load_batch_size,
+                )
                 .await;
 
             match result {
@@ -294,13 +299,12 @@ where
                     tracing::debug!(
                         "Loaded {} tasks from storage (from: {:?}, to: {:?})",
                         tasks.len(),
-                        from_seq,
-                        to_seq
+                        from_task_id,
+                        to_task_id
                     );
 
                     let mut buffer_guard = buffer.write().await;
                     buffer_guard.add_loaded_tasks(tasks);
-                    drop(buffer_guard);
 
                     // Notify waiting pullers that tasks are now available.
                     item_available.notify_waiters();
@@ -417,7 +421,7 @@ mod tests {
         for i in 0..total_expected {
             match sorter.get_next_task().await {
                 Ok(Some(task)) => {
-                    assert_eq!(task.sequence_number(), i as u64);
+                    assert_eq!(task.task_id(), i as u64);
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
                 Ok(None) => {
@@ -502,7 +506,7 @@ mod tests {
             .await
             .expect("Failed to get next task")
         {
-            assert_eq!(task.sequence_number(), read);
+            assert_eq!(task.task_id(), read);
             read += 1;
         }
 
