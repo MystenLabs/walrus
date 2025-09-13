@@ -155,7 +155,7 @@ async fn store_blobs(
             IndexTarget::Blob(walrus_indexer::storage::BlobIdentity {
                 blob_id,
                 object_id,
-                is_quilt: false,
+                quilt_status: walrus_indexer::storage::QuiltTaskStatus::NotQuilt,
             }),
         );
     }
@@ -259,7 +259,7 @@ async fn store_quilt(
         IndexTarget::Blob(walrus_indexer::storage::BlobIdentity {
             blob_id: quilt_blob_id,
             object_id: quilt_object_id,
-            is_quilt: true,
+            quilt_status: walrus_indexer::storage::QuiltTaskStatus::Completed,
         }),
     );
 
@@ -318,8 +318,8 @@ async fn verify_primary_index_mappings(
                     primary_index
                 );
                 assert_eq!(
-                    found.is_quilt, expected.is_quilt,
-                    "Quilt flag mismatch for {}",
+                    found.quilt_status, expected.quilt_status,
+                    "Quilt status mismatch for {}",
                     primary_index
                 );
             }

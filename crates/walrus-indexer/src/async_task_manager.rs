@@ -40,6 +40,7 @@ impl Default for AsyncTaskManagerConfig {
 /// This manager:
 /// - Uses AsyncTaskSorter for task storage and ordering
 /// - Executes tasks in serial asynchronously
+/// - Manages retry queue separately for failed tasks
 pub struct AsyncTaskManager<T, S, E>
 where
     T: AsyncTask,
@@ -47,10 +48,13 @@ where
     E: TaskExecutor<T>,
 {
     task_sorter: Arc<AsyncTaskSorter<T, S>>,
+    store: Arc<S>,
     executor: Arc<E>,
     config: AsyncTaskManagerConfig,
     /// Handle to the currently active processing task, if any.
     active_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Handle to the retry queue processing task, if any.
+    retry_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     /// Cancellation token for shutting down processing.
     shutdown_token: tokio_util::sync::CancellationToken,
 }
@@ -67,13 +71,16 @@ where
         store: Arc<S>,
         executor: Arc<E>,
     ) -> Result<Self> {
-        let task_sorter = Arc::new(AsyncTaskSorter::new(config.queue_config.clone(), store).await);
+        let task_sorter =
+            Arc::new(AsyncTaskSorter::new(config.queue_config.clone(), store.clone()).await);
 
         Ok(Self {
             task_sorter,
+            store,
             executor,
             config,
             active_task_handle: Arc::new(Mutex::new(None)),
+            retry_task_handle: Arc::new(Mutex::new(None)),
             shutdown_token: tokio_util::sync::CancellationToken::new(),
         })
     }
@@ -173,7 +180,9 @@ where
     /// This is useful if you want to start processing without submitting a task.
     pub async fn start(&self) -> Result<()> {
         self.task_sorter.init();
-        self.maybe_start_processing().await
+        self.maybe_start_processing().await?;
+        // Also start retry processing if needed.
+        self.start_retry_processing().await
     }
 
     /// Shutdown the task manager gracefully.
@@ -182,6 +191,7 @@ where
         self.shutdown_token.cancel();
 
         let _ = self.active_task_handle.lock().await.take();
+        let _ = self.retry_task_handle.lock().await.take();
     }
 
     /// Get queue statistics.
@@ -206,6 +216,113 @@ where
         } else {
             false
         }
+    }
+
+    // Retry queue operations - work directly with store.
+
+    /// Add a task to the retry queue.
+    pub async fn add_to_retry_queue(&self, task: &T) -> Result<()> {
+        self.store
+            .add_to_retry_queue(task)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to add task to retry queue: {}", e))
+    }
+
+    /// Read tasks from the retry queue.
+    pub async fn read_retry_tasks(
+        &self,
+        from_task_id: Option<T::TaskId>,
+        limit: usize,
+    ) -> Result<Vec<T>> {
+        self.store
+            .read_retry_tasks(from_task_id, limit)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read retry tasks: {}", e))
+    }
+
+    /// Delete a task from the retry queue.
+    pub async fn delete_retry_task(&self, task_id: &T::TaskId) -> Result<()> {
+        self.store
+            .delete_retry_task(task_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to delete retry task: {}", e))
+    }
+
+    /// Start processing retry queue tasks.
+    pub async fn start_retry_processing(&self) -> Result<()> {
+        let mut retry_handle = self.retry_task_handle.lock().await;
+
+        // Check if retry processing is already active.
+        if let Some(ref handle) = *retry_handle {
+            if !handle.is_finished() {
+                return Ok(());
+            }
+        }
+
+        // Spawn a new retry processing task.
+        let store = self.store.clone();
+        let executor = self.executor.clone();
+        let shutdown_token = self.shutdown_token.clone();
+        let config = self.config.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut last_task_id = None;
+
+            loop {
+                if shutdown_token.is_cancelled() {
+                    break;
+                }
+
+                // Load a batch of retry tasks from disk.
+                match store.read_retry_tasks(last_task_id.clone(), 10).await {
+                    Ok(tasks) => {
+                        if tasks.is_empty() {
+                            // No more retry tasks, wait before checking again.
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            last_task_id = None; // Reset to start from beginning next time.
+                            continue;
+                        }
+
+                        for task in tasks {
+                            if shutdown_token.is_cancelled() {
+                                break;
+                            }
+
+                            let task_id = task.task_id();
+
+                            // Execute the retry task.
+                            match executor.execute(task).await {
+                                Ok(_) => {
+                                    // Task succeeded, remove from retry queue.
+                                    if let Err(e) = store.delete_retry_task(&task_id).await {
+                                        tracing::error!(
+                                            "Failed to delete successful retry task: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Retry task {:?} failed: {}", task_id, e);
+                                    // Task remains in retry queue for next attempt.
+                                }
+                            }
+
+                            last_task_id = Some(task_id);
+
+                            // Small delay between retry tasks.
+                            tokio::time::sleep(config.task_delay).await;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to read retry tasks: {}", e);
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                    }
+                }
+            }
+        });
+
+        *retry_handle = Some(handle);
+        Ok(())
     }
 }
 

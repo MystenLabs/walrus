@@ -32,7 +32,21 @@ const CF_NAME_OBJECT_INDEX: &str = "walrus_index_object";
 const CF_NAME_EVENT_CURSOR: &str = "walrus_event_cursor";
 const CF_NAME_QUILT_PATCH_INDEX: &str = "walrus_quilt_patch";
 const CF_NAME_PENDING_QUILT_INDEX_TASKS: &str = "walrus_pending_quilt_index_tasks";
+const CF_NAME_RETRY_QUILT_INDEX_TASKS: &str = "walrus_retry_quilt_index_tasks";
 const CURSOR_KEY: &str = "last_processed_index";
+
+/// Status of quilt task processing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum QuiltTaskStatus {
+    /// Not a quilt.
+    NotQuilt,
+    /// Running.
+    Running(QuiltIndexTaskId),
+    /// Quilt task completed successfully.
+    Completed,
+    /// Quilt task is in retry queue with given task ID.
+    InRetryQueue(QuiltIndexTaskId),
+}
 
 /// The target of an index entry, it could be a blob, a quilt patch or a quilt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,8 +66,8 @@ pub struct BlobIdentity {
     pub blob_id: BlobId,
     /// The Sui object ID.
     pub object_id: ObjectID,
-    /// Whether the blob is a quilt.
-    pub is_quilt: bool,
+    /// Quilt task status if this is a quilt, None for regular blobs.
+    pub quilt_status: QuiltTaskStatus,
 }
 
 fn construct_primary_index_key(bucket_id: &ObjectID, identifier: &str) -> String {
@@ -119,6 +133,8 @@ pub struct WalrusIndexStore {
     quilt_patch_index: DBMap<String, QuiltPatchId>,
     /// Pending quilt index tasks: stores the quilt index tasks that are pending to be processed.
     pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
+    /// Retry quilt index tasks: stores the quilt index tasks that failed and need to be retried.
+    retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
 }
 
 // Constants for future pagination implementation.
@@ -140,6 +156,7 @@ impl WalrusIndexStore {
                 (CF_NAME_EVENT_CURSOR, db_options.clone()),
                 (CF_NAME_QUILT_PATCH_INDEX, db_options.clone()),
                 (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options.clone()),
+                (CF_NAME_RETRY_QUILT_INDEX_TASKS, db_options.clone()),
             ],
         )?);
 
@@ -179,12 +196,20 @@ impl WalrusIndexStore {
                 false,
             )?;
 
+        let retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue> = DBMap::reopen(
+            &db,
+            Some(CF_NAME_RETRY_QUILT_INDEX_TASKS),
+            &typed_store::rocks::ReadWriteOptions::default(),
+            false,
+        )?;
+
         Ok(Self {
             primary_index,
             object_index,
             event_cursor_store,
             quilt_patch_index,
             pending_quilt_index_tasks,
+            retry_quilt_index_tasks,
         })
     }
 
@@ -196,6 +221,7 @@ impl WalrusIndexStore {
         event_cursor_store: DBMap<String, u64>,
         quilt_patch_index: DBMap<String, QuiltPatchId>,
         pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
+        retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
     ) -> Self {
         Self {
             primary_index,
@@ -203,6 +229,7 @@ impl WalrusIndexStore {
             event_cursor_store,
             quilt_patch_index,
             pending_quilt_index_tasks,
+            retry_quilt_index_tasks,
         }
     }
 
@@ -282,14 +309,16 @@ impl WalrusIndexStore {
         identifier: &str,
         object_id: &ObjectID,
         blob_id: BlobId,
-        is_quilt: bool,
+        _is_quilt: bool,
     ) -> Result<(), TypedStoreError> {
         // Primary index: bucket_id/identifier -> IndexTarget.
         let primary_key = construct_primary_index_key(bucket_id, identifier);
         let blob_identity = BlobIdentity {
             blob_id,
             object_id: *object_id,
-            is_quilt,
+            // Quilts start as None (not processed yet).
+            // Will be updated to Completed or InRetryQueue when processed.
+            quilt_status: QuiltTaskStatus::NotQuilt,
         };
         let index_target = IndexTarget::Blob(blob_identity);
 
@@ -312,17 +341,87 @@ impl WalrusIndexStore {
         quilt_index_task: &QuiltIndexTask,
         quilt_index: &QuiltIndex,
     ) -> Result<(), TypedStoreError> {
+        // NOTE: This uses DBBatch for atomic writes but not true RocksDB transactions.
+        // There's a small race condition window between checking task existence and writing.
+        // To use true transactions, typed-store would need to use TransactionDB instead of 
+        // regular DB.
+        let task_id = quilt_index_task.task_id();
+
+        // First check if the task still exists in either pending or retry queue
+        let task_exists = self.pending_quilt_index_tasks.get(&task_id)?.is_some()
+            || self.retry_quilt_index_tasks.get(&task_id)?.is_some();
+
+        if !task_exists {
+            // Task was deleted (likely because the quilt was deleted), skip processing
+            tracing::info!(
+                "Task {:?} no longer exists, skipping quilt patch index population",
+                task_id
+            );
+            return Ok(());
+        }
+
+        // Create batch for atomic operations
         let mut batch = self.primary_index.batch();
 
-        self.apply_insert(
-            &mut batch,
-            &quilt_index_task.bucket_id,
-            &quilt_index_task.identifier,
-            &quilt_index_task.object_id,
-            quilt_index_task.quilt_blob_id,
-            true,
-        )?;
+        // Check again within the batch context to ensure consistency
+        // Get the primary key to check if the quilt entry still exists
+        let primary_key =
+            construct_primary_index_key(&quilt_index_task.bucket_id, &quilt_index_task.identifier);
 
+        // If the primary index entry exists and is still a quilt needing processing
+        if let Some(existing_entry) = self
+            .primary_index
+            .get_with_raw_string::<IndexTarget>(&primary_key)?
+        {
+            // Check if the quilt was already deleted or completed
+            if let IndexTarget::Blob(blob_identity) = existing_entry {
+                match blob_identity.quilt_status {
+                    QuiltTaskStatus::Completed => {
+                        tracing::info!(
+                            "Quilt task already completed, skipping duplicate processing"
+                        );
+                        // Still need to clean up the task from pending queue
+                        batch.delete_batch(&self.pending_quilt_index_tasks, [task_id.clone()])?;
+                        batch.delete_batch(&self.retry_quilt_index_tasks, [task_id])?;
+                        batch.write()?;
+                        return Ok(());
+                    }
+                    QuiltTaskStatus::Running(_) | QuiltTaskStatus::InRetryQueue(_) => {
+                        // Update the quilt entry to Completed status
+                        let updated_blob_identity = BlobIdentity {
+                            blob_id: blob_identity.blob_id,
+                            object_id: blob_identity.object_id,
+                            quilt_status: QuiltTaskStatus::Completed,
+                        };
+                        let updated_index_target = IndexTarget::Blob(updated_blob_identity);
+                        batch.insert_batch_with_raw_string(
+                            &self.primary_index,
+                            [(primary_key.clone(), updated_index_target)],
+                        )?;
+                    }
+                    _ => {
+                        // For NotQuilt or other statuses, shouldn't happen but log warning
+                        tracing::warn!("Unexpected quilt status: {:?}", blob_identity.quilt_status);
+                    }
+                }
+            }
+        } else {
+            // Entry doesn't exist, this shouldn't happen as we populate it when storing the task
+            tracing::warn!("Primary index entry not found for quilt task, creating it");
+            // Create the entry with Completed status
+            let blob_identity = BlobIdentity {
+                blob_id: quilt_index_task.quilt_blob_id,
+                object_id: quilt_index_task.object_id,
+                quilt_status: QuiltTaskStatus::Completed,
+            };
+            let index_target = IndexTarget::Blob(blob_identity);
+            batch.insert_batch_with_raw_string(
+                &self.primary_index,
+                [(primary_key.clone(), index_target)],
+            )?;
+        }
+
+        // Process all quilt patches
         for patch in get_stored_quilt_patches(quilt_index, quilt_index_task.quilt_blob_id) {
             let primary_key =
                 construct_primary_index_key(&quilt_index_task.bucket_id, &patch.identifier);
@@ -364,11 +463,11 @@ impl WalrusIndexStore {
             }
         }
 
-        batch.delete_batch(
-            &self.pending_quilt_index_tasks,
-            [quilt_index_task.task_id()],
-        )?;
+        // Remove the task from both pending and retry queues (in case it's in retry)
+        batch.delete_batch(&self.pending_quilt_index_tasks, [task_id.clone()])?;
+        batch.delete_batch(&self.retry_quilt_index_tasks, [task_id])?;
 
+        // Commit all operations atomically
         batch.write()
     }
 
@@ -430,7 +529,14 @@ impl WalrusIndexStore {
         if let Some(index_target) = self.primary_index.get_with_raw_string(&primary_key)? {
             // Extract object_id based on the IndexTarget variant
             let object_id = match &index_target {
-                IndexTarget::Blob(blob_identity) => &blob_identity.object_id,
+                IndexTarget::Blob(blob_identity) => {
+                    // Check if there's a retry task associated with this entry.
+                    if let QuiltTaskStatus::InRetryQueue(task_id) = &blob_identity.quilt_status {
+                        // Clean up the retry task.
+                        batch.delete_batch(&self.retry_quilt_index_tasks, [task_id.clone()])?;
+                    }
+                    &blob_identity.object_id
+                }
                 IndexTarget::QuiltPatchId(_) => {
                     // For now, we don't handle QuiltPatchId deletion
                     return Ok(());
@@ -460,6 +566,18 @@ impl WalrusIndexStore {
         {
             let primary_key =
                 construct_primary_index_key(&object_value.bucket_id, &object_value.identifier);
+
+            // Check if there's a retry task associated with this entry.
+            if let Some(IndexTarget::Blob(blob_identity)) = self
+                .primary_index
+                .get_with_raw_string::<IndexTarget>(&primary_key)?
+            {
+                if let QuiltTaskStatus::InRetryQueue(task_id) = blob_identity.quilt_status {
+                    // Clean up the retry task.
+                    batch.delete_batch(&self.retry_quilt_index_tasks, [task_id])?;
+                }
+            }
+
             batch.delete_batch_with_raw_string(&self.primary_index, [primary_key])?;
             batch.delete_batch_with_raw_string(&self.object_index, [object_key])?;
         }
@@ -646,12 +764,28 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
             bucket_id: task.bucket_id,
             identifier: task.identifier.clone(),
         };
+
         let mut batch = self.pending_quilt_index_tasks.batch();
-        batch.insert_batch(&self.pending_quilt_index_tasks, [(key, value)])?;
+
+        // Store the task in pending queue
+        batch.insert_batch(&self.pending_quilt_index_tasks, [(key.clone(), value)])?;
+
+        // Also populate the primary index with Running status
+        let primary_key = construct_primary_index_key(&task.bucket_id, &task.identifier);
+        let blob_identity = BlobIdentity {
+            blob_id: task.quilt_blob_id,
+            object_id: task.object_id,
+            quilt_status: QuiltTaskStatus::Running(key),
+        };
+        let index_target = IndexTarget::Blob(blob_identity);
+        batch.insert_batch_with_raw_string(&self.primary_index, [(primary_key, index_target)])?;
+
+        // Update event cursor
         batch.insert_batch(
             &self.event_cursor_store,
             [("last_processed_index".to_string(), task.event_index)],
         )?;
+
         batch.write()
     }
 
@@ -705,6 +839,280 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
 
         Ok(result)
     }
+
+    /// Add a task to the retry queue.
+    async fn add_to_retry_queue(
+        &self,
+        task: &crate::indexer::QuiltIndexTask,
+    ) -> Result<(), TypedStoreError> {
+        let key = QuiltIndexTaskId::new(task.event_index, task.quilt_blob_id);
+        let value = QuiltIndexTaskValue {
+            object_id: task.object_id,
+            bucket_id: task.bucket_id,
+            identifier: task.identifier.clone(),
+        };
+
+        // Start a batch to atomically move from pending to retry.
+        let mut batch = self.pending_quilt_index_tasks.batch();
+
+        let primary_key = construct_primary_index_key(&task.bucket_id, &task.identifier);
+        let index_target = IndexTarget::Blob(BlobIdentity {
+            blob_id: task.quilt_blob_id,
+            object_id: task.object_id,
+            quilt_status: QuiltTaskStatus::InRetryQueue(key.clone()),
+        });
+
+        batch.insert_batch_with_raw_string(&self.primary_index, [(primary_key, index_target)])?;
+
+        // Remove from pending queue if it exists.
+        batch.delete_batch(&self.pending_quilt_index_tasks, [key.clone()])?;
+
+        // Add to retry queue.
+        batch.insert_batch(&self.retry_quilt_index_tasks, [(key, value)])?;
+
+        batch.write()
+    }
+
+    /// Read tasks from retry queue starting from the given task ID.
+    async fn read_retry_tasks(
+        &self,
+        from_task_id: Option<QuiltIndexTaskId>,
+        limit: usize,
+    ) -> Result<Vec<crate::indexer::QuiltIndexTask>, TypedStoreError> {
+        let mut count = 0;
+        let mut result = Vec::new();
+
+        for entry in self
+            .retry_quilt_index_tasks
+            .safe_iter_with_bounds(from_task_id.clone(), None)?
+        {
+            let (key, value) = entry?;
+
+            if let Some(ref from) = from_task_id {
+                if key <= *from {
+                    continue;
+                }
+            }
+
+            result.push(crate::indexer::QuiltIndexTask::new(
+                key.sequence,
+                key.quilt_id,
+                value.object_id,
+                value.bucket_id,
+                value.identifier,
+                key.sequence,
+            ));
+            count += 1;
+
+            if count >= limit {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Delete a task from the retry queue.
+    async fn delete_retry_task(&self, task_id: &QuiltIndexTaskId) -> Result<(), TypedStoreError> {
+        self.retry_quilt_index_tasks.remove(task_id)
+    }
+}
+
+impl WalrusIndexStore {
+    /// Update the quilt status in the primary index.
+    pub fn update_quilt_status(
+        &self,
+        bucket_id: &ObjectID,
+        identifier: &str,
+        new_status: QuiltTaskStatus,
+    ) -> Result<(), TypedStoreError> {
+        let key = construct_primary_index_key(bucket_id, identifier);
+
+        // Get the current value.
+        if let Some(mut index_target) = self
+            .primary_index
+            .get_with_raw_string::<IndexTarget>(&key)?
+        {
+            // Update the quilt status if it's a blob.
+            if let IndexTarget::Blob(ref mut blob_identity) = index_target {
+                blob_identity.quilt_status = new_status;
+
+                // Write back the updated value.
+                let mut batch = self.primary_index.batch();
+                batch.insert_batch_with_raw_string(&self.primary_index, [(key, index_target)])?;
+                batch.write()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Move a task from pending queue to retry queue.
+    pub async fn move_to_retry_queue(
+        &self,
+        task_id: &QuiltIndexTaskId,
+    ) -> Result<(), TypedStoreError> {
+        // Get the task from pending queue.
+        if let Some(value) = self.pending_quilt_index_tasks.get(task_id)? {
+            // Update the quilt_status in the primary index to indicate it's in retry queue.
+            self.update_quilt_status(
+                &value.bucket_id,
+                &value.identifier,
+                QuiltTaskStatus::InRetryQueue(task_id.clone()),
+            )?;
+
+            // Start a batch transaction.
+            let mut batch = self.pending_quilt_index_tasks.batch();
+
+            // Remove from pending queue.
+            batch.delete_batch(&self.pending_quilt_index_tasks, [task_id.clone()])?;
+
+            // Add to retry queue.
+            batch.insert_batch(&self.retry_quilt_index_tasks, [(task_id.clone(), value)])?;
+
+            // Commit the batch.
+            batch.write()
+        } else {
+            // Task not found in pending queue.
+            Ok(())
+        }
+    }
+}
+
+/// OrderedStore implementation for retry tasks.
+#[async_trait::async_trait]
+impl crate::OrderedStore<crate::indexer::RetryQuiltIndexTask> for WalrusIndexStore {
+    /// Persist a retry task to storage.
+    async fn store(
+        &self,
+        task: &crate::indexer::RetryQuiltIndexTask,
+    ) -> Result<(), TypedStoreError> {
+        let key = QuiltIndexTaskId::new(task.inner.event_index, task.inner.quilt_blob_id);
+        let value = QuiltIndexTaskValue {
+            object_id: task.inner.object_id,
+            bucket_id: task.inner.bucket_id,
+            identifier: task.inner.identifier.clone(),
+        };
+        self.retry_quilt_index_tasks.insert(&key, &value)
+    }
+
+    /// Remove a retry task from storage by its task ID.
+    async fn remove(&self, task_id: &QuiltIndexTaskId) -> Result<(), TypedStoreError> {
+        self.retry_quilt_index_tasks.remove(task_id)
+    }
+
+    /// Load retry tasks within a task_id range (exclusive on both ends).
+    async fn read_range(
+        &self,
+        from_task_id: Option<QuiltIndexTaskId>,
+        to_task_id: Option<QuiltIndexTaskId>,
+        limit: usize,
+    ) -> Result<Vec<crate::indexer::RetryQuiltIndexTask>, TypedStoreError> {
+        let mut count = 0;
+        let mut result = Vec::new();
+
+        for entry in self
+            .retry_quilt_index_tasks
+            .safe_iter_with_bounds(from_task_id.clone(), to_task_id.clone())?
+        {
+            let (key, value) = entry?;
+
+            if let Some(ref from) = from_task_id {
+                if key <= *from {
+                    continue;
+                }
+            }
+
+            if let Some(ref to) = to_task_id {
+                if key >= *to {
+                    break;
+                }
+            }
+
+            let inner = crate::indexer::QuiltIndexTask::new(
+                key.sequence,
+                key.quilt_id,
+                value.object_id,
+                value.bucket_id,
+                value.identifier,
+                key.sequence,
+            );
+            result.push(crate::indexer::RetryQuiltIndexTask {
+                inner,
+                retry_count: 0, // Will be tracked separately if needed.
+            });
+            count += 1;
+
+            if count >= limit {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Add a retry task back to the retry queue (for re-retry).
+    async fn add_to_retry_queue(
+        &self,
+        task: &crate::indexer::RetryQuiltIndexTask,
+    ) -> Result<(), TypedStoreError> {
+        let key = QuiltIndexTaskId::new(task.inner.event_index, task.inner.quilt_blob_id);
+        let value = QuiltIndexTaskValue {
+            object_id: task.inner.object_id,
+            bucket_id: task.inner.bucket_id,
+            identifier: task.inner.identifier.clone(),
+        };
+        // Simply update the retry queue entry.
+        self.retry_quilt_index_tasks.insert(&key, &value)
+    }
+
+    /// Read retry tasks from retry queue starting from the given task ID.
+    async fn read_retry_tasks(
+        &self,
+        from_task_id: Option<QuiltIndexTaskId>,
+        limit: usize,
+    ) -> Result<Vec<crate::indexer::RetryQuiltIndexTask>, TypedStoreError> {
+        let mut count = 0;
+        let mut result = Vec::new();
+
+        for entry in self
+            .retry_quilt_index_tasks
+            .safe_iter_with_bounds(from_task_id.clone(), None)?
+        {
+            let (key, value) = entry?;
+
+            if let Some(ref from) = from_task_id {
+                if key <= *from {
+                    continue;
+                }
+            }
+
+            let inner = crate::indexer::QuiltIndexTask::new(
+                key.sequence,
+                key.quilt_id,
+                value.object_id,
+                value.bucket_id,
+                value.identifier,
+                key.sequence,
+            );
+            result.push(crate::indexer::RetryQuiltIndexTask {
+                inner,
+                retry_count: 0, // Will be managed by the executor.
+            });
+            count += 1;
+
+            if count >= limit {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Delete a retry task from the retry queue.
+    async fn delete_retry_task(&self, task_id: &QuiltIndexTaskId) -> Result<(), TypedStoreError> {
+        self.retry_quilt_index_tasks.remove(task_id)
+    }
 }
 
 #[cfg(test)]
@@ -732,6 +1140,7 @@ mod tests {
                 (CF_NAME_EVENT_CURSOR, db_options.clone()),
                 (CF_NAME_QUILT_PATCH_INDEX, db_options.clone()),
                 (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options.clone()),
+                (CF_NAME_RETRY_QUILT_INDEX_TASKS, db_options.clone()),
             ],
         )?);
 
@@ -772,6 +1181,13 @@ mod tests {
             false,
         )?;
 
+        let retry_quilt_index_tasks = DBMap::reopen(
+            &db,
+            Some(CF_NAME_RETRY_QUILT_INDEX_TASKS),
+            &typed_store::rocks::ReadWriteOptions::default(),
+            false,
+        )?;
+
         Ok((
             WalrusIndexStore::from_maps(
                 primary_index,
@@ -779,6 +1195,7 @@ mod tests {
                 event_cursor_store,
                 quilt_patch_index,
                 pending_quilt_index_tasks,
+                retry_quilt_index_tasks,
             ),
             temp_dir,
         ))
@@ -1079,33 +1496,39 @@ mod tests {
         assert!(regular_entry.is_some());
         match regular_entry.unwrap() {
             IndexTarget::Blob(regular_blob) => {
-                assert!(!regular_blob.is_quilt);
+                assert_eq!(regular_blob.quilt_status, QuiltTaskStatus::NotQuilt);
                 assert_eq!(regular_blob.blob_id, regular_blob_id);
             }
             _ => panic!("Expected IndexTarget::Blob for regular blob"),
         }
 
-        // Verify quilt blob has is_quilt = true
+        // Verify quilt blob has quilt_status = NotQuilt (initial state)
         let quilt_entry = store.get_by_bucket_identifier(&bucket_id, "/quilt/patch.quilt")?;
         assert!(quilt_entry.is_some());
         match quilt_entry.unwrap() {
             IndexTarget::Blob(quilt_blob) => {
-                assert!(quilt_blob.is_quilt);
+                assert_eq!(quilt_blob.quilt_status, QuiltTaskStatus::NotQuilt);
                 assert_eq!(quilt_blob.blob_id, quilt_blob_id);
             }
             _ => panic!("Expected IndexTarget::Blob for quilt blob"),
         }
 
-        // Verify retrieval by object_id also preserves is_quilt
+        // Verify retrieval by object_id also preserves quilt_status
         let regular_by_obj = store.get_by_object_id(&regular_object_id)?;
         assert!(regular_by_obj.is_some());
-        assert!(!regular_by_obj.unwrap().is_quilt);
+        assert_eq!(
+            regular_by_obj.unwrap().quilt_status,
+            QuiltTaskStatus::NotQuilt
+        );
 
         let quilt_by_obj = store.get_by_object_id(&quilt_object_id)?;
         assert!(quilt_by_obj.is_some());
-        assert!(quilt_by_obj.unwrap().is_quilt);
+        assert_eq!(
+            quilt_by_obj.unwrap().quilt_status,
+            QuiltTaskStatus::NotQuilt
+        );
 
-        println!("✅ is_quilt field properly stored and retrieved");
+        println!("✅ quilt_status field properly stored and retrieved");
 
         Ok(())
     }

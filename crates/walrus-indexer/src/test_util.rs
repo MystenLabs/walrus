@@ -121,4 +121,22 @@ impl OrderedStore<TestTask> for OrderedTestStore {
 
         Ok(result)
     }
+
+    async fn add_to_retry_queue(&self, task: &TestTask) -> Result<(), TypedStoreError> {
+        // For testing, just store in the same map with a special prefix
+        self.store(task).await
+    }
+
+    async fn read_retry_tasks(
+        &self,
+        from_task_id: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<TestTask>, TypedStoreError> {
+        // For testing, use same read_range logic
+        self.read_range(from_task_id, None, limit).await
+    }
+
+    async fn delete_retry_task(&self, task_id: &u64) -> Result<(), TypedStoreError> {
+        self.remove(task_id).await
+    }
 }

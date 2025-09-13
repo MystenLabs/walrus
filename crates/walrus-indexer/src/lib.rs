@@ -137,6 +137,19 @@ where
         to_task_id: Option<T::TaskId>,
         limit: usize,
     ) -> Result<Vec<T>, TypedStoreError>;
+
+    /// Add a task to the retry queue.
+    async fn add_to_retry_queue(&self, task: &T) -> Result<(), TypedStoreError>;
+
+    /// Read tasks from retry queue starting from the given task ID.
+    async fn read_retry_tasks(
+        &self,
+        from_task_id: Option<T::TaskId>,
+        limit: usize,
+    ) -> Result<Vec<T>, TypedStoreError>;
+
+    /// Delete a task from the retry queue.
+    async fn delete_retry_task(&self, task_id: &T::TaskId) -> Result<(), TypedStoreError>;
 }
 
 /// Trait for executing tasks asynchronously.

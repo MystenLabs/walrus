@@ -114,6 +114,21 @@ impl AsyncTask for QuiltIndexTask {
     }
 }
 
+/// Wrapper for retry tasks that includes retry count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryQuiltIndexTask {
+    pub inner: QuiltIndexTask,
+    pub retry_count: usize,
+}
+
+impl AsyncTask for RetryQuiltIndexTask {
+    type TaskId = QuiltIndexTaskId;
+
+    fn task_id(&self) -> Self::TaskId {
+        self.inner.task_id()
+    }
+}
+
 #[derive(Debug)]
 struct QuiltTaskExecutorConfig {
     pub fetch_quilt_patch_timeout: std::time::Duration,
@@ -164,23 +179,35 @@ impl TaskExecutor<QuiltIndexTask> for QuiltTaskExecutor {
             return Ok(());
         }
 
-        // TODO(heliu): This could fail because we are either too early or too late.
-        // Let's create a retry queue for the failed tasks.
+        // Try to fetch and process the quilt patch.
         match self.fetch_quilt_patch(task.quilt_blob_id).await {
             Ok(quilt_index) => {
                 tracing::debug!("Indexer fetched quilt index: {:?}", quilt_index);
                 self.storage
                     .populate_quilt_patch_index(&task, &quilt_index)
                     .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
+
+                // Status is updated to Completed within populate_quilt_patch_index
+                Ok(())
             }
             Err(e) => {
-                tracing::warn!("Failed to fetch quilt patch: {}", e);
-                unreachable!("Failed to fetch quilt patch: {}", e);
-                // TODO(heliu): Create a retry queue for the failed tasks.
+                tracing::warn!(
+                    "Failed to fetch quilt patch for task {:?}: {}. Moving to retry queue.",
+                    task.task_id(),
+                    e
+                );
+
+                // Move task to retry queue.
+                let task_id = task.task_id();
+                self.storage
+                    .move_to_retry_queue(&task_id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to move task to retry queue: {}", e))?;
+
+                // Return Ok to indicate the task was handled (moved to retry).
+                Ok(())
             }
         }
-
-        Ok(())
     }
 }
 
@@ -212,11 +239,127 @@ impl QuiltTaskExecutor {
     }
 }
 
+/// Executor for retry quilt indexing tasks.
+#[derive(Debug)]
+pub struct RetryTaskExecutor {
+    storage: Arc<WalrusIndexStore>,
+    walrus_client: Option<Arc<WalrusNodeClient<SuiContractClient>>>,
+    max_retries: usize,
+}
+
+impl RetryTaskExecutor {
+    pub fn new(
+        storage: Arc<WalrusIndexStore>,
+        walrus_client: Option<Arc<WalrusNodeClient<SuiContractClient>>>,
+    ) -> Self {
+        Self {
+            storage,
+            walrus_client,
+            max_retries: 3,
+        }
+    }
+}
+
+#[async_trait]
+impl TaskExecutor<RetryQuiltIndexTask> for RetryTaskExecutor {
+    async fn execute(&self, mut task: RetryQuiltIndexTask) -> Result<()> {
+        tracing::info!(
+            "Retrying quilt index task: sequence={}, quilt_id={}, retry_count={}",
+            task.inner.sequence_number,
+            task.inner.quilt_blob_id,
+            task.retry_count
+        );
+
+        // Check if we've exceeded max retries.
+        if task.retry_count >= self.max_retries {
+            tracing::error!(
+                "Task {:?} exceeded max retries ({}). Dropping task.",
+                task.task_id(),
+                self.max_retries
+            );
+            // Remove from retry queue permanently.
+            return Ok(());
+        }
+
+        // Increment retry count.
+        task.retry_count += 1;
+
+        // Try to fetch and process the quilt patch.
+        match self.fetch_quilt_patch(task.inner.quilt_blob_id).await {
+            Ok(quilt_index) => {
+                tracing::info!(
+                    "Successfully fetched quilt index on retry: {:?}",
+                    quilt_index
+                );
+                self.storage
+                    .populate_quilt_patch_index(&task.inner, &quilt_index)
+                    .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
+
+                // Status is updated to Completed within populate_quilt_patch_index
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Retry {} failed for task {:?}: {}",
+                    task.retry_count,
+                    task.task_id(),
+                    e
+                );
+
+                // If still have retries left, keep in retry queue.
+                // The task will be retried again later.
+                if task.retry_count < self.max_retries {
+                    // Task stays in retry queue, will be picked up again.
+                    return Err(anyhow::anyhow!("Retry failed, will try again later"));
+                }
+
+                // Max retries exceeded.
+                tracing::error!(
+                    "Task {:?} failed after {} retries. Dropping task.",
+                    task.task_id(),
+                    task.retry_count
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+impl RetryTaskExecutor {
+    async fn fetch_quilt_patch(&self, quilt_blob_id: BlobId) -> Result<QuiltIndex> {
+        if self.walrus_client.is_none() {
+            return Err(anyhow::anyhow!("No Walrus client configured"));
+        }
+
+        // Single attempt with longer timeout for retry.
+        let timeout = std::time::Duration::from_secs(120);
+        tokio::time::timeout(timeout, async {
+            self.walrus_client
+                .as_ref()
+                .unwrap()
+                .quilt_client()
+                .get_quilt_metadata(&quilt_blob_id)
+                .await
+                .map(|metadata| metadata.get_quilt_index())
+                .map_err(|e| anyhow::anyhow!("Failed to get quilt metadata: {}", e))
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("Timeout fetching quilt patch after 120 seconds"))?
+    }
+}
+
 /// Alias for the quilt task manager using the async task manager.
 pub type QuiltTaskManager = crate::async_task_manager::AsyncTaskManager<
     QuiltIndexTask,
     WalrusIndexStore,
     QuiltTaskExecutor,
+>;
+
+/// Alias for the retry task manager using the async task manager.
+pub type RetryTaskManager = crate::async_task_manager::AsyncTaskManager<
+    RetryQuiltIndexTask,
+    WalrusIndexStore,
+    RetryTaskExecutor,
 >;
 
 /// The main Walrus Indexer interface.
@@ -238,6 +381,9 @@ pub struct WalrusIndexer {
 
     /// Async task manager for quilt processing.
     quilt_task_manager: Arc<RwLock<Option<Arc<QuiltTaskManager>>>>,
+
+    /// Async task manager for retry processing.
+    retry_task_manager: Arc<RwLock<Option<Arc<RetryTaskManager>>>>,
 
     /// Sequence counter for generating task IDs.
     task_sequence_counter: Arc<std::sync::atomic::AtomicU64>,
@@ -297,6 +443,7 @@ impl WalrusIndexer {
             walrus_client,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             quilt_task_manager: Arc::new(RwLock::new(None)), // Will be set in run() method
+            retry_task_manager: Arc::new(RwLock::new(None)), // Will be set in run() method
             task_sequence_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             event_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         });
@@ -339,10 +486,15 @@ impl WalrusIndexer {
             }
         }
 
-        // Shutdown the task manager
+        // Shutdown the task managers
         if let Some(ref task_manager) = *self.quilt_task_manager.read().await {
             task_manager.shutdown().await;
             tracing::info!("Shut down quilt task manager");
+        }
+
+        if let Some(ref retry_manager) = *self.retry_task_manager.read().await {
+            retry_manager.shutdown().await;
+            tracing::info!("Shut down retry task manager");
         }
 
         tracing::info!("Indexer shutdown complete");
@@ -462,26 +614,46 @@ impl WalrusIndexer {
 
     /// Initialize the async task manager for quilt processing.
     async fn initialize_task_manager(self: &Arc<Self>) -> Result<()> {
-        // Create QuiltTaskExecutor
+        // Create QuiltTaskExecutor for normal processing
         let executor = QuiltTaskExecutor::new(self.storage.clone(), self.walrus_client.clone());
 
         let task_manager_config = AsyncTaskManagerConfig::default();
 
         let task_manager: Arc<QuiltTaskManager> = Arc::new(
             AsyncTaskManager::new(
-                task_manager_config,
+                task_manager_config.clone(),
                 self.storage.clone(),
                 Arc::new(executor),
             )
             .await?,
         );
 
-        // Start the task manager
+        // Start the quilt task manager
         task_manager.start().await?;
         tracing::info!("Started quilt task manager");
 
-        // Store the task manager
+        // Store the quilt task manager
         *self.quilt_task_manager.write().await = Some(task_manager);
+
+        // Create RetryTaskExecutor for retry processing
+        let retry_executor =
+            RetryTaskExecutor::new(self.storage.clone(), self.walrus_client.clone());
+
+        // Configure retry task manager with slower polling
+        let mut retry_config = task_manager_config;
+        retry_config.task_delay = std::time::Duration::from_secs(30);
+
+        let retry_manager: Arc<RetryTaskManager> = Arc::new(
+            AsyncTaskManager::new(retry_config, self.storage.clone(), Arc::new(retry_executor))
+                .await?,
+        );
+
+        // Start the retry task manager
+        retry_manager.start().await?;
+        tracing::info!("Started retry task manager");
+
+        // Store the retry task manager
+        *self.retry_task_manager.write().await = Some(retry_manager);
 
         Ok(())
     }
@@ -656,10 +828,15 @@ impl WalrusIndexer {
         tracing::info!("Stopping indexer");
         self.cancellation_token.cancel();
 
-        // Shutdown the task manager
+        // Shutdown the task managers
         if let Some(ref task_manager) = *self.quilt_task_manager.read().await {
             task_manager.shutdown().await;
-            tracing::info!("Task manager shutdown complete");
+            tracing::info!("Quilt task manager shutdown complete");
+        }
+
+        if let Some(ref retry_manager) = *self.retry_task_manager.read().await {
+            retry_manager.shutdown().await;
+            tracing::info!("Retry task manager shutdown complete");
         }
     }
 
