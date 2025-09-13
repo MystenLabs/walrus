@@ -86,6 +86,8 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
+#[cfg(msim)]
+use crate::node::config::SstIngestionConfig;
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
@@ -1126,6 +1128,14 @@ impl StorageNodeHandleBuilder {
             "At least one Sui RPC URLs must be provided"
         );
 
+        let mut shard_sync_config = ShardSyncConfig::default();
+        shard_sync_config.sst_ingestion_config = Some(SstIngestionConfig::default());
+        shard_sync_config
+            .sst_ingestion_config
+            .as_mut()
+            .unwrap()
+            .max_entries = Some(5);
+
         // Builds the storage node config used to run the node.
         let mut storage_node_config = StorageNodeConfig {
             storage_path: storage_dir.path().to_path_buf(),
@@ -1172,6 +1182,7 @@ impl StorageNodeHandleBuilder {
                 enabled: self.enable_node_config_synchronizer,
             },
             storage_node_cap: node_capability.map(|cap| cap.id),
+            shard_sync_config,
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
