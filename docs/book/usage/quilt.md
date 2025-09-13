@@ -32,7 +32,7 @@ The total size of all tags combined must not exceed 64 KB.
 
 It's important to note that blobs stored in a quilt are assigned a unique ID, called `QuiltPatchId`,
 that differs from the `BlobId` used for regular Walrus blobs, and a `QuiltPatchId` is determined by
-the composition of the entire quilt, ranther than the single blob, and hence it may change if the
+the composition of the entire quilt, rather than the single blob, and hence it may change if the
 blob is stored in a different quilt. Moreover, individual blobs cannot be deleted, extended or shared
 separately; these operations can only be applied to the entire quilt.
 
