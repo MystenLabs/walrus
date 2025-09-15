@@ -4034,6 +4034,21 @@ locations, publishing the <code>./walrus-snake</code> site is as simple as calli
 duration of an epoch is one day. On Mainnet, the duration of an epoch is two weeks.</p>
 </div>
 </div>
+<div id="admonition-important-testnet-vs-mainnet-access" class="admonition admonish-warning" role="note" aria-labelledby="admonition-important-testnet-vs-mainnet-access-title">
+<div class="admonition-title">
+<div id="admonition-important-testnet-vs-mainnet-access-title">
+<p>Important: Testnet vs Mainnet Access</p>
+</div>
+<a class="admonition-anchor-link" href="walrus-sites/tutorial-publish.html#admonition-important-testnet-vs-mainnet-access"></a>
+</div>
+<div>
+<p><strong>After publishing, how you access your site depends on which network you used:</strong></p>
+<ul>
+<li><strong>Mainnet sites</strong>: Can be accessed through <a href="https://wal.app">https://wal.app</a> once you set up a SuiNS name</li>
+<li><strong>Testnet sites</strong>: Require you to <a href="walrus-sites/./portal.html">run a portal locally</a> since wal.app only supports mainnet</li>
+</ul>
+</div>
+</div>
 <p>The end of the output should look like the following:</p>
 <pre><code class="language-txt">Execution completed
 Resource operations performed:
@@ -4061,7 +4076,8 @@ To browse the site, you have the following options:
 <a class="admonition-anchor-link" href="walrus-sites/tutorial-publish.html#admonition-note"></a>
 </div>
 <div>
-<p>Keep in mind that option 2 is only available on <code>mainnet</code>.</p>
+<p>Keep in mind that option 2 is only available on <code>mainnet</code>.
+For testnet sites, use option 1 - see the <a href="walrus-sites/./portal.html">portal setup guide</a> for instructions.</p>
 </div>
 </div>
 <p>This output tells you that, for each file in the folder, a new Walrus blob was created, and the
@@ -5237,11 +5253,11 @@ portals:</p>
 <a class="admonition-anchor-link" href="walrus-sites/portal.html#admonition-important-testnet-portal-access"></a>
 </div>
 <div>
-<p>There is <strong>no public testnet portal</strong> available. From now on, you can only access the mainnet portal at <a href="https://wal.app">https://wal.app</a>.
-For testnet sites, you must either:</p>
+<p><a href="https://wal.app">https://wal.app</a> only supports sites deployed on mainnet.
+If you published your site on testnet, you <strong>must</strong> run your own portal to access it:</p>
 <ul>
-<li>Run a portal locally (see instructions below)</li>
-<li>Self-host your own portal with a custom domain</li>
+<li><strong>For development</strong>: Run a portal locally (see instructions below)</li>
+<li><strong>For sharing publicly</strong>: Self-host your own portal with a custom domain</li>
 </ul>
 </div>
 </div>
