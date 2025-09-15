@@ -1066,7 +1066,7 @@ mod tests {
         let store_args = StoreArgs::default_with_epochs(1)
             .no_store_optimizations()
             .with_post_store(PostStoreAction::Keep)
-            .with_persistence(BlobPersistence::Permanent);
+            .permanent();
         let _results = client
             .as_ref()
             .inner
@@ -1098,7 +1098,7 @@ mod tests {
         let store_args = StoreArgs::default_with_epochs(1)
             .no_store_optimizations()
             .with_post_store(PostStoreAction::Keep)
-            .with_persistence(BlobPersistence::Permanent);
+            .permanent();
         let _results = client
             .as_ref()
             .inner
