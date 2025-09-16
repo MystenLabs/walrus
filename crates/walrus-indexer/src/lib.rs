@@ -30,27 +30,27 @@
 //! }
 //! ```
 
-// Module declarations
+// Module declarations.
 pub mod async_task_manager;
 pub mod async_task_sorter;
 pub mod checkpoint_downloader;
 pub mod indexer;
-// pub mod persistent_queue; // Moved traits to lib.rs - file no longer needed
-// pub mod quilt_task_manager; // TODO: Update to use new AsyncTaskManager
+// pub mod persistent_queue; // Moved traits to lib.rs - file no longer needed.
+// pub mod quilt_task_manager; // TODO: Update to use new AsyncTaskManager.
 pub mod storage;
 
 #[cfg(test)]
 pub mod test_util;
 
-// Configuration modules
+// Configuration modules.
 use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
-// Task management types are defined below - no need to re-export undefined symbols
+// Task management types are defined below - no need to re-export undefined symbols.
 
-// Async trait and storage imports for traits
+// Async trait and storage imports for traits.
 use async_trait::async_trait;
-// Re-export main types for convenience
+// Re-export main types for convenience.
 pub use indexer::WalrusIndexer;
 use serde::{Deserialize, Serialize};
 pub use storage::{BlobIdentity, BucketStats, WalrusIndexStore};
@@ -91,7 +91,7 @@ impl Default for IndexerConfig {
 }
 
 /// Represents a bucket for index entries (matches design spec).
-// TODO(blob_manager): What type should be used here?
+// TODO(blob_manager): What type should be used here?.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Bucket {
     /// Bucket ID as Sui object.
@@ -104,7 +104,7 @@ pub struct Bucket {
     pub secondary_indices: Vec<String>,
 }
 
-// Centralized trait definitions for async task management
+// Centralized trait definitions for async task management.
 
 /// Trait for async tasks that can be stored and sorted.
 pub trait AsyncTask: Send + Sync + Clone {
@@ -153,17 +153,28 @@ where
 }
 
 /// Trait for executing tasks asynchronously.
+///
+/// IMPORTANT: The executor is responsible for removing successfully executed tasks
+/// from storage (either from the regular queue or retry queue). This ensures
+/// atomicity - the task is only removed if execution succeeds.
 #[async_trait]
 pub trait TaskExecutor<T>: Send + Sync
 where
     T: AsyncTask,
 {
     /// Execute a task.
-    /// Returns Ok(()) if the task was executed successfully.
+    ///
+    /// The implementation MUST:
+    /// 1. Execute the task logic
+    /// 2. If successful, remove the task from storage (regular queue or retry queue)
+    /// 3. Return Ok(()) only after both execution and removal succeed
+    ///
+    /// Returns Ok(()) if the task was executed successfully and removed from storage.
+    /// Returns Err(_) if the task execution failed (task should remain in storage).
     async fn execute(&self, task: T) -> Result<()>;
 }
 
-// Concrete QuiltIndexTask types are now defined in indexer.rs where they are used
+// Concrete QuiltIndexTask types are now defined in indexer.rs where they are used.
 
 /// Default configuration values for the indexer.
 pub mod default {

@@ -29,6 +29,7 @@ pub struct TestTask {
     pub failure_rate: u8,
     /// A duration in milliseconds, indicating the duration of the task.
     pub duration: Duration,
+    pub is_in_retry_queue: bool,
 }
 
 impl TestTask {
@@ -37,6 +38,7 @@ impl TestTask {
             sequence,
             failure_rate: 0,
             duration: Duration::from_millis(100),
+            is_in_retry_queue: false,
         }
     }
 
@@ -82,7 +84,7 @@ impl Iterator for TestTaskGenerator {
     fn next(&mut self) -> Option<Self::Item> {
         self.sequence += 1;
         let failure_rate = if self.enable_random_failure {
-            rand::thread_rng().gen_range(0..75) // Cap at 75% to ensure eventual success
+            rand::thread_rng().gen_range(0..75) // Cap at 75% to ensure eventual success.
         } else {
             0
         };
@@ -99,70 +101,67 @@ impl Iterator for TestTaskGenerator {
     }
 }
 
+/// Storage for both regular and retry tasks.
+struct TaskStorage {
+    tasks: BTreeMap<u64, TestTask>,
+    retry_tasks: BTreeMap<u64, TestTask>,
+}
+
 /// Ordered in-memory store.
 pub struct OrderedTestStore {
-    tasks: Arc<Mutex<BTreeMap<u64, TestTask>>>,
+    storage: Arc<Mutex<TaskStorage>>,
 }
 
 impl OrderedTestStore {
     pub fn new() -> Self {
         Self {
-            tasks: Arc::new(Mutex::new(BTreeMap::new())),
+            storage: Arc::new(Mutex::new(TaskStorage {
+                tasks: BTreeMap::new(),
+                retry_tasks: BTreeMap::new(),
+            })),
         }
     }
 
     /// Pre-populate the store with tasks.
     pub async fn populate_with_tasks(&self, tasks: Vec<TestTask>) {
-        let mut store = self.tasks.lock().await;
+        let mut storage = self.storage.lock().await;
         for task in tasks {
-            store.insert(task.task_id(), task);
+            storage.tasks.insert(task.task_id(), task);
         }
     }
 
     /// Get current task count.
     pub async fn task_count(&self) -> usize {
-        self.tasks.lock().await.len()
-    }
-}
-
-impl Default for OrderedTestStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl OrderedStore<TestTask> for OrderedTestStore {
-    async fn store(&self, task: &TestTask) -> Result<(), TypedStoreError> {
-        let mut tasks = self.tasks.lock().await;
-        tasks.insert(task.task_id(), task.clone());
-        tracing::debug!("Stored task: id={}", task.task_id());
-        Ok(())
+        let storage = self.storage.lock().await;
+        let total = storage.tasks.len() + storage.retry_tasks.len();
+        tracing::debug!(
+            "Task count: regular={}, retry={}, total={}",
+            storage.tasks.len(),
+            storage.retry_tasks.len(),
+            total
+        );
+        total
     }
 
-    async fn remove(&self, task_id: &u64) -> Result<(), TypedStoreError> {
-        let mut tasks = self.tasks.lock().await;
-        tasks.remove(task_id);
-        Ok(())
-    }
-
-    async fn read_range(
-        &self,
+    /// Helper method to read from a BTreeMap with pagination.
+    fn read_from_map(
+        map: &BTreeMap<u64, TestTask>,
         from_task_id: Option<u64>,
         to_task_id: Option<u64>,
         limit: usize,
-    ) -> Result<Vec<TestTask>, TypedStoreError> {
-        let tasks = self.tasks.lock().await;
+    ) -> Vec<TestTask> {
         let mut result = Vec::new();
         let mut count = 0;
 
-        for (task_id, task) in tasks.iter() {
+        for (task_id, task) in map.iter() {
+            // Exclusive lower bound.
             if let Some(from) = from_task_id {
                 if *task_id <= from {
                     continue;
                 }
             }
 
+            // Exclusive upper bound (only used in read_range).
             if let Some(to) = to_task_id {
                 if *task_id >= to {
                     break;
@@ -177,6 +176,40 @@ impl OrderedStore<TestTask> for OrderedTestStore {
             }
         }
 
+        result
+    }
+}
+
+impl Default for OrderedTestStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl OrderedStore<TestTask> for OrderedTestStore {
+    async fn store(&self, task: &TestTask) -> Result<(), TypedStoreError> {
+        let mut storage = self.storage.lock().await;
+        storage.tasks.insert(task.task_id(), task.clone());
+        tracing::debug!("Stored task: id={}", task.task_id());
+        Ok(())
+    }
+
+    async fn remove(&self, task_id: &u64) -> Result<(), TypedStoreError> {
+        let mut storage = self.storage.lock().await;
+        storage.tasks.remove(task_id);
+        Ok(())
+    }
+
+    async fn read_range(
+        &self,
+        from_task_id: Option<u64>,
+        to_task_id: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<TestTask>, TypedStoreError> {
+        let storage = self.storage.lock().await;
+        let result = Self::read_from_map(&storage.tasks, from_task_id, to_task_id, limit);
+
         tracing::debug!(
             "Read range: from_task_id={:?}, to_task_id={:?}, limit={}, returned={}",
             from_task_id,
@@ -189,8 +222,13 @@ impl OrderedStore<TestTask> for OrderedTestStore {
     }
 
     async fn add_to_retry_queue(&self, task: &TestTask) -> Result<(), TypedStoreError> {
-        // For testing, just store in the same map with a special prefix
-        self.store(task).await
+        let mut storage = self.storage.lock().await;
+        let mut task_clone = task.clone();
+        storage.tasks.remove(&task.task_id());
+        task_clone.is_in_retry_queue = true;
+        storage.retry_tasks.insert(task.task_id(), task_clone);
+        tracing::debug!("Added task to retry queue: id={}", task.task_id());
+        Ok(())
     }
 
     async fn read_retry_tasks(
@@ -198,24 +236,42 @@ impl OrderedStore<TestTask> for OrderedTestStore {
         from_task_id: Option<u64>,
         limit: usize,
     ) -> Result<Vec<TestTask>, TypedStoreError> {
-        // For testing, use same read_range logic
-        self.read_range(from_task_id, None, limit).await
+        let storage = self.storage.lock().await;
+        let result = Self::read_from_map(&storage.retry_tasks, from_task_id, None, limit);
+
+        tracing::debug!(
+            "Read retry tasks: from_task_id={:?}, limit={}, returned={}",
+            from_task_id,
+            limit,
+            result.len()
+        );
+
+        Ok(result)
     }
 
     async fn delete_retry_task(&self, task_id: &u64) -> Result<(), TypedStoreError> {
-        self.remove(task_id).await
+        let mut storage = self.storage.lock().await;
+        storage.retry_tasks.remove(task_id);
+        tracing::debug!("Deleted task from retry queue: id={}", task_id);
+        Ok(())
     }
 }
 
 pub struct TestExecutor {
     executed: Arc<AtomicU64>,
+    storage: Arc<OrderedTestStore>,
 }
 
 impl TestExecutor {
-    pub fn new() -> Self {
+    pub fn new(storage: Arc<OrderedTestStore>) -> Self {
         Self {
             executed: Arc::new(AtomicU64::new(0)),
+            storage,
         }
+    }
+
+    pub fn executed(&self) -> u64 {
+        self.executed.load(Ordering::SeqCst)
     }
 }
 
@@ -230,8 +286,14 @@ impl TaskExecutor<TestTask> for TestExecutor {
         tokio::time::sleep(task.duration).await;
 
         let count = self.executed.fetch_add(1, Ordering::SeqCst) + 1;
-
         tracing::info!("Executed task #{}: id={}", count, task.task_id());
+
+        // Remove the task from the appropriate queue after successful execution.
+        if task.is_in_retry_queue {
+            self.storage.delete_retry_task(&task.task_id()).await?;
+        } else {
+            self.storage.remove(&task.task_id()).await?;
+        }
 
         Ok(())
     }

@@ -75,7 +75,7 @@ impl<T: AsyncTask> TaskBuffer<T> {
             catchup_queue: VecDeque::new(),
             latest_queue: VecDeque::new(),
             last_catchup_task_id: None,
-            grace_period_start: None,
+            grace_period_start: Some(Instant::now()),
             state: QueueState::CatchingUp,
         }
     }
@@ -188,8 +188,8 @@ where
     buffer: Arc<RwLock<TaskBuffer<T>>>,
     /// Notifier for when new items are available.
     item_available: Arc<Notify>,
-    /// Background task handles for cleanup and proper shutdown.
-    background_task_handles: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
+    /// Background task handle for loading tasks from storage.
+    background_task_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl<T, S> AsyncTaskSorter<T, S>
@@ -204,7 +204,7 @@ where
             store,
             buffer: Arc::new(RwLock::new(TaskBuffer::new())),
             item_available: Arc::new(Notify::new()),
-            background_task_handles: Arc::new(RwLock::new(Vec::new())),
+            background_task_handle: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -262,20 +262,22 @@ where
         from_task_id: Option<T::TaskId>,
         to_task_id: Option<T::TaskId>,
     ) {
-        // Check if there are already running background tasks.
-        if let Ok(mut handles) = self.background_task_handles.try_write() {
-            // Clean up finished tasks.
-            handles.retain(|handle| !handle.is_finished());
+        // Check if there's already a running background task.
+        if let Ok(mut handle_guard) = self.background_task_handle.try_write() {
+            // Clean up finished task.
+            if let Some(ref handle) = *handle_guard {
+                if handle.is_finished() {
+                    *handle_guard = None;
+                }
+            }
 
-            // If there are still running tasks, don't spawn another one.
-            if !handles.is_empty() {
+            // If there's still a running task, don't spawn another one.
+            if handle_guard.is_some() {
                 tracing::debug!("Background loading already in progress, skipping new task spawn");
                 return;
             }
         } else {
-            tracing::warn!(
-                "Failed to check background task handles - unable to acquire write lock"
-            );
+            tracing::warn!("Failed to check background task handle - unable to acquire write lock");
             return;
         }
 
@@ -316,8 +318,8 @@ where
         });
 
         // Store the task handle for proper cleanup.
-        if let Ok(mut handles) = self.background_task_handles.try_write() {
-            handles.push(handle);
+        if let Ok(mut handle_guard) = self.background_task_handle.try_write() {
+            *handle_guard = Some(handle);
         } else {
             tracing::warn!("Failed to store background task handle - unable to acquire write lock");
         }
@@ -334,21 +336,13 @@ where
         matches!(buffer.state, QueueState::UpToDate)
     }
 
-    /// Shutdown the task sorter and clean up background tasks.
+    /// Shutdown the task sorter and clean up background task.
     pub async fn shutdown(&self) {
-        let mut handles = self.background_task_handles.write().await;
+        let mut handle_guard = self.background_task_handle.write().await;
 
-        // Cancel all background tasks.
-        for handle in handles.iter() {
+        // Cancel the background task if it exists.
+        if let Some(handle) = handle_guard.take() {
             handle.abort();
-        }
-
-        // Wait for all tasks to complete or be cancelled.
-        let mut completed_handles = Vec::new();
-        std::mem::swap(&mut *handles, &mut completed_handles);
-        drop(handles);
-
-        for handle in completed_handles {
             let _ = handle.await; // Ignore cancellation errors.
         }
 

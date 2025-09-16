@@ -126,13 +126,13 @@ impl PrimaryIndexKey {
     }
 }
 
-impl ToString for PrimaryIndexKey {
-    fn to_string(&self) -> String {
-        self.bucket_id.to_string()
-            + "/"
-            + &self.identifier
-            + "/"
-            + &self.sequence_number.to_string()
+impl std::fmt::Display for PrimaryIndexKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}/{}/{}",
+            self.bucket_id, self.identifier, self.sequence_number
+        )
     }
 }
 
@@ -160,6 +160,7 @@ impl ObjectIndexKey {
     }
 
     /// Parse from byte representation.
+    #[allow(unused)]
     fn from_key(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != 32 {
             return Err(anyhow::anyhow!(
@@ -172,9 +173,9 @@ impl ObjectIndexKey {
     }
 }
 
-impl ToString for ObjectIndexKey {
-    fn to_string(&self) -> String {
-        self.to_hex_key()
+impl std::fmt::Display for ObjectIndexKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_hex_key())
     }
 }
 
@@ -185,9 +186,9 @@ struct QuiltPatchIndexKey {
     object_id: ObjectID,
 }
 
-impl ToString for QuiltPatchIndexKey {
-    fn to_string(&self) -> String {
-        self.patch_blob_id.to_string() + "/" + &self.object_id.to_string()
+impl std::fmt::Display for QuiltPatchIndexKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.patch_blob_id, self.object_id)
     }
 }
 
@@ -214,11 +215,6 @@ impl QuiltPatchIndexKey {
         bytes.extend_from_slice(self.object_id.as_ref());
 
         bytes
-    }
-
-    /// Convert byte key to hex string for use with _with_raw_string methods
-    fn to_hex_key(&self) -> String {
-        hex::encode(self.to_key())
     }
 
     /// Parse from byte representation.
@@ -564,15 +560,14 @@ impl WalrusIndexStore {
                 } else {
                     QuiltTaskStatus::NotQuilt
                 };
-                self.insert_primary_index(
-                    txn,
-                    bucket_id,
-                    &identifier,
-                    &object_id,
+                let primary_key =
+                    PrimaryIndexKey::new(*bucket_id, identifier.to_string(), sequence_number);
+                let primary_value = BlobIdentity {
                     blob_id,
+                    object_id,
                     quilt_status,
-                    sequence_number,
-                )?;
+                };
+                self.insert_primary_index(primary_key, primary_value, txn)?;
             }
             walrus_sui::types::IndexMutation::Delete {
                 object_id,
@@ -585,39 +580,28 @@ impl WalrusIndexStore {
     }
 
     /// Apply an insert operation to both indices.
-    pub fn insert_primary_index(
+    fn insert_primary_index(
         &self,
+        primary_key: PrimaryIndexKey,
+        primary_value: BlobIdentity,
         txn: &Transaction<'_, OptimisticTransactionDB>,
-        bucket_id: &ObjectID,
-        identifier: &str,
-        object_id: &ObjectID,
-        blob_id: BlobId,
-        quilt_status: QuiltTaskStatus,
-        sequence_number: u64,
     ) -> Result<(), TypedStoreError> {
         // Primary index: bucket_id/identifier/sequence_number -> IndexTarget.
-        let primary_key = PrimaryIndexKey::new(*bucket_id, identifier.to_string(), sequence_number);
-        let blob_identity = BlobIdentity {
-            blob_id,
-            object_id: *object_id,
-            quilt_status,
-        };
-        let index_target = IndexTarget::Blob(blob_identity);
-
-        let object_key = ObjectIndexKey::new(*object_id);
+        let object_key = ObjectIndexKey::new(primary_value.object_id);
         let object_value = ObjectIndexValue {
-            bucket_id: *bucket_id,
-            identifier: identifier.to_string(),
-            sequence_number,
+            bucket_id: primary_key.bucket_id,
+            identifier: primary_key.identifier.clone(),
+            sequence_number: primary_key.sequence_number,
         };
 
+        let index_target = IndexTarget::Blob(primary_value);
         // Use transaction operations for atomic writes.
-        let primary_value = bcs::to_bytes(&index_target)
+        let primary_value_bytes = bcs::to_bytes(&index_target)
             .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
         txn.put_cf(
             &self.primary_index.cf()?,
             primary_key.to_key(),
-            &primary_value,
+            &primary_value_bytes,
         )
         .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
@@ -713,7 +697,7 @@ impl WalrusIndexStore {
         self.populate_quilt_patch_index_txn(quilt_index_task, quilt_index, &txn)?;
 
         // Remove the task.
-        self.delete_task(&quilt_index_task, &txn)?;
+        self.delete_task(quilt_index_task, &txn)?;
 
         // Commit the transaction.
         txn.commit()
@@ -739,21 +723,6 @@ impl WalrusIndexStore {
             .transpose()
     }
 
-    /// Get the object index entry for a given object_id, within a transaction.
-    fn get_object_index_entry(
-        &self,
-        object_id: &ObjectID,
-        txn: &Transaction<'_, OptimisticTransactionDB>,
-    ) -> Result<Option<ObjectIndexValue>, TypedStoreError> {
-        let object_key = ObjectIndexKey::new(*object_id);
-        txn.get_for_update_cf(&self.object_index.cf()?, object_key.to_key(), true)
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?
-            .map(|v| {
-                bcs::from_bytes(&v).map_err(|e| TypedStoreError::SerializationError(e.to_string()))
-            })
-            .transpose()
-    }
-
     /// Check if a quilt task exists in the pending or retry queues, within a transaction.
     fn task_exists(
         &self,
@@ -767,7 +736,7 @@ impl WalrusIndexStore {
 
         if quilt_index_task.retry {
             return Ok(txn
-                .get_for_update_cf(&self.retry_quilt_index_tasks.cf()?, &task_id.to_key(), true)
+                .get_for_update_cf(&self.retry_quilt_index_tasks.cf()?, task_id.to_key(), true)
                 .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?
                 .is_some());
         }
@@ -775,7 +744,7 @@ impl WalrusIndexStore {
         Ok(txn
             .get_for_update_cf(
                 &self.pending_quilt_index_tasks.cf()?,
-                &task_id.to_key(),
+                task_id.to_key(),
                 true,
             )
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?
@@ -1368,14 +1337,11 @@ impl WalrusIndexStore {
         let (lower_bound, upper_bound) = get_primary_index_bounds(bucket_id, primary_key);
 
         // Check if any entry exists with this prefix
-        for entry in self
+        Ok(self
             .primary_index
             .iter_with_bytes::<IndexTarget>(Some(&lower_bound), Some(&upper_bound))?
-        {
-            let _ = entry?;
-            return Ok(true);
-        }
-        Ok(false)
+            .next()
+            .is_some())
     }
 
     /// Get statistics about a bucket.
@@ -2152,7 +2118,6 @@ mod tests {
                 (QuiltTaskStatus::Running(_), QuiltTaskStatusType::Running) => Ok(()),
                 (QuiltTaskStatus::Completed(_), QuiltTaskStatusType::Completed) => Ok(()),
                 (QuiltTaskStatus::InRetryQueue(_), QuiltTaskStatusType::InRetryQueue) => Ok(()),
-                (QuiltTaskStatus::NotQuilt, QuiltTaskStatusType::NotQuilt) => Ok(()),
                 (actual, expected) => panic!("Expected {:?} status, got {:?}", expected, actual),
             }
         } else {
@@ -2166,7 +2131,6 @@ mod tests {
         Running,
         Completed,
         InRetryQueue,
-        NotQuilt,
     }
 
     /// Helper to verify all patches are indexed.
