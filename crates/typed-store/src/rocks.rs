@@ -1516,14 +1516,13 @@ impl<K, V> DBMap<K, V> {
         readopts
     }
 
-    // Raw string API methods that bypass bincode serialization for keys.
-    // These methods treat keys as raw strings, allowing proper lexicographic ordering
-    // and prefix-based queries.
+    // Byte-based API methods that bypass bincode serialization for keys.
+    // These methods treat keys as raw bytes, allowing any binary key format.
 
-    /// Insert a key-value pair with a raw string key (bypasses bincode serialization).
-    pub fn insert_with_raw_string<V2: Serialize>(
+    /// Insert a key-value pair with raw bytes key (bypasses bincode serialization).
+    pub fn insert_with_bytes<V2: Serialize>(
         &self,
-        key: &str,
+        key: &[u8],
         value: &V2,
     ) -> Result<(), TypedStoreError> {
         let timer = self
@@ -1538,15 +1537,14 @@ impl<K, V> DBMap<K, V> {
             None
         };
 
-        // Use raw string as key directly
-        let key_buf = key.as_bytes();
+        // Use raw bytes as key directly
         let value_buf = bcs::to_bytes(value).map_err(typed_store_err_from_bcs_err)?;
 
         self.db_metrics
             .op_metrics
             .rocksdb_put_key_bytes
             .with_label_values(&[&self.cf])
-            .observe(key_buf.len() as f64);
+            .observe(key.len() as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_put_value_bytes
@@ -1556,7 +1554,7 @@ impl<K, V> DBMap<K, V> {
             .op_metrics
             .rocksdb_put_bytes
             .with_label_values(&[&self.cf])
-            .observe(key_buf.len() as f64 + value_buf.len() as f64);
+            .observe(key.len() as f64 + value_buf.len() as f64);
 
         if perf_ctx.is_some() {
             self.db_metrics
@@ -1565,7 +1563,7 @@ impl<K, V> DBMap<K, V> {
         }
 
         self.rocksdb
-            .put_cf(&self.cf()?, key_buf, &value_buf, &self.opts.writeopts())
+            .put_cf(&self.cf()?, key, &value_buf, &self.opts.writeopts())
             .map_err(typed_store_err_from_rocks_err)?;
 
         let elapsed = timer.stop_and_record();
@@ -1586,10 +1584,10 @@ impl<K, V> DBMap<K, V> {
         Ok(())
     }
 
-    /// Get a value by raw string key (bypasses bincode serialization).
-    pub fn get_with_raw_string<V2: DeserializeOwned>(
+    /// Get a value by raw bytes key (bypasses bincode serialization).
+    pub fn get_with_bytes<V2: DeserializeOwned>(
         &self,
-        key: &str,
+        key: &[u8],
     ) -> Result<Option<V2>, TypedStoreError> {
         let start = std::time::Instant::now();
         let perf_ctx = if self.get_sample_interval.sample() {
@@ -1598,11 +1596,9 @@ impl<K, V> DBMap<K, V> {
             None
         };
 
-        // Use raw string as key directly
-        let key_buf = key.as_bytes();
         let res = self
             .rocksdb
-            .get_pinned_cf_opt(&self.cf()?, key_buf, &self.opts.readopts())
+            .get_pinned_cf_opt(&self.cf()?, key, &self.opts.readopts())
             .map_err(typed_store_err_from_rocks_err)?;
 
         let found = res.is_some();
@@ -1615,12 +1611,12 @@ impl<K, V> DBMap<K, V> {
             .op_metrics
             .rocksdb_get_key_bytes
             .with_label_values(&[&self.cf])
-            .observe(key_buf.len() as f64);
+            .observe(key.len() as f64);
         self.db_metrics
             .op_metrics
             .rocksdb_get_bytes
             .with_label_values(&[&self.cf])
-            .observe(key_buf.len() as f64 + res.as_ref().map_or(0.0, |v| v.len() as f64));
+            .observe(key.len() as f64 + res.as_ref().map_or(0.0, |v| v.len() as f64));
         self.db_metrics
             .op_metrics
             .rocksdb_get_value_bytes
@@ -1641,37 +1637,138 @@ impl<K, V> DBMap<K, V> {
         }
     }
 
-    /// Iterate over entries with raw string keys, optionally with bounds.
-    /// Returns an iterator of (String, V) pairs.
-    pub fn iter_with_raw_string<'a, V2: DeserializeOwned + 'a>(
+    /// Iterate over entries with raw bytes keys, optionally with bounds.
+    /// Returns an iterator of (`Vec<u8>`, V) pairs.
+    pub fn iter_with_bytes<'a, V2: DeserializeOwned + 'a>(
         &'a self,
-        lower_bound: Option<&str>,
-        upper_bound: Option<&str>,
-    ) -> Result<impl Iterator<Item = Result<(String, V2), TypedStoreError>> + 'a, TypedStoreError>
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> Result<impl Iterator<Item = Result<(Vec<u8>, V2), TypedStoreError>> + 'a, TypedStoreError>
     {
         let mut readopts = self.opts.readopts();
 
-        // Set bounds using raw strings
+        // Set bounds using raw bytes
         if let Some(lower) = lower_bound {
-            readopts.set_iterate_lower_bound(lower.as_bytes().to_vec());
+            readopts.set_iterate_lower_bound(lower.to_vec());
         }
         if let Some(upper) = upper_bound {
-            readopts.set_iterate_upper_bound(upper.as_bytes().to_vec());
+            readopts.set_iterate_upper_bound(upper.to_vec());
         }
 
         let db_iter = self.rocksdb.raw_iterator_cf(&self.cf()?, readopts);
         let iter_context = self.create_iter_context();
 
-        Ok(RawStringIter::new(
+        Ok(RawBytesIter::new(
             self.cf.clone(),
             db_iter,
             iter_context,
             Some(self.db_metrics.clone()),
         ))
     }
+
+    /// Delete an entry using raw bytes as key.
+    pub fn delete_with_bytes(&self, key: &[u8]) -> Result<(), TypedStoreError> {
+        let start = std::time::Instant::now();
+        let perf_ctx = if self.write_sample_interval.sample() {
+            Some(RocksDBPerfContext)
+        } else {
+            None
+        };
+
+        self.rocksdb
+            .delete_cf(&self.cf()?, key, &self.opts.writeopts())
+            .map_err(typed_store_err_from_rocks_err)?;
+
+        // Record metrics
+        self.db_metrics
+            .op_metrics
+            .rocksdb_delete_latency_seconds
+            .with_label_values(&[&self.cf])
+            .observe(start.elapsed().as_secs_f64());
+
+        if perf_ctx.is_some() {
+            self.db_metrics
+                .write_perf_ctx_metrics
+                .report_metrics(&self.cf);
+        }
+
+        Ok(())
+    }
 }
 
-/// Iterator for raw string keys
+/// Iterator for raw bytes keys
+struct RawBytesIter<'a, V> {
+    cf_name: String,
+    db_iter: RocksDBRawIter<'a>,
+    _iter_context: IterContext,
+    db_metrics: Option<Arc<DBMetrics>>,
+    _phantom: PhantomData<V>,
+}
+
+impl<'a, V> RawBytesIter<'a, V> {
+    fn new(
+        cf_name: String,
+        mut db_iter: RocksDBRawIter<'a>,
+        iter_context: IterContext,
+        db_metrics: Option<Arc<DBMetrics>>,
+    ) -> Self {
+        db_iter.seek_to_first();
+        RawBytesIter {
+            cf_name,
+            db_iter,
+            _iter_context: iter_context,
+            db_metrics,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, V: DeserializeOwned> Iterator for RawBytesIter<'a, V> {
+    type Item = Result<(Vec<u8>, V), TypedStoreError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.db_iter.valid() {
+            return None;
+        }
+
+        let key = self.db_iter.key()?;
+        let value = self.db_iter.value()?;
+
+        // Keep key as raw bytes
+        let key_bytes = key.to_vec();
+
+        // Deserialize value using bcs
+        let value_obj = match bcs::from_bytes(value) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(typed_store_err_from_bcs_err(e))),
+        };
+
+        // Record metrics
+        if let Some(ref metrics) = self.db_metrics {
+            metrics
+                .op_metrics
+                .rocksdb_iter_key_bytes
+                .with_label_values(&[&self.cf_name])
+                .observe(key.len() as f64);
+            metrics
+                .op_metrics
+                .rocksdb_iter_value_bytes
+                .with_label_values(&[&self.cf_name])
+                .observe(value.len() as f64);
+            metrics
+                .op_metrics
+                .rocksdb_iter_keys
+                .with_label_values(&[&self.cf_name])
+                .observe(1.0);
+        }
+
+        self.db_iter.next();
+        Some(Ok((key_bytes, value_obj)))
+    }
+}
+
+/// Iterator for raw string keys.
+#[allow(dead_code)]
 struct RawStringIter<'a, V> {
     cf_name: String,
     db_iter: RocksDBRawIter<'a>,
@@ -1681,6 +1778,7 @@ struct RawStringIter<'a, V> {
 }
 
 impl<'a, V> RawStringIter<'a, V> {
+    #[allow(dead_code)]
     fn new(
         cf_name: String,
         mut db_iter: RocksDBRawIter<'a>,
@@ -2045,6 +2143,58 @@ impl DBBatch {
             .try_for_each::<_, Result<_, TypedStoreError>>(|k| {
                 let k_buf = k.as_bytes();
                 self.batch.delete_cf(&db.cf()?, k_buf);
+                Ok(())
+            })?;
+        Ok(())
+    }
+
+    /// Insert a batch of (key, value) pairs with raw byte keys (bypasses bincode serialization).
+    pub fn insert_batch_with_bytes<K, V: Serialize>(
+        &mut self,
+        db: &DBMap<K, V>,
+        new_vals: impl IntoIterator<Item = (Vec<u8>, V)>,
+    ) -> Result<&mut Self, TypedStoreError> {
+        if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
+            return Err(TypedStoreError::CrossDBBatch);
+        }
+        let mut key_total = 0usize;
+        let mut value_total = 0usize;
+        new_vals
+            .into_iter()
+            .try_for_each::<_, Result<_, TypedStoreError>>(|(k, v)| {
+                let v_buf = bcs::to_bytes(&v).map_err(typed_store_err_from_bcs_err)?;
+                key_total += k.len();
+                value_total += v_buf.len();
+                self.batch.put_cf(&db.cf()?, k, v_buf);
+                Ok(())
+            })?;
+        self.db_metrics
+            .op_metrics
+            .rocksdb_batch_put_key_bytes
+            .with_label_values(&[&db.cf])
+            .observe(key_total as f64);
+        self.db_metrics
+            .op_metrics
+            .rocksdb_batch_put_value_bytes
+            .with_label_values(&[&db.cf])
+            .observe(value_total as f64);
+        Ok(self)
+    }
+
+    /// Delete a batch of keys with raw byte keys (bypasses bincode serialization).
+    pub fn delete_batch_with_bytes<K, V>(
+        &mut self,
+        db: &DBMap<K, V>,
+        purged_vals: impl IntoIterator<Item = Vec<u8>>,
+    ) -> Result<(), TypedStoreError> {
+        if !Arc::ptr_eq(&db.rocksdb, &self.rocksdb) {
+            return Err(TypedStoreError::CrossDBBatch);
+        }
+
+        purged_vals
+            .into_iter()
+            .try_for_each::<_, Result<_, TypedStoreError>>(|k| {
+                self.batch.delete_cf(&db.cf()?, k);
                 Ok(())
             })?;
         Ok(())
@@ -2871,4 +3021,61 @@ fn test_helpers() {
     check_add(vec![254; 32]);
 
     // TBD: More tests coming with randomized arrays.
+}
+
+#[test]
+fn test_bincode_string_ordering_not_preserved() {
+    // This test demonstrates that bincode serialization does NOT preserve string ordering
+
+    // Two strings where "aa" < "b" in natural string ordering
+    let str1 = "aa";
+    let str2 = "b";
+
+    // Natural string ordering
+    assert!(
+        str1 < str2,
+        "In natural ordering, 'aa' should be less than 'b'"
+    );
+
+    // Serialize using bincode
+    let serialized1 = be_fix_int_ser(&str1).unwrap();
+    let serialized2 = be_fix_int_ser(&str2).unwrap();
+
+    // Print the serialized bytes for clarity
+    println!("'aa' serialized: {:?}", serialized1);
+    println!("'b' serialized:  {:?}", serialized2);
+
+    // Bincode serialization reverses the order!
+    // This is because bincode prefixes strings with their length:
+    // - "aa" becomes [0, 0, 0, 0, 0, 0, 0, 2, 97, 97] (length=2, then 'a', 'a')
+    // - "b"  becomes [0, 0, 0, 0, 0, 0, 0, 1, 98]     (length=1, then 'b')
+    // Since 1 < 2 in the length prefix, "b" comes before "aa" when serialized
+    assert!(
+        serialized1 > serialized2,
+        "Bincode serialization reverses the order: serialized 'b' < serialized 'aa'"
+    );
+
+    // Another example with same length strings - these DO preserve order
+    let str3 = "abc";
+    let str4 = "def";
+    let serialized3 = be_fix_int_ser(&str3).unwrap();
+    let serialized4 = be_fix_int_ser(&str4).unwrap();
+
+    assert!(str3 < str4);
+    assert!(
+        serialized3 < serialized4,
+        "Same-length strings preserve order"
+    );
+
+    // But different length strings break ordering
+    let str5 = "z"; // Single 'z'
+    let str6 = "aaa"; // Three 'a's
+    let serialized5 = be_fix_int_ser(&str5).unwrap();
+    let serialized6 = be_fix_int_ser(&str6).unwrap();
+
+    assert!(str6 < str5, "In natural ordering, 'aaa' < 'z'");
+    assert!(
+        serialized5 < serialized6,
+        "But serialized 'z' < serialized 'aaa' due to length prefix"
+    );
 }

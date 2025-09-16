@@ -3,25 +3,52 @@
 
 //! Test utilities for walrus-indexer tests.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use typed_store::TypedStoreError;
 
-use crate::{AsyncTask, OrderedStore};
+use crate::{AsyncTask, OrderedStore, TaskExecutor};
 
 /// Simple test task.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TestTask {
     pub sequence: u64,
+    /// A number between 0 and 100, indicating the failure rate.
+    pub failure_rate: u8,
+    /// A duration in milliseconds, indicating the duration of the task.
+    pub duration: Duration,
 }
 
 impl TestTask {
     pub fn new(sequence: u64) -> Self {
-        Self { sequence }
+        Self {
+            sequence,
+            failure_rate: 0,
+            duration: Duration::from_millis(100),
+        }
+    }
+
+    pub fn with_failure_rate(self, failure_rate: u8) -> Self {
+        Self {
+            failure_rate,
+            ..self
+        }
+    }
+
+    pub fn with_duration(self, duration: Duration) -> Self {
+        Self { duration, ..self }
     }
 }
 
@@ -30,6 +57,45 @@ impl AsyncTask for TestTask {
 
     fn task_id(&self) -> Self::TaskId {
         self.sequence
+    }
+}
+
+pub struct TestTaskGenerator {
+    sequence: u64,
+    enable_random_failure: bool,
+    enable_duration: bool,
+}
+
+impl TestTaskGenerator {
+    pub fn new(enable_random_failure: bool, enable_duration: bool) -> Self {
+        Self {
+            sequence: 0,
+            enable_random_failure,
+            enable_duration,
+        }
+    }
+}
+
+impl Iterator for TestTaskGenerator {
+    type Item = TestTask;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.sequence += 1;
+        let failure_rate = if self.enable_random_failure {
+            rand::thread_rng().gen_range(0..75) // Cap at 75% to ensure eventual success
+        } else {
+            0
+        };
+        let duration = if self.enable_duration {
+            Duration::from_millis(rand::thread_rng().gen_range(100..1000))
+        } else {
+            Duration::from_millis(100)
+        };
+        Some(
+            TestTask::new(self.sequence)
+                .with_failure_rate(failure_rate)
+                .with_duration(duration),
+        )
     }
 }
 
@@ -138,5 +204,35 @@ impl OrderedStore<TestTask> for OrderedTestStore {
 
     async fn delete_retry_task(&self, task_id: &u64) -> Result<(), TypedStoreError> {
         self.remove(task_id).await
+    }
+}
+
+pub struct TestExecutor {
+    executed: Arc<AtomicU64>,
+}
+
+impl TestExecutor {
+    pub fn new() -> Self {
+        Self {
+            executed: Arc::new(AtomicU64::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl TaskExecutor<TestTask> for TestExecutor {
+    async fn execute(&self, task: TestTask) -> Result<()> {
+        let random_number = rand::thread_rng().gen_range(0..100);
+        if random_number < task.failure_rate {
+            return Err(anyhow::anyhow!("Task failed"));
+        }
+
+        tokio::time::sleep(task.duration).await;
+
+        let count = self.executed.fetch_add(1, Ordering::SeqCst) + 1;
+
+        tracing::info!("Executed task #{}: id={}", count, task.task_id());
+
+        Ok(())
     }
 }

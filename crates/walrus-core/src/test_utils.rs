@@ -29,6 +29,7 @@ use crate::{
     encoding::{
         self,
         EncodingConfig,
+        EncodingConfigEnum,
         EncodingFactory as _,
         Primary,
         PrimaryRecoverySymbol,
@@ -36,7 +37,7 @@ use crate::{
         QuiltError,
         RequiredCount,
         SecondarySliver,
-        quilt_encoding::QuiltStoreBlob,
+        quilt_encoding::{QuiltApi, QuiltConfigApi, QuiltEncoderApi, QuiltStoreBlob, QuiltVersion},
     },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
@@ -89,6 +90,22 @@ impl<'a> QuiltTestData<'a> {
     /// Returns the quilt store blobs and clears the internal vector.
     pub fn take_blobs(&mut self) -> Vec<QuiltStoreBlob<'a>> {
         core::mem::take(&mut self.quilt_store_blobs)
+    }
+
+    /// Constructs a quilt from the quilt store blobs.
+    pub fn construct_quilt<V: QuiltVersion>(
+        &self,
+        encoding_config: EncodingConfigEnum<'_>,
+    ) -> Result<(V::Quilt, BlobId), QuiltError> {
+        let quilt_encoder =
+            V::QuiltConfig::get_encoder(encoding_config.clone(), &self.quilt_store_blobs);
+        let quilt = quilt_encoder.construct_quilt()?;
+        let blob_id = *encoding_config
+            .compute_metadata(quilt.data())
+            .expect("Failed to compute blob metadata")
+            .blob_id();
+
+        Ok((quilt, blob_id))
     }
 
     fn from_quilt_store_blobs(

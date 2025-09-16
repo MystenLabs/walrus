@@ -298,14 +298,17 @@ mod tests {
 
             indexer
                 .storage
-                .apply_index_mutations(vec![walrus_sui::types::IndexMutationSet {
-                    bucket_id: bucket1_id,
-                    mutations: mutations_bucket1,
-                    event_id: sui_types::event::EventID {
-                        tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
-                        event_seq: 0,
-                    },
-                }])
+                .apply_index_mutations(
+                    vec![walrus_sui::types::IndexMutationSet {
+                        bucket_id: bucket1_id,
+                        mutations: mutations_bucket1,
+                        event_id: sui_types::event::EventID {
+                            tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                            event_seq: 0,
+                        },
+                    }],
+                    0,
+                )
                 .map_err(|e| anyhow::anyhow!("Failed to add photo entries: {}", e))?;
 
             // Add documents to bucket 2.
@@ -323,14 +326,17 @@ mod tests {
 
             indexer
                 .storage
-                .apply_index_mutations(vec![walrus_sui::types::IndexMutationSet {
-                    bucket_id: bucket2_id,
-                    mutations: mutations_bucket2,
-                    event_id: sui_types::event::EventID {
-                        tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
-                        event_seq: 0,
-                    },
-                }])
+                .apply_index_mutations(
+                    vec![walrus_sui::types::IndexMutationSet {
+                        bucket_id: bucket2_id,
+                        mutations: mutations_bucket2,
+                        event_id: sui_types::event::EventID {
+                            tx_digest: sui_types::base_types::TransactionDigest::new([0; 32]),
+                            event_seq: 0,
+                        },
+                    }],
+                    1,
+                )
                 .map_err(|e| anyhow::anyhow!("Failed to add document entries: {}", e))?;
 
             // Verify bucket 1 stats.
@@ -501,7 +507,9 @@ mod tests {
             event_id: event_id_for_testing(),
         };
 
-        indexer.storage.apply_index_mutations(vec![mutation_set])?;
+        indexer
+            .storage
+            .apply_index_mutations(vec![mutation_set], 0)?;
 
         // Verify the patches can be found in the primary index
         let patch1_entry = indexer

@@ -37,6 +37,12 @@ use crate::{
 };
 
 /// Unique identifier for quilt index tasks.
+///
+/// Note: This struct is used as a key in RocksDB via DBMap which uses BCS serialization.
+/// BCS uses little-endian encoding for u64, which doesn't preserve perfect numeric ordering
+/// across all ranges (e.g., 256 would sort before 10 in bytes). However, for practical
+/// sequence number ranges this works adequately. If perfect ordering is critical,
+/// consider using a custom key type with big-endian encoding.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuiltIndexTaskId {
     pub sequence: u64,
@@ -46,6 +52,34 @@ pub struct QuiltIndexTaskId {
 impl QuiltIndexTaskId {
     pub fn new(sequence: u64, quilt_id: BlobId) -> Self {
         Self { sequence, quilt_id }
+    }
+
+    /// Convert to bytes for use as RocksDB key.
+    /// Format: sequence (8 bytes BE) + quilt_id (32 bytes)
+    /// Uses big-endian for sequence to preserve numeric ordering.
+    pub fn to_key(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(41);
+        bytes.extend_from_slice(&self.sequence.to_be_bytes());
+        bytes.push(b'/');
+        bytes.extend_from_slice(&self.quilt_id.0);
+        bytes
+    }
+
+    /// Reconstruct from bytes created by to_key_bytes.
+    pub fn from_key(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() != 41 {
+            return Err(format!(
+                "Invalid key bytes length: expected 41, got {}",
+                bytes.len()
+            ));
+        }
+
+        let sequence = u64::from_be_bytes(bytes[0..8].try_into().unwrap());
+        let mut quilt_id_bytes = [0u8; 32];
+        quilt_id_bytes.copy_from_slice(&bytes[9..41]);
+        let quilt_id = BlobId(quilt_id_bytes);
+
+        Ok(Self { sequence, quilt_id })
     }
 }
 
@@ -57,7 +91,8 @@ pub struct QuiltIndexTask {
     pub object_id: ObjectID,
     pub bucket_id: ObjectID,
     pub identifier: String,
-    pub event_index: u64,
+    pub retry: bool,
+    pub retry_count: usize,
 }
 
 impl QuiltIndexTask {
@@ -67,7 +102,7 @@ impl QuiltIndexTask {
         object_id: ObjectID,
         bucket_id: ObjectID,
         identifier: String,
-        event_index: u64,
+        retry: bool,
     ) -> Self {
         Self {
             sequence_number,
@@ -75,16 +110,16 @@ impl QuiltIndexTask {
             object_id,
             bucket_id,
             identifier,
-            event_index,
+            retry,
+            retry_count: 0,
         }
     }
 
-    /// Create a QuiltIndexTask from an IndexMutation::Insert and event index.
+    /// Create a QuiltIndexTask from an IndexMutation::Insert and sequence number.
     /// This is used when processing quilt index events to create async tasks.
     pub fn from_quilt_insert(
         insert: &walrus_sui::types::IndexMutation,
         bucket_id: &ObjectID,
-        event_index: u64,
         sequence_number: u64,
     ) -> Option<Self> {
         match insert {
@@ -99,7 +134,7 @@ impl QuiltIndexTask {
                 *object_id,
                 *bucket_id,
                 identifier.clone(),
-                event_index,
+                false,
             )),
             _ => None,
         }
@@ -114,20 +149,9 @@ impl AsyncTask for QuiltIndexTask {
     }
 }
 
-/// Wrapper for retry tasks that includes retry count.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryQuiltIndexTask {
-    pub inner: QuiltIndexTask,
-    pub retry_count: usize,
-}
-
-impl AsyncTask for RetryQuiltIndexTask {
-    type TaskId = QuiltIndexTaskId;
-
-    fn task_id(&self) -> Self::TaskId {
-        self.inner.task_id()
-    }
-}
+// RetryQuiltIndexTask is now just an alias for QuiltIndexTask
+// since we use the same task type for both pending and retry queues
+pub type RetryQuiltIndexTask = QuiltIndexTask;
 
 #[derive(Debug)]
 struct QuiltTaskExecutorConfig {
@@ -261,12 +285,12 @@ impl RetryTaskExecutor {
 }
 
 #[async_trait]
-impl TaskExecutor<RetryQuiltIndexTask> for RetryTaskExecutor {
-    async fn execute(&self, mut task: RetryQuiltIndexTask) -> Result<()> {
+impl TaskExecutor<QuiltIndexTask> for RetryTaskExecutor {
+    async fn execute(&self, mut task: QuiltIndexTask) -> Result<()> {
         tracing::info!(
             "Retrying quilt index task: sequence={}, quilt_id={}, retry_count={}",
-            task.inner.sequence_number,
-            task.inner.quilt_blob_id,
+            task.sequence_number,
+            task.quilt_blob_id,
             task.retry_count
         );
 
@@ -285,14 +309,14 @@ impl TaskExecutor<RetryQuiltIndexTask> for RetryTaskExecutor {
         task.retry_count += 1;
 
         // Try to fetch and process the quilt patch.
-        match self.fetch_quilt_patch(task.inner.quilt_blob_id).await {
+        match self.fetch_quilt_patch(task.quilt_blob_id).await {
             Ok(quilt_index) => {
                 tracing::info!(
                     "Successfully fetched quilt index on retry: {:?}",
                     quilt_index
                 );
                 self.storage
-                    .populate_quilt_patch_index(&task.inner, &quilt_index)
+                    .populate_quilt_patch_index(&task, &quilt_index)
                     .map_err(|e| anyhow::anyhow!("Failed to populate quilt patch index: {}", e))?;
 
                 // Status is updated to Completed within populate_quilt_patch_index
@@ -357,7 +381,7 @@ pub type QuiltTaskManager = crate::async_task_manager::AsyncTaskManager<
 
 /// Alias for the retry task manager using the async task manager.
 pub type RetryTaskManager = crate::async_task_manager::AsyncTaskManager<
-    RetryQuiltIndexTask,
+    QuiltIndexTask,
     WalrusIndexStore,
     RetryTaskExecutor,
 >;
@@ -384,9 +408,6 @@ pub struct WalrusIndexer {
 
     /// Async task manager for retry processing.
     retry_task_manager: Arc<RwLock<Option<Arc<RetryTaskManager>>>>,
-
-    /// Sequence counter for generating task IDs.
-    task_sequence_counter: Arc<std::sync::atomic::AtomicU64>,
 
     /// Test-only counter for tracking total events processed.
     pub(crate) event_counter: Arc<std::sync::atomic::AtomicU64>,
@@ -444,7 +465,6 @@ impl WalrusIndexer {
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             quilt_task_manager: Arc::new(RwLock::new(None)), // Will be set in run() method
             retry_task_manager: Arc::new(RwLock::new(None)), // Will be set in run() method
-            task_sequence_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             event_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         });
 
@@ -507,15 +527,18 @@ impl WalrusIndexer {
         bucket_id: &ObjectID,
         identifier: &str,
     ) -> Result<Option<BlobIdentity>> {
-        match self
+        let entries = self
             .storage
             .get_by_bucket_identifier(bucket_id, identifier)
-            .map_err(|e| anyhow::anyhow!("Failed to get blob by bucket identifier: {}", e))?
-        {
-            Some(crate::storage::IndexTarget::Blob(blob_identity)) => Ok(Some(blob_identity)),
-            Some(_) => Ok(None), // Other variants are not BlobIdentity
-            None => Ok(None),
+            .map_err(|e| anyhow::anyhow!("Failed to get blob by bucket identifier: {}", e))?;
+
+        // Return the first blob identity found (most recent sequence_number)
+        for entry in entries {
+            if let crate::storage::IndexTarget::Blob(blob_identity) = entry {
+                return Ok(Some(blob_identity));
+            }
         }
+        Ok(None)
     }
 
     /// Get index target from a bucket by bucket_id and identifier.
@@ -525,9 +548,15 @@ impl WalrusIndexer {
         bucket_id: &ObjectID,
         identifier: &str,
     ) -> Result<Option<crate::storage::IndexTarget>> {
-        self.storage
+        let entries = self
+            .storage
             .get_by_bucket_identifier(bucket_id, identifier)
-            .map_err(|e| anyhow::anyhow!("Failed to get index target by bucket identifier: {}", e))
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to get index target by bucket identifier: {}", e)
+            })?;
+
+        // Return the first entry found (most recent sequence_number)
+        Ok(entries.into_iter().next())
     }
 
     /// Get index entry by object_id (implements read_blob_by_object_id from PDF).
@@ -551,7 +580,7 @@ impl WalrusIndexer {
         bucket_id: &ObjectID,
     ) -> Result<HashMap<String, IndexTarget>> {
         self.storage
-            .list_blobs_in_bucket_entries(bucket_id)
+            .list_blobs_in_bucket(bucket_id)
             .map_err(|e| anyhow::anyhow!("Failed to list bucket entries: {}", e))
     }
 
@@ -659,13 +688,13 @@ impl WalrusIndexer {
     }
 
     async fn process_events(&self, event_processor: Arc<EventProcessor>) -> Result<()> {
-        // Get the event cursor for resumption
-        let event_cursor = self.get_indexer_event_cursor().await?;
-        tracing::info!(?event_cursor, "[stream_events] starting");
+        // Get the sequence number for resumption
+        let sequence_cursor = self.get_indexer_sequence().await?;
+        tracing::info!(?sequence_cursor, "[stream_events] starting");
 
         // Get event stream from the event processor.
-        let event_stream = std::pin::Pin::from(event_processor.events(event_cursor).await?);
-        let next_event_index = event_cursor.element_index;
+        let event_stream = std::pin::Pin::from(event_processor.events(sequence_cursor).await?);
+        let next_event_index = sequence_cursor.element_index;
         let index_stream = futures::stream::iter(next_event_index..);
         let mut indexed_element_stream = index_stream.zip(event_stream);
 
@@ -674,8 +703,8 @@ impl WalrusIndexer {
         {
             match &positioned_stream_event.element {
                 EventStreamElement::ContractEvent(contract_event) => {
-                    // Process the contract event and update storage with cursor atomically
-                    self.process_event_with_cursor(contract_event.clone(), element_index)
+                    // Process the contract event and update storage with sequence number atomically
+                    self.process_event_with_sequence(contract_event.clone(), element_index)
                         .await?;
 
                     tracing::debug!(element_index, "Processed indexer event");
@@ -690,16 +719,20 @@ impl WalrusIndexer {
         anyhow::bail!("event stream for indexer stopped")
     }
 
-    /// Process a contract event from Sui with atomic cursor update.
-    pub async fn process_event_with_cursor(&self, event: ContractEvent, cursor: u64) -> Result<()> {
+    /// Process a contract event from Sui with atomic sequence number update.
+    pub async fn process_event_with_sequence(
+        &self,
+        event: ContractEvent,
+        sequence_number: u64,
+    ) -> Result<()> {
         tracing::info!(
             ?event,
-            cursor,
-            "Processing contract event in indexer with cursor"
+            sequence_number,
+            "Processing contract event in indexer with sequence number"
         );
         match event {
             ContractEvent::IndexEvent(index_event) => {
-                self.process_index_event_with_cursor(index_event, cursor)
+                self.process_index_event_with_sequence(index_event, sequence_number)
                     .await?;
             }
             _ => {
@@ -709,11 +742,11 @@ impl WalrusIndexer {
         Ok(())
     }
 
-    /// Process an index event from Sui with atomic cursor update.
-    pub async fn process_index_event_with_cursor(
+    /// Process an index event from Sui with atomic sequence number update.
+    pub async fn process_index_event_with_sequence(
         &self,
         index_event: IndexEvent,
-        cursor: u64,
+        sequence_number: u64,
     ) -> Result<()> {
         match index_event {
             IndexEvent::BlobIndexOperation(mutation_set) => {
@@ -729,9 +762,7 @@ impl WalrusIndexer {
                             if let Some(task) = QuiltIndexTask::from_quilt_insert(
                                 mutation,
                                 &mutation_set.bucket_id,
-                                cursor,
-                                self.task_sequence_counter
-                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+                                sequence_number,
                             ) {
                                 quilt_tasks.push(task);
                             }
@@ -755,10 +786,8 @@ impl WalrusIndexer {
                         mutations: non_quilt_mutations,
                         event_id: mutation_set.event_id,
                     };
-                    self.storage.apply_index_mutations_with_cursor(
-                        vec![non_quilt_mutation_set],
-                        Some(cursor),
-                    )?;
+                    self.storage
+                        .apply_index_mutations(vec![non_quilt_mutation_set], sequence_number)?;
                 }
 
                 // Submit quilt processing tasks to the async task manager
@@ -766,11 +795,11 @@ impl WalrusIndexer {
                     self.submit_quilt_tasks(quilt_tasks).await?;
                 }
 
-                // Update cursor even if no mutations were processed
+                // Update sequence number even if no mutations were processed
                 if !has_non_quilt_mutations && !has_quilt_tasks {
                     self.storage
-                        .set_last_processed_event_index(cursor)
-                        .map_err(|e| anyhow::anyhow!("Failed to update event cursor: {}", e))?;
+                        .set_last_processed_sequence_number(sequence_number)
+                        .map_err(|e| anyhow::anyhow!("Failed to update sequence number: {}", e))?;
                 }
 
                 // Increment test counter
@@ -782,16 +811,16 @@ impl WalrusIndexer {
         Ok(())
     }
 
-    /// Get the event cursor for resumption, similar to backup orchestrator's
+    /// Get the sequence number for resumption, similar to backup orchestrator's
     /// get_backup_node_cursor.
-    async fn get_indexer_event_cursor(
+    async fn get_indexer_sequence(
         &self,
     ) -> Result<walrus_service::event::events::EventStreamCursor> {
         use walrus_service::event::events::EventStreamCursor;
 
         if let Some(last_processed_index) = self
             .storage
-            .get_last_processed_event_index()
+            .get_last_processed_sequence_number()
             .map_err(|e| anyhow::anyhow!("Failed to get last processed index: {}", e))?
         {
             // Resume from the next event after the last processed one
@@ -810,10 +839,9 @@ impl WalrusIndexer {
                 task_manager.submit(task.clone()).await?;
 
                 tracing::debug!(
-                    "Submitted quilt processing task for blob_id={}, sequence={}, event_index={}",
+                    "Submitted quilt processing task for blob_id={}, sequence_number={}",
                     task.quilt_blob_id,
-                    task.sequence_number,
-                    task.event_index
+                    task.sequence_number
                 );
             }
         } else {

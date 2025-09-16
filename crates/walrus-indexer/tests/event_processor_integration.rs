@@ -254,17 +254,37 @@ async fn store_quilt(
         _ => panic!("Unexpected BlobStoreResult variant for quilt"),
     };
 
+    // Build the patch mappings and collect patches for the Completed status.
+    let mut patch_blob_mapping = HashMap::new();
+    let mut patches_for_completed = Vec::new();
+
+    for stored_patch in &quilt_store_result.stored_quilt_blobs {
+        // Create the Patch for the Completed status
+        let patch_id =
+            QuiltPatchId::from_str(&stored_patch.quilt_patch_id).expect("Valid patch ID");
+
+        // Extract the internal ID from the QuiltPatchId.
+        // The QuiltPatchId contains the quilt_blob_id and patch_id_bytes.
+        let internal_id = patch_id.patch_id_bytes;
+
+        let patch = walrus_indexer::storage::Patch {
+            identifier: stored_patch.identifier.clone(),
+            quilt_patch_internal_id: internal_id,
+            patch_blob_id: stored_patch.patch_blob_id,
+        };
+        patches_for_completed.push(patch);
+    }
+
     primary_index_mapping.insert(
         quilt_primary_index,
         IndexTarget::Blob(walrus_indexer::storage::BlobIdentity {
             blob_id: quilt_blob_id,
             object_id: quilt_object_id,
-            quilt_status: walrus_indexer::storage::QuiltTaskStatus::Completed,
+            quilt_status: walrus_indexer::storage::QuiltTaskStatus::Completed(
+                patches_for_completed,
+            ),
         }),
     );
-
-    // Build the patch mappings.
-    let mut patch_blob_mapping = HashMap::new();
 
     for stored_patch in &quilt_store_result.stored_quilt_blobs {
         // Add to primary index mapping.
@@ -349,24 +369,22 @@ async fn verify_quilt_patch_mappings(
     patch_blob_mapping: &std::collections::HashMap<walrus_core::BlobId, walrus_core::QuiltPatchId>,
 ) -> Result<()> {
     for (patch_blob_id, expected_patch_id) in patch_blob_mapping {
-        let found_patch_id = indexer
+        let found_patch_ids = indexer
             .storage
             .get_quilt_patch_id_by_blob_id(patch_blob_id)?;
 
-        match found_patch_id {
-            Some(found) => {
-                assert_eq!(
-                    found, *expected_patch_id,
-                    "Patch ID mismatch for blob_id {:?}",
-                    patch_blob_id
-                );
-            }
-            None => {
-                return Err(anyhow::anyhow!(
-                    "Expected to find quilt patch for blob_id {:?}",
-                    patch_blob_id
-                ));
-            }
+        if !found_patch_ids.is_empty() {
+            let found = &found_patch_ids[0];
+            assert_eq!(
+                found, expected_patch_id,
+                "Patch ID mismatch for blob_id {:?}",
+                patch_blob_id
+            );
+        } else {
+            return Err(anyhow::anyhow!(
+                "Expected to find quilt patch for blob_id {:?}",
+                patch_blob_id
+            ));
         }
     }
 
