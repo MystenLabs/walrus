@@ -21,7 +21,7 @@ use sui_types::base_types::ObjectID;
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBBatch, DBMap, MetricConf},
+    rocks::{DBMap, MetricConf},
 };
 use walrus_core::{
     BlobId,
@@ -42,38 +42,7 @@ const CF_NAME_SEQUENCE_STORE: &str = "walrus_sequence_store";
 const CF_NAME_QUILT_PATCH_INDEX: &str = "walrus_quilt_patch";
 const CF_NAME_PENDING_QUILT_INDEX_TASKS: &str = "walrus_pending_quilt_index_tasks";
 const CF_NAME_RETRY_QUILT_INDEX_TASKS: &str = "walrus_retry_quilt_index_tasks";
-
-/// Key structure for sequence number storage.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SequenceNumberKey {}
-
-impl SequenceNumberKey {
-    const SEQUENCE_KEY: &str = "";
-
-    fn last_processed_sequence() -> Self {
-        SequenceNumberKey {}
-    }
-
-    /// Convert to optimized byte representation for RocksDB key.
-    /// Since this is a singleton key, we use a fixed byte sequence.
-    fn to_key(&self) -> Vec<u8> {
-        // Use a fixed key for the sequence number storage
-        b"sequence".to_vec()
-    }
-
-    /// Convert byte key to hex string for use with _with_raw_string methods
-    fn to_hex_key(&self) -> String {
-        hex::encode(self.to_key())
-    }
-
-    /// Parse from byte representation.
-    fn from_key(bytes: &[u8]) -> Result<Self> {
-        if bytes != b"sequence" {
-            return Err(anyhow::anyhow!("Invalid sequence key"));
-        }
-        Ok(SequenceNumberKey {})
-    }
-}
+const SEQUENCE_KEY: &[u8] = b"sequence";
 
 /// Key structure for primary index: bucket_id/identifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,11 +82,6 @@ impl PrimaryIndexKey {
         bytes.extend_from_slice(&self.sequence_number.to_be_bytes());
 
         bytes
-    }
-
-    /// Convert byte key to hex string for use with _with_raw_string methods
-    fn to_hex_key(&self) -> String {
-        hex::encode(self.to_key())
     }
 
     /// Parse from byte representation.
@@ -219,6 +183,12 @@ impl ToString for ObjectIndexKey {
 struct QuiltPatchIndexKey {
     patch_blob_id: BlobId,
     object_id: ObjectID,
+}
+
+impl ToString for QuiltPatchIndexKey {
+    fn to_string(&self) -> String {
+        self.patch_blob_id.to_string() + "/" + &self.object_id.to_string()
+    }
 }
 
 impl QuiltPatchIndexKey {
@@ -564,10 +534,9 @@ impl WalrusIndexStore {
         }
 
         // Add sequence number update to the same transaction if provided.
-        let seq_key = SequenceNumberKey::last_processed_sequence().to_key();
         let seq_value = bcs::to_bytes(&sequence_number)
             .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(&self.sequence_store.cf()?, seq_key, &seq_value)
+        txn.put_cf(&self.sequence_store.cf()?, SEQUENCE_KEY, &seq_value)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
         // Commit all mutations and sequence number update atomically in a single write.
@@ -1011,68 +980,100 @@ impl WalrusIndexStore {
     }
 
     /// Delete all entries in a bucket.
-    //
-    // TODO(heliu): This doesn't handle quilt patches.
     pub fn delete_bucket(&self, bucket_id: &ObjectID) -> Result<(), TypedStoreError> {
-        // With the new key format bucket_id/identifier/sequence_number, this prefix still works
-        let mut batch = self.primary_index.batch();
+        // Use transaction for atomic deletion of all bucket entries
+        let optimistic_db = self.db.as_optimistic().ok_or_else(|| {
+            TypedStoreError::RocksDBError("Database is not optimistic transaction DB".to_string())
+        })?;
+        let txn = optimistic_db.transaction();
 
         // Use bucket bounds for efficient scanning
         let (lower_bound, upper_bound) = get_bucket_bounds(bucket_id);
 
-        // Delete from both indices.
+        // Collect all keys to delete
+        let mut keys_to_delete = Vec::new();
         for entry in self
             .primary_index
             .iter_with_bytes::<IndexTarget>(Some(&lower_bound), Some(&upper_bound))?
         {
-            let (key, _value) = entry?;
-            // Delete from both indices.
-            // Convert key back to string for apply_delete_by_key
-            self.apply_delete_by_key(&mut batch, String::from_utf8_lossy(&key).to_string())?;
+            let (key, _) = entry?;
+            keys_to_delete.push(key);
         }
 
-        batch.write()
+        // Delete each entry using the transaction
+        for key in keys_to_delete {
+            self.apply_delete_by_key(&txn, &key)?;
+        }
+
+        txn.commit()
+            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
     }
 
     /// Apply a delete operation to both indices using the primary key.
     /// For quilts with Completed status, also deletes all associated patch entries.
     fn apply_delete_by_key(
         &self,
-        batch: &mut DBBatch,
-        primary_key: String,
+        txn: &Transaction<'_, OptimisticTransactionDB>,
+        primary_key: &[u8],
     ) -> Result<(), TypedStoreError> {
-        // Look up the primary value to get the object_id and handle patches.
-        if let Some(index_target) = self.primary_index.get_with_bytes(primary_key.as_bytes())? {
+        // Get column families
+        let primary_cf = self
+            .primary_index
+            .cf()
+            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+        let object_cf = self
+            .object_index
+            .cf()
+            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+
+        // Look up the primary value to get the object_id and handle patches
+        let primary_value_bytes = txn
+            .get_for_update_cf(&primary_cf, primary_key, true)
+            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+
+        if let Some(value_bytes) = primary_value_bytes {
+            let index_target: IndexTarget = bcs::from_bytes(&value_bytes)
+                .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
+
             match &index_target {
                 IndexTarget::Blob(blob_identity) => {
                     // Handle different quilt statuses
                     match &blob_identity.quilt_status {
                         QuiltTaskStatus::InRetryQueue(task_id) => {
-                            // Clean up the retry task.
-                            batch.delete_batch(&self.retry_quilt_index_tasks, [task_id.clone()])?;
+                            // Clean up the retry task
+                            let task_id_bytes = task_id.to_key();
+                            let retry_cf = self
+                                .retry_quilt_index_tasks
+                                .cf()
+                                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+                            txn.delete_cf(&retry_cf, &task_id_bytes)
+                                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                         }
                         QuiltTaskStatus::Running(task_id) => {
-                            // Clean up the pending task.
-                            batch
-                                .delete_batch(&self.pending_quilt_index_tasks, [task_id.clone()])?;
+                            // Clean up the pending task
+                            let task_id_bytes = task_id.to_key();
+                            let pending_cf = self
+                                .pending_quilt_index_tasks
+                                .cf()
+                                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+                            txn.delete_cf(&pending_cf, &task_id_bytes)
+                                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                         }
                         QuiltTaskStatus::Completed(patches) => {
                             // Delete all patch entries from both indices
                             for patch in patches {
                                 // Parse the primary key to get bucket_id and sequence_number
-                                if let Ok(parsed_key) =
-                                    PrimaryIndexKey::from_key(primary_key.as_bytes())
-                                {
+                                if let Ok(parsed_key) = PrimaryIndexKey::from_key(primary_key) {
                                     // Delete patch from primary index
                                     let patch_primary_key = PrimaryIndexKey::new(
                                         parsed_key.bucket_id,
                                         patch.identifier.clone(),
                                         parsed_key.sequence_number,
                                     );
-                                    batch.delete_batch_with_bytes(
-                                        &self.primary_index,
-                                        [patch_primary_key.to_key()],
-                                    )?;
+                                    txn.delete_cf(&primary_cf, patch_primary_key.to_key())
+                                        .map_err(|e| {
+                                            TypedStoreError::RocksDBError(e.to_string())
+                                        })?;
 
                                     // Delete from quilt patch index if patch_blob_id exists
                                     if let Some(patch_blob_id) = patch.patch_blob_id {
@@ -1080,10 +1081,14 @@ impl WalrusIndexStore {
                                             patch_blob_id,
                                             blob_identity.object_id,
                                         );
-                                        batch.delete_batch_with_bytes(
-                                            &self.quilt_patch_index,
-                                            [quilt_patch_key.to_key()],
-                                        )?;
+                                        let quilt_patch_cf =
+                                            self.quilt_patch_index.cf().map_err(|e| {
+                                                TypedStoreError::RocksDBError(e.to_string())
+                                            })?;
+                                        txn.delete_cf(&quilt_patch_cf, quilt_patch_key.to_key())
+                                            .map_err(|e| {
+                                                TypedStoreError::RocksDBError(e.to_string())
+                                            })?;
                                     }
                                 }
                             }
@@ -1094,12 +1099,12 @@ impl WalrusIndexStore {
                     }
 
                     // Delete the main entry from both indices
+                    txn.delete_cf(&primary_cf, primary_key)
+                        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+
                     let object_key = ObjectIndexKey::new(blob_identity.object_id);
-                    batch.delete_batch_with_bytes(
-                        &self.primary_index,
-                        [primary_key.as_bytes().to_vec()],
-                    )?;
-                    batch.delete_batch_with_bytes(&self.object_index, [object_key.to_key()])?;
+                    txn.delete_cf(&object_cf, object_key.to_key())
+                        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                 }
                 IndexTarget::QuiltPatchId(_) => {
                     // Individual patch entries are deleted when their parent quilt is deleted
@@ -1108,17 +1113,16 @@ impl WalrusIndexStore {
                 }
                 IndexTarget::QuiltId(quilt_id) => {
                     // Legacy quilt ID handling
+                    txn.delete_cf(&primary_cf, primary_key)
+                        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+
                     let object_key = ObjectIndexKey::new(*quilt_id);
-                    batch.delete_batch_with_bytes(
-                        &self.primary_index,
-                        [primary_key.as_bytes().to_vec()],
-                    )?;
-                    batch.delete_batch_with_bytes(&self.object_index, [object_key.to_key()])?;
+                    txn.delete_cf(&object_cf, object_key.to_key())
+                        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                 }
             }
         }
 
-        // If the primary key doesn't exist, it's already deleted - no error.
         Ok(())
     }
 
@@ -1400,16 +1404,13 @@ impl WalrusIndexStore {
     /// Get the last processed sequence number from storage.
     /// Returns None if no event has been processed yet.
     pub fn get_last_processed_sequence_number(&self) -> Result<Option<u64>, TypedStoreError> {
-        self.sequence_store
-            .get_with_bytes(&SequenceNumberKey::last_processed_sequence().to_key())
+        self.sequence_store.get_with_bytes(SEQUENCE_KEY)
     }
 
     /// Set the last processed sequence number in storage.
     pub fn set_last_processed_sequence_number(&self, sequence: u64) -> Result<(), TypedStoreError> {
-        self.sequence_store.insert_with_bytes(
-            &SequenceNumberKey::last_processed_sequence().to_key(),
-            &sequence,
-        )
+        self.sequence_store
+            .insert_with_bytes(SEQUENCE_KEY, &sequence)
     }
 
     /// Get all entries from the quilt patch index.
@@ -1418,9 +1419,17 @@ impl WalrusIndexStore {
         &self,
     ) -> Result<Vec<(String, QuiltPatchId)>, TypedStoreError> {
         let mut entries = Vec::new();
-        for entry in self.quilt_patch_index.safe_iter()? {
+        for entry in self
+            .quilt_patch_index
+            .iter_with_bytes::<QuiltPatchId>(None, None)?
+        {
             let (key, value) = entry?;
-            entries.push((key, value));
+            entries.push((
+                QuiltPatchIndexKey::from_key(&key)
+                    .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?
+                    .to_string(),
+                value,
+            ));
         }
         Ok(entries)
     }
@@ -1431,9 +1440,16 @@ impl WalrusIndexStore {
         &self,
     ) -> Result<Vec<(QuiltIndexTaskId, QuiltIndexTaskValue)>, TypedStoreError> {
         let mut entries = Vec::new();
-        for entry in self.pending_quilt_index_tasks.safe_iter()? {
+        for entry in self
+            .pending_quilt_index_tasks
+            .iter_with_bytes::<QuiltIndexTaskValue>(None, None)?
+        {
             let (key, value) = entry?;
-            entries.push((key, value));
+            entries.push((
+                QuiltIndexTaskId::from_key(&key)
+                    .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?,
+                value,
+            ));
         }
         Ok(entries)
     }
@@ -1581,11 +1597,10 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
         )
         .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
-        // Update sequence number
-        let sequence_key = SequenceNumberKey::last_processed_sequence().to_key();
+        // Update sequence number.
         let sequence_value = bcs::to_bytes(&task.sequence_number)
             .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(&self.sequence_store.cf()?, &sequence_key, &sequence_value)
+        txn.put_cf(&self.sequence_store.cf()?, SEQUENCE_KEY, &sequence_value)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
         // Commit the transaction

@@ -455,6 +455,7 @@ where
         self.shutdown_token.cancel();
 
         let _ = self.active_task_handle.lock().await.take();
+        let _ = self.retry_task_handle.lock().await.take();
     }
 
     /// Get queue statistics.
