@@ -114,6 +114,7 @@ use crate::{
             success,
             warning,
         },
+        daemon::publisher_lock::PublisherLock,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -1091,7 +1092,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
         sort: SortBy<HealthSortBy>,
-        concurrent_requests: usize,
+        concurrent_requests: u32,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
@@ -1173,6 +1174,12 @@ impl ClientCommandRunner {
         args: PublisherArgs,
     ) -> Result<ClientDaemon<ClientMultiplexer>> {
         args.print_debug_message("attempting to run the Walrus publisher");
+
+        // Acquire publisher lock to ensure only one instance runs at a time
+        let _publisher_lock = PublisherLock::try_acquire(args.daemon_args.bind_address).context(
+            "Failed to acquire publisher lock. Another publisher instance may already be running.",
+        )?;
+
         let client = ClientMultiplexer::new(
             self.wallet?,
             &self.config?,
