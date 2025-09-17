@@ -461,10 +461,11 @@ impl Storage {
     pub async fn list_shard_status(&self) -> HashMap<ShardIndex, Option<ShardStatus>> {
         let shards = self.shards.read().await;
 
-        shards
-            .iter()
-            .map(|(shard, storage)| (*shard, storage.status().ok()))
-            .collect()
+        let mut result = HashMap::new();
+        for (shard, storage) in shards.iter() {
+            result.insert(*shard, storage.status().await.ok());
+        }
+        result
     }
 
     /// Store the verified metadata without updating blob info. This is only
@@ -820,17 +821,18 @@ impl Storage {
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
-        self.shards
-            .read()
-            .await
-            .values()
-            .filter_map(|shard_storage| {
-                shard_storage
-                    .status()
-                    .is_ok_and(|status| status.is_owned_by_node())
-                    .then_some(shard_storage.id())
-            })
-            .collect::<Vec<_>>()
+        let shards = self.shards.read().await;
+        let mut result = Vec::new();
+
+        for shard_storage in shards.values() {
+            if let Ok(status) = shard_storage.status().await {
+                if status.is_owned_by_node() {
+                    result.push(shard_storage.id());
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -1261,6 +1263,7 @@ pub(crate) mod tests {
                 .await
                 .expect("shard should be created")
                 .lock_shard_for_epoch_change()
+                .await
                 .expect("shard should be sealed");
         }
         Ok(storage.temp_dir)
@@ -1331,6 +1334,7 @@ pub(crate) mod tests {
                     .await
                     .expect("shard should exist")
                     .status()
+                    .await
                     .expect("status should be present"),
                 ShardStatus::LockedToMove
             );
@@ -1341,6 +1345,7 @@ pub(crate) mod tests {
                     .await
                     .expect("shard should exist")
                     .status()
+                    .await
                     .expect("status should be present"),
                 ShardStatus::None
             );

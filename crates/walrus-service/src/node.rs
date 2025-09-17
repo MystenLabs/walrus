@@ -1672,7 +1672,7 @@ impl StorageNode {
             .blob_retirement_notifier
             .epoch_change_notify_all_pending_blob_retirement(self.inner.clone())?;
 
-        if event.epoch < self.inner.current_epoch() {
+        if event.epoch < self.inner.current_committee_epoch() {
             // We have not caught up to the latest epoch yet, so we can skip the event.
             event_handle.mark_as_complete();
             return Ok(());
@@ -1832,7 +1832,8 @@ impl StorageNode {
                 .shard_storage(shard)
                 .await
                 .expect("we just create all storage, it must exist")
-                .set_active_status()?;
+                .set_active_status()
+                .await?;
         }
 
         // For shards that just moved out, we need to lock them to not store more data in them.
@@ -1840,6 +1841,7 @@ impl StorageNode {
             if let Some(shard_storage) = self.inner.storage.shard_storage(*shard).await {
                 shard_storage
                     .lock_shard_for_epoch_change()
+                    .await
                     .context("failed to lock shard")?;
             }
         }
@@ -1954,6 +1956,11 @@ impl StorageNode {
         let shard_diff_calculator =
             ShardDiffCalculator::new(&committees, public_key, shard_map_lock.existing_shards());
 
+        if cfg!(msim) {
+            // In simtest, print out the shard migration information for easier debugging.
+            tracing::info!("EpochChangeStart shard diffs: {:?}", shard_diff_calculator);
+        }
+
         let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
         self.create_new_shards_and_start_sync(
             shard_map_lock,
@@ -1971,6 +1978,7 @@ impl StorageNode {
             tracing::info!(walrus.shard_index = %shard_id, "locking shard for epoch change");
             shard_storage
                 .lock_shard_for_epoch_change()
+                .await
                 .context("failed to lock shard")?;
         }
 
@@ -2268,18 +2276,16 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> anyhow::Result<bool> {
-        let shards = self
-            .storage
-            .existing_shard_storages()
-            .await
-            .iter()
-            .filter_map(|shard_storage| {
-                shard_storage
-                    .status()
-                    .is_ok_and(|status| status == ShardStatus::Active)
-                    .then_some(shard_storage.id())
-            })
-            .collect::<Vec<_>>();
+        let shard_storages = self.storage.existing_shard_storages().await;
+        let mut shards = Vec::new();
+
+        for shard_storage in shard_storages.iter() {
+            if let Ok(status) = shard_storage.status().await {
+                if status == ShardStatus::Active {
+                    shards.push(shard_storage.id());
+                }
+            }
+        }
 
         self.is_stored_at_specific_shards(blob_id, &shards).await
     }
@@ -2328,7 +2334,7 @@ impl StorageNodeInner {
         *self.latest_event_epoch_watcher.borrow()
     }
 
-    fn current_epoch(&self) -> Epoch {
+    fn current_committee_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }
 
@@ -2370,7 +2376,10 @@ impl StorageNodeInner {
         self.storage
             .shard_storage(shard_index)
             .await
-            .ok_or(ShardNotAssigned(shard_index, self.current_epoch()))
+            .ok_or(ShardNotAssigned(
+                shard_index,
+                self.current_committee_epoch(),
+            ))
     }
 
     fn init_gauges(&self) -> Result<(), TypedStoreError> {
@@ -2447,10 +2456,13 @@ impl StorageNodeInner {
 
         let shard_status = shard_storage
             .status()
+            .await
             .context("Unable to retrieve shard status")?;
 
         if !shard_status.is_owned_by_node() {
-            return Err(ShardNotAssigned(shard_storage.id(), self.current_epoch()).into());
+            return Err(
+                ShardNotAssigned(shard_storage.id(), self.current_committee_epoch()).into(),
+            );
         }
 
         if shard_storage
@@ -2505,7 +2517,7 @@ impl StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(self.current_epoch())))
+            .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
     }
 
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
@@ -2513,7 +2525,7 @@ impl StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+            .is_some_and(|blob_info| blob_info.is_certified(self.current_committee_epoch())))
     }
 
     /// Returns true if the blob is currently not certified.
@@ -2790,7 +2802,7 @@ impl ServiceState for StorageNodeInner {
         }
 
         ensure!(
-            blob_info.is_registered(self.current_epoch()),
+            blob_info.is_registered(self.current_committee_epoch()),
             StoreMetadataError::NotCurrentlyRegistered,
         );
 
@@ -2921,13 +2933,16 @@ impl ServiceState for StorageNodeInner {
                 .context("database error when checking per object info")?
                 .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
             ensure!(
-                per_object_info.is_registered(self.current_epoch()),
+                per_object_info.is_registered(self.current_committee_epoch()),
                 ComputeStorageConfirmationError::NotCurrentlyRegistered,
             );
         }
 
-        let confirmation =
-            Confirmation::new(self.current_epoch(), *blob_id, *blob_persistence_type);
+        let confirmation = Confirmation::new(
+            self.current_committee_epoch(),
+            *blob_id,
+            *blob_persistence_type,
+        );
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 
         self.metrics.storage_confirmations_issued_total.inc();
@@ -2940,7 +2955,7 @@ impl ServiceState for StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(|blob_info| blob_info.to_blob_status(self.current_epoch()))
+            .map(|blob_info| blob_info.to_blob_status(self.current_committee_epoch()))
             .unwrap_or_default())
     }
 
@@ -2953,7 +2968,7 @@ impl ServiceState for StorageNodeInner {
 
         inconsistency_proof.verify(metadata.as_ref(), &self.encoding_config)?;
 
-        let message = InvalidBlobIdMsg::new(self.current_epoch(), blob_id.to_owned());
+        let message = InvalidBlobIdMsg::new(self.current_committee_epoch(), blob_id.to_owned());
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
@@ -3100,7 +3115,7 @@ impl ServiceState for StorageNodeInner {
 
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
-            epoch: self.current_epoch(),
+            epoch: self.current_committee_epoch(),
             public_key: self.public_key().clone(),
             node_status: self
                 .storage
@@ -3150,16 +3165,16 @@ impl ServiceState for StorageNodeInner {
 
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() != self.current_epoch() {
+        if request.epoch() != self.current_committee_epoch() {
             return Err(InvalidEpochError {
                 request_epoch: request.epoch(),
-                server_epoch: self.current_epoch(),
+                server_epoch: self.current_committee_epoch(),
             }
             .into());
         }
 
         self.storage
-            .handle_sync_shard_request(request, self.current_epoch())
+            .handle_sync_shard_request(request, self.current_committee_epoch())
             .await
     }
 }
@@ -3365,7 +3380,7 @@ mod tests {
 
             assert_eq!(
                 confirmation.as_ref().epoch(),
-                storage_node.as_ref().inner.current_epoch()
+                storage_node.as_ref().inner.current_committee_epoch()
             );
 
             assert_eq!(confirmation.as_ref().contents().blob_id, BLOB_ID);
@@ -3528,7 +3543,7 @@ mod tests {
         advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
 
         let node = &cluster.nodes[0];
-        println!("{}", node.storage_node.inner.current_epoch());
+        println!("{}", node.storage_node.inner.current_committee_epoch());
 
         let blob_events: Vec<BlobEvent> = vec![
             BlobRegistered {
@@ -3765,7 +3780,7 @@ mod tests {
 
             assert_eq!(
                 invalid_blob_msg.as_ref().epoch(),
-                node.as_ref().inner.current_epoch()
+                node.as_ref().inner.current_committee_epoch()
             );
             assert_eq!(*invalid_blob_msg.as_ref().contents(), blob_id);
 
@@ -4756,6 +4771,7 @@ mod tests {
             .await
             .unwrap()
             .lock_shard_for_epoch_change()
+            .await
             .expect("Lock shard failed.");
 
         assert_eq!(
@@ -4792,6 +4808,7 @@ mod tests {
             .await
             .unwrap()
             .lock_shard_for_epoch_change()
+            .await
             .expect("Lock shard failed.");
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
@@ -4908,7 +4925,9 @@ mod tests {
         let shard_storage_set = Arc::new(shard_storage_set);
 
         for shard_storage in shard_storage_set.shard_storage.iter() {
-            shard_storage.update_status_in_test(ShardStatus::None)?;
+            shard_storage
+                .update_status_in_test(ShardStatus::None)
+                .await?;
         }
 
         Ok((
@@ -4989,7 +5008,7 @@ mod tests {
         // Waits for the shard to be synced.
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                let status = shard_storage.status().unwrap();
+                let status = shard_storage.status().await.unwrap();
                 if status == ShardStatus::Active {
                     break;
                 }
@@ -5009,6 +5028,7 @@ mod tests {
                 for shard_storage in &shard_storage_set.shard_storage {
                     let status = shard_storage
                         .status()
+                        .await
                         .expect("Shard status should be present");
                     if status != ShardStatus::Active {
                         all_active = false;
@@ -5189,7 +5209,9 @@ mod tests {
             .shard_storage(ShardIndex(0))
             .await
             .unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::None)
+            .await?;
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
@@ -5266,7 +5288,9 @@ mod tests {
             .shard_storage(ShardIndex(0))
             .await
             .unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::None)
+            .await?;
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
@@ -5711,7 +5735,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             // Starts the shard syncing process in the new shard, which should only use happy path
             // shard sync to sync non-expired certified blobs.
@@ -5794,7 +5820,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -5899,7 +5927,11 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             assert!(
-                shard_storage_dst.status().expect("should succeed in test") == ShardStatus::None
+                shard_storage_dst
+                    .status()
+                    .await
+                    .expect("should succeed in test")
+                    == ShardStatus::None
             );
 
             if fail_before_start_fetching {
@@ -6173,7 +6205,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -6243,7 +6277,9 @@ mod tests {
                 .shard_storage(ShardIndex(0))
                 .await
                 .expect("shard storage should exist");
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .await?;
 
             cluster.nodes[1]
                 .storage_node
@@ -6541,7 +6577,8 @@ mod tests {
                 .await
                 .expect("Shard storage should be created")
                 .status()
-                .unwrap(),
+                .await
+                .expect("failed to get shard status"),
             ShardStatus::Active
         );
 
@@ -6562,7 +6599,8 @@ mod tests {
                 .await
                 .expect("Shard storage should be created")
                 .status()
-                .unwrap(),
+                .await
+                .expect("failed to get shard status"),
             ShardStatus::Active
         );
         Ok(())
