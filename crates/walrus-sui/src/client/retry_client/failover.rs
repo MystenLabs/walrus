@@ -99,12 +99,12 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             return Err(anyhow::anyhow!("No clients available"));
         }
 
-        let max_tries = BuilderT::DEFAULT_MAX_TRIES.min(lazy_client_builders.len());
+        let max_tries = BuilderT::DEFAULT_MAX_TRIES;
 
         // Precondition check (a bit redundant, but just for extra safety) to ensure we have more
         // clients than we allow failovers. Note that if this condition changes, `fetch_next_client`
         // will need to be updated to track a failover count separately.
-        assert!(lazy_client_builders.len() >= max_tries);
+        //assert!(lazy_client_builders.len() >= max_tries);
 
         Ok(Self {
             lazy_client_builders,
@@ -191,6 +191,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         loop {
             // PLAN phase.
             if tried_client_indices.len() >= self.max_tries {
+                tracing::error!("max failovers exceeded [max_tries={}]", self.max_tries);
                 return Err(FailoverError::FailedToGetClient(format!(
                     "max failovers exceeded [max_tries={}]",
                     self.max_tries
@@ -198,6 +199,10 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             }
 
             if !tried_client_indices.insert(next_index) {
+                tracing::error!(
+                    "already tried this client, skipping [next_index={}]",
+                    next_index
+                );
                 // We've already tried this client, so let's skip it.
                 next_index = (next_index + 1) % self.client_count();
                 continue;
@@ -211,7 +216,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                 Ok(client) => client,
                 Err(error) => {
                     // Log the error and failover to the next client.
-                    tracing::info!(
+                    tracing::error!(
                         "failed to get client from url {}, error: {}, failover to next client",
                         self.lazy_client_builders[next_index]
                             .get_rpc_url()
@@ -325,7 +330,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                         .get_current_rpc_url()
                         .await
                         .unwrap_or_else(|error| error.to_string());
-                    tracing::info!(
+                    tracing::error!(
                         "RPC to endpoint {:?} failed with error: {:?}, fetching next client",
                         failed_rpc_url,
                         error
