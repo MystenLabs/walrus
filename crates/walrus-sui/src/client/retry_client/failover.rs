@@ -462,11 +462,9 @@ mod tests {
         // Execute operation that should failover from first to second client.
         let result = failover_wrapper
             .with_failover(
-                |client, _method| {
-                    Box::pin(async move {
-                        let client = client.as_ref();
-                        client.operation().await
-                    })
+                |client, _method| async move {
+                    let client = client.as_ref();
+                    client.operation().await
                 },
                 None,
                 "operation",
@@ -500,7 +498,7 @@ mod tests {
         // Execute operation that should try both clients and fail.
         let result = failover_wrapper
             .with_failover(
-                |client, _method| Box::pin(async move { client.operation().await }),
+                |client, _method| async move { client.operation().await },
                 None,
                 "operation",
             )

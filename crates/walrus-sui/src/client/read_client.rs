@@ -16,6 +16,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use futures::FutureExt as _;
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{
@@ -353,8 +354,10 @@ impl SuiReadClient {
             .await?;
         let (type_origin_map, wal_type) = tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
-            Box::pin(sui_client.type_origin_map_for_package(walrus_package_id)),
-            Box::pin(sui_client.wal_type_from_package(walrus_package_id))
+            sui_client
+                .type_origin_map_for_package(walrus_package_id)
+                .boxed(),
+            sui_client.wal_type_from_package(walrus_package_id).boxed()
         )?;
 
         let client = Self {
@@ -375,8 +378,12 @@ impl SuiReadClient {
 
         tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
-            Box::pin(client.set_credits_object(contract_config.credits_object)),
-            Box::pin(client.set_walrus_subsidies_object(contract_config.walrus_subsidies_object)),
+            client
+                .set_credits_object(contract_config.credits_object)
+                .boxed(),
+            client
+                .set_walrus_subsidies_object(contract_config.walrus_subsidies_object)
+                .boxed(),
         )?;
 
         // Initialize the cache in a background task.
@@ -891,8 +898,8 @@ impl SuiReadClient {
     ) -> SuiClientResult<(SystemObject, StakingObject)> {
         tokio::try_join!(
             // Boxing the futures here to avoid making this future too large.
-            Box::pin(self.get_system_object_from_rpc()),
-            Box::pin(self.get_staking_object_from_rpc()),
+            self.get_system_object_from_rpc().boxed(),
+            self.get_staking_object_from_rpc().boxed(),
         )
     }
 
@@ -995,11 +1002,11 @@ impl SuiReadClient {
         };
 
         // Boxing the futures here to avoid making this future too large.
-        let deserialized_object_future = Box::pin(
-            self.sui_client
-                .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id),
-        );
-        let inner_future = Box::pin(async {
+        let deserialized_object_future = self
+            .sui_client
+            .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id)
+            .boxed();
+        let inner_future = async {
             if with_inner {
                 let key_tag = contracts::walrus_subsidies::SubsidiesInnerKey
                     .to_move_struct_tag_with_type_map(&walrus_subsidies.type_origin_map, &[])?;
@@ -1015,7 +1022,8 @@ impl SuiReadClient {
             } else {
                 Ok(None)
             }
-        });
+        }
+        .boxed();
         let (deserialized_object, inner) =
             tokio::try_join!(deserialized_object_future, inner_future)?;
 
@@ -1064,7 +1072,7 @@ impl SuiReadClient {
         object_id: ObjectID,
     ) -> SuiClientResult<SharedObjectWithPkgConfig> {
         // Boxing the futures here to avoid making this future too large.
-        let package_id_and_origin_map_future = Box::pin(async {
+        let package_id_and_origin_map_future = async {
             let package_id = self
                 .sui_client
                 .get_sui_object::<T>(object_id)
@@ -1075,9 +1083,12 @@ impl SuiReadClient {
                 .type_origin_map_for_package(package_id)
                 .await?;
             Ok((package_id, type_origin_map))
-        });
-        let initial_version_future =
-            Box::pin(self.sui_client.get_shared_object_initial_version(object_id));
+        }
+        .boxed();
+        let initial_version_future = self
+            .sui_client
+            .get_shared_object_initial_version(object_id)
+            .boxed();
         let ((package_id, type_origin_map), initial_version) =
             tokio::try_join!(package_id_and_origin_map_future, initial_version_future)?;
         Ok(SharedObjectWithPkgConfig {

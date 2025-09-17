@@ -13073,6 +13073,7 @@ dependencies = [
  "clap",
  "fastcrypto",
  "futures",
+ "futures-util",
  "home",
  "indoc",
  "inflections",
