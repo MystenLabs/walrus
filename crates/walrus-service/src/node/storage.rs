@@ -825,10 +825,10 @@ impl Storage {
         let mut result = Vec::new();
 
         for shard_storage in shards.values() {
-            if let Ok(status) = shard_storage.status().await {
-                if status.is_owned_by_node() {
-                    result.push(shard_storage.id());
-                }
+            if let Ok(status) = shard_storage.status().await
+                && status.is_owned_by_node()
+            {
+                result.push(shard_storage.id());
             }
         }
 

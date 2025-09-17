@@ -2280,10 +2280,10 @@ impl StorageNodeInner {
         let mut shards = Vec::new();
 
         for shard_storage in shard_storages.iter() {
-            if let Ok(status) = shard_storage.status().await {
-                if status == ShardStatus::Active {
-                    shards.push(shard_storage.id());
-                }
+            if let Ok(status) = shard_storage.status().await
+                && status == ShardStatus::Active
+            {
+                shards.push(shard_storage.id());
             }
         }
 

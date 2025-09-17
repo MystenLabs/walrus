@@ -151,6 +151,7 @@ impl ShardStatusState {
 
     /// Updates the status if the existing status is in the allowed statuses.
     /// Otherwise, it skips the update.
+    /// Returns the new status the status was updated to.
     pub fn conditional_update_status(
         &mut self,
         allowed_statuses: &[ShardStatus],
@@ -169,7 +170,8 @@ impl ShardStatusState {
             Ok(new_status)
         } else {
             tracing::info!(
-                "skipping update status from {existing_status:?} to {new_status:?}, allowed statuses: {:?}",
+                "skipping update status from {existing_status:?} to {new_status:?}, \
+                allowed statuses: {:?}",
                 allowed_statuses
             );
             Ok(existing_status.unwrap_or(ShardStatus::None))
@@ -626,15 +628,11 @@ impl ShardStorage {
         // the shard sync progress recorded in the db is not deleted, until the shard is completely
         // synced. By setting the shard status to active sync, the shard will resume the sync from
         // the last synced blob id.
-        self.shard_status.write().await.conditional_update_status(
-            &[
-                ShardStatus::None,
-                ShardStatus::ActiveSync,
-                ShardStatus::ActiveRecover,
-                ShardStatus::LockedToMove,
-            ],
-            ShardStatus::ActiveSync,
-        )?;
+        // We can only resume to active sync from active recover.
+        self.shard_status
+            .write()
+            .await
+            .conditional_update_status(&[ShardStatus::ActiveRecover], ShardStatus::ActiveSync)?;
         self.get_last_sync_status(&ShardStatus::ActiveSync)
     }
 
@@ -815,7 +813,14 @@ impl ShardStorage {
         let status_guard = self.shard_status.write().await;
 
         let mut batch = self.shard_sync_progress.batch();
-        batch.insert_batch(&status_guard.shard_status, [((), ShardStatus::Active)])?;
+        // If the shard is in active sync or active recover, we need to update the status to active.
+        // Otherwise, the shard status is interrupted by another process and are in unexpected state
+        // and we should not update the status.
+        if status_guard.shard_status.get(&())? == Some(ShardStatus::ActiveSync)
+            || status_guard.shard_status.get(&())? == Some(ShardStatus::ActiveRecover)
+        {
+            batch.insert_batch(&status_guard.shard_status, [((), ShardStatus::Active)])?;
+        }
         batch.delete_batch(&self.shard_sync_progress, [()])?;
         batch.write()?;
 

@@ -78,7 +78,8 @@ impl ShardSyncHandler {
                 .await
         });
 
-        // Abort any existing task before replacing it
+        // Abort any existing task before replacing it. This essentially cancels any existing shard
+        // syncs, and start new ones that sync move-in shards.
         if let Some(old_task) = task_handle.replace(new_task) {
             old_task.abort();
         }
