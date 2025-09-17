@@ -65,6 +65,30 @@ async fn collect_garbage(
         .await
         .expect("failed to connect to postgres for collect_garbage");
 
+    let garbage_query = format!(
+        "
+            WITH expired_blob_ids AS (
+                SELECT blob_id
+                FROM blob_state
+                WHERE
+                    state = 'archived' AND
+                    (initiate_gc_after IS NULL OR initiate_gc_after < NOW()) AND
+                    COALESCE(
+                        end_epoch + {} <= (
+                            SELECT MAX(epoch) FROM epoch_change_start_event),
+                        FALSE)
+                LIMIT 15
+            ),
+            _updated_count AS (
+                UPDATE blob_state
+                SET initiate_gc_after = NOW() + INTERVAL '1 day'
+                WHERE blob_id IN (SELECT blob_id FROM expired_blob_ids)
+            )
+            SELECT blob_id from expired_blob_ids
+        ",
+        config.garbage_collection_epoch_offset,
+    );
+
     // Start an infinite loop polling the database for blob state statistics and updating the
     // metrics.
     loop {
@@ -79,39 +103,18 @@ async fn collect_garbage(
             |conn| {
                 {
                     async move {
-                        diesel::sql_query(
-                            "
-                            WITH expired_blob_ids AS (
-                                SELECT blob_id
-                                FROM blob_state
-                                WHERE
-                                    state = 'archived' AND
-                                    (initiate_gc_after IS NULL OR initiate_gc_after < NOW()) AND
-                                    COALESCE(
-                                        end_epoch + 2 <= (
-                                            SELECT MAX(epoch) FROM epoch_change_start_event),
-                                        FALSE)
-                                LIMIT 15
-                            ),
-                            _updated_count AS (
-                                UPDATE blob_state
-                                SET initiate_gc_after = NOW() + INTERVAL '1 day'
-                                WHERE blob_id IN (SELECT blob_id FROM expired_blob_ids)
-                            )
-                            SELECT blob_id from expired_blob_ids
-                            ",
-                        )
-                        .get_results(conn)
-                        .await
-                        .inspect_err(|error| {
-                            tracing::warn!(
-                                ?error,
-                                "failed to query blob_state table for expired blobs"
-                            );
-                        })
-                        .inspect(|blobs| {
-                            tracing::info!(?blobs, "fetched expired blobs");
-                        })
+                        diesel::sql_query(&garbage_query)
+                            .get_results(conn)
+                            .await
+                            .inspect_err(|error| {
+                                tracing::warn!(
+                                    ?error,
+                                    "failed to query blob_state table for expired blobs"
+                                );
+                            })
+                            .inspect(|blobs| {
+                                tracing::info!(?blobs, "fetched expired blobs");
+                            })
                     }
                 }
                 .scope_boxed()

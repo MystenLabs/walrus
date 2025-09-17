@@ -364,6 +364,45 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
     let backup_db_metric_set = BackupDbMetricSet::new(&metrics_runtime.registry);
     let database_url = config.db_config.database_url.clone();
 
+    let stats_query = format!(
+        "
+            SELECT
+                state AS name,
+                COUNT(*)::bigint AS value
+            FROM blob_state
+            WHERE
+                state = 'archived' AND
+                COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
+                            FALSE)
+            GROUP BY 1
+            UNION
+            SELECT
+                state AS name,
+                COUNT(*)::bigint AS value
+            FROM blob_state
+            WHERE
+                state = 'deleted' OR
+                (state = 'waiting' AND
+                    COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event), TRUE))
+
+            GROUP BY 1
+            UNION
+            SELECT
+                'garbage' AS name,
+                COUNT(*)::bigint AS value
+            FROM blob_state
+            WHERE
+                state = 'archived' AND
+                COALESCE(end_epoch + {} <= (SELECT MAX(epoch) FROM epoch_change_start_event), TRUE)
+            UNION
+            SELECT
+                'total_bytes_archived' AS name,
+                COALESCE(SUM(size), 0)::bigint AS value
+            FROM blob_state
+            WHERE state = 'archived';
+        ",
+        config.garbage_collection_epoch_offset,
+    );
     tokio::spawn(async move {
         let mut conn =
             establish_connection_async(&database_url, "db connect for db metrics polling")
@@ -371,56 +410,16 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                 .expect("failed to connect to postgres for db metrics polling");
 
         loop {
-            // TODO: add documentation for the stats fetched here.
-            let stats: Vec<DbStatistic> = diesel::sql_query(
-                "
-                    SELECT
-                        state AS name,
-                        COUNT(*)::bigint AS value
-                    FROM blob_state
-                    WHERE
-                        state = 'archived' AND
-                        COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
-                                    FALSE)
-                    GROUP BY 1
-                    UNION
-                    SELECT
-                        state AS name,
-                        COUNT(*)::bigint AS value
-                    FROM blob_state
-                    WHERE
-                        state = 'deleted' OR
-                        (state = 'waiting' AND
-                            COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
-                                    TRUE))
-
-                    GROUP BY 1
-                    UNION
-                    SELECT
-                        'garbage' AS name,
-                        COUNT(*)::bigint AS value
-                    FROM blob_state
-                    WHERE
-                        state = 'archived' AND
-                        COALESCE(end_epoch <= (SELECT MAX(epoch) FROM epoch_change_start_event),
-                                    TRUE)
-                    UNION
-                    SELECT
-                        'total_bytes_archived' AS name,
-                        COALESCE(SUM(size), 0)::bigint AS value
-                    FROM blob_state
-                    WHERE state = 'archived';
-                    ",
-            )
-            .get_results(&mut conn)
-            .await
-            .inspect_err(|error: &Error| {
-                tracing::error!(
-                    ?error,
-                    "encountered an error querying for blob state statistics"
-                );
-            })
-            .unwrap_or_default();
+            let stats: Vec<DbStatistic> = diesel::sql_query(&stats_query)
+                .get_results(&mut conn)
+                .await
+                .inspect_err(|error: &Error| {
+                    tracing::error!(
+                        ?error,
+                        "encountered an error querying for blob state statistics"
+                    );
+                })
+                .unwrap_or_default();
 
             tracing::info!(?stats, "fetched blob state statistics");
             for stat in stats {
