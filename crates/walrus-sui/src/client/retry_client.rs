@@ -41,8 +41,25 @@ pub trait ToErrorType {
     fn to_error_type(&self) -> String;
 }
 
+/// Same as [`retry_rpc_errors_unboxed`], but returns a boxed future to prevent very large
+/// futures stored on the stack.
+fn retry_rpc_errors<S, F, T, E, Fut>(
+    strategy: S,
+    func: F,
+    metrics: Option<Arc<SuiClientMetricSet>>,
+    method: &'static str,
+) -> impl Future<Output = Result<T, E>>
+where
+    S: BackoffStrategy,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: RetriableRpcError + ToErrorType,
+{
+    Box::pin(retry_rpc_errors_unboxed(strategy, func, metrics, method))
+}
+
 /// Retries the given function while it returns retriable errors.[
-async fn retry_rpc_errors<S, F, T, E, Fut>(
+async fn retry_rpc_errors_unboxed<S, F, T, E, Fut>(
     mut strategy: S,
     mut func: F,
     metrics: Option<Arc<SuiClientMetricSet>>,

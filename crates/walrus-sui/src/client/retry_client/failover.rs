@@ -237,9 +237,28 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
         }
     }
 
+    /// Executes an operation on the current inner instance, falling back to the next one if it
+    /// fails.
+    ///
+    /// Same as [`Self::with_failover_unboxed`], but returns a boxed future to prevent very large
+    /// futures stored on the stack.
+    pub fn with_failover<E, F, Fut, R>(
+        &self,
+        operation: F,
+        metrics: Option<Arc<SuiClientMetricSet>>,
+        method: &'static str,
+    ) -> impl Future<Output = Result<R, E>>
+    where
+        F: FnMut(Arc<ClientT>, &'static str) -> Fut,
+        Fut: Future<Output = Result<R, E>>,
+        E: MakeRetriableError + ToErrorType + std::fmt::Debug + From<FailoverError>,
+    {
+        Box::pin(self.with_failover_unboxed(operation, metrics, method))
+    }
+
     /// Executes an operation on the current inner instance, falling back to the next one
     /// if it fails.
-    pub async fn with_failover<E, F, Fut, R>(
+    pub async fn with_failover_unboxed<E, F, Fut, R>(
         &self,
         mut operation: F,
         metrics: Option<Arc<SuiClientMetricSet>>,

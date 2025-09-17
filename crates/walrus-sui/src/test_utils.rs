@@ -3,6 +3,9 @@
 
 //! Test utilities for `walrus-sui`.
 
+// Allowing large futures in test utils.
+#![allow(clippy::large_futures)]
+
 pub mod system_setup;
 
 #[cfg(not(msim))]

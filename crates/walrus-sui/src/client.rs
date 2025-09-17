@@ -1349,7 +1349,21 @@ impl SuiContractClient {
             .await
     }
 
-    async fn retry_on_wrong_version<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
+    /// Same as [`Self::retry_on_wrong_version_unboxed`], but returns a boxed future to prevent very
+    /// large futures stored on the stack.
+    fn retry_on_wrong_version<F, Fut, T>(
+        &self,
+        f: F,
+    ) -> impl Future<Output = SuiClientResult<T>> + Send
+    where
+        F: Fn() -> Fut + Send,
+        Fut: Future<Output = SuiClientResult<T>> + Send,
+        T: Send,
+    {
+        Box::pin(self.retry_on_wrong_version_unboxed(f))
+    }
+
+    async fn retry_on_wrong_version_unboxed<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
     where
         F: Fn() -> Fut + Send,
         Fut: Future<Output = SuiClientResult<T>> + Send,

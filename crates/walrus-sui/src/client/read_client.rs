@@ -352,8 +352,9 @@ impl SuiReadClient {
             .get_system_package_id_from_system_object(contract_config.system_object)
             .await?;
         let (type_origin_map, wal_type) = tokio::try_join!(
-            sui_client.type_origin_map_for_package(walrus_package_id),
-            sui_client.wal_type_from_package(walrus_package_id)
+            // Boxing the futures here to avoid making this future too large.
+            Box::pin(sui_client.type_origin_map_for_package(walrus_package_id)),
+            Box::pin(sui_client.wal_type_from_package(walrus_package_id))
         )?;
 
         let client = Self {
@@ -373,8 +374,9 @@ impl SuiReadClient {
         };
 
         tokio::try_join!(
-            client.set_credits_object(contract_config.credits_object),
-            client.set_walrus_subsidies_object(contract_config.walrus_subsidies_object),
+            // Boxing the futures here to avoid making this future too large.
+            Box::pin(client.set_credits_object(contract_config.credits_object)),
+            Box::pin(client.set_walrus_subsidies_object(contract_config.walrus_subsidies_object)),
         )?;
 
         // Initialize the cache in a background task.
@@ -888,8 +890,9 @@ impl SuiReadClient {
         &self,
     ) -> SuiClientResult<(SystemObject, StakingObject)> {
         tokio::try_join!(
-            self.get_system_object_from_rpc(),
-            self.get_staking_object_from_rpc(),
+            // Boxing the futures here to avoid making this future too large.
+            Box::pin(self.get_system_object_from_rpc()),
+            Box::pin(self.get_staking_object_from_rpc()),
         )
     }
 
@@ -991,10 +994,12 @@ impl SuiReadClient {
             return Err(SuiClientError::WalrusSubsidiesNotConfigured);
         };
 
-        let deserialized_object_future = self
-            .sui_client
-            .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id);
-        let inner_future = async {
+        // Boxing the futures here to avoid making this future too large.
+        let deserialized_object_future = Box::pin(
+            self.sui_client
+                .get_sui_object::<WalrusSubsidiesForDeserialization>(walrus_subsidies.object_id),
+        );
+        let inner_future = Box::pin(async {
             if with_inner {
                 let key_tag = contracts::walrus_subsidies::SubsidiesInnerKey
                     .to_move_struct_tag_with_type_map(&walrus_subsidies.type_origin_map, &[])?;
@@ -1010,7 +1015,7 @@ impl SuiReadClient {
             } else {
                 Ok(None)
             }
-        };
+        });
         let (deserialized_object, inner) =
             tokio::try_join!(deserialized_object_future, inner_future)?;
 
@@ -1058,7 +1063,8 @@ impl SuiReadClient {
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<SharedObjectWithPkgConfig> {
-        let package_id_and_origin_map_future = async {
+        // Boxing the futures here to avoid making this future too large.
+        let package_id_and_origin_map_future = Box::pin(async {
             let package_id = self
                 .sui_client
                 .get_sui_object::<T>(object_id)
@@ -1069,8 +1075,9 @@ impl SuiReadClient {
                 .type_origin_map_for_package(package_id)
                 .await?;
             Ok((package_id, type_origin_map))
-        };
-        let initial_version_future = self.sui_client.get_shared_object_initial_version(object_id);
+        });
+        let initial_version_future =
+            Box::pin(self.sui_client.get_shared_object_initial_version(object_id));
         let ((package_id, type_origin_map), initial_version) =
             tokio::try_join!(package_id_and_origin_map_future, initial_version_future)?;
         Ok(SharedObjectWithPkgConfig {
@@ -1407,14 +1414,19 @@ impl ReadClient for SuiReadClient {
         }
 
         let staking_object = self.get_staking_object().await?.inner;
-        let system_object = self.get_system_object().await?;
         let first_epoch_start = i64::try_from(staking_object.first_epoch_start)
             .context("first-epoch start time should fit into an i64")?;
+        let n_shards = staking_object.n_shards;
+        let epoch_duration = staking_object.epoch_duration();
+        // Make sure we don't hold too much data across the await point.
+        drop(staking_object);
+
+        let system_object = self.get_system_object().await?;
 
         let fixed_system_parameters = FixedSystemParameters {
-            n_shards: staking_object.n_shards,
+            n_shards,
             max_epochs_ahead: system_object.future_accounting().length(),
-            epoch_duration: staking_object.epoch_duration(),
+            epoch_duration,
             epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(first_epoch_start).ok_or_else(
                 || anyhow!("invalid first_epoch_start timestamp received from contracts"),
             )?,
