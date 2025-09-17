@@ -1676,24 +1676,54 @@ impl SystemContractService for StubContractService {
 }
 
 /// Specifies what kind of IP address to use when looking for an unused socket address.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum UnusedSocketAddressIp {
     /// The returned address will have a distinct IP address from the local machine.
     DistinctIp,
     /// The returned address will be a wildcard address. It means "listen on all available network
     /// interfaces".
-    AllInterfaces,
+    AllInterfaces {
+        /// If true, the function will create and accept a connection to force the port
+        /// into the TIME_WAIT state. This can be useful for testing scenarios.
+        force_time_wait: bool,
+    },
     /// The returned address will be the loopback address.
-    Loopback,
+    Loopback {
+        /// If true, the function will create and accept a connection to force the port
+        /// into the TIME_WAIT state. This can be useful for testing scenarios.
+        force_time_wait: bool,
+    },
 }
 
 impl UnusedSocketAddressIp {
-    fn get_addr(&self) -> String {
-        match self {
-            UnusedSocketAddressIp::AllInterfaces => "0.0.0.0:0".to_string(),
-            UnusedSocketAddressIp::Loopback => "127.0.0.1:0".to_string(),
+    fn generate_address(self) -> anyhow::Result<SocketAddr> {
+        let address: String = match self {
+            UnusedSocketAddressIp::AllInterfaces { .. } => "0.0.0.0:0".to_string(),
+            UnusedSocketAddressIp::Loopback { .. } => "127.0.0.1:0".to_string(),
             UnusedSocketAddressIp::DistinctIp => {
                 format!("{}:1314", sui_config::local_ip_utils::get_new_ip())
+            }
+        };
+        match self {
+            UnusedSocketAddressIp::AllInterfaces { force_time_wait }
+            | UnusedSocketAddressIp::Loopback { force_time_wait } => {
+                // If we are using all interfaces or loopback, we check if the address is actually
+                // available.
+                let listener = std::net::TcpListener::bind(address)?;
+                // Update the address with the actual port assigned by the OS.
+                let socket_address = listener.local_addr()?;
+
+                if force_time_wait {
+                    // Create and accept a connection to force the port into the TIME_WAIT state
+                    let _client_stream = TcpStream::connect(socket_address)?;
+                    let _server_stream = listener.accept()?;
+                }
+
+                Ok(socket_address)
+            }
+            UnusedSocketAddressIp::DistinctIp => {
+                // If we are using a distinct IP, we assume it is available.
+                Ok(address.parse()?)
             }
         }
     }
@@ -1706,22 +1736,8 @@ impl UnusedSocketAddressIp {
 /// that a port is not immediately reusable.
 pub fn unused_socket_address(
     unused_socket_address_ip: UnusedSocketAddressIp,
-    force_time_wait: bool,
 ) -> anyhow::Result<SocketAddr> {
-    let mut address: SocketAddr = unused_socket_address_ip.get_addr().parse()?;
-    let listener = std::net::TcpListener::bind(address)?;
-    if !matches!(unused_socket_address_ip, UnusedSocketAddressIp::DistinctIp) {
-        // Update the address with the actual port assigned by the OS.
-        address = listener.local_addr()?;
-    }
-
-    if force_time_wait {
-        // Create and accept a connection to force the port into the TIME_WAIT state
-        let _client_stream = TcpStream::connect(address)?;
-        let _server_stream = listener.accept()?;
-    }
-
-    Ok(address)
+    unused_socket_address_ip.generate_address()
 }
 
 #[async_trait::async_trait]
@@ -2233,14 +2249,13 @@ impl StorageNodeTestConfig {
         Self {
             key_pair: ProtocolKeyPair::generate(),
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(
-                if use_distinct_ip {
-                    UnusedSocketAddressIp::DistinctIp
-                } else {
-                    UnusedSocketAddressIp::Loopback
-                },
-                true,
-            )
+            rest_api_address: unused_socket_address(if use_distinct_ip {
+                UnusedSocketAddressIp::DistinctIp
+            } else {
+                UnusedSocketAddressIp::Loopback {
+                    force_time_wait: true,
+                }
+            })
             .expect("should be able to find an unused socket address"),
             shards,
         }
@@ -2251,8 +2266,10 @@ impl StorageNodeTestConfig {
         Self {
             key_pair,
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(UnusedSocketAddressIp::Loopback, true)
-                .expect("should be able to find an unused socket address"),
+            rest_api_address: unused_socket_address(UnusedSocketAddressIp::Loopback {
+                force_time_wait: true,
+            })
+            .expect("should be able to find an unused socket address"),
             shards,
         }
     }
@@ -2986,8 +3003,10 @@ pub mod test_cluster {
 /// Creates a new [`StorageNodeConfig`] object for testing.
 pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = nondeterministic!(TempDir::new().expect("able to create a temporary directory"));
-    let rest_api_address = unused_socket_address(UnusedSocketAddressIp::Loopback, true)
-        .expect("should be able to find an unused socket address");
+    let rest_api_address = unused_socket_address(UnusedSocketAddressIp::Loopback {
+        force_time_wait: true,
+    })
+    .expect("should be able to find an unused socket address");
     WithTempDir {
         inner: StorageNodeConfig {
             name: "node".to_string(),
@@ -2995,8 +3014,10 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             next_protocol_key_pair: None,
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address,
-            metrics_address: unused_socket_address(UnusedSocketAddressIp::Loopback, true)
-                .expect("should be able to find an unused socket address"),
+            metrics_address: unused_socket_address(UnusedSocketAddressIp::Loopback {
+                force_time_wait: true,
+            })
+            .expect("should be able to find an unused socket address"),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: Default::default(),
             rest_server: Default::default(),
@@ -3116,10 +3137,10 @@ mod test {
         let n = 1000;
         assert_eq!(
             (0..n)
-                .map(
-                    |_| unused_socket_address(UnusedSocketAddressIp::Loopback, true)
-                        .expect("should be able to find an unused socket address")
-                )
+                .map(|_| unused_socket_address(UnusedSocketAddressIp::Loopback {
+                    force_time_wait: true
+                })
+                .expect("should be able to find an unused socket address"))
                 .collect::<HashSet<_>>()
                 .len(),
             n

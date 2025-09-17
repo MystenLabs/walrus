@@ -236,11 +236,9 @@ mod tests {
         assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
 
-        let new_address = walrus_service::test_utils::unused_socket_address(
-            UnusedSocketAddressIp::DistinctIp,
-            true,
-        )
-        .expect("should get unused socket address");
+        let new_address =
+            walrus_service::test_utils::unused_socket_address(UnusedSocketAddressIp::DistinctIp)
+                .expect("should get unused socket address");
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
         let voting_params = VotingParams {
