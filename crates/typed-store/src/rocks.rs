@@ -2590,3 +2590,55 @@ fn test_helpers() {
 
     // TBD: More tests coming with randomized arrays.
 }
+
+#[test]
+// This test demonstrates that bincode serialization does NOT preserve string ordering.
+fn test_bincode_string_ordering_not_preserved() {
+    // Two strings where "aa" < "b" in natural string ordering.
+    let str1 = "aa";
+    let str2 = "b";
+
+    // Natural string ordering.
+    assert!(
+        str1 < str2,
+        "In natural ordering, 'aa' should be less than 'b'"
+    );
+
+    // Serialize using bincode.
+    let serialized1 = be_fix_int_ser(&str1).unwrap();
+    let serialized2 = be_fix_int_ser(&str2).unwrap();
+
+    // Bincode serialization reverses the order.
+    // This is because bincode prefixes strings with their length:
+    // - "aa" becomes [0, 0, 0, 0, 0, 0, 0, 2, 97, 97] (length=2, then 'a', 'a').
+    // - "b"  becomes [0, 0, 0, 0, 0, 0, 0, 1, 98]     (length=1, then 'b').
+    // Since 1 < 2 in the length prefix, "b" comes before "aa" when serialized.
+    assert!(
+        serialized1 > serialized2,
+        "Bincode serialization reverses the order: serialized 'b' < serialized 'aa'"
+    );
+
+    // Another example with same length strings - these DO preserve order.
+    let str3 = "abc";
+    let str4 = "def";
+    let serialized3 = be_fix_int_ser(&str3).unwrap();
+    let serialized4 = be_fix_int_ser(&str4).unwrap();
+
+    assert!(str3 < str4);
+    assert!(
+        serialized3 < serialized4,
+        "Same-length strings preserve order"
+    );
+
+    // Another example with different length strings.
+    let str5 = "z"; // Single 'z'.
+    let str6 = "aaa"; // Three 'a's.
+    let serialized5 = be_fix_int_ser(&str5).unwrap();
+    let serialized6 = be_fix_int_ser(&str6).unwrap();
+
+    assert!(str5 > str6, "In natural ordering, 'aaa' < 'z'");
+    assert!(
+        serialized5 < serialized6,
+        "But serialized 'z' < serialized 'aaa' due to length prefix"
+    );
+}
