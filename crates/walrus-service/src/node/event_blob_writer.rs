@@ -2119,7 +2119,7 @@ mod tests {
         stub_contract_service: std::sync::Arc<StubContractService>,
     ) -> anyhow::Result<StorageNodeHandle> {
         let test_config =
-            crate::test_utils::StorageNodeTestConfig::new_with_keypair(vec![], false, keypair);
+            crate::test_utils::StorageNodeTestConfig::new_with_keypair(vec![], keypair);
 
         StorageNodeHandle::builder()
             .with_storage(crate::test_utils::empty_storage_with_shards(&[]).await)

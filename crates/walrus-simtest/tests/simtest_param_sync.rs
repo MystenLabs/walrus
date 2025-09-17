@@ -17,7 +17,7 @@ mod tests {
     use walrus_service::{
         client::ClientCommunicationConfig,
         node::config::{CommissionRateData, PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
-        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddressIp, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
     use walrus_sui::{
@@ -236,7 +236,11 @@ mod tests {
         assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
 
-        let new_address = walrus_service::test_utils::unused_socket_address(true);
+        let new_address = walrus_service::test_utils::unused_socket_address(
+            UnusedSocketAddressIp::DistinctIp,
+            true,
+        )
+        .expect("should get unused socket address");
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
         let voting_params = VotingParams {
