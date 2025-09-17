@@ -88,6 +88,7 @@ async fn collect_garbage(
         ",
         config.garbage_collection_epoch_offset,
     );
+    let garbage_query = garbage_query.as_str();
 
     // Start an infinite loop polling the database for blob state statistics and updating the
     // metrics.
@@ -103,7 +104,7 @@ async fn collect_garbage(
             |conn| {
                 {
                     async move {
-                        diesel::sql_query(&garbage_query)
+                        diesel::sql_query(garbage_query)
                             .get_results(conn)
                             .await
                             .inspect_err(|error| {
