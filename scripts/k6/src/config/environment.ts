@@ -37,12 +37,14 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
     "walrus-performance-network": {
         "publisherUrl": "http://walrus-publisher-0.walrus-publisher:31415",
         "aggregatorUrl": "http://walrus-aggregator-0.walrus-aggregator:31415",
-        "payloadSourceFile": "/opt/k6/data/data.bin"
+        "payloadSourceFile": "/opt/k6/data/data.bin",
+        "redisUrl": "redis://localhost:6379",
     },
     "walrus-testnet": {
         "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
         "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
-        "payloadSourceFile": "../../../data.bin" // Within the k6 folder
+        "payloadSourceFile": "../../../data.bin", // Within the k6 folder
+        "redisUrl": "redis://localhost:6379",
     }
 }
 
