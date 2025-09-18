@@ -12,10 +12,13 @@
 // a publisher already running on localhost.
 //
 // See `environment.ts` for ENVIRONMENT defaults.
-import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from '../../config/environment.ts'
+import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE, REDIS_URL } from '../../config/environment.ts'
 import { PutBlobOptions, putBlob } from '../../flows/publisher.ts'
 import { open } from 'k6/experimental/fs';
 import { parseHumanFileSize } from "../../lib/utils.ts"
+import { BlobHistory } from "../../lib/blob_history.ts"
+import { check } from 'k6';
+
 
 /**
  * Number of blobs to store
@@ -62,6 +65,7 @@ export const options = {
 };
 
 const dataFile = await open(PAYLOAD_SOURCE_FILE);
+const blobHistory = new BlobHistory(REDIS_URL);
 
 export function setup() {
     console.log('');
@@ -71,9 +75,27 @@ export function setup() {
     console.log(`Data file path: ${PAYLOAD_SOURCE_FILE}`);
     console.log(`Payload size: ${PAYLOAD_SIZE} (${parseHumanFileSize(PAYLOAD_SIZE)} B)`);
     console.log(`Blob store timeout: ${TIMEOUT}`);
+    if (REDIS_URL != undefined) {
+        console.log(`Blob history written to: ${REDIS_URL}`);
+    }
 }
 
 export default async function () {
     const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
-    await putBlob(dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT))
+    const response = await putBlob(
+        dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT)
+    );
+
+    check(response, {
+        'is status 200': (r) => r.status === 200,
+    });
+
+    await blobHistory.maybeRecordFromResponse(PAYLOAD_SIZE, response);
+}
+
+export async function teardown() {
+    const blobIdCount = await blobHistory.len(PAYLOAD_SIZE);
+    if (blobIdCount != null) {
+        console.log(`Total Blob IDs stored under key "${PAYLOAD_SIZE}": ${blobIdCount}`);
+    }
 }

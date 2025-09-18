@@ -28,10 +28,11 @@
 //
 // See `environment.ts` for ENVIRONMENT defaults.
 import { PutBlobOptions, putBlob } from "../../flows/publisher.ts"
-import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from "../../config/environment.ts"
+import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE, REDIS_URL } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';
 import { parseHumanFileSize } from "../../lib/utils.ts"
 import { check } from "k6";
+import { BlobHistory } from "../../lib/blob_history.ts"
 
 /**
  * The number of pre-allocated virtual users.
@@ -83,9 +84,6 @@ export const options = {
         http_req_failed: [{ threshold: 'rate <= 0.05', abortOnFail: true }],
         checks: [{ threshold: 'rate >= 0.95', abortOnFail: true }],
     },
-    tags: {
-        "payload-size": `${PAYLOAD_SIZE}`,
-    },
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
@@ -93,6 +91,7 @@ export const options = {
 
 const dataFile = await open(PAYLOAD_SOURCE_FILE);
 const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
+const blobHistory = new BlobHistory(REDIS_URL);
 
 export async function setup(): Promise<number> {
     console.log('');
@@ -102,6 +101,9 @@ export async function setup(): Promise<number> {
     console.log(`Blob store timeout: ${TIMEOUT}`);
     console.log(`Target rate: ${TARGET_RATE} req/min`);
     console.log(`Ramp-up duration: ${DURATION}`);
+    if (REDIS_URL != undefined) {
+        console.log(`Blob history written to: ${REDIS_URL}`);
+    }
 
     // Sample the duration to put a blob.
     const result = await putBlob(
@@ -116,10 +118,23 @@ export async function setup(): Promise<number> {
  */
 export default async function (basePutDurationMillis: number) {
     const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
-    const result = await putBlob(
+    const response = await putBlob(
         dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT)
     );
-    check(result, {
+
+    await blobHistory.maybeRecordFromResponse(PAYLOAD_SIZE, response);
+
+    check(response, {
+        'is status 200': (r) => r.status === 200,
+    });
+    check(response, {
         'duration is at most twice baseline': (r) => r.timings.duration <= 2 * basePutDurationMillis
     });
+}
+
+export async function teardown() {
+    const blobIdCount = await blobHistory.len(PAYLOAD_SIZE);
+    if (blobIdCount != null) {
+        console.log(`Total Blob IDs stored under key "${PAYLOAD_SIZE}": ${blobIdCount}`);
+    }
 }
