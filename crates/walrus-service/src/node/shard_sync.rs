@@ -72,17 +72,19 @@ impl ShardSyncHandler {
     ) -> Result<(), SyncShardClientError> {
         let mut task_handle = self.task_handle.lock().await;
         let sync_handler = self.clone();
+
+        // If there is an existing task, we need to abort it first before starting a new one.
+        if let Some(old_task) = task_handle.take() {
+            old_task.abort();
+        }
+
         let new_task = tokio::spawn(async move {
             sync_handler
                 .sync_shards_task(shards, recover_metadata)
                 .await
         });
 
-        // Abort any existing task before replacing it. This essentially cancels any existing shard
-        // syncs, and start new ones that sync move-in shards.
-        if let Some(old_task) = task_handle.replace(new_task) {
-            old_task.abort();
-        }
+        *task_handle = Some(new_task);
 
         Ok(())
     }
@@ -297,23 +299,15 @@ impl ShardSyncHandler {
                 }));
         } else {
             for shard_storage in self.node.storage.existing_shard_storages().await {
-                // Restart the syncing task for shards that were previously syncing (in ActiveSync
-                // status).
-                let shard_status = shard_storage.status().await?;
+                let shard_status = shard_storage
+                    .shard_status_resume_active_shard_sync(
+                        self.config.restart_shard_sync_always_retry_transfer_first,
+                    )
+                    .await?;
+
                 match shard_status {
-                    ShardStatus::ActiveSync => {
-                        self.start_shard_sync_impl(shard_storage.clone()).await;
-                    }
-                    ShardStatus::ActiveRecover => {
-                        if self.config.restart_shard_sync_always_retry_transfer_first {
-                            let shard_last_sync_status =
-                                shard_storage.resume_active_shard_sync().await?;
-                            tracing::info!(
-                                walrus.shard_index = %shard_storage.id(),
-                                ?shard_last_sync_status,
-                                "resuming shard sync from the last synced blob id"
-                            );
-                        }
+                    // Restart the syncing task for shards that were previously syncing.
+                    ShardStatus::ActiveSync | ShardStatus::ActiveRecover => {
                         self.start_shard_sync_impl(shard_storage.clone()).await;
                     }
                     _ => {}
