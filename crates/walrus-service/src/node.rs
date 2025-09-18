@@ -1832,7 +1832,7 @@ impl StorageNode {
                 .shard_storage(shard)
                 .await
                 .expect("we just create all storage, it must exist")
-                .set_active_status()
+                .force_set_active_status()
                 .await?;
         }
 
@@ -6578,7 +6578,7 @@ mod tests {
                 .expect("Shard storage should be created")
                 .status()
                 .await
-                .expect("failed to get shard status"),
+                .unwrap(),
             ShardStatus::Active
         );
 
@@ -6600,7 +6600,7 @@ mod tests {
                 .expect("Shard storage should be created")
                 .status()
                 .await
-                .expect("failed to get shard status"),
+                .unwrap(),
             ShardStatus::Active
         );
         Ok(())

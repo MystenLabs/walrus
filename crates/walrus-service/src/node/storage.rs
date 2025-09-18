@@ -460,12 +460,17 @@ impl Storage {
     /// returned.
     pub async fn list_shard_status(&self) -> HashMap<ShardIndex, Option<ShardStatus>> {
         let shards = self.shards.read().await;
-
-        let mut result = HashMap::new();
-        for (shard, storage) in shards.iter() {
-            result.insert(*shard, storage.status().await.ok());
-        }
-        result
+        futures::future::join_all(shards.iter().map(|(shard_id, shard_storage)| async move {
+            let status = shard_storage
+                .status()
+                .await
+                .ok()
+                .filter(|s| s.is_owned_by_node());
+            (*shard_id, status)
+        }))
+        .await
+        .into_iter()
+        .collect()
     }
 
     /// Store the verified metadata without updating blob info. This is only
@@ -821,18 +826,19 @@ impl Storage {
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
-        let shards = self.shards.read().await;
-        let mut result = Vec::new();
-
-        for shard_storage in shards.values() {
-            if let Ok(status) = shard_storage.status().await
-                && status.is_owned_by_node()
-            {
-                result.push(shard_storage.id());
-            }
-        }
-
-        result
+        futures::future::join_all(self.shards.read().await.values().map(
+            |shard_storage| async move {
+                shard_storage
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.is_owned_by_node())
+                    .then_some(shard_storage.id())
+            },
+        ))
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
     }
 }
 

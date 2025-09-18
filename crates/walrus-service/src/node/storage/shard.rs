@@ -93,6 +93,33 @@ impl ShardColumnFamilyNames {
     }
 }
 
+/// Indicates the current status of a shard.
+///
+/// ## State Transitions (Stable Status)
+///
+/// When the node is in stable status (not during recovery), the following transitions are allowed:
+///
+/// ```text
+///     ┌──────┐
+///     │ None │
+///     └──┬─┬─┘
+///        │ │
+///        │ └──────────────┐
+///        ▼                ▼
+///   ┌────────┐    ┌──────────────┐
+///   │ Active │    │ ActiveSync   │
+///   └────┬───┘    └──┬───┬───────┘
+///        │           │   │
+///        │           │   ▼
+///        │           │ ┌──────────────┐
+///        │           │ │ActiveRecover │
+///        │           │ └──────┬───────┘
+///        │           │        │
+///        ▼           ▼        ▼
+///   ┌─────────────────────────┐
+///   │    LockedToMove         │
+///   └─────────────────────────┘
+/// ```
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -596,7 +623,9 @@ impl ShardStorage {
         Ok(())
     }
 
-    pub(crate) async fn set_active_status(&self) -> Result<(), TypedStoreError> {
+    /// This function is used to force set the shard status to active. Use this function with
+    /// caution.
+    pub(crate) async fn force_set_active_status(&self) -> Result<(), TypedStoreError> {
         self.shard_status
             .write()
             .await
@@ -1123,6 +1152,10 @@ impl ShardStorage {
                 if existing_status == Some(ShardStatus::ActiveSync) {
                     shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
                 }
+                // TODO(WAL-903): currently, we do not stop the shard recover if the shard is no
+                // longer in ActiveSync status. From the shard sync responsibility perspective,
+                // this shard is responsible for all the blobs in the shard to be transferred to
+                // the new node. However, this may not be the most desired behavior.
                 Ok(())
             },
         )?;
