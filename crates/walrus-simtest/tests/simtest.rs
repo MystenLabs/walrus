@@ -53,7 +53,7 @@ mod tests {
         },
     };
     use walrus_sui::{
-        client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
+        client::{PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
         test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
         types::move_structs::EventBlob,
