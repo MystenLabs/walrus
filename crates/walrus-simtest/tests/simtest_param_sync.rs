@@ -7,7 +7,7 @@
 
 #[cfg(msim)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{net::SocketAddr, sync::Arc, time::Duration};
 
     use rand::Rng;
     use sui_types::base_types::ObjectID;
@@ -236,7 +236,7 @@ mod tests {
         assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
 
-        let new_address = UnusedSocketAddress::DistinctIp
+        let new_address: SocketAddr = UnusedSocketAddress::DistinctIp
             .try_into()
             .expect("should get unused socket address");
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
