@@ -37,10 +37,10 @@ runs:
         url="https://github.com/lzanini/mdbook-katex/releases/download/0.9.0-binaries/mdbook-katex-v0.9.0-x86_64-unknown-linux-gnu.tar.gz"
         curl -sSL "$url" | tar -xz --directory=bin
       shell: bash
-    - name: Install mdbook-templates from crates.io
-      uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
-      with:
-        tool: mdbook-templates@0.2.0
+    - name: Install mdbook-template from GitHub
+      run: |
+        cargo install --git https://github.com/MystenLabs/mdbook-template --locked
+      shell: bash
     - name: Install mdbook-tabs
       run: |
         url="https://github.com/RustForWeb/mdbook-plugins/releases/download/v0.2.1/mdbook-tabs-v0.2.1-x86_64-unknown-linux-gnu.tar.gz"

@@ -15,8 +15,14 @@ to the list.
 
 ## Known portals
 
-{{ #portals }}
-{{ /portals }}
+{{#if portals}}
+{{#each portals}}
+
+- `{{@key}}{{#if this.operator}} ({{this.operator}}){{/if}}`
+  {{/each}}
+  {{else}}
+- `https://wal.app (operated by Mysten Labs)`
+  {{/if}}
 
 ```admonish warning
 We are sunsetting the testnet portal! From now on, you can only access the mainnet portal

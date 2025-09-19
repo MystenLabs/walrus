@@ -14,7 +14,8 @@ directory.
 You can also build the documentation locally (assuming you have Rust installed):
 
 ```sh
-cargo install mdbook mdbook-admonish mdbook-katex mdbook-linkcheck mdbook-tabs mdbook-templates --locked
+cargo install mdbook mdbook-admonish mdbook-katex mdbook-linkcheck mdbook-tabs --locked
+cargo install --git https://github.com/MystenLabs/mdbook-template --locked
 mdbook serve
 ```
 

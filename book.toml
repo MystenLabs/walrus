@@ -40,8 +40,8 @@ inline-delimiter = { left = "\\(", right = "\\)" }
 [preprocessor.gettext]
 after = ["links"]
 
-[preprocessor.templates]
-command = "mdbook-templates"
-path = ["docs/book/assets/operators.json", "docs/book/portals/list.json"]
+[preprocessor.template]
+command = "mdbook-template"
+paths = ["docs/book/assets/operators.json", "docs/book/assets/portals.json"]
 
 [preprocessor.tabs]
