@@ -15,7 +15,7 @@
 import { DEFAULT_ENVIRONMENT, loadEnvironment } from '../../config/environment.ts'
 import { PutBlobOptions, putBlob } from '../../flows/publisher.ts'
 import * as fs from 'k6/experimental/fs';
-import { parseHumanFileSize, loadParameters } from "../../lib/utils.ts"
+import { parseHumanFileSize, loadParameters, getTestIdTags } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { check } from 'k6';
 
@@ -58,6 +58,11 @@ export const options = {
             iterations: params.blobsToStore,
             maxDuration: "15m",
         }
+    },
+
+    tags: {
+        ...getTestIdTags(),
+        payload_size: `${params.payloadSize}`,
     },
 
     // Skip TLS verification for self-signed certs.

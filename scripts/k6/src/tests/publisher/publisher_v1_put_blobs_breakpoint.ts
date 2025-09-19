@@ -30,7 +30,7 @@
 import { PutBlobOptions, putBlob } from "../../flows/publisher.ts"
 import { DEFAULT_ENVIRONMENT, loadEnvironment } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';
-import { loadParameters, parseHumanFileSize } from "../../lib/utils.ts"
+import { getTestIdTags, loadParameters, parseHumanFileSize } from "../../lib/utils.ts"
 import { check } from "k6";
 import { BlobHistory } from "../../lib/blob_history.ts"
 
@@ -94,6 +94,11 @@ export const options = {
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
+
+    tags: {
+        ...getTestIdTags(),
+        payload_size: `${params.payloadSize}`,
+    },
 };
 
 

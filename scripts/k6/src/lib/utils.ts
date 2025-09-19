@@ -152,3 +152,14 @@ export function loadParameters<T extends object>(defaults: T, planFilePath?: str
     );
     return Object.assign(output, loadEnv(keysAndTypes))
 }
+
+/**
+ * Gets the TEST_ID  and TEST_RUN_ID tags from the environment, if present, and returns them
+ * as testid and test_run_id
+ */
+export function getTestIdTags(): { testid?: string, test_run_id?: string } {
+    return {
+        testid: __ENV["TEST_ID"],
+        test_run_id: __ENV["TEST_RUN_ID"],
+    }
+}
