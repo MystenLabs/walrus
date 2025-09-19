@@ -15,6 +15,8 @@ to the list.
 
 ## Known portals
 
+Portals can self-identify by opening a PR that adds an entry to `docs/book/portals/list.json`.
+
 {{#if portals}}
 {{#each portals}}
 
