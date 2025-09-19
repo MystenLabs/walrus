@@ -26,6 +26,7 @@ use typed_store::{
         DBMap,
         ReadWriteOptions,
         RocksDB,
+        SstIngestOptions,
         be_fix_int_ser as to_rocks_db_key,
         errors::typed_store_err_from_rocks_err,
     },
@@ -284,6 +285,14 @@ pub struct ShardStorage {
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
     metrics: ShardMetrics,
     cf_names: Arc<ShardColumnFamilyNames>,
+    sst_primary_buffer: Arc<
+        OnceLock<std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, PrimarySliverData>>>,
+    >,
+    sst_secondary_buffer: Arc<
+        OnceLock<
+            std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, SecondarySliverData>>,
+        >,
+    >,
 }
 
 macro_rules! reopen_cf {
@@ -410,6 +419,8 @@ impl ShardStorage {
             pending_recover_slivers,
             metrics,
             cf_names: Arc::new(cf_names),
+            sst_primary_buffer: Arc::new(OnceLock::new()),
+            sst_secondary_buffer: Arc::new(OnceLock::new()),
         })
     }
 
@@ -792,6 +803,21 @@ impl ShardStorage {
     ) -> Result<(), SyncShardClientError> {
         tracing::info!(walrus.epoch = epoch, %directly_recover_shard, "syncing shard");
 
+        // Ensure any residual SST ingest buffers are reset before starting (or resuming) sync.
+        // This protects from out-of-order appends after a failed/resumed run.
+        if config.sst_ingestion_config.is_some() {
+            if let Some(m) = self.sst_primary_buffer.get()
+                && let Ok(mut buf) = m.lock()
+            {
+                buf.clear()?;
+            }
+            if let Some(m) = self.sst_secondary_buffer.get()
+                && let Ok(mut buf) = m.lock()
+            {
+                buf.clear()?;
+            }
+        }
+
         #[cfg(msim)]
         {
             // This fail point is used to signal that direct shard sync recovery is triggered.
@@ -942,7 +968,11 @@ impl ShardStorage {
         // blobs. In case, the shard sync should finish immediately and transition to Active state.
         assert!(epoch != 0 && (epoch > 1 || next_blob_info.is_none()));
         if !directly_recover_shard {
-            while let Some((next_starting_blob_id, _)) = next_blob_info {
+            while next_blob_info.is_some() {
+                let next_starting_blob_id = next_blob_info
+                    .as_ref()
+                    .map(|(id, _)| *id)
+                    .expect("Some checked above");
                 tracing::debug!(
                     "syncing shard to before epoch: {}. Starting blob id: {}",
                     epoch,
@@ -980,6 +1010,7 @@ impl ShardStorage {
                     next_blob_info,
                     &mut blob_info_iter,
                     &mut batch,
+                    config,
                 )?;
 
                 #[cfg(msim)]
@@ -990,12 +1021,31 @@ impl ShardStorage {
 
                 // Record sync progress.
                 last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-                if let Some(last_synced_blob_id) = last_synced_blob_id {
-                    batch.insert_batch(
-                        &self.shard_sync_progress,
-                        [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+                let use_sst = config.sst_ingestion_config.is_some();
+                if use_sst {
+                    let sst_file_threshold = config
+                        .sst_ingestion_config
+                        .as_ref()
+                        .and_then(|c| c.max_entries)
+                        .unwrap_or(100_000);
+                    let end_of_range = next_blob_info.is_none();
+                    let compact_after_sync = config
+                        .sst_ingestion_config
+                        .as_ref()
+                        .map(|c| c.compact_after_sync)
+                        .unwrap_or(true);
+                    self.handle_sst_progress(
+                        &mut batch,
+                        sliver_type,
+                        last_synced_blob_id,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
                     )?;
+                } else if let Some(last_synced_blob_id) = last_synced_blob_id {
+                    self.record_last_synced_blob_id(&mut batch, sliver_type, last_synced_blob_id)?;
                 }
+
                 batch.write()?;
 
                 walrus_utils::with_label!(
@@ -1028,6 +1078,85 @@ impl ShardStorage {
         Ok(())
     }
 
+    fn record_last_synced_blob_id(
+        &self,
+        batch: &mut DBBatch,
+        sliver_type: SliverType,
+        last_synced_blob_id: BlobId,
+    ) -> Result<(), TypedStoreError> {
+        batch.insert_batch(
+            &self.shard_sync_progress,
+            [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+        )?;
+        Ok(())
+    }
+
+    fn handle_sst_progress(
+        &self,
+        batch: &mut DBBatch,
+        sliver_type: SliverType,
+        last_pushed: Option<BlobId>,
+        end_of_range: bool,
+        sst_file_threshold: usize,
+        compact_after_sync: bool,
+    ) -> Result<(), TypedStoreError> {
+        let flushed = match sliver_type {
+            SliverType::Primary => {
+                if let Some(buf_mutex) = self.sst_primary_buffer.get() {
+                    self.flush_sst(
+                        buf_mutex,
+                        &self.primary_slivers,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
+                    )?
+                } else {
+                    false
+                }
+            }
+            SliverType::Secondary => {
+                if let Some(buf_mutex) = self.sst_secondary_buffer.get() {
+                    self.flush_sst(
+                        buf_mutex,
+                        &self.secondary_slivers,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
+                    )?
+                } else {
+                    false
+                }
+            }
+        };
+        if flushed && let Some(id) = last_pushed {
+            self.record_last_synced_blob_id(batch, sliver_type, id)?;
+        }
+        Ok(())
+    }
+
+    fn flush_sst<V>(
+        &self,
+        buf_mutex: &std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, V>>,
+        table: &DBMap<BlobId, V>,
+        end_of_range: bool,
+        sst_file_threshold: usize,
+        compact_after_sync: bool,
+    ) -> Result<bool, TypedStoreError>
+    where
+        V: serde::Serialize,
+    {
+        let mut buf = buf_mutex.lock().expect("lock should succeed");
+        let should_flush = buf.size() >= sst_file_threshold || end_of_range;
+        if !should_flush {
+            return Ok(false);
+        }
+        buf.flush()?;
+        if end_of_range && compact_after_sync {
+            table.compact_range_to_bottom(&BlobId::ZERO, &BlobId::MAX)?;
+        }
+        Ok(true)
+    }
+
     /// Helper function to add fetched slivers to the db batch and check for missing blobs.
     /// Advance `blob_info_iter`` to the next blob that is greater than the last fetched blob id,
     /// which is the next expected blob to fetch, and return the next expected blob.
@@ -1041,7 +1170,9 @@ impl ShardStorage {
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
         blob_info_iter: &mut BlobInfoIterator,
         batch: &mut DBBatch,
+        config: &crate::node::config::ShardSyncConfig,
     ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
+        let use_sst = config.sst_ingestion_config.is_some();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
                 walrus.blob_id = %blob_id,
@@ -1055,20 +1186,65 @@ impl ShardStorage {
             //    change, so we need to fetch metadata if missing)
             //  - metadata is correct
 
-            match sliver {
-                Sliver::Primary(primary) => {
-                    assert_eq!(sliver_type, SliverType::Primary);
-                    batch.insert_batch(
-                        &self.primary_slivers,
-                        [(blob_id, &PrimarySliverData::from(primary.clone()))],
-                    )?;
+            if use_sst {
+                let max_entries = config
+                    .sst_ingestion_config
+                    .as_ref()
+                    .and_then(|c| c.max_entries)
+                    .unwrap_or(100_000);
+                let options = SstIngestOptions {
+                    max_entries,
+                    dir_name: None,
+                    assume_sorted: true,
+                };
+                match sliver {
+                    Sliver::Primary(primary) => {
+                        assert_eq!(sliver_type, SliverType::Primary);
+                        let buffer_mutex = self.sst_primary_buffer.get_or_init(|| {
+                            let buf = typed_store::rocks::SstIngestBuffer::new(
+                                &self.primary_slivers,
+                                options,
+                            )
+                            .expect("SST buffer creation should succeed");
+                            std::sync::Mutex::new(buf)
+                        });
+                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
+                        buffer
+                            .push(*blob_id, PrimarySliverData::from(primary.clone()))
+                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
+                    }
+                    Sliver::Secondary(secondary) => {
+                        assert_eq!(sliver_type, SliverType::Secondary);
+                        let buffer_mutex = self.sst_secondary_buffer.get_or_init(|| {
+                            let buf = typed_store::rocks::SstIngestBuffer::new(
+                                &self.secondary_slivers,
+                                options,
+                            )
+                            .expect("SST buffer creation should succeed");
+                            std::sync::Mutex::new(buf)
+                        });
+                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
+                        buffer
+                            .push(*blob_id, SecondarySliverData::from(secondary.clone()))
+                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
+                    }
                 }
-                Sliver::Secondary(secondary) => {
-                    assert_eq!(sliver_type, SliverType::Secondary);
-                    batch.insert_batch(
-                        &self.secondary_slivers,
-                        [(blob_id, &SecondarySliverData::from(secondary.clone()))],
-                    )?;
+            } else {
+                match sliver {
+                    Sliver::Primary(primary) => {
+                        assert_eq!(sliver_type, SliverType::Primary);
+                        batch.insert_batch(
+                            &self.primary_slivers,
+                            [(blob_id, &PrimarySliverData::from(primary.clone()))],
+                        )?;
+                    }
+                    Sliver::Secondary(secondary) => {
+                        assert_eq!(sliver_type, SliverType::Secondary);
+                        batch.insert_batch(
+                            &self.secondary_slivers,
+                            [(blob_id, &SecondarySliverData::from(secondary.clone()))],
+                        )?;
+                    }
                 }
             }
 

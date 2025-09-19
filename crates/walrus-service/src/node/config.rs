@@ -675,6 +675,9 @@ pub struct ShardSyncConfig {
     /// transfer. This is the preferred option since it's always cheaper to scan the blob info
     /// table without transferring the shards.
     pub restart_shard_sync_always_retry_transfer_first: bool,
+    /// Configuration for using SST ingestion during shard sync. None disables this feature.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub sst_ingestion_config: Option<SstIngestionConfig>,
 }
 
 impl Default for ShardSyncConfig {
@@ -689,6 +692,26 @@ impl Default for ShardSyncConfig {
             shard_sync_concurrency: 10,
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
+            sst_ingestion_config: Some(SstIngestionConfig::default()),
+        }
+    }
+}
+
+/// Configuration for SST ingestion during shard sync.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SstIngestionConfig {
+    /// SST flush thresholds for shard sync (per SST file).
+    pub max_entries: Option<usize>,
+    /// Compact SST after shard sync completes.
+    pub compact_after_sync: bool,
+}
+
+impl Default for SstIngestionConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: None,
+            compact_after_sync: true,
         }
     }
 }
