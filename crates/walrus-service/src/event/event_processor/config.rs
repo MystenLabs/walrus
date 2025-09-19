@@ -106,6 +106,25 @@ pub struct EventProcessorConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "sampled_tracing_interval_secs")]
     pub sampled_tracing_interval: Duration,
+    /// Enable runtime catchup functionality.
+    pub enable_runtime_catchup: bool,
+    /// Runtime catchup lag threshold for triggering catchup at runtime.
+    /// When the lag exceeds this threshold during runtime, the catchup manager
+    /// will be invoked in parallel with the checkpoint downloader to accelerate
+    /// recovery. Should typically be the same as event_stream_catchup_min_checkpoint_lag.
+    pub runtime_catchup_lag_threshold: u64,
+    /// Interval for checking lag during runtime to trigger catchup if needed.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "runtime_lag_check_interval_secs")]
+    pub runtime_lag_check_interval: Duration,
+    /// Timeout for catchup operations to prevent indefinite blocking.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "catchup_coordination_timeout_secs")]
+    pub catchup_coordination_timeout: Duration,
+    /// Timeout for catchup processing to prevent indefinite blocking.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "catchup_processing_timeout_secs")]
+    pub catchup_processing_timeout: Duration,
 }
 
 impl Default for EventProcessorConfig {
@@ -116,6 +135,11 @@ impl Default for EventProcessorConfig {
             adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
             sampled_tracing_interval: Duration::from_secs(3600),
+            runtime_catchup_lag_threshold: 20_000,
+            runtime_lag_check_interval: Duration::from_secs(300),
+            enable_runtime_catchup: true,
+            catchup_coordination_timeout: Duration::from_secs(3000),
+            catchup_processing_timeout: Duration::from_secs(3000),
         }
     }
 }
