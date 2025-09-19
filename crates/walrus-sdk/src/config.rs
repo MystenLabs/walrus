@@ -32,11 +32,13 @@ mod committees_refresh_config;
 mod communication_config;
 mod reqwest_config;
 mod sliver_write_extra_time;
+mod upload_mode;
 
 pub use self::{
     committees_refresh_config::CommitteesRefreshConfig,
     communication_config::{ClientCommunicationConfig, CommunicationLimits},
     reqwest_config::RequestRateConfig,
+    upload_mode::UploadMode,
 };
 
 /// Returns the default paths for the Walrus configuration file.
