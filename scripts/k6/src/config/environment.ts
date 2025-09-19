@@ -1,12 +1,17 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+import { loadParameters } from "../lib/utils.ts"
+
+/**
+ * Type alias for a redis URL.
+ */
 type RedisUrl = `redis://${string}`
 
 /**
  * A configuration for a test environment.
  */
-interface EnvironmentConfig {
+export interface EnvironmentConfig {
     /**
      * The default URL of the publisher for the environment.
      */
@@ -25,6 +30,12 @@ interface EnvironmentConfig {
     redisUrl?: RedisUrl,
 }
 
+const testnetEnvironment = {
+    "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
+    "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
+    "payloadSourceFile": "../../../data.bin", // Within the k6 folder
+}
+
 /**
  * Default configurations for various running environments.
  */
@@ -41,38 +52,23 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
         "redisUrl": "redis://localhost:6379",
     },
     "walrus-testnet": {
-        "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
-        "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
-        "payloadSourceFile": "../../../data.bin", // Within the k6 folder
+        ...testnetEnvironment,
         "redisUrl": "redis://localhost:6379",
+    },
+    "walrus-testnet-no-redis": {
+        ...testnetEnvironment,
     }
 }
 
-const ENVIRONMENT = __ENV.ENVIRONMENT || "walrus-testnet";
+/**
+ * The default environment used if none is specified.
+ */
+export const DEFAULT_ENVIRONMENT: string = "walrus-testnet-no-redis";
 
 /**
- * The URL of the publisher to use.
+ * Load the defaults for the environment specified by `environment` and update
+ * the defaults with any arguments set on the command line.
  */
-export const PUBLISHER_URL: string = __ENV.PUBLISHER_URL
-    || ENVIRONMENT_DEFAULTS[ENVIRONMENT].publisherUrl;
-
-/**
- * The URL of the aggregator to use.
- */
-export const AGGREGATOR_URL: string = __ENV.AGGREGATOR_URL
-    || ENVIRONMENT_DEFAULTS[ENVIRONMENT].aggregatorUrl;
-
-/**
- * The path to a file that is used as the source of all the blobs.
- * Each blob is taken as a slice from the raw bytes of the file.
- */
-export const PAYLOAD_SOURCE_FILE: string = __ENV.PAYLOAD_SOURCE_FILE
-    || ENVIRONMENT_DEFAULTS[ENVIRONMENT].payloadSourceFile;
-
-/**
- * An optional URL of a redis instance in which to persist cross-experiment state,
- * in the form redis[s]://[[username][:password]@][host][:port][/db-number]
- */
-export const REDIS_URL: RedisUrl | undefined = (__ENV.REDIS_URL != undefined)
-    ? __ENV.REDIS_URL as RedisUrl
-    : ENVIRONMENT_DEFAULTS[ENVIRONMENT].redisUrl;
+export function loadEnvironment(environment: string): EnvironmentConfig {
+    return loadParameters<EnvironmentConfig>(ENVIRONMENT_DEFAULTS[environment])
+}

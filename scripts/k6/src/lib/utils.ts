@@ -83,3 +83,57 @@ export function parseHumanFileSize(value: string): number {
     }
     return Math.floor(numericValue);
 }
+
+/**
+ * Loads the plan if specified.
+ *
+ * If the plan does not exist, or if it is not specified,
+ * an empty object is returned
+ */
+function loadPlan(path: string, plan?: string): Record<string, any> {
+    if (plan == undefined) {
+        return {};
+    }
+    const plans = JSON.parse(open(path));
+    return (plan in plans) ? plans[plan] : {};
+}
+
+
+type Parameters = Record<string, string | number>;
+
+/**
+ * For each camelCase property in `example`, load the corresponding CONSTANT_CASE
+ * value from __ENV and return it.
+ */
+function loadEnv(keysAndTypes: Record<string, string>): Parameters {
+    const output: Parameters = {}
+
+    for (const [key, keyType] of Object.entries(keysAndTypes)) {
+        const value = __ENV[key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()];
+        if (value !== undefined) {
+            if (keyType == "number") {
+                output[key] = parseFloat(value)
+            } else {
+                output[key] = value;
+            }
+        }
+    }
+    return output
+}
+
+
+export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
+    var output = defaults;
+
+    if (planFilePath != undefined) {
+        output = Object.assign(
+            output,
+            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.PLAN),
+        );
+    }
+
+    const keysAndTypes = Object.fromEntries(
+        Object.entries(defaults).map(([key, value]) => [key, typeof (value)])
+    );
+    return Object.assign(output, loadEnv(keysAndTypes))
+}

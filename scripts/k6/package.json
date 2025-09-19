@@ -10,5 +10,6 @@
   },
   "dependencies": {
     "k6-jslib-utils": "github:grafana/k6-jslib-utils"
-  }
+  },
+  "type": "module"
 }
