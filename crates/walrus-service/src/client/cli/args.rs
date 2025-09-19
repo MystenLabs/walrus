@@ -28,6 +28,7 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
+use walrus_sdk::config::UploadMode;
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{StorageNode, move_structs::Authorized},
@@ -1095,6 +1096,15 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub skip_tip_confirmation: bool,
+    /// Preset upload mode to tune network concurrency and bytes-in-flight.
+    #[arg(long, value_enum, default_value_t = default::upload_mode())]
+    #[serde(default = "default::upload_mode")]
+    pub upload_mode: UploadModeCli,
+    /// If set, the preset overrides config-file `communication_config` values.
+    /// By default, the preset only fills unset/defaulted fields.
+    #[arg(long)]
+    #[serde(default)]
+    pub force_upload_mode: bool,
 }
 
 #[serde_as]
@@ -1111,6 +1121,31 @@ pub struct FileOrBlobId {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
+}
+
+/// CLI enum for selecting upload presets. Converted to SDK UploadMode at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum UploadModeCli {
+    Conservative,
+    Balanced,
+    Aggressive,
+}
+
+impl Default for UploadModeCli {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
+impl From<UploadModeCli> for UploadMode {
+    fn from(value: UploadModeCli) -> Self {
+        match value {
+            UploadModeCli::Conservative => UploadMode::Conservative,
+            UploadModeCli::Balanced => UploadMode::Balanced,
+            UploadModeCli::Aggressive => UploadMode::Aggressive,
+        }
+    }
 }
 
 impl FileOrBlobId {
@@ -1667,6 +1702,11 @@ pub(crate) mod default {
 
     use walrus_sui::utils::SuiNetwork;
 
+    // Default upload mode for CLI presets.
+    pub(crate) fn upload_mode() -> super::UploadModeCli {
+        super::UploadModeCli::Balanced
+    }
+
     pub(crate) fn max_body_size_kib() -> usize {
         10_240
     }
@@ -1803,6 +1843,8 @@ mod tests {
                 encoding_type: Default::default(),
                 upload_relay: None,
                 skip_tip_confirmation: false,
+                upload_mode: default::upload_mode(),
+                force_upload_mode: false,
             },
         })
     }
