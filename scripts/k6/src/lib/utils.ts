@@ -87,22 +87,25 @@ export function parseHumanFileSize(value: string): number {
 /**
  * Loads the plan if specified.
  *
- * If the plan does not exist, or if it is not specified,
- * an empty object is returned
+ * If the specified plan does not exist an error is raised.
  */
 function loadPlan(path: string, plan?: string): Record<string, any> {
     if (plan == undefined) {
         return {};
     }
     const plans = JSON.parse(open(path));
-    return (plan in plans) ? plans[plan] : {};
+    if (!(plan in plans)) {
+        throw new Error(`The requested plan "${plan}" is not present in "${path}"`);
+    } else {
+        return plans[plan];
+    }
 }
 
 
 type Parameters = Record<string, string | number>;
 
 /**
- * For each camelCase property in `example`, load the corresponding CONSTANT_CASE
+ * For each camelCase property in `example`, load the corresponding UPPER_SNAKE_CASE
  * value from __ENV and return it.
  */
 function loadEnv(keysAndTypes: Record<string, string>): Parameters {
@@ -122,6 +125,18 @@ function loadEnv(keysAndTypes: Record<string, string>): Parameters {
 }
 
 
+/**
+ * Loads parameters from a plan and __ENV.
+ *
+ * Variables set in __ENV take precedence over those in the plan.
+ *
+ * @param defaults - The default parameters. The keys in the `defaults` are converted from camelCase
+ * to UPPER_SNAKE_CASE and used as keys to fetch any set values in __ENV.
+ * @param planFilePath - A path within the config/ directory that contains the plans. If specified,
+ * then the environment variable __ENV.PLAN is checked for a plan name and the defaults are updated
+ * with the named plan.
+ * @returns The loaded parameters.
+ */
 export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
     var output = defaults;
 

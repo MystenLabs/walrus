@@ -97,6 +97,11 @@ export const options = {
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
+
+    tags: {
+        "testid": `${params.testId}`,
+        "payload_size": `${params.payloadSize}`,
+    },
 };
 
 
