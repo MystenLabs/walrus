@@ -30,10 +30,9 @@ export interface EnvironmentConfig {
     redisUrl?: RedisUrl,
 }
 
-const testnetEnvironment = {
+const testnetUrls = {
     "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
     "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
-    "payloadSourceFile": "../../../data.bin", // Within the k6 folder
 }
 
 /**
@@ -52,18 +51,20 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
         "redisUrl": "redis://localhost:6379",
     },
     "walrus-testnet": {
-        ...testnetEnvironment,
-        "redisUrl": "redis://localhost:6379",
+        ...testnetUrls,
+        "payloadSourceFile": "../../../data.bin", // Within the k6 folder
     },
-    "walrus-testnet-no-redis": {
-        ...testnetEnvironment,
+    "walrus-testnet-ci": {
+        ...testnetUrls,
+        "payloadSourceFile": "/opt/k6/data/data.bin",
+        "redisUrl": "redis://localhost:6379",
     }
 }
 
 /**
  * The default environment used if none is specified.
  */
-export const DEFAULT_ENVIRONMENT: string = "walrus-testnet-no-redis";
+export const DEFAULT_ENVIRONMENT: string = "walrus-testnet";
 
 /**
  * Load the defaults for the environment specified by `environment` and update

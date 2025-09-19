@@ -1,19 +1,11 @@
 {
   "ci-testnet-performance:1Ki": {
     "payloadSize": "1Ki",
-    "environment": "walrus-testnet"
+    "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:1Mi": {
-    "payloadSize": "1Mi",
-    "environment": "walrus-testnet"
-  },
-  "ci-testnet-performance:10Mi": {
-    "payloadSize": "10Mi",
-    "environment": "walrus-testnet"
-  },
-  "ci-testnet-performance:100Mi": {
-    "payloadSize": "100Mi",
+  "ci-testnet-performance:40Mi": {
+    "payloadSize": "40Mi",
     "timeout": "5m",
-    "environment": "walrus-testnet"
+    "environment": "walrus-testnet-ci"
   }
 }
