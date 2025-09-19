@@ -29,8 +29,6 @@ interface TestParameters {
     payloadSize: string,
     /** The timeout for storing each blob. */
     timeout: string,
-    /** An identifier for the test run. */
-    testId: string,
     /** The environment in which the test is running. */
     environment: string,
 }
@@ -41,7 +39,6 @@ const params = loadParameters<TestParameters>(
         vus: 1,
         payloadSize: "1Ki",
         timeout: "1m",
-        testId: "",
         environment: DEFAULT_ENVIRONMENT,
     },
     "publisher/v1_put_blobs.plans.json"
@@ -61,11 +58,6 @@ export const options = {
             iterations: params.blobsToStore,
             maxDuration: "15m",
         }
-    },
-
-    tags: {
-        "testid": `${params.testId}`,
-        "payload_size": `${params.payloadSize}`,
     },
 
     // Skip TLS verification for self-signed certs.

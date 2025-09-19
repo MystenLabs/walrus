@@ -50,8 +50,6 @@ interface TestParameters {
      * long before actually reaching this duration.
      */
     duration: string
-    /** An identifier for the test run. */
-    testId: string,
     /** The environment in which the test is running. */
     environment: string,
 }
@@ -63,7 +61,6 @@ const params = loadParameters<TestParameters>(
         timeout: "1m",
         targetRate: 600,
         duration: "30m",
-        testId: "",
         environment: DEFAULT_ENVIRONMENT,
     },
     "publisher/v1_put_blobs_breakpoint.plans.json"
@@ -97,11 +94,6 @@ export const options = {
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
-
-    tags: {
-        "testid": `${params.testId}`,
-        "payload_size": `${params.payloadSize}`,
-    },
 };
 
 
