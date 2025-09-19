@@ -62,7 +62,7 @@ This documentation is split into several parts:
 
 1. *Dev blog* contains announcements and other blog posts.
 1. *Usage* provides concrete information for developers. If you want to get started quickly, you can
-   jump directly to the [setup chapter](./usage/setup.md).
+   jump directly to the [getting started chapter](./usage/started.md).
 1. *Sites* describes how you can use Walrus and Sui together to build truly decentralized websites.
 1. *Design* describes the objectives, security properties, and architecture of Walrus.
 

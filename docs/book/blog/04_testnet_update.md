@@ -69,7 +69,7 @@ utility and smart contract to convert Testnet SUI (which also has no value) into
 a one-to-one exchange rate. This is chosen arbitrarily, and generally one should not read too much
 into the actual WAL denominated costs of storage on Testnet. They have been chosen arbitrarily.
 
-Find out how to [request Testnet WAL tokens](../usage/setup.md#testnet-wal-faucet) through the CLI.
+Find out how to [request Testnet WAL tokens](../usage/started.md#testnet-wal-faucet) through the CLI.
 
 ## Decentralization through staking & unstaking
 

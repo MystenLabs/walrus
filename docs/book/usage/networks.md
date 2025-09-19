@@ -39,7 +39,7 @@ them into the Walrus client configuration file. The latest published package IDs
 in the `Move.lock` files in the subdirectories of the [`contracts` directory on
 GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
-The configuration file described on the [setup page](./setup.md#configuration) includes both Mainnet
+The configuration file described on the [getting started page](./started.md#configuration) includes both Mainnet
 and Testnet configuration. If you want *only* the Mainnet configuration, you can download the
 [Mainnet-only configuration file](../setup/client_config_mainnet.yaml).
 
@@ -114,13 +114,13 @@ $ sui client gas
 ```
 
 The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the [Walrus configuration file](./setup.md#configuration)
+different Sui wallet, you can specify this in the [Walrus configuration file](./started.md#configuration)
 or when [running the CLI](./interacting.md).
 
 ### Testnet parameters
 
 The configuration parameters for the Walrus Testnet are included in the configuration file described
-on the [setup page](./setup.md#configuration). If you want *only* the Testnet configuration, you can
+on the [getting started page](./started.md#configuration). If you want *only* the Testnet configuration, you can
 get the [Testnet-only configuration file](../setup/client_config_testnet.yaml). The parameters are:
 
 ```yaml

@@ -159,7 +159,7 @@ impl ClientConfig {
             }
             Err(e) => bail!(
                 "unable to parse the client config file: [config_filename='{}', error='{}']\n\
-                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
+                see https://docs.wal.app/usage/started.html#configuration for the correct format",
                 path.display(),
                 e
             ),
