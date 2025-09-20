@@ -43,7 +43,7 @@ use crate::{
 /// across all ranges (e.g., 256 would sort before 10 in bytes). However, for practical
 /// sequence number ranges this works adequately. If perfect ordering is critical,
 /// consider using a custom key type with big-endian encoding.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct QuiltIndexTaskId {
     pub sequence: u64,
     pub quilt_id: BlobId,

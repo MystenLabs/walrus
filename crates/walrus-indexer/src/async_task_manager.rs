@@ -3,12 +3,15 @@
 
 //! Async task manager built on top of PersistentQueue.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-// async_trait is now used via lib.rs imports.
-use serde::{Deserialize, Serialize};
-use tokio::{sync::Mutex, time::Duration};
+use tokio::{
+    sync::{Mutex, mpsc},
+    task::JoinHandle,
+    time::Duration,
+};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     AsyncTask,
@@ -16,6 +19,10 @@ use crate::{
     TaskExecutor,
     async_task_sorter::{AsyncTaskSorter, AsyncTaskSorterConfig},
 };
+
+/// Request to the task scheduler to check for work.
+#[derive(Debug)]
+struct ScheduleRequest;
 
 /// Handles retry queue processing with channel-based signaling.
 struct RetryQueueHandler<T, S, E>
@@ -27,10 +34,10 @@ where
     store: Arc<S>,
     executor: Arc<E>,
     config: AsyncTaskManagerConfig,
-    signal_receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
-    shutdown_token: tokio_util::sync::CancellationToken,
-    task_handle: Option<tokio::task::JoinHandle<()>>, // The actual retry processing task.
-    retry_needed: Arc<Mutex<bool>>,                   // Shared flag for retry task to check.
+    signal_receiver: mpsc::UnboundedReceiver<()>,
+    shutdown_token: CancellationToken,
+    task_handle: Option<JoinHandle<()>>, // The actual retry processing task.
+    retry_needed: Arc<Mutex<bool>>,      // Shared flag for retry task to check.
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -44,8 +51,8 @@ where
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        signal_receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
-        shutdown_token: tokio_util::sync::CancellationToken,
+        signal_receiver: mpsc::UnboundedReceiver<()>,
+        shutdown_token: CancellationToken,
     ) -> Self {
         Self {
             store,
@@ -63,9 +70,9 @@ where
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        signal_receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
-        shutdown_token: tokio_util::sync::CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
+        signal_receiver: mpsc::UnboundedReceiver<()>,
+        shutdown_token: CancellationToken,
+    ) -> JoinHandle<()> {
         let mut handler = Self::new(store, executor, config, signal_receiver, shutdown_token);
 
         tokio::spawn(async move {
@@ -179,14 +186,16 @@ where
                 let task_id = task.task_id();
                 last_task_id = Some(task_id.clone());
 
+                tracing::debug!("Processing retry task {:?}", task);
+
                 // Execute task and track failures.
                 // Note: The executor is responsible for removing the task from storage
                 // upon successful execution.
-                if let Err(e) = executor.execute(task).await {
+                if let Err(e) = executor.execute(task.clone()).await {
                     had_failures = true;
-                    tracing::warn!("Retry task {:?} failed: {}", task_id, e);
+                    tracing::warn!("Retry task {:?} failed: {}", task, e);
                 } else {
-                    tracing::debug!("Retry task {:?} executed successfully", task_id);
+                    tracing::debug!("Retry task {:?} executed successfully", task);
                 }
             }
 
@@ -205,6 +214,8 @@ pub struct AsyncTaskManagerConfig {
     pub queue_config: AsyncTaskSorterConfig,
     /// Delay between processing tasks (to avoid tight loops).
     pub task_delay: Duration,
+    /// Maximum number of concurrent tasks (not including retry tasks).
+    pub max_concurrent_tasks: usize,
 }
 
 impl Default for AsyncTaskManagerConfig {
@@ -212,6 +223,7 @@ impl Default for AsyncTaskManagerConfig {
         Self {
             queue_config: AsyncTaskSorterConfig::default(),
             task_delay: Duration::from_millis(100),
+            max_concurrent_tasks: 4,
         }
     }
 }
@@ -220,7 +232,7 @@ impl Default for AsyncTaskManagerConfig {
 ///
 /// This manager:
 /// - Uses AsyncTaskSorter for task storage and ordering.
-/// - Executes tasks in serial asynchronously.
+/// - Executes tasks concurrently up to configured limit.
 /// - Manages retry queue separately for failed tasks.
 pub struct AsyncTaskManager<T, S, E>
 where
@@ -229,17 +241,15 @@ where
     E: TaskExecutor<T>,
 {
     task_sorter: Arc<AsyncTaskSorter<T, S>>,
-    store: Arc<S>,
-    executor: Arc<E>,
-    config: AsyncTaskManagerConfig,
-    /// Handle to the currently active processing task, if any.
-    active_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    /// Handle to the retry queue processing task, if any.
-    retry_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Handle to the main processing task.
+    processing_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// Handle to the retry queue processing task.
+    retry_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Cancellation token for shutting down processing.
-    shutdown_token: tokio_util::sync::CancellationToken,
-    /// Channel to signal retry processing needs.
-    retry_signal_sender: tokio::sync::mpsc::UnboundedSender<()>,
+    shutdown_token: CancellationToken,
+    /// Channel to signal task scheduling needs.
+    schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
+    _phantom: std::marker::PhantomData<(T, S, E)>,
 }
 
 impl<T, S, E> AsyncTaskManager<T, S, E>
@@ -256,44 +266,38 @@ where
     ) -> Result<Self> {
         let task_sorter =
             Arc::new(AsyncTaskSorter::new(config.queue_config.clone(), store.clone()).await);
-        let (retry_signal_sender, retry_signal_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let (retry_signal_sender, retry_signal_receiver) = mpsc::unbounded_channel();
+        let (schedule_tx, schedule_rx) = mpsc::unbounded_channel::<ScheduleRequest>();
+        let shutdown_token = CancellationToken::new();
 
         // Start the retry handler with a child cancellation token.
-        let retry_task_handle = RetryQueueHandler::spawn(
+        let retry_handle = RetryQueueHandler::spawn(
             store.clone(),
             executor.clone(),
             config.clone(),
             retry_signal_receiver,
-            shutdown_token.child_token(), // Use child token for the retry handler.
+            shutdown_token.child_token(),
         );
 
-        // Create the active_task_handle first.
-        let active_task_handle = Arc::new(Mutex::new(None));
-
-        // Start the initial processing task.
-        let handle = Self::start_processing_task(
+        // Start the main processing loop.
+        let processing_handle = Self::spawn_processing_loop(
             task_sorter.clone(),
             store.clone(),
             executor.clone(),
             config.clone(),
-            active_task_handle.clone(),
             shutdown_token.child_token(),
             retry_signal_sender.clone(),
+            schedule_rx,
+            schedule_tx.clone(),
         );
-
-        // Set the handle in the mutex.
-        *active_task_handle.lock().await = Some(handle);
 
         Ok(Self {
             task_sorter,
-            store,
-            executor,
-            config,
-            active_task_handle,
-            retry_task_handle: Arc::new(Mutex::new(Some(retry_task_handle))),
+            processing_handle: Arc::new(Mutex::new(Some(processing_handle))),
+            retry_handle: Arc::new(Mutex::new(Some(retry_handle))),
             shutdown_token,
-            retry_signal_sender,
+            schedule_tx,
+            _phantom: std::marker::PhantomData,
         })
     }
 
@@ -301,144 +305,188 @@ where
     /// The task will be persisted, enqueued and eventually executed.
     pub async fn submit(&self, task: T) -> Result<()> {
         // Enqueue the task.
-        self.task_sorter.persist_and_enqueue_task(task).await?;
+        self.task_sorter
+            .persist_and_enqueue_task(task.clone())
+            .await?;
 
-        // Try to start processing if not already active.
-        self.maybe_start_processing().await?;
+        tracing::debug!("Submitted task {:?}", task);
+
+        // Notify the scheduler to check for work.
+        let _ = self.schedule_tx.send(ScheduleRequest);
 
         Ok(())
     }
 
-    /// Start a processing task.
-    fn start_processing_task(
+    /// Spawn the main processing loop.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_processing_loop(
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        active_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-        cancel_token: tokio_util::sync::CancellationToken,
-        retry_signal_sender: tokio::sync::mpsc::UnboundedSender<()>,
-    ) -> tokio::task::JoinHandle<()> {
-        // Generate unique processor ID for debugging.
-        let processor_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        tracing::debug!("Starting new processing task with ID: {}", processor_id);
+        cancel_token: CancellationToken,
+        retry_signal_sender: mpsc::UnboundedSender<()>,
+        schedule_rx: mpsc::UnboundedReceiver<ScheduleRequest>,
+        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            tracing::info!("Starting task processing loop");
 
-        let handle = tokio::spawn(async move {
-            tracing::debug!("Processor {} starting", processor_id);
-            let result = Self::process_until_empty(
+            let result = Self::schedule_loop(
                 task_sorter,
                 store,
                 executor,
                 config,
                 cancel_token,
                 retry_signal_sender,
+                schedule_rx,
+                schedule_tx,
             )
             .await;
 
             if let Err(e) = result {
-                tracing::error!("Error in processing task: {}", e);
+                tracing::error!("Error in processing loop: {}", e);
             }
 
-            // Clear the handle when done.
-            let mut handle_guard = active_task_handle.lock().await;
-            *handle_guard = None;
-        });
-
-        handle
+            tracing::info!("Task processing loop ended");
+        })
     }
 
-    /// Try to start processing if not already active.
-    async fn maybe_start_processing(&self) -> Result<()> {
-        let mut active_handle = self.active_task_handle.lock().await;
-
-        // Check if we already have an active task.
-        if let Some(ref handle) = *active_handle {
-            if !handle.is_finished() {
-                tracing::debug!("Processing task already active, skipping");
-                return Ok(());
-            }
-            // Clean up finished handle.
-            *active_handle = None;
-        }
-
-        let handle = Self::start_processing_task(
-            Arc::clone(&self.task_sorter),
-            Arc::clone(&self.store),
-            Arc::clone(&self.executor),
-            self.config.clone(),
-            self.active_task_handle.clone(),
-            self.shutdown_token.child_token(),
-            self.retry_signal_sender.clone(),
-        );
-
-        // Store the new handle before releasing the lock.
-        *active_handle = Some(handle);
-
-        Ok(())
-    }
-
-    /// Static version of process_until_empty that doesn't borrow self.
-    async fn process_until_empty(
+    /// Process tasks until cancelled.
+    #[allow(clippy::too_many_arguments)]
+    async fn schedule_loop(
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        cancel_token: tokio_util::sync::CancellationToken,
-        retry_signal_sender: tokio::sync::mpsc::UnboundedSender<()>,
+        cancel_token: CancellationToken,
+        retry_signal_sender: mpsc::UnboundedSender<()>,
+        mut schedule_rx: mpsc::UnboundedReceiver<ScheduleRequest>,
+        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
     ) -> Result<()> {
+        // Map to track running worker tasks.
+        let mut worker_handles: HashMap<T::TaskId, JoinHandle<Result<()>>> = HashMap::new();
+
+        // Send initial request to check for tasks.
+        let _ = schedule_tx.send(ScheduleRequest);
+
+        // Main event loop - runs forever until cancelled.
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    tracing::info!("Task processing cancelled");
+                    tracing::info!("Task processing cancelled, aborting workers.");
+
+                    // Cancel all running workers.
+                    for (_, handle) in worker_handles.drain() {
+                        handle.abort();
+                    }
+
                     break;
                 }
 
-                task_result = task_sorter.get_next_task() => {
-                    match task_result? {
-                        Some(task) => {
-                            // Execute the task.
-                            // Note: The executor is responsible for removing the task from
-                            // storage upon successful execution.
-                            if let Err(e) = executor.execute(task.clone()).await {
-                                tracing::info!(
-                                    "Executing task failed, adding to retry queue: {}", e
-                                );
-                                store.add_to_retry_queue(&task).await?;
+                // Handle scheduling requests.
+                Some(_request) = schedule_rx.recv() => {
+                    tracing::debug!("Received scheduling request");
 
-                                // Signal that retry processing may be needed..
-                                let _ = retry_signal_sender.send(());
-                            }
-
-                            // Small delay to avoid tight loop.
-                            tokio::time::sleep(config.task_delay).await;
+                    // Clean up finished workers.
+                    worker_handles.retain(|task_id, handle| {
+                        if handle.is_finished() {
+                            tracing::debug!("Cleaning up finished worker for task {:?}", task_id);
+                            false
+                        } else {
+                            true
                         }
-                        None => {
-                            // No tasks available, check if queue is really empty.
-                            if task_sorter.is_empty().await {
-                                // Really empty, exit the loop.
+                    });
+
+                    // Try to schedule more tasks up to the limit.
+                    while worker_handles.len() < config.max_concurrent_tasks {
+                        match task_sorter.get_next_task().await? {
+                            Some(task) => {
+                                tracing::debug!("Spawning worker for task {:?}", task);
+                                worker_handles.insert(task.task_id(),
+                                Self::spawn_worker(
+                                    task,
+                                    executor.clone(),
+                                    store.clone(),
+                                    retry_signal_sender.clone(),
+                                    schedule_tx.clone(),
+                                    config.task_delay,
+                                ));
+                            }
+                            None => {
+                                // No more tasks available right now.
                                 break;
-                            } else {
-                                // Queue might have tasks loading from disk, wait a bit.
-                                tokio::time::sleep(config.task_delay).await;
                             }
                         }
                     }
+
+                    tracing::debug!(
+                        "Active workers: {}/{}",
+                        worker_handles.len(),
+                        config.max_concurrent_tasks
+                    );
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Helper function to spawn a worker task.
+    fn spawn_worker(
+        task: T,
+        executor: Arc<E>,
+        store: Arc<S>,
+        retry_signal_sender: mpsc::UnboundedSender<()>,
+        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
+        task_delay: Duration,
+    ) -> JoinHandle<Result<()>> {
+        let task_id = task.task_id();
+        let task_id_for_worker = task_id.clone();
+        let task_id_for_logging = task_id.clone();
+
+        // Spawn a worker for this task.
+        let worker_handle = tokio::spawn(async move {
+            tracing::debug!("Worker started for task {:?}", task);
+
+            // Execute the task.
+            // Note: The executor is responsible for removing the task from
+            // storage upon successful execution.
+            let result = if let Err(e) = executor.execute(task.clone()).await {
+                tracing::info!(
+                    "Executing task {:?} failed, adding to retry queue: {}",
+                    task,
+                    e
+                );
+                store.add_to_retry_queue(&task).await?;
+
+                // Signal that retry processing may be needed.
+                let _ = retry_signal_sender.send(());
+                Ok(())
+            } else {
+                Ok(())
+            };
+
+            // Small delay to avoid tight loop.
+            tokio::time::sleep(task_delay).await;
+
+            // Signal that we're done - scheduler should check for more work.
+            let _ = schedule_tx.send(ScheduleRequest);
+
+            tracing::debug!("Worker finished for task {:?}", task_id_for_worker);
+            result
+        });
+
+        tracing::debug!("Started worker for task {:?}", task_id_for_logging);
+
+        worker_handle
     }
 
     /// Start processing in the background.
     /// This is useful if you want to start processing without submitting a task.
     pub async fn start(&self) -> Result<()> {
-        // Don't call init() - let get_next_task handle loading.
-        self.maybe_start_processing().await?;
-
+        // Just trigger the scheduler to check for work.
+        let _ = self.schedule_tx.send(ScheduleRequest);
         Ok(())
     }
 
@@ -448,69 +496,25 @@ where
         // This will also cancel the retry handler via its child token.
         self.shutdown_token.cancel();
 
-        let _ = self.active_task_handle.lock().await.take();
-        let _ = self.retry_task_handle.lock().await.take();
-    }
-
-    /// Get queue statistics.
-    pub async fn stats(&self) -> TaskManagerStats {
-        let is_processing = self.is_processing().await;
-
-        TaskManagerStats {
-            processing_state: if is_processing {
-                "Active".to_string()
-            } else {
-                "Idle".to_string()
-            },
-            queue_memory_tasks: 0, // AsyncTaskSorter doesn't track detailed stats.
+        // Wait for handles to finish.
+        if let Some(handle) = self.processing_handle.lock().await.take() {
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.retry_handle.lock().await.take() {
+            let _ = handle.await;
         }
     }
 
     /// Check if the manager is currently processing tasks.
-    pub async fn is_processing(&self) -> bool {
-        let active_handle = self.active_task_handle.lock().await;
-        if let Some(ref handle) = *active_handle {
+    #[cfg(test)]
+    async fn is_processing(&self) -> bool {
+        let processing_handle = self.processing_handle.lock().await;
+        if let Some(ref handle) = *processing_handle {
             !handle.is_finished()
         } else {
             false
         }
     }
-
-    // Retry queue operations - work directly with store.
-
-    /// Add a task to the retry queue.
-    pub async fn add_to_retry_queue(&self, task: &T) -> Result<()> {
-        self.store
-            .add_to_retry_queue(task)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to add task to retry queue: {}", e))?;
-
-        tracing::debug!("Added task to retry queue: {:?}", task.task_id());
-
-        // Signal that retry processing may be needed.
-        let _ = self.retry_signal_sender.send(());
-
-        Ok(())
-    }
-
-    /// Read tasks from the retry queue.
-    pub async fn read_retry_tasks(
-        &self,
-        from_task_id: Option<T::TaskId>,
-        limit: usize,
-    ) -> Result<Vec<T>> {
-        self.store
-            .read_retry_tasks(from_task_id, limit)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to read retry tasks: {}", e))
-    }
-}
-
-/// Statistics about the task manager.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskManagerStats {
-    pub processing_state: String,
-    pub queue_memory_tasks: usize,
 }
 
 #[cfg(test)]
@@ -555,6 +559,7 @@ mod tests {
                 grace_period: Duration::from_millis(50),
             },
             task_delay: Duration::from_millis(10),
+            max_concurrent_tasks: 2,
         };
 
         let store = Arc::new(OrderedTestStore::new());
@@ -609,6 +614,7 @@ mod tests {
                 grace_period: Duration::from_millis(50),
             },
             task_delay: Duration::from_millis(5),
+            max_concurrent_tasks: 4,
         };
 
         let store = Arc::new(OrderedTestStore::new());

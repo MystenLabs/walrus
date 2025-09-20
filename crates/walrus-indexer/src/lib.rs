@@ -43,7 +43,7 @@ pub mod storage;
 pub mod test_util;
 
 // Configuration modules.
-use std::{net::SocketAddr, path::PathBuf};
+use std::{fmt::Debug, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 // Task management types are defined below - no need to re-export undefined symbols.
@@ -107,9 +107,9 @@ pub struct Bucket {
 // Centralized trait definitions for async task management.
 
 /// Trait for async tasks that can be stored and sorted.
-pub trait AsyncTask: Send + Sync + Clone {
+pub trait AsyncTask: Send + Sync + Clone + Debug {
     /// Unique identifier for the task.
-    type TaskId: Send + Sync + Clone + Ord + std::fmt::Debug;
+    type TaskId: Send + Sync + Clone + Ord + std::fmt::Debug + std::hash::Hash + Eq;
 
     /// Returns the task's unique identifier.
     fn task_id(&self) -> Self::TaskId;
