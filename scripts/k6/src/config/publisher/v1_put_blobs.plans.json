@@ -1,21 +1,21 @@
 {
-  "ci-testnet-performance:upload-latency:1Ki": {
+  "ci-testnet-performance:upload:latency:1Ki": {
     "payloadSize": "1Ki",
     "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:upload-latency:100Ki": {
+  "ci-testnet-performance:upload:latency:100Ki": {
     "payloadSize": "100Ki",
     "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:upload-latency:1Mi": {
+  "ci-testnet-performance:upload:latency:1Mi": {
     "payloadSize": "1Mi",
     "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:upload-latency:10Mi": {
+  "ci-testnet-performance:upload:latency:10Mi": {
     "payloadSize": "10Mi",
     "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:upload-latency:100Mi": {
+  "ci-testnet-performance:upload:latency:100Mi": {
     "blobsToStore": 5,
     "payloadSize": "100Mi",
     "timeout": "5m",
