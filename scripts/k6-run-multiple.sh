@@ -41,8 +41,6 @@ print_summary() {
   printf "%u tests run, %u passed, %u failed\n" $(( passed + failed )) "${passed}" "${failed}"
 }
 
-
-
 failed=0
 passed=0
 plan_num=1
