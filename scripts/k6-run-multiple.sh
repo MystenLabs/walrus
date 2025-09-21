@@ -23,7 +23,7 @@ k6_run_plan() {
   set -- --quiet run --env PLAN="${plan}" --env TEST_ID="${test_id}"
   [ -n "${TEST_RUN_ID_SUFFIX-}" ] && set -- "$@" --env TEST_RUN_ID="${test_id}:${TEST_RUN_ID_SUFFIX}"
   # shellcheck disable=2086 # This is intentional splitting to add to the arguments
-  [ "${K6_EXPORT_PROMETHEUS}" = "true" ] && set -- "$@" ${K6_EXTRA_ARGS}
+  [ "${K6_EXPORT_PROMETHEUS-false}" = "true" ] && set -- "$@" --out experimental-prometheus-rw
 
   if [ -n "${K6_REPORT_DIRECTORY-}" ]; then
     filename=$(echo "${test_id}" | sed 's/:/-/g')
