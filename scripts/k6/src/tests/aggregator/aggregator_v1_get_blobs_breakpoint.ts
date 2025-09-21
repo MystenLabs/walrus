@@ -4,7 +4,7 @@
 // Reads files of a given size from Walrus at an increasing the rate until the
 // aggregator starts failing.
 //
-// This script fetches blobs from a Walrus aggreator starting at 1 blob per
+// This script fetches blobs from a Walrus aggregator starting at 1 blob per
 // minute. It increases this rate up to `TARGET_RATE` over the specified
 // duration `DURATION`.
 //
@@ -71,7 +71,7 @@ const params = loadParameters<TestParameters>(
         duration: "30m",
         environment: DEFAULT_ENVIRONMENT,
     },
-    "aggreator/v1_get_blobs_breakpoint.plans.json"
+    "aggregator/v1_get_blobs_breakpoint.plans.json"
 );
 
 const env = loadEnvironment(params.environment);
