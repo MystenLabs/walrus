@@ -1,9 +1,9 @@
 {
-  "ci-testnet-performance:request-throughput": {
+  "ci-testnet-performance:upload-throughput:requests": {
     "payloadSize": "1Ki",
     "environment": "walrus-testnet-ci"
   },
-  "ci-testnet-performance:data-throughput": {
+  "ci-testnet-performance:upload-throughput:data": {
     "payloadSize": "40Mi",
     "timeout": "5m",
     "environment": "walrus-testnet-ci"

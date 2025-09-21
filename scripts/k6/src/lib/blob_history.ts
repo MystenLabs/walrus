@@ -12,7 +12,7 @@ export class BlobHistory {
     private client: redis.Client | undefined
 
     constructor(redisUrl?: `redis://${string}`) {
-        if (redisUrl == undefined) {
+        if (!redisUrl) {
             this.client = undefined
         } else {
             this.client = new redis.Client(redisUrl);
