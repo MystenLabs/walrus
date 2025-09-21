@@ -9,7 +9,7 @@
 #   TEST_RUN_ID_SUFFIX - If specified, the TEST_RUN_ID environment variable will be set
 #     to "${TEST_ID}:${TEST_RUN_ID_SUFFIX}".
 #   CONTINUE_ON_ERROR - Either true or false (default). If set to true, do not exit on a test failure.
-#   K6_EXPORT_PROMETHEUS - Either true or false. If set to true, each k6 command is run with --out experimental-prometheus-rw
+#   K6_PROMETHEUS_EXPORT - Either true or false. If set to true, each k6 command is run with --out experimental-prometheus-rw
 #   K6_REPORT_DIRECTORY - If specified, reports are written to the identified directory.
 set -eou pipefail
 
@@ -23,7 +23,7 @@ k6_run_plan() {
   set -- --quiet run --env PLAN="${plan}" --env TEST_ID="${test_id}"
   [ -n "${TEST_RUN_ID_SUFFIX-}" ] && set -- "$@" --env TEST_RUN_ID="${test_id}:${TEST_RUN_ID_SUFFIX}"
   # shellcheck disable=2086 # This is intentional splitting to add to the arguments
-  [ "${K6_EXPORT_PROMETHEUS-false}" = "true" ] && set -- "$@" --out experimental-prometheus-rw
+  [ "${K6_PROMETHEUS_EXPORT-false}" = "true" ] && set -- "$@" --out experimental-prometheus-rw
 
   if [ -n "${K6_REPORT_DIRECTORY-}" ]; then
     filename=$(echo "${test_id}" | sed 's/:/-/g')
