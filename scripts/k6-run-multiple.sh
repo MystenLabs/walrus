@@ -22,7 +22,8 @@ k6_run_plan() {
 
   set -- --quiet run --env PLAN="${plan}" --env TEST_ID="${test_id}"
   [ -n "${TEST_RUN_ID_SUFFIX-}" ] && set -- "$@" --env TEST_RUN_ID="${test_id}:${TEST_RUN_ID_SUFFIX}"
-  [ -n "${K6_EXTRA_ARGS-}" ] && set -- "$@" "${K6_EXTRA_ARGS}"
+  # shellcheck disable=2086 # This is intentional splitting to add to the arguments
+  [ -n "${K6_EXTRA_ARGS-}" ] && set -- "$@" ${K6_EXTRA_ARGS}
 
   if [ -n "${K6_REPORT_DIRECTORY-}" ]; then
     filename=$(echo "${test_id}" | sed 's/:/-/g')
