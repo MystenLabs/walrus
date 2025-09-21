@@ -13,8 +13,8 @@
 // ```
 //
 // See `environment.ts` for ENVIRONMENT defaults.
-import { REDIS_URL, AGGREGATOR_URL } from '../../config/environment.ts'
-import { parseHumanFileSize } from "../../lib/utils.ts"
+import { DEFAULT_ENVIRONMENT, loadEnvironment } from '../../config/environment.ts'
+import { getTestIdTags, loadParameters, parseHumanFileSize } from "../../lib/utils.ts"
 import { BlobHistory } from "../../lib/blob_history.ts"
 import { check } from 'k6';
 import exec from 'k6/execution';
@@ -22,70 +22,79 @@ import exec from 'k6/execution';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
 import { getBlob } from '../../flows/aggregator.ts';
 
-/**
- * Number of blobs to read.
- * @default 20
- */
-const BLOBS_TO_READ: number = parseInt(__ENV.BLOBS_TO_READ || '20');
+interface TestParameters {
+    /** Number of blobs to read. */
+    blobsToRead: number,
+    /** The number of virtual users that will repeatedly read blobs. */
+    vus: number,
+    /**
+     * Used as the key into the redis key-value store to fetch blob IDs
+     * corresponding to blobs of the given size.
+     */
+    payloadSize: string,
+    /** The timeout for fetching each blob. */
+    timeout: string,
+    /** The environment in which the test is running. */
+    environment: string,
+}
 
-/**
- * The number of virtual users that will repeatedly store blobs.
- * @default 1
- */
-const VUS: number = parseInt(__ENV.VUS || '1');
+const params = loadParameters<TestParameters>(
+    {
+        blobsToRead: 20,
+        vus: 1,
+        payloadSize: "1Ki",
+        timeout: "1m",
+        environment: DEFAULT_ENVIRONMENT,
+    },
+    "aggregator/v1_get_blob_latency.plans.json"
+);
 
-/**
- * Used as the key into the redis key-value store to fetch blob IDs
- * corresponding to blobs of the given size.
- * @default '1Ki'
- */
-const PAYLOAD_SIZE: string = __ENV.PAYLOAD_SIZE || '1Ki';
+const env = loadEnvironment(params.environment);
 
-/**
- * The timeout for fetching each blob.
- * @default 5m
- */
-const TIMEOUT: string = __ENV.TIMEOUT || '5m';
-
+const blobHistory = new BlobHistory(env.redisUrl);
 
 export const options = {
     scenarios: {
         "getBlobs": {
             executor: 'shared-iterations',
-            vus: VUS,
-            iterations: BLOBS_TO_READ,
+            vus: `${params.vus}`,
+            iterations: `${params.blobsToRead}`,
             maxDuration: "15m",
         }
     },
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
-};
 
-const blobHistory = new BlobHistory(REDIS_URL);
+    tags: {
+        ...getTestIdTags(),
+        payload_size: `${params.payloadSize}`,
+    },
+};
 
 export async function setup(): Promise<string[]> {
     console.log('');
-    console.log(`Aggregator URL: ${AGGREGATOR_URL}`);
-    console.log(`Blobs to read: ${BLOBS_TO_READ}`);
-    console.log(`Virtual users: ${VUS}`);
-    console.log(`Payload size: ${PAYLOAD_SIZE} (${parseHumanFileSize(PAYLOAD_SIZE)} B)`);
-    console.log(`Blob read timeout: ${TIMEOUT}`);
+    console.log(`Aggregator URL: ${env.aggregatorUrl}`);
+    console.log(`Blobs to read: ${params.blobsToRead}`);
+    console.log(`Virtual users: ${params.vus}`);
+    console.log(`Payload size: ${params.payloadSize} \
+                (${parseHumanFileSize(params.payloadSize)} B)`);
+    console.log(`Blob read timeout: ${params.timeout}`);
 
-    if (REDIS_URL == undefined) {
+    if (!env.redisUrl) {
         exec.test.abort("REDIS_URL must be defined");
     }
 
-    const blobIds = await blobHistory.list(PAYLOAD_SIZE);
+    const blobIds = await blobHistory.list(params.payloadSize);
     const count = blobIds.length;
-    console.log(`Blob IDs: source="${REDIS_URL}", key="${PAYLOAD_SIZE}", count=${count}`);
+    console.log(`Blob IDs: source="${env.redisUrl}", key="${params.payloadSize}", count=${count}`);
 
     return blobIds
 }
 
 export default async function (blobIds: string[]) {
     const blobId = blobIds[randomIntBetween(0, blobIds.length - 1)];
-    const response = await getBlob(AGGREGATOR_URL, blobId, TIMEOUT);
+    const response = await getBlob(env.aggregatorUrl, blobId, params.timeout);
 
     check(response, {
         'is status 200': (r) => r.status === 200,
