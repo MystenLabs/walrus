@@ -26,7 +26,7 @@ license = "Apache-2.0"
 version = "1.34.0"
 
 [workspace.dependencies]
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 async-channel = "2.5.0"
 async-trait = "0.1.89"
 atomic-time = "0.1.5"
@@ -42,7 +42,7 @@ bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
 bytesize = "1.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.47", features = ["deprecated", "derive"] }
+clap = { version = "4.5.48", features = ["deprecated", "derive"] }
 clap_complete = "4.5.58"
 collectable = "0.0.2"
 colored = "2.2.0"
@@ -66,7 +66,7 @@ hostname = "0.4.1"
 http-body-util = "0.1.1"
 humantime = "2.3.0"
 hyper = "1"
-indexmap = "2.11.3"
+indexmap = "2.11.4"
 indicatif = "0.17.11"
 indoc = "2.0.6"
 integer-encoding = "4.0.2"
@@ -98,10 +98,10 @@ regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
 rstest = "0.25.0"
-rustls = { version = "0.23.31", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.32", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0.226", features = ["derive"] }
 serde_json = "1.0.145"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
