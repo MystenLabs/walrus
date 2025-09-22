@@ -935,6 +935,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         quilt_blob: Vec<u8>,
         encoding_config: &EncodingConfigEnum<'_>,
     ) -> Result<QuiltV1, QuiltError> {
+        if quilt_blob.is_empty() {
+            return Err(QuiltError::EmptyInput("quilt_blob".to_string()));
+        }
+
         let n_primary_source_symbols =
             usize::from(encoding_config.n_source_symbols::<Primary>().get());
         let n_secondary_source_symbols =
@@ -2485,5 +2489,12 @@ mod tests {
         assert_ne!(borrowed_with_tags, borrowed_different_tags);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_new_from_quilt_blob_panics_on_empty_input() {
+        use core::num::NonZeroU16;
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(7).unwrap());
+        let _ = QuiltV1::new_from_quilt_blob(Vec::new(), &EncodingConfigEnum::ReedSolomon(&config));
     }
 }
