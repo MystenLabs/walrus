@@ -229,13 +229,6 @@ kill $SUI_PID
 
 Note that it is currently not possible to use an external cluster with `cargo nextest`.
 
-### Test coverage
-
-We would like to cover as much code as possible with tests. Ideally you would add unit tests for all
-code you contribute.
-
-<!-- TODO(WAL-299) Add info about tarpaulin again as soon as the setup is fixed. -->
-
 ### Running a local Walrus testbed
 
 In addition to publicly deployed Walrus systems, you can deploy a Walrus testbed on your local
