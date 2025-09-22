@@ -153,7 +153,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_sampled_logging_new_macro() {
         #![allow(clippy::cast_possible_truncation)]
-        let _ = tracing_subscriber::fmt::try_init();
+        walrus_test_utils::init_tracing();
 
         let start = Instant::now();
         let mut actual_log_count = 0;

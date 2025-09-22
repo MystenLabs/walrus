@@ -240,19 +240,30 @@ impl RpcFallbackConfigArgs {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
+    use std::{
+        env,
+        sync::{Mutex, MutexGuard, OnceLock},
+    };
 
     use super::*;
+
+    // Prevent tests running simultaneously to avoid interferences with the environment variables.
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
 
     /// Helper to set environment variables for testing and ensure cleanup
     struct TestEnv {
         vars_to_cleanup: Vec<String>,
+        _lock: MutexGuard<'static, ()>,
     }
 
     impl TestEnv {
         fn new() -> Self {
             Self {
                 vars_to_cleanup: Vec::new(),
+                _lock: test_lock().lock().unwrap(),
             }
         }
 

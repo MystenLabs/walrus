@@ -3238,7 +3238,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
 
-    const TIMEOUT: Duration = Duration::from_secs(1);
+    const TIMEOUT: Duration = Duration::from_secs(2);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
     const BLOB: &[u8] = &[
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
@@ -4230,7 +4230,7 @@ mod tests {
 
     #[walrus_simtest]
     async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
-        telemetry_subscribers::init_for_testing();
+        walrus_test_utils::init_tracing();
 
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
@@ -5004,9 +5004,14 @@ mod tests {
         Ok(())
     }
 
+    /// Waits for the shard to be synced.
     async fn wait_for_shard_in_active_state(shard_storage: &ShardStorage) -> TestResult {
-        // Waits for the shard to be synced.
-        tokio::time::timeout(Duration::from_secs(15), async {
+        let timeout = if cfg!(tarpaulin) {
+            Duration::from_secs(30)
+        } else {
+            Duration::from_secs(15)
+        };
+        tokio::time::timeout(timeout, async {
             loop {
                 let status = shard_storage.status().await.unwrap();
                 if status == ShardStatus::Active {
@@ -5966,7 +5971,7 @@ mod tests {
 
         #[walrus_simtest]
         async fn finish_epoch_change_start_should_not_block_event_processing() -> TestResult {
-            telemetry_subscribers::init_for_testing();
+            walrus_test_utils::init_tracing();
 
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
@@ -6084,7 +6089,7 @@ mod tests {
         // Tests that storage node lag check is not affected by the blob writer cursor.
         #[walrus_simtest]
         async fn event_blob_cursor_should_not_affect_node_state() -> TestResult {
-            telemetry_subscribers::init_for_testing();
+            walrus_test_utils::init_tracing();
 
             // Set the initial cursor to a high value to simulate a severe lag to
             // blob writer cursor.
@@ -6724,7 +6729,7 @@ mod tests {
         ]
     }
     async fn process_epoch_change_start_idempotent(wait_for_shard_active: bool) -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
+        walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
@@ -6817,7 +6822,7 @@ mod tests {
         ]
     }
     async fn test_extend_blob_also_extends_registration(deletable: bool) -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
+        walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
@@ -6873,7 +6878,7 @@ mod tests {
     // Tests that blob extension is correctly handled after multiple epochs.
     #[tokio::test]
     async fn extend_blob_after_multiple_epochs() -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
+        walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;

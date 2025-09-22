@@ -6,8 +6,10 @@
 use std::{fs, future::Future, path::Path};
 
 use anyhow::ensure;
+use once_cell::sync::Lazy;
 use rand::{self, Rng, RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use tempfile::TempDir;
+use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 /// A result type useful in tests, that wraps any error implementation.
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -413,6 +415,26 @@ pub fn overwrite_file_and_fail_if_not_equal(
         path.display()
     );
     Ok(())
+}
+
+/// Globally sets a tracing subscriber suitable for testing environments.
+pub fn init_tracing() {
+    static LOGGER: Lazy<()> = Lazy::new(|| {
+        let subscriber = tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
+            .with_file(true)
+            .with_line_number(true)
+            .with_test_writer()
+            .finish();
+        // Ignore the error if the logger is already set.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+
+    Lazy::force(&LOGGER);
 }
 
 #[cfg(test)]

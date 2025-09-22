@@ -1961,7 +1961,7 @@ mod tests {
         max_num_slivers_for_quilt_index: usize,
         expected: Result<usize, QuiltError>,
     ) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
         let res = utils::compute_symbol_size(
             blobs,
             n_columns,
@@ -2109,7 +2109,7 @@ mod tests {
     }
 
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -2195,7 +2195,7 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         const MAX_NUM_TAGS: usize = 10;
         const MAX_VALUE_LENGTH: usize = 100;
@@ -2218,7 +2218,7 @@ mod tests {
     }
 
     fn encode_decode_quilt(mut test_data: QuiltTestData<'_>, config: EncodingConfigEnum) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         let quilt_store_blobs = test_data.take_blobs();
 
@@ -2259,7 +2259,7 @@ mod tests {
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         let missing_slivers =
             if let Err(QuiltError::MissingSlivers(missing_indices)) = decode_index_result {
-                tracing::info!("missing_indices: {:?}", missing_indices);
+                tracing::debug!("missing_indices: {:?}", missing_indices);
                 slivers
                     .iter()
                     .filter(|sliver| missing_indices.contains(&sliver.index))
