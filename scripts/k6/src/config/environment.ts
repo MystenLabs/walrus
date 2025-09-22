@@ -30,10 +30,7 @@ export interface EnvironmentConfig {
     redisUrl?: RedisUrl,
 }
 
-const testnetUrls = {
-    "publisherUrl": "https://publisher.walrus-testnet.walrus.space",
-    "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
-}
+const testnetPublisherUrl = "https://publisher.walrus-testnet.walrus.space";
 
 /**
  * Default configurations for various running environments.
@@ -51,11 +48,15 @@ const ENVIRONMENT_DEFAULTS: { [index: string]: EnvironmentConfig } = {
         "redisUrl": "redis://localhost:6379",
     },
     "walrus-testnet": {
-        ...testnetUrls,
+        "publisherUrl": testnetPublisherUrl,
+        "aggregatorUrl": "https://aggregator.walrus-testnet.walrus.space",
         "payloadSourceFile": "../../../data.bin", // Within the k6 folder
     },
     "walrus-testnet-ci": {
-        ...testnetUrls,
+        "publisherUrl": testnetPublisherUrl,
+        // We use an aggregator running within the test environment to ensure
+        // that we do not access the cache
+        "aggregatorUrl": "http://walrus-aggregator-0.walrus-aggregator:31415",
         "payloadSourceFile": "/opt/k6/data/data.bin",
         "redisUrl": "redis://localhost:6379",
     }
