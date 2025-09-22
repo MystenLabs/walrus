@@ -100,6 +100,7 @@ export const options = {
     tags: {
         ...getTestIdTags(),
         payload_size: `${params.payloadSize}`,
+        payload_size_bytes: `${parseHumanFileSize(params.payloadSize)}`,
     },
 };
 

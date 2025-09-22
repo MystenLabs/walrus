@@ -9,5 +9,5 @@ export async function getBlob(
     blobId: string,
     timeout: string,
 ) {
-    return http.get(`${aggregatorUrl}/v1/blobs/${blobId}`, { timeout: timeout });
+    return http.get(http.url`${aggregatorUrl}/v1/blobs/${blobId}`, { timeout: timeout });
 }
