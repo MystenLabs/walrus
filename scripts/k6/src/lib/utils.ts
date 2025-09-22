@@ -169,7 +169,7 @@ export function getTestIdTags(): { testid?: string, test_run_id?: string } {
  * Perturbs a random number (maximum 30) bytes in the provided data array.
  */
 export function perturbData(array: Uint8Array): Uint8Array {
-    const count = randomIntBetween(1, Math.max(array.length, 30))
+    const count = randomIntBetween(1, Math.min(array.length, 30))
     const newRandomBytes = randomBytes(count);
 
     for (var i = 0; i < newRandomBytes.byteLength; ++i) {
