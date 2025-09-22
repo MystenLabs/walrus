@@ -4044,8 +4044,10 @@ duration of an epoch is one day. On Mainnet, the duration of an epoch is two wee
 <div>
 <p><strong>After publishing, how you access your site depends on which network you used:</strong></p>
 <ul>
-<li><strong>Mainnet sites</strong>: Can be accessed through <a href="https://wal.app">https://wal.app</a> once you set up a SuiNS name</li>
-<li><strong>Testnet sites</strong>: Require you to <a href="walrus-sites/./portal.html">run a portal locally</a> since wal.app only supports mainnet</li>
+<li><strong>Mainnet sites</strong>: Can be accessed through any mainnet portal.
+<a href="https://wal.app">https://wal.app</a> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.</li>
+<li><strong>Testnet sites</strong>: Can be accessed through any testnet portal.
+Walrus Foundation does not operate a testnet portal. You can <a href="walrus-sites/./portal.html">self-host or run one locally</a></li>
 </ul>
 </div>
 </div>
@@ -5253,12 +5255,11 @@ portals:</p>
 <a class="admonition-anchor-link" href="walrus-sites/portal.html#admonition-important-testnet-portal-access"></a>
 </div>
 <div>
-<p><a href="https://wal.app">https://wal.app</a> only supports sites deployed on mainnet.
-If you published your site on testnet, you <strong>must</strong> run your own portal to access it:</p>
-<ul>
-<li><strong>For development</strong>: Run a portal locally (see instructions below)</li>
-<li><strong>For sharing publicly</strong>: Self-host your own portal with a custom domain</li>
-</ul>
+<p><a href="https://wal.app">https://wal.app</a> only serves sites deployed on mainnet, linked with SuiNS names.
+You can run a portal to access mainnet sites as well.
+Walrus Foundation does not maintain a Portal that serves testnet Walrus Sites.
+To access Sites deployed on testnet you can either use a thirdparty testnet portal,
+self-host one or run one locally.</p>
 </div>
 </div>
 <div id="admonition-hosting-of-the-service-worker" class="admonition admonish-note" role="note" aria-labelledby="admonition-hosting-of-the-service-worker-title">
