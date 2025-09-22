@@ -8,10 +8,13 @@
 # Environment variables:
 #   TEST_RUN_ID_SUFFIX - If specified, the TEST_RUN_ID environment variable will be set
 #     to "${TEST_ID}:${TEST_RUN_ID_SUFFIX}".
-#   CONTINUE_ON_ERROR - Either true or false (default). If set to true, do not exit on a test failure.
+#   CONTINUE_ON_THRESHOLD_FAILURE - Either true or false (default). If set to true, do not exit on a threshold failure.
 #   K6_PROMETHEUS_EXPORT - Either true or false. If set to true, each k6 command is run with --out experimental-prometheus-rw
 #   K6_REPORT_DIRECTORY - If specified, reports are written to the identified directory.
 set -eou pipefail
+
+# Exit code defined in k6 that occurs when thresholds have been crossed.
+THRESHOLDS_HAVE_FAILED_EXIT_CODE=99
 
 readonly script="${1:?The first argument must be the script}"
 shift
@@ -57,7 +60,8 @@ for plan in "$@"; do
     passed=$(( passed + 1 ))
   else
     failed=$(( failed + 1 ))
-    if [ "${CONTINUE_ON_ERROR-false}" = "false" ]; then
+
+    if [ "${CONTINUE_ON_THRESHOLD_FAILURE-false}" = "false" ] || [ "${status}" -ne "${THRESHOLDS_HAVE_FAILED_EXIT_CODE}" ]; then
       print_summary
       exit $status
     fi
