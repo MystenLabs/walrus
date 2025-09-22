@@ -113,6 +113,13 @@ pub trait AsyncTask: Send + Sync + Clone + Debug {
 
     /// Returns the task's unique identifier.
     fn task_id(&self) -> Self::TaskId;
+
+    /// Returns the current retry count for this task.
+    /// Returns 0 for new tasks that haven't been retried yet.
+    fn retry_count(&self) -> u32;
+
+    /// Increments the retry count and returns a new task instance with the updated count.
+    fn increment_retry_count(&self) -> Self;
 }
 
 /// Trait for ordered storage of async tasks.

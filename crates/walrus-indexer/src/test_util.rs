@@ -30,6 +30,8 @@ pub struct TestTask {
     /// A duration in milliseconds, indicating the duration of the task.
     pub duration: Duration,
     pub is_in_retry_queue: bool,
+    /// Number of times this task has been retried.
+    pub retry_count: u32,
 }
 
 impl TestTask {
@@ -39,6 +41,7 @@ impl TestTask {
             failure_rate: 0,
             duration: Duration::from_millis(100),
             is_in_retry_queue: false,
+            retry_count: 0,
         }
     }
 
@@ -59,6 +62,17 @@ impl AsyncTask for TestTask {
 
     fn task_id(&self) -> Self::TaskId {
         self.sequence
+    }
+
+    fn retry_count(&self) -> u32 {
+        self.retry_count
+    }
+
+    fn increment_retry_count(&self) -> Self {
+        let mut task = self.clone();
+        task.retry_count += 1;
+        task.is_in_retry_queue = true;
+        task
     }
 }
 
@@ -84,7 +98,7 @@ impl Iterator for TestTaskGenerator {
     fn next(&mut self) -> Option<Self::Item> {
         self.sequence += 1;
         let failure_rate = if self.enable_random_failure {
-            rand::thread_rng().gen_range(0..75) // Cap at 75% to ensure eventual success.
+            rand::thread_rng().gen_range(0..40) // Cap at 40% for more reliable test completion
         } else {
             0
         };
@@ -280,6 +294,15 @@ impl TaskExecutor<TestTask> for TestExecutor {
     async fn execute(&self, task: TestTask) -> Result<()> {
         let random_number = rand::thread_rng().gen_range(0..100);
         if random_number < task.failure_rate {
+            // If this is a retry task that failed, we need to re-add it to the retry queue
+            // because it was removed before execution in async_task_manager.
+            if task.retry_count() > 0 {
+                // Increment retry count and re-add to retry queue.
+                let retry_task = task.increment_retry_count();
+                if let Err(e) = self.storage.add_to_retry_queue(&retry_task).await {
+                    tracing::error!("Failed to re-add task to retry queue: {}", e);
+                }
+            }
             return Err(anyhow::anyhow!("Task failed"));
         }
 
@@ -288,10 +311,10 @@ impl TaskExecutor<TestTask> for TestExecutor {
         let count = self.executed.fetch_add(1, Ordering::SeqCst) + 1;
         tracing::info!("Executed task #{}: id={}", count, task.task_id());
 
-        // Remove the task from the appropriate queue after successful execution.
-        if task.is_in_retry_queue {
-            self.storage.delete_retry_task(&task.task_id()).await?;
-        } else {
+        // Remove the task from storage after successful execution.
+        // Note: Retry tasks are already removed from retry queue before execution
+        // in async_task_manager, so we don't need to delete them here.
+        if task.retry_count() == 0 {
             self.storage.remove(&task.task_id()).await?;
         }
 

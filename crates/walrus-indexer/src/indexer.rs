@@ -31,6 +31,7 @@ use crate::{
     AsyncTask,
     Bucket,
     IndexerConfig,
+    OrderedStore,
     TaskExecutor,
     async_task_manager::{AsyncTaskManager, AsyncTaskManagerConfig},
     storage::{BlobIdentity, BucketStats, IndexTarget, WalrusIndexStore},
@@ -147,6 +148,17 @@ impl AsyncTask for QuiltIndexTask {
     fn task_id(&self) -> Self::TaskId {
         QuiltIndexTaskId::new(self.sequence_number, self.quilt_blob_id)
     }
+
+    fn retry_count(&self) -> u32 {
+        self.retry_count as u32
+    }
+
+    fn increment_retry_count(&self) -> Self {
+        let mut task = self.clone();
+        task.retry_count += 1;
+        task.retry = true;
+        task
+    }
 }
 
 // RetryQuiltIndexTask is now just an alias for QuiltIndexTask
@@ -221,7 +233,8 @@ impl TaskExecutor<QuiltIndexTask> for QuiltTaskExecutor {
                     e
                 );
 
-                // Move task to retry queue.
+                // For regular task execution failure, we still use move_to_retry_queue
+                // because the task is still in the pending queue.
                 let task_id = task.task_id();
                 self.storage
                     .move_to_retry_queue(&task_id)
@@ -301,12 +314,9 @@ impl TaskExecutor<QuiltIndexTask> for RetryTaskExecutor {
                 task.task_id(),
                 self.max_retries
             );
-            // Remove from retry queue permanently.
+            // Task was already removed from retry queue, nothing more to do.
             return Ok(());
         }
-
-        // Increment retry count.
-        task.retry_count += 1;
 
         // Try to fetch and process the quilt patch.
         match self.fetch_quilt_patch(task.quilt_blob_id).await {
@@ -323,18 +333,23 @@ impl TaskExecutor<QuiltIndexTask> for RetryTaskExecutor {
                 Ok(())
             }
             Err(e) => {
-                tracing::warn!(
-                    "Retry {} failed for task {:?}: {}",
-                    task.retry_count,
-                    task.task_id(),
-                    e
-                );
+                tracing::warn!("Retry failed for task {:?}: {}", task.task_id(), e);
 
-                // If still have retries left, keep in retry queue.
-                // The task will be retried again later.
+                // Task was removed from retry queue before execution.
+                // We need to re-add it with incremented retry count.
                 if task.retry_count < self.max_retries {
-                    // Task stays in retry queue, will be picked up again.
-                    return Err(anyhow::anyhow!("Retry failed, will try again later"));
+                    // Increment retry count and re-add to retry queue.
+                    task.retry_count += 1;
+                    task.retry = true;
+                    if let Err(e) = self.storage.add_to_retry_queue(&task).await {
+                        tracing::error!("Failed to re-add task to retry queue: {}", e);
+                        // Return Ok anyway - task is lost but we don't want to crash.
+                        return Ok(());
+                    }
+                    // Return error to signal that retry is needed.
+                    return Err(anyhow::anyhow!(
+                        "Retry failed, task re-added to retry queue"
+                    ));
                 }
 
                 // Max retries exceeded.

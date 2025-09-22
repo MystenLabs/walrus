@@ -3,11 +3,11 @@
 
 //! Async task manager built on top of PersistentQueue.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{Mutex, Semaphore, mpsc},
     task::JoinHandle,
     time::Duration,
 };
@@ -20,10 +20,6 @@ use crate::{
     async_task_sorter::{AsyncTaskSorter, AsyncTaskSorterConfig},
 };
 
-/// Request to the task scheduler to check for work.
-#[derive(Debug)]
-struct ScheduleRequest;
-
 /// Handles retry queue processing with channel-based signaling.
 struct RetryQueueHandler<T, S, E>
 where
@@ -35,6 +31,7 @@ where
     executor: Arc<E>,
     config: AsyncTaskManagerConfig,
     signal_receiver: mpsc::UnboundedReceiver<()>,
+    signal_sender: mpsc::UnboundedSender<()>,
     shutdown_token: CancellationToken,
     task_handle: Option<JoinHandle<()>>, // The actual retry processing task.
     retry_needed: Arc<Mutex<bool>>,      // Shared flag for retry task to check.
@@ -52,6 +49,7 @@ where
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
         signal_receiver: mpsc::UnboundedReceiver<()>,
+        signal_sender: mpsc::UnboundedSender<()>,
         shutdown_token: CancellationToken,
     ) -> Self {
         Self {
@@ -59,6 +57,7 @@ where
             executor,
             config,
             signal_receiver,
+            signal_sender,
             shutdown_token,
             task_handle: None,
             retry_needed: Arc::new(Mutex::new(false)),
@@ -71,9 +70,17 @@ where
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
         signal_receiver: mpsc::UnboundedReceiver<()>,
+        signal_sender: mpsc::UnboundedSender<()>,
         shutdown_token: CancellationToken,
     ) -> JoinHandle<()> {
-        let mut handler = Self::new(store, executor, config, signal_receiver, shutdown_token);
+        let mut handler = Self::new(
+            store,
+            executor,
+            config,
+            signal_receiver,
+            signal_sender,
+            shutdown_token,
+        );
 
         tokio::spawn(async move {
             handler.run().await;
@@ -116,9 +123,10 @@ where
         }
     }
 
-    /// Spawn a task that processes the retry queue and checks the flag.
+    /// Spawn a task that processes the retry queue once and exits.
     async fn start_retry_processing_if_needed(&mut self) {
         if self.task_handle.is_some() {
+            // Already processing, don't start another.
             return;
         }
         if !*self.retry_needed.lock().await {
@@ -130,80 +138,143 @@ where
         let config = self.config.clone();
         let shutdown_token = self.shutdown_token.clone();
         let retry_needed = self.retry_needed.clone();
+        let signal_sender = self.signal_sender.clone();
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
+        let max_read_entries = config.max_read_entries;
 
         let task_handle = tokio::spawn(async move {
-            // Clear the flag at the start of each iteration.
+            // Clear the flag at the start.
             {
                 let mut flag = retry_needed.lock().await;
                 *flag = false;
             }
 
-            let had_failures = Self::process_retry_queue_once(
+            // Process the retry queue once completely.
+            Self::process_retry_queue(
                 store.clone(),
                 executor.clone(),
-                config.clone(),
+                max_read_entries,
+                semaphore.clone(),
+                signal_sender.clone(),
                 shutdown_token.clone(),
             )
             .await;
-
-            if had_failures {
-                tracing::info!("Retry queue had failures, will retry again");
-                *retry_needed.lock().await = true;
-            } else {
-                tracing::debug!("Retry queue processing completed successfully");
-            }
         });
 
         self.task_handle = Some(task_handle);
     }
 
-    /// Iterate over the retry queue and execute tasks.
-    async fn process_retry_queue_once(
+    /// The main retry queue processing loop that reads and processes retry tasks in batches.
+    async fn process_retry_queue(
         store: Arc<S>,
         executor: Arc<E>,
-        config: AsyncTaskManagerConfig,
+        max_read_entries: usize,
+        semaphore: Arc<Semaphore>,
+        signal_sender: mpsc::UnboundedSender<()>,
         shutdown_token: tokio_util::sync::CancellationToken,
-    ) -> bool {
+    ) {
         let mut last_task_id = None;
-        let mut had_failures = false;
 
-        while !shutdown_token.is_cancelled() {
-            let tasks = match store.read_retry_tasks(last_task_id.clone(), 10).await {
-                Ok(tasks) if tasks.is_empty() => break,
+        // Process tasks in batches.
+        loop {
+            if shutdown_token.is_cancelled() {
+                break;
+            }
+
+            // Read batch of tasks from the retry queue.
+            let tasks = match store
+                .read_retry_tasks(last_task_id.clone(), max_read_entries)
+                .await
+            {
                 Ok(tasks) => tasks,
                 Err(e) => {
                     tracing::error!("Failed to read retry tasks: {}", e);
-                    had_failures = true;
                     break;
                 }
             };
 
+            if tasks.is_empty() {
+                // No more tasks in retry queue.
+                break;
+            }
+
+            tracing::debug!("Processing batch of {} retry tasks", tasks.len());
+
+            // Process each task in the batch, waiting for permit for each.
             for task in tasks {
                 if shutdown_token.is_cancelled() {
                     break;
                 }
 
-                let task_id = task.task_id();
-                last_task_id = Some(task_id.clone());
+                last_task_id = Some(task.task_id());
+
+                // Wait for permit (blocks until available).
+                let permit = match semaphore.clone().acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => break,
+                };
 
                 tracing::debug!("Processing retry task {:?}", task);
 
-                // Execute task and track failures.
-                // Note: The executor is responsible for removing the task from storage
-                // upon successful execution.
-                if let Err(e) = executor.execute(task.clone()).await {
-                    had_failures = true;
-                    tracing::warn!("Retry task {:?} failed: {}", task, e);
-                } else {
+                // Remove task from retry queue before processing to prevent re-reading.
+                if let Err(e) = store.delete_retry_task(&task.task_id()).await {
+                    tracing::error!("Failed to delete retry task: {}", e);
+                    continue;
+                }
+
+                // Spawn retry task processing in background.
+                Self::spawn_retry_task_worker(
+                    task,
+                    permit,
+                    store.clone(),
+                    executor.clone(),
+                    Some(signal_sender.clone()),
+                    shutdown_token.clone(),
+                );
+            }
+            // After dispatching all tasks in this batch, continue to next batch.
+            // The semaphore will limit concurrent execution across all batches.
+        }
+    }
+
+    /// Spawn a worker to execute a retry task with the given permit.
+    fn spawn_retry_task_worker(
+        task: T,
+        _permit: tokio::sync::OwnedSemaphorePermit,
+        _store: Arc<S>,
+        executor: Arc<E>,
+        retry_signal_sender: Option<mpsc::UnboundedSender<()>>,
+        shutdown_token: tokio_util::sync::CancellationToken,
+    ) {
+        tokio::spawn(async move {
+            tracing::debug!("Worker started for retry task {:?}", task);
+
+            // Execute the task.
+            let result = executor.execute(task.clone()).await;
+
+            // Handle the result.
+            match result {
+                Ok(_) => {
                     tracing::debug!("Retry task {:?} executed successfully", task);
+                }
+                Err(e) => {
+                    if !shutdown_token.is_cancelled() {
+                        tracing::warn!("Retry task {:?} failed: {}", task, e);
+
+                        // Task was already removed from retry queue before execution.
+                        // We don't need to update it - it's gone from storage.
+                        // The executor should handle re-adding if needed.
+
+                        // Signal that retry processing may be needed.
+                        if let Some(sender) = retry_signal_sender {
+                            let _ = sender.send(());
+                        }
+                    }
                 }
             }
 
-            // Respect configured delay between tasks.
-            tokio::time::sleep(config.task_delay).await;
-        }
-
-        had_failures
+            tracing::debug!("Worker finished for retry task {:?}", task);
+        });
     }
 }
 
@@ -214,8 +285,10 @@ pub struct AsyncTaskManagerConfig {
     pub queue_config: AsyncTaskSorterConfig,
     /// Delay between processing tasks (to avoid tight loops).
     pub task_delay: Duration,
-    /// Maximum number of concurrent tasks (not including retry tasks).
+    /// Maximum number of concurrent tasks (applies to both regular and retry tasks).
     pub max_concurrent_tasks: usize,
+    /// Maximum number of entries to read from disk.
+    pub max_read_entries: usize,
 }
 
 impl Default for AsyncTaskManagerConfig {
@@ -224,6 +297,7 @@ impl Default for AsyncTaskManagerConfig {
             queue_config: AsyncTaskSorterConfig::default(),
             task_delay: Duration::from_millis(100),
             max_concurrent_tasks: 4,
+            max_read_entries: 10,
         }
     }
 }
@@ -247,8 +321,6 @@ where
     retry_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Cancellation token for shutting down processing.
     shutdown_token: CancellationToken,
-    /// Channel to signal task scheduling needs.
-    schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
     _phantom: std::marker::PhantomData<(T, S, E)>,
 }
 
@@ -267,7 +339,6 @@ where
         let task_sorter =
             Arc::new(AsyncTaskSorter::new(config.queue_config.clone(), store.clone()).await);
         let (retry_signal_sender, retry_signal_receiver) = mpsc::unbounded_channel();
-        let (schedule_tx, schedule_rx) = mpsc::unbounded_channel::<ScheduleRequest>();
         let shutdown_token = CancellationToken::new();
 
         // Start the retry handler with a child cancellation token.
@@ -276,19 +347,18 @@ where
             executor.clone(),
             config.clone(),
             retry_signal_receiver,
+            retry_signal_sender.clone(),
             shutdown_token.child_token(),
         );
 
         // Start the main processing loop.
         let processing_handle = Self::spawn_processing_loop(
             task_sorter.clone(),
-            store.clone(),
-            executor.clone(),
-            config.clone(),
+            store,
+            executor,
+            config,
             shutdown_token.child_token(),
-            retry_signal_sender.clone(),
-            schedule_rx,
-            schedule_tx.clone(),
+            retry_signal_sender,
         );
 
         Ok(Self {
@@ -296,7 +366,6 @@ where
             processing_handle: Arc::new(Mutex::new(Some(processing_handle))),
             retry_handle: Arc::new(Mutex::new(Some(retry_handle))),
             shutdown_token,
-            schedule_tx,
             _phantom: std::marker::PhantomData,
         })
     }
@@ -311,14 +380,11 @@ where
 
         tracing::debug!("Submitted task {:?}", task);
 
-        // Notify the scheduler to check for work.
-        let _ = self.schedule_tx.send(ScheduleRequest);
-
+        // The processing loop will pick it up automatically.
         Ok(())
     }
 
     /// Spawn the main processing loop.
-    #[allow(clippy::too_many_arguments)]
     fn spawn_processing_loop(
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         store: Arc<S>,
@@ -326,167 +392,150 @@ where
         config: AsyncTaskManagerConfig,
         cancel_token: CancellationToken,
         retry_signal_sender: mpsc::UnboundedSender<()>,
-        schedule_rx: mpsc::UnboundedReceiver<ScheduleRequest>,
-        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             tracing::info!("Starting task processing loop");
 
-            let result = Self::schedule_loop(
+            // Create a semaphore for limiting concurrent tasks.
+            let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
+
+            // The processing loop function.
+            let processing_loop = Self::task_processing_loop(
                 task_sorter,
                 store,
                 executor,
-                config,
-                cancel_token,
+                config.task_delay,
+                semaphore.clone(),
                 retry_signal_sender,
-                schedule_rx,
-                schedule_tx,
-            )
-            .await;
+            );
 
-            if let Err(e) = result {
-                tracing::error!("Error in processing loop: {}", e);
+            // Outer select for cancellation.
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Task processing cancelled.");
+                }
+                _ = processing_loop => {
+                    tracing::info!("Processing loop ended.");
+                }
+            }
+
+            // Wait for all tasks to complete before exiting.
+            // We do this by acquiring all permits.
+            for _ in 0..config.max_concurrent_tasks {
+                let _ = semaphore.acquire().await;
             }
 
             tracing::info!("Task processing loop ended");
         })
     }
 
-    /// Process tasks until cancelled.
-    #[allow(clippy::too_many_arguments)]
-    async fn schedule_loop(
+    /// The main task processing loop that fetches and processes tasks.
+    async fn task_processing_loop(
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         store: Arc<S>,
         executor: Arc<E>,
-        config: AsyncTaskManagerConfig,
-        cancel_token: CancellationToken,
+        task_delay: Duration,
+        semaphore: Arc<Semaphore>,
         retry_signal_sender: mpsc::UnboundedSender<()>,
-        mut schedule_rx: mpsc::UnboundedReceiver<ScheduleRequest>,
-        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
-    ) -> Result<()> {
-        // Map to track running worker tasks.
-        let mut worker_handles: HashMap<T::TaskId, JoinHandle<Result<()>>> = HashMap::new();
-
-        // Send initial request to check for tasks.
-        let _ = schedule_tx.send(ScheduleRequest);
-
-        // Main event loop - runs forever until cancelled.
+    ) {
         loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("Task processing cancelled, aborting workers.");
-
-                    // Cancel all running workers.
-                    for (_, handle) in worker_handles.drain() {
-                        handle.abort();
-                    }
-
-                    break;
+            // Wait to get the next task.
+            let task = match task_sorter.get_next_task().await {
+                Ok(Some(task)) => task,
+                Ok(None) => {
+                    // No more tasks available, wait a bit and try again.
+                    tokio::time::sleep(task_delay).await;
+                    continue;
                 }
-
-                // Handle scheduling requests.
-                Some(_request) = schedule_rx.recv() => {
-                    tracing::debug!("Received scheduling request");
-
-                    // Clean up finished workers.
-                    worker_handles.retain(|task_id, handle| {
-                        if handle.is_finished() {
-                            tracing::debug!("Cleaning up finished worker for task {:?}", task_id);
-                            false
-                        } else {
-                            true
-                        }
-                    });
-
-                    // Try to schedule more tasks up to the limit.
-                    while worker_handles.len() < config.max_concurrent_tasks {
-                        match task_sorter.get_next_task().await? {
-                            Some(task) => {
-                                tracing::debug!("Spawning worker for task {:?}", task);
-                                worker_handles.insert(task.task_id(),
-                                Self::spawn_worker(
-                                    task,
-                                    executor.clone(),
-                                    store.clone(),
-                                    retry_signal_sender.clone(),
-                                    schedule_tx.clone(),
-                                    config.task_delay,
-                                ));
-                            }
-                            None => {
-                                // No more tasks available right now.
-                                break;
-                            }
-                        }
-                    }
-
-                    tracing::debug!(
-                        "Active workers: {}/{}",
-                        worker_handles.len(),
-                        config.max_concurrent_tasks
-                    );
+                Err(e) => {
+                    tracing::error!("Failed to get next task: {}", e);
+                    tokio::time::sleep(task_delay).await;
+                    continue;
                 }
-            }
+            };
+
+            // Wait for a permit (this blocks until one is available).
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => break, // Semaphore was closed.
+            };
+
+            tracing::debug!("Processing task {:?}", task);
+
+            // Spawn task processing in background.
+            Self::spawn_task_worker(
+                task,
+                permit,
+                store.clone(),
+                executor.clone(),
+                Some(retry_signal_sender.clone()),
+            );
         }
-
-        Ok(())
     }
 
-    /// Helper function to spawn a worker task.
-    fn spawn_worker(
+    /// Spawn a worker to execute a task with the given permit.
+    fn spawn_task_worker(
         task: T,
-        executor: Arc<E>,
+        permit: tokio::sync::OwnedSemaphorePermit,
         store: Arc<S>,
-        retry_signal_sender: mpsc::UnboundedSender<()>,
-        schedule_tx: mpsc::UnboundedSender<ScheduleRequest>,
-        task_delay: Duration,
-    ) -> JoinHandle<Result<()>> {
-        let task_id = task.task_id();
-        let task_id_for_worker = task_id.clone();
-        let task_id_for_logging = task_id.clone();
-
-        // Spawn a worker for this task.
-        let worker_handle = tokio::spawn(async move {
+        executor: Arc<E>,
+        retry_signal_sender: Option<mpsc::UnboundedSender<()>>,
+    ) {
+        tokio::spawn(async move {
             tracing::debug!("Worker started for task {:?}", task);
 
             // Execute the task.
-            // Note: The executor is responsible for removing the task from
-            // storage upon successful execution.
-            let result = if let Err(e) = executor.execute(task.clone()).await {
-                tracing::info!(
-                    "Executing task {:?} failed, adding to retry queue: {}",
-                    task,
-                    e
-                );
-                store.add_to_retry_queue(&task).await?;
+            let result = executor.execute(task.clone()).await;
 
-                // Signal that retry processing may be needed.
-                let _ = retry_signal_sender.send(());
-                Ok(())
-            } else {
-                Ok(())
-            };
+            // Handle the result.
+            match result {
+                Ok(_) => {
+                    tracing::debug!("Task {:?} executed successfully", task);
+                }
+                Err(e) => {
+                    tracing::debug!("Task {:?} failed: {}", task, e);
 
-            // Small delay to avoid tight loop.
-            tokio::time::sleep(task_delay).await;
+                    let original_retry_count = task.retry_count();
+                    let retry_task = task.increment_retry_count();
 
-            // Signal that we're done - scheduler should check for more work.
-            let _ = schedule_tx.send(ScheduleRequest);
+                    if original_retry_count == 0 {
+                        // First failure - add to retry queue.
+                        tracing::info!(
+                            "Task {:?} failed (first attempt), adding to retry queue",
+                            task
+                        );
+                        if let Err(e) = store.add_to_retry_queue(&retry_task).await {
+                            tracing::error!("Failed to add task to retry queue: {}", e);
+                        }
+                    } else {
+                        // Subsequent failure - update in retry queue.
+                        tracing::warn!(
+                            "Task {:?} failed after {} retries, updating in retry queue",
+                            task,
+                            original_retry_count
+                        );
+                        if let Err(e) = store.add_to_retry_queue(&retry_task).await {
+                            tracing::error!("Failed to update task in retry queue: {}", e);
+                        }
+                    }
 
-            tracing::debug!("Worker finished for task {:?}", task_id_for_worker);
-            result
+                    // Signal that retry processing is needed.
+                    if let Some(sender) = retry_signal_sender {
+                        let _ = sender.send(());
+                    }
+                }
+            }
+
+            tracing::debug!("Worker finished for task {:?}", task);
+            // Permit is automatically dropped when this async block ends.
+            drop(permit);
         });
-
-        tracing::debug!("Started worker for task {:?}", task_id_for_logging);
-
-        worker_handle
     }
 
     /// Start processing in the background.
     /// This is useful if you want to start processing without submitting a task.
     pub async fn start(&self) -> Result<()> {
-        // Just trigger the scheduler to check for work.
-        let _ = self.schedule_tx.send(ScheduleRequest);
+        // Processing loop is already running continuously.
         Ok(())
     }
 
@@ -560,6 +609,7 @@ mod tests {
             },
             task_delay: Duration::from_millis(10),
             max_concurrent_tasks: 2,
+            max_read_entries: 10,
         };
 
         let store = Arc::new(OrderedTestStore::new());
@@ -601,6 +651,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_concurrent_retry_processing() -> Result<()> {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_test_writer()
+            .try_init();
+
+        let config = AsyncTaskManagerConfig {
+            queue_config: crate::async_task_sorter::AsyncTaskSorterConfig::default(),
+            task_delay: Duration::from_millis(10),
+            max_concurrent_tasks: 4, // Allow 4 concurrent workers.
+            max_read_entries: 10,
+        };
+
+        let store = Arc::new(OrderedTestStore::new());
+        let executor = Arc::new(TestExecutor::new(store.clone()));
+
+        // Create tasks with moderate failure rates that will eventually succeed.
+        let tasks: Vec<TestTask> = (1..=8)
+            .map(|i| {
+                TestTask::new(i)
+                    .with_failure_rate(50) // 50% failure rate - will eventually succeed.
+                    .with_duration(Duration::from_millis(100))
+            })
+            .collect();
+
+        let task_manager = AsyncTaskManager::new(config, store.clone(), executor.clone()).await?;
+
+        // Submit all tasks.
+        for task in tasks {
+            task_manager.submit(task).await?;
+        }
+
+        // Start processing.
+        task_manager.start().await?;
+
+        // Wait for all tasks to complete.
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(60) && store.task_count().await > 0 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // All tasks should eventually be processed.
+        assert_eq!(store.task_count().await, 0, "All tasks should be processed");
+        assert_eq!(executor.executed(), 8, "All 8 tasks should be executed");
+
+        // Verify that concurrent retry processing is working.
+        // With 50% failure rate, some tasks will go to retry queue and be processed concurrently.
+        tracing::info!("All tasks completed in {:?}", start.elapsed());
+
+        task_manager.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_concurrent_processing_with_mixed_tasks() -> Result<()> {
         let _ = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
@@ -615,6 +719,7 @@ mod tests {
             },
             task_delay: Duration::from_millis(5),
             max_concurrent_tasks: 4,
+            max_read_entries: 10,
         };
 
         let store = Arc::new(OrderedTestStore::new());
