@@ -15,7 +15,7 @@ type HeaderMatch = {
 // attributed to cache hits.
 const CACHE_LATENCY_IMPROVEMENT_THRESHOLD_MS: number = 1000;
 // Latencies smaller than this value (milliseconds) will be attributed to cache hits.
-const HIT_LATENCY_THRESHOLD_MS: number = 500;
+const HIT_LATENCY_THRESHOLD_MS: number = 800;
 
 // Filters header keys by searching for "cache" substring inside them.
 function headerKeyContainsCache(headers: Headers): HeaderMatch[] {
@@ -74,7 +74,8 @@ async function updateAggregatorCacheInfo(
         const headersWithCacheKey1 = headerKeyContainsCache(headers1);
         const headersWithCacheKey2 = headerKeyContainsCache(headers2);
 
-        // Update value.cache in the existing operator.
+        // Update the existing operator.
+        value.functional = undefined;
         value.cache = true;
         if (fetch1 < HIT_LATENCY_THRESHOLD_MS) {
             console.warn(
