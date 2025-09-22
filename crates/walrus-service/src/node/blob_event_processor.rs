@@ -204,9 +204,6 @@ impl BackgroundEventProcessor {
         let histogram_set = self.node.metrics.recover_blob_duration_seconds.clone();
 
         if !self.node.is_blob_certified(&event.blob_id)?
-            // For blob extension events, the original blob certified event should already recover
-            // the entire blob, and we can skip the recovery.
-            || event.is_extension
             || self.node.storage.node_status()?.is_catching_up()
             || self
                 .node
@@ -217,6 +214,12 @@ impl BackgroundEventProcessor {
                 .await?
         {
             event_handle.mark_as_complete();
+
+            tracing::debug!(
+                "skipping blob certified event for blob id: {}, epoch: {}",
+                event.blob_id,
+                event.epoch
+            );
 
             walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
