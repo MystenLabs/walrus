@@ -103,10 +103,12 @@ export const options = {
 
 
 export async function setup(): Promise<number> {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
     console.log(`Publisher URL: ${env.publisherUrl}`);
     console.log(`Data file path: ${env.payloadSourceFile}`);
-    console.log(`Payload size: ${params.payloadSize}`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
     console.log(`Blob store timeout: ${params.timeout}`);
     console.log(`Target rate: ${params.targetRate} req/min`);
     console.log(`Ramp-up duration: ${params.duration}`);

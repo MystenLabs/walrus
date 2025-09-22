@@ -106,12 +106,13 @@ export const options = {
 };
 
 export async function setup(): Promise<{ blobIdCount: number, baseDurationMillis: number }> {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
     console.log(`Aggregator URL: ${env.aggregatorUrl}`);
     console.log(`Target rate: ${params.targetRate} req/min`);
     console.log(`Ramp-up duration: ${params.duration}`);
-    console.log(`Payload size: ${params.payloadSize} \
-                (${parseHumanFileSize(params.payloadSize)} B)`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
     console.log(`Blob read timeout: ${params.timeout}`);
 
     if (!env.redisUrl) {

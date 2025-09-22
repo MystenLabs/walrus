@@ -71,13 +71,14 @@ export const options = {
 
 
 export function setup() {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
     console.log(`Publisher URL: ${env.publisherUrl}`);
     console.log(`Blobs to store: ${params.blobsToStore}`);
     console.log(`Virtual users: ${params.vus}`);
     console.log(`Data file path: ${env.payloadSourceFile}`);
-    console.log(`Payload size: ${params.payloadSize} \
-                (${parseHumanFileSize(params.payloadSize)} B)`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
     console.log(`Blob store timeout: ${params.timeout}`);
     if (env.redisUrl != undefined) {
         console.log(`Blob history written to: ${env.redisUrl}`);

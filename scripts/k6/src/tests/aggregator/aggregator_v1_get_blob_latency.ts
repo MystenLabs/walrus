@@ -73,12 +73,13 @@ export const options = {
 };
 
 export async function setup(): Promise<string[]> {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
     console.log(`Aggregator URL: ${env.aggregatorUrl}`);
     console.log(`Blobs to read: ${params.blobsToRead}`);
     console.log(`Virtual users: ${params.vus}`);
-    console.log(`Payload size: ${params.payloadSize} \
-                (${parseHumanFileSize(params.payloadSize)} B)`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
     console.log(`Blob read timeout: ${params.timeout}`);
 
     if (!env.redisUrl) {
