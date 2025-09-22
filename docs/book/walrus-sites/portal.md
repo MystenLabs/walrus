@@ -11,10 +11,11 @@ portals:
 Currently, only a server-side portal is served at <https://wal.app>.
 
 ```admonish warning title="Important: Testnet Portal Access"
-<https://wal.app> only supports sites deployed on mainnet.
-If you published your site on testnet, you **must** run your own portal to access it:
-- **For development**: Run a portal locally (see instructions below)
-- **For sharing publicly**: Self-host your own portal with a custom domain
+<https://wal.app> only serves sites deployed on mainnet, linked with SuiNS names.
+You can run a portal to access mainnet sites as well.
+Walrus Foundation does not maintain a Portal that serves testnet Walrus Sites.
+To access Sites deployed on testnet you can either use a thirdparty testnet portal,
+self-host one or run one locally.
 ```
 
 We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves

@@ -37,8 +37,10 @@ duration of an epoch is one day. On Mainnet, the duration of an epoch is two wee
 ```admonish warning title="Important: Testnet vs Mainnet Access"
 **After publishing, how you access your site depends on which network you used:**
 
-- **Mainnet sites**: Can be accessed through <https://wal.app> once you set up a SuiNS name
-- **Testnet sites**: Require you to [run a portal locally](./portal.md) since wal.app only supports mainnet
+- **Mainnet sites**: Can be accessed through any mainnet portal.
+<https://wal.app> serves Walrus Sites on mainnet by resolving SuiNS names that point to them.
+- **Testnet sites**: Can be accessed through any testnet portal.
+Walrus Foundation does not operate a testnet portal. You can [self-host or run one locally](./portal.md)
 ```
 
 The end of the output should look like the following:
