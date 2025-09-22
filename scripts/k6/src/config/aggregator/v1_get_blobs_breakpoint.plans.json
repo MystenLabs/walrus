@@ -2,7 +2,7 @@
   "ci-testnet-performance:download:throughput:requests": {
     "payloadSize": "1Ki",
     "environment": "walrus-testnet-ci",
-    "targetRate": "150",
+    "targetRate": "300",
     "duration": "5m"
   },
   "ci-testnet-performance:download:throughput:data": {

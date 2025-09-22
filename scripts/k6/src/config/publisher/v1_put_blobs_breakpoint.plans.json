@@ -2,14 +2,14 @@
   "ci-testnet-performance:upload:throughput:requests": {
     "payloadSize": "1Ki",
     "environment": "walrus-testnet-ci",
-    "targetRate": "60",
+    "targetRate": "100",
     "duration": "5m"
   },
   "ci-testnet-performance:upload:throughput:data": {
     "payloadSize": "40Mi",
     "timeout": "5m",
     "environment": "walrus-testnet-ci",
-    "targetRate": "20",
+    "targetRate": "30",
     "duration": "5m"
   }
 }
