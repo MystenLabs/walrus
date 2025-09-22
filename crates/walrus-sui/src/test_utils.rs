@@ -76,6 +76,8 @@ use crate::{
 const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
 /// Default amount of coin sent when funding a wallet.
 pub const DEFAULT_FUNDING_PER_COIN: u64 = 1_000_000_000_000;
+/// A fixed `ObjectID` used by default when creating events for testing.
+pub const FIXED_OBJECT_ID: ObjectID = ObjectID::from_single_byte(42);
 
 /// Returns a random `EventID` for testing.
 pub fn event_id_for_testing() -> EventID {
@@ -584,13 +586,23 @@ pub async fn fund_addresses(
 }
 
 /// Trait to provide an event with the specified `blob_id` for testing.
-pub trait EventForTesting {
-    /// Returns an event with the specified `blob_id` for testing.
-    fn for_testing(blob_id: BlobId) -> Self;
+pub trait EventForTesting: Sized {
+    /// Returns an event with the specified `blob_id` and `object_id` for testing.
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self;
+
+    /// Returns an event with the specified `blob_id` and a fixed object ID for testing.
+    fn for_testing(blob_id: BlobId) -> Self {
+        Self::for_testing_with_object_id(blob_id, FIXED_OBJECT_ID)
+    }
+
+    /// Returns an event with the specified `blob_id` and a random object ID for testing.
+    fn for_testing_with_random_object_id(blob_id: BlobId) -> Self {
+        Self::for_testing_with_object_id(blob_id, ObjectID::random())
+    }
 }
 
 impl EventForTesting for BlobRegistered {
-    fn for_testing(blob_id: BlobId) -> Self {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
         Self {
             epoch: 1,
             blob_id,
@@ -598,20 +610,20 @@ impl EventForTesting for BlobRegistered {
             encoding_type: DEFAULT_ENCODING,
             end_epoch: 42,
             deletable: false,
-            object_id: ObjectID::random(),
+            object_id,
             event_id: event_id_for_testing(),
         }
     }
 }
 
 impl EventForTesting for BlobCertified {
-    fn for_testing(blob_id: BlobId) -> Self {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
         Self {
             epoch: 1,
             blob_id,
             end_epoch: 42,
             deletable: false,
-            object_id: ObjectID::random(),
+            object_id,
             is_extension: false,
             event_id: event_id_for_testing(),
         }
@@ -619,12 +631,12 @@ impl EventForTesting for BlobCertified {
 }
 
 impl EventForTesting for BlobDeleted {
-    fn for_testing(blob_id: BlobId) -> Self {
+    fn for_testing_with_object_id(blob_id: BlobId, object_id: ObjectID) -> Self {
         Self {
             epoch: 1,
             blob_id,
             end_epoch: 42,
-            object_id: ObjectID::random(),
+            object_id,
             was_certified: true,
             event_id: event_id_for_testing(),
         }
@@ -632,7 +644,9 @@ impl EventForTesting for BlobDeleted {
 }
 
 impl EventForTesting for InvalidBlobId {
-    fn for_testing(blob_id: BlobId) -> Self {
+    /// This should not be used as an `InvalidBlobId` event is not associated with an object ID.
+    /// Use [`Self::for_testing`] instead.
+    fn for_testing_with_object_id(blob_id: BlobId, _object_id: ObjectID) -> Self {
         Self {
             epoch: 1,
             blob_id,

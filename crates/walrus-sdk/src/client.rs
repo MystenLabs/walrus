@@ -14,7 +14,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use bimap::BiMap;
 pub use client_types::{UnencodedBlob, WalrusStoreBlob, WalrusStoreBlobApi};
 pub use communication::NodeCommunicationFactory;
@@ -2257,7 +2257,10 @@ async fn verify_blob_status_event(
     let event = match status {
         BlobStatus::Invalid { event } => event,
         BlobStatus::Permanent { status_event, .. } => status_event,
-        BlobStatus::Nonexistent | BlobStatus::Deletable { .. } => return Ok(()),
+        BlobStatus::Deletable { .. } => {
+            bail!("deletable status cannot be verified with an on-chain event")
+        }
+        BlobStatus::Nonexistent => return Ok(()),
     };
     tracing::debug!(?event, "verifying blob status with on-chain event");
 

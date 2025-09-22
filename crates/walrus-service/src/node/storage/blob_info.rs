@@ -358,6 +358,73 @@ impl BlobInfoTable {
             .get(&())?
             .unwrap_or(0))
     }
+
+    /// Processes blobs that have expired in the given epoch.
+    ///
+    /// This function iterates over the per-object blob info table, deleting any entries that have
+    /// an end epoch equal to or less than the current epoch, and updating the aggregate blob info
+    /// table in case of deletable blobs to reflect the new status of the blob objects.
+    #[tracing::instrument(skip_all)]
+    pub(crate) async fn process_expired_blob_objects(
+        &self,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<()> {
+        tracing::info!(epoch = %current_epoch, "processing expired deletable blobs");
+
+        for entry in self.per_object_blob_info.safe_iter()? {
+            let (object_id, per_object_blob_info) = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        "error encountered while iterating over per-object blob info"
+                    );
+                    break;
+                }
+            };
+
+            if per_object_blob_info.is_registered(current_epoch) {
+                tracing::trace!(
+                    %object_id,
+                    ?per_object_blob_info,
+                    "skipping blob-info update for blob that is still active"
+                );
+                continue;
+            }
+
+            let blob_id = per_object_blob_info.blob_id();
+            let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
+            let mut batch = self.per_object_blob_info.batch();
+            // Clean up all expired objects.
+            batch.delete_batch(&self.per_object_blob_info, [object_id])?;
+
+            // Only update the aggregate blob info if the blob is deletable and not already deleted
+            // (in which case it was already updated).
+            if per_object_blob_info.is_deletable() && !per_object_blob_info.is_deleted() {
+                tracing::debug!(
+                    %object_id,
+                    %blob_id,
+                    %was_certified,
+                    "updating blob info for expired deletable blob"
+                );
+                batch.partial_merge_batch(
+                    &self.aggregate_blob_info,
+                    [(
+                        blob_id,
+                        &BlobInfoMergeOperand::DeletableExpired { was_certified }.to_bytes(),
+                    )],
+                )?;
+            } else {
+                tracing::debug!(
+                    %object_id,
+                    %blob_id,
+                    "deleting per-object blob info for expired permanent blob"
+                );
+            }
+            batch.write()?;
+        }
+        Ok(())
+    }
 }
 
 // TODO(#900): Rewrite other tests without relying on blob-info internals.
@@ -549,6 +616,11 @@ pub(super) enum BlobInfoMergeOperand {
         change_type: BlobStatusChangeType,
         change_info: BlobStatusChangeInfo,
     },
+    // Adding a new variant should be fine as it does not affect the serialization of existing
+    // variants.
+    DeletableExpired {
+        was_certified: bool,
+    },
 }
 
 impl ToBytes for BlobInfoMergeOperand {}
@@ -718,6 +790,8 @@ impl ToBytes for BlobInfoV1 {}
 // INV: initial_certified_epoch.is_some()
 //      <=> count_deletable_certified > 0 || permanent_certified.is_some()
 // INV: latest_seen_deletable_registered_epoch >= latest_seen_deletable_certified_epoch
+// Important: This struct MUST NOT be changed. Instead, if needed, a new `ValidBlobInfoV2` struct
+// should be created.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) struct ValidBlobInfoV1 {
     pub is_metadata_stored: bool,
@@ -727,8 +801,11 @@ pub(crate) struct ValidBlobInfoV1 {
     pub permanent_certified: Option<PermanentBlobInfoV1>,
     pub initial_certified_epoch: Option<Epoch>,
 
-    // TODO: The following are helper fields that are needed as long as we don't properly clean up
-    // deletable blobs. (WAL-473)
+    // Note: The following helper fields were used in the past to approximate the blob status for
+    // deletable blobs. They are still used for the following reason: When deletable blobs expire,
+    // we update the aggregate blob info in the background. So there is a delay between an epoch
+    // change and the blob info being updated. During this delay, these fields are useful to
+    // determine that a blob is already expired.
     pub latest_seen_deletable_registered_epoch: Option<Epoch>,
     pub latest_seen_deletable_certified_epoch: Option<Epoch>,
 }
@@ -741,7 +818,8 @@ impl From<ValidBlobInfoV1> for BlobInfoV1 {
 
 impl ValidBlobInfoV1 {
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
-        // TODO: The following should be adjusted/simplified when we have proper cleanup (WAL-473).
+        // The check of the `latest_seen_*_epoch` fields is there to reduce the cases where we
+        // report the existence of deletable blobs that are already expired.
         let count_deletable_total = if self
             .latest_seen_deletable_registered_epoch
             .is_some_and(|e| e > current_epoch)
@@ -801,21 +879,26 @@ impl ValidBlobInfoV1 {
         }
     }
 
-    // TODO: This is currently just an approximation: It is possible that this returns true even
-    // though there is no existing certified blob because the blob with the latest expiration epoch
-    // was deleted. This should be adjusted/simplified when we have proper cleanup (WAL-473).
+    // The counts of deletable blobs are decreased when they expire. However, because this only
+    // happens in the background, it is possible during a short time period at the beginning of an
+    // epoch that all deletable blobs expired but the counts are not updated yet. For this case, we
+    // use the `latest_seen_deletable_certified_epoch` field as an additional check.
+    //
+    // There is still a corner case where the blob with the `latest_seen_deletable_certified_epoch`
+    // was deleted and all other blobs expired. In this case, we would nevertheless return `true`
+    // during a short time period, before the counts are updated in the background.
     fn is_certified(&self, current_epoch: Epoch) -> bool {
         let exists_certified_permanent_blob = self
             .permanent_certified
             .as_ref()
             .is_some_and(|p| p.end_epoch > current_epoch);
-        let maybe_exists_certified_deletable_blob = self.count_deletable_certified > 0
+        let probably_exists_certified_deletable_blob = self.count_deletable_certified > 0
             && self
                 .latest_seen_deletable_certified_epoch
-                .is_some_and(|l| l > current_epoch);
+                .is_some_and(|e| e > current_epoch);
         self.initial_certified_epoch
             .is_some_and(|epoch| epoch <= current_epoch)
-            && (exists_certified_permanent_blob || maybe_exists_certified_deletable_blob)
+            && (exists_certified_permanent_blob || probably_exists_certified_deletable_blob)
     }
 
     #[tracing::instrument]
@@ -846,12 +929,7 @@ impl ValidBlobInfoV1 {
                     self.maybe_increase_latest_deletable_certified_epoch(change_info.end_epoch);
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
-                    Self::decrement_deletable_counter_on_deletion(&mut self.count_deletable_total);
-                    if was_certified {
-                        Self::decrement_deletable_counter_on_deletion(
-                            &mut self.count_deletable_certified,
-                        );
-                    }
+                    self.update_deletable_counters(was_certified);
                 }
             }
         } else {
@@ -896,6 +974,18 @@ impl ValidBlobInfoV1 {
         }
     }
 
+    fn deletable_expired(&mut self, was_certified: bool) {
+        self.update_deletable_counters(was_certified);
+        self.maybe_unset_initial_certified_epoch();
+    }
+
+    fn update_deletable_counters(&mut self, was_certified: bool) {
+        Self::decrement_deletable_counter(&mut self.count_deletable_total);
+        if was_certified {
+            Self::decrement_deletable_counter(&mut self.count_deletable_certified);
+        }
+    }
+
     fn update_initial_certified_epoch(&mut self, new_certified_epoch: Epoch, force: bool) {
         if force
             || self
@@ -934,7 +1024,7 @@ impl ValidBlobInfoV1 {
     ///
     /// If the counter is 0, an error is logged in release builds and the function panics in dev
     /// builds.
-    fn decrement_deletable_counter_on_deletion(counter: &mut u32) {
+    fn decrement_deletable_counter(counter: &mut u32) {
         debug_assert!(*counter > 0);
         *counter = counter.checked_sub(1).unwrap_or_else(|| {
             tracing::error!("attempt to delete blob when count was already 0");
@@ -1195,9 +1285,8 @@ impl BlobInfoApi for BlobInfoV1 {
         )
     }
 
-    // TODO: This is currently just an approximation: It is possible that this returns true even
-    // though there is no existing registered blob because the blob with the latest expiration epoch
-    // was deleted. This should be adjusted/simplified when we have proper cleanup (WAL-473).
+    // Note: See the `is_certified` method for an explanation of the use of the
+    // `latest_seen_deletable_registered_epoch` field.
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_total,
@@ -1212,10 +1301,10 @@ impl BlobInfoApi for BlobInfoV1 {
         let exists_registered_permanent_blob = permanent_total
             .as_ref()
             .is_some_and(|p| p.end_epoch > current_epoch);
-        let maybe_exists_registered_deletable_blob = *count_deletable_total > 0
-            && latest_seen_deletable_registered_epoch.is_some_and(|l| l > current_epoch);
+        let probably_exists_registered_deletable_blob = *count_deletable_total > 0
+            && latest_seen_deletable_registered_epoch.is_some_and(|e| e > current_epoch);
 
-        exists_registered_permanent_blob || maybe_exists_registered_deletable_blob
+        exists_registered_permanent_blob || probably_exists_registered_deletable_blob
     }
 
     fn invalidation_event(&self) -> Option<EventID> {
@@ -1268,6 +1357,10 @@ impl Mergeable for BlobInfoV1 {
                     change_info,
                 },
             ) => valid_blob_info.update_status(change_type, change_info),
+            (
+                Self::Valid(valid_blob_info),
+                BlobInfoMergeOperand::DeletableExpired { was_certified },
+            ) => valid_blob_info.deletable_expired(was_certified),
         }
         self
     }
@@ -1310,11 +1403,13 @@ impl Mergeable for BlobInfoV1 {
                 event: status_event,
             }),
             BlobInfoMergeOperand::ChangeStatus { .. }
-            | BlobInfoMergeOperand::MarkMetadataStored(_) => {
+            | BlobInfoMergeOperand::MarkMetadataStored(_)
+            | BlobInfoMergeOperand::DeletableExpired { .. } => {
                 tracing::error!(
                     ?operand,
                     "encountered an unexpected update for an untracked blob ID"
                 );
+                debug_assert!(false);
                 None
             }
         }
@@ -1456,9 +1551,10 @@ mod per_object_blob_info {
         fn blob_id(&self) -> BlobId;
         /// Returns true iff the object is deletable.
         fn is_deletable(&self) -> bool;
-
         /// Returns true iff the object is not expired and not deleted.
         fn is_registered(&self, current_epoch: Epoch) -> bool;
+        /// Returns true iff the object is already deleted.
+        fn is_deleted(&self) -> bool;
     }
 
     #[enum_dispatch(CertifiedBlobInfoApi)]
@@ -1550,6 +1646,10 @@ mod per_object_blob_info {
         fn is_registered(&self, current_epoch: Epoch) -> bool {
             self.end_epoch > current_epoch && !self.deleted
         }
+
+        fn is_deleted(&self) -> bool {
+            self.deleted
+        }
     }
 
     impl ToBytes for PerObjectBlobInfoV1 {}
@@ -1564,9 +1664,19 @@ mod per_object_blob_info {
                 change_info,
             }: PerObjectBlobInfoMergeOperand,
         ) -> Self {
-            assert_eq!(self.blob_id, change_info.blob_id);
-            assert_eq!(self.deletable, change_info.deletable);
-            assert!(!self.deleted);
+            assert_eq!(
+                self.blob_id, change_info.blob_id,
+                "blob ID mismatch in merge operand"
+            );
+            assert_eq!(
+                self.deletable, change_info.deletable,
+                "deletable mismatch in merge operand"
+            );
+            assert!(
+                !self.deleted,
+                "attempt to update an already deleted blob {}",
+                self.blob_id
+            );
             self.event = change_info.status_event;
             match change_type {
                 // We ensure that the blob info is only updated a single time for each event. So if
@@ -1619,6 +1729,7 @@ mod per_object_blob_info {
                     ?operand,
                     "encountered an update other than 'register' for an untracked blob object"
                 );
+                debug_assert!(false);
                 return None;
             };
             Some(Self {
@@ -1688,25 +1799,25 @@ mod tests {
 
     param_test! {
         test_merge_new_expected_failure_cases: [
-            metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
-            metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
-            certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
+            #[should_panic] metadata_true: (BlobInfoMergeOperand::MarkMetadataStored(true)),
+            #[should_panic] metadata_false: (BlobInfoMergeOperand::MarkMetadataStored(false)),
+            #[should_panic] certify_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify,false, 42, 314, event_id_for_testing()
             )),
-            certify_deletable: (BlobInfoMergeOperand::new_change_for_testing(
+            #[should_panic] certify_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Certify, true, 42, 314, event_id_for_testing()
             )),
-            extend: (BlobInfoMergeOperand::new_change_for_testing(
+            #[should_panic] extend: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Extend, false, 42, 314, event_id_for_testing()
             )),
-            delete_deletable: (BlobInfoMergeOperand::new_change_for_testing(
+            #[should_panic] delete_deletable: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Delete { was_certified: true },
                 false,
                 42,
                 314,
                 event_id_for_testing(),
             )),
-            delete_permanent: (BlobInfoMergeOperand::new_change_for_testing(
+            #[should_panic] delete_permanent: (BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Delete { was_certified: false },
                 false,
                 42,
@@ -1716,7 +1827,7 @@ mod tests {
         ]
     }
     fn test_merge_new_expected_failure_cases(operand: BlobInfoMergeOperand) {
-        assert!(BlobInfoV1::merge_new(operand).is_none());
+        let _ = BlobInfoV1::merge_new(operand);
     }
 
     param_test! {
@@ -2325,13 +2436,13 @@ mod tests {
         epoch_not_expired: Epoch,
         epoch_expired: Epoch,
     ) {
-        assert!(!matches!(
+        assert_ne!(
             BlobInfoV1::Valid(blob_info.clone()).to_blob_status(epoch_not_expired),
             BlobStatus::Nonexistent,
-        ));
-        assert!(matches!(
+        );
+        assert_eq!(
             BlobInfoV1::Valid(blob_info).to_blob_status(epoch_expired),
             BlobStatus::Nonexistent,
-        ));
+        );
     }
 }

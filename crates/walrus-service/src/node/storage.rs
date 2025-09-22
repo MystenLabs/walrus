@@ -585,6 +585,25 @@ impl Storage {
         }
     }
 
+    /// Processes blobs that are expired in the given epoch.
+    ///
+    /// This function is called during epoch change to clean up the blob info for blob objects that
+    /// are no longer valid.
+    pub(crate) async fn process_expired_blob_objects(
+        &self,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<()> {
+        tracing::info!(epoch = %current_epoch, "processing expired deletable blobs");
+
+        self.blob_info
+            .process_expired_blob_objects(current_epoch)
+            .await?;
+
+        tracing::info!(epoch = %current_epoch, "finished processing expired deletable blobs");
+
+        Ok(())
+    }
+
     /// Repositions the event cursor to the specified event index.
     pub(crate) fn reposition_event_cursor(
         &self,
