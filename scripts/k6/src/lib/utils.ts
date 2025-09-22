@@ -6,6 +6,7 @@ import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
 // @ts-ignore
 import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { File, SeekMode } from 'k6/experimental/fs';
+import { randomBytes } from 'k6/crypto';
 
 /**
  * Returns a random range `[start, length]` on the interval `[0, limit)`.
@@ -162,4 +163,19 @@ export function getTestIdTags(): { testid?: string, test_run_id?: string } {
         testid: __ENV["TEST_ID"],
         test_run_id: __ENV["TEST_RUN_ID"],
     }
+}
+
+/**
+ * Perturbs a random number (maximum 30) bytes in the provided data array.
+ */
+export function perturbData(array: Uint8Array): Uint8Array {
+    const count = randomIntBetween(1, Math.max(array.length, 30))
+    const newRandomBytes = randomBytes(count);
+
+    for (var i = 0; i < newRandomBytes.byteLength; ++i) {
+        const index = randomIntBetween(0, array.length - 1);
+        array[index] = randomIntBetween(0, 255);
+    }
+
+    return array;
 }
