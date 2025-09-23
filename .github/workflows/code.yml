@@ -137,7 +137,6 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     env:
-      MSIM_TEST_NUM: 5
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
     steps:
@@ -150,8 +149,16 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
 
       - run: ./scripts/simtest/install.sh
-      - name: Run tests
-        run: cargo simtest simtest --profile simtest
+      - name: Run tests (seed=1)
+        run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=2)
+        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=3)
+        run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=4)
+        run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=5)
+        run: MSIM_TEST_SEED=5 cargo simtest simtest --profile simtest
 
   simtests-build:
     name: Build all simtests
