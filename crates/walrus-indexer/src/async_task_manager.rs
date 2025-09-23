@@ -30,11 +30,11 @@ where
     store: Arc<S>,
     executor: Arc<E>,
     config: AsyncTaskManagerConfig,
-    signal_receiver: mpsc::UnboundedReceiver<()>,
-    signal_sender: mpsc::UnboundedSender<()>,
+    retry_notification_receiver: mpsc::UnboundedReceiver<()>,
+    retry_notification_sender: mpsc::UnboundedSender<()>,
     shutdown_token: CancellationToken,
     task_handle: Option<JoinHandle<()>>, // The actual retry processing task.
-    retry_needed: Arc<Mutex<bool>>,      // Shared flag for retry task to check.
+    retry_notified: Arc<Mutex<bool>>,    // Shared flag for retry task to check.
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -48,19 +48,19 @@ where
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        signal_receiver: mpsc::UnboundedReceiver<()>,
-        signal_sender: mpsc::UnboundedSender<()>,
+        retry_notification_receiver: mpsc::UnboundedReceiver<()>,
+        retry_notification_sender: mpsc::UnboundedSender<()>,
         shutdown_token: CancellationToken,
     ) -> Self {
         Self {
             store,
             executor,
             config,
-            signal_receiver,
-            signal_sender,
+            retry_notification_receiver,
+            retry_notification_sender,
             shutdown_token,
             task_handle: None,
-            retry_needed: Arc::new(Mutex::new(false)),
+            retry_notified: Arc::new(Mutex::new(false)),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -69,16 +69,16 @@ where
         store: Arc<S>,
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
-        signal_receiver: mpsc::UnboundedReceiver<()>,
-        signal_sender: mpsc::UnboundedSender<()>,
+        retry_notification_receiver: mpsc::UnboundedReceiver<()>,
+        retry_notification_sender: mpsc::UnboundedSender<()>,
         shutdown_token: CancellationToken,
     ) -> JoinHandle<()> {
         let mut handler = Self::new(
             store,
             executor,
             config,
-            signal_receiver,
-            signal_sender,
+            retry_notification_receiver,
+            retry_notification_sender,
             shutdown_token,
         );
 
@@ -89,7 +89,7 @@ where
 
     async fn run(&mut self) {
         loop {
-            self.start_retry_processing_if_needed().await;
+            self.start_processing_retry_tasks().await;
 
             tokio::select! {
                 // Shutdown signal - highest priority.
@@ -102,8 +102,8 @@ where
                 }
 
                 // Listen for retry signals.
-                Some(_) = self.signal_receiver.recv() => {
-                    *self.retry_needed.lock().await = true;
+                Some(_) = self.retry_notification_receiver.recv() => {
+                    *self.retry_notified.lock().await = true;
                 }
 
                 // Check if current task finished.
@@ -124,12 +124,12 @@ where
     }
 
     /// Spawn a task that processes the retry queue once and exits.
-    async fn start_retry_processing_if_needed(&mut self) {
+    async fn start_processing_retry_tasks(&mut self) {
         if self.task_handle.is_some() {
             // Already processing, don't start another.
             return;
         }
-        if !*self.retry_needed.lock().await {
+        if !*self.retry_notified.lock().await {
             return;
         }
 
@@ -137,15 +137,15 @@ where
         let executor = self.executor.clone();
         let config = self.config.clone();
         let shutdown_token = self.shutdown_token.clone();
-        let retry_needed = self.retry_needed.clone();
-        let signal_sender = self.signal_sender.clone();
+        let retry_notified = self.retry_notified.clone();
+        let retry_notification_sender = self.retry_notification_sender.clone();
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
-        let max_read_entries = config.max_read_entries;
+        let read_batch_size = config.read_batch_size;
 
         let task_handle = tokio::spawn(async move {
             // Clear the flag at the start.
             {
-                let mut flag = retry_needed.lock().await;
+                let mut flag = retry_notified.lock().await;
                 *flag = false;
             }
 
@@ -153,9 +153,9 @@ where
             Self::process_retry_queue(
                 store.clone(),
                 executor.clone(),
-                max_read_entries,
+                read_batch_size,
                 semaphore.clone(),
-                signal_sender.clone(),
+                retry_notification_sender.clone(),
                 shutdown_token.clone(),
             )
             .await;
@@ -168,9 +168,9 @@ where
     async fn process_retry_queue(
         store: Arc<S>,
         executor: Arc<E>,
-        max_read_entries: usize,
+        read_batch_size: usize,
         semaphore: Arc<Semaphore>,
-        signal_sender: mpsc::UnboundedSender<()>,
+        retry_notification_sender: mpsc::UnboundedSender<()>,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         let mut last_task_id = None;
@@ -183,7 +183,7 @@ where
 
             // Read batch of tasks from the retry queue.
             let tasks = match store
-                .read_retry_tasks(last_task_id.clone(), max_read_entries)
+                .read_retry_tasks(last_task_id.clone(), read_batch_size)
                 .await
             {
                 Ok(tasks) => tasks,
@@ -228,7 +228,7 @@ where
                     permit,
                     store.clone(),
                     executor.clone(),
-                    Some(signal_sender.clone()),
+                    Some(retry_notification_sender.clone()),
                     shutdown_token.clone(),
                 );
             }
@@ -243,7 +243,7 @@ where
         _permit: tokio::sync::OwnedSemaphorePermit,
         _store: Arc<S>,
         executor: Arc<E>,
-        retry_signal_sender: Option<mpsc::UnboundedSender<()>>,
+        retry_notification_sender: Option<mpsc::UnboundedSender<()>>,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         tokio::spawn(async move {
@@ -266,7 +266,7 @@ where
                         // The executor should handle re-adding if needed.
 
                         // Signal that retry processing may be needed.
-                        if let Some(sender) = retry_signal_sender {
+                        if let Some(sender) = retry_notification_sender {
                             let _ = sender.send(());
                         }
                     }
@@ -282,22 +282,22 @@ where
 #[derive(Debug, Clone)]
 pub struct AsyncTaskManagerConfig {
     /// Configuration for the task sorter.
-    pub queue_config: AsyncTaskSorterConfig,
+    pub config: AsyncTaskSorterConfig,
     /// Delay between processing tasks (to avoid tight loops).
-    pub task_delay: Duration,
+    pub inter_task_delay: Duration,
     /// Maximum number of concurrent tasks (applies to both regular and retry tasks).
     pub max_concurrent_tasks: usize,
-    /// Maximum number of entries to read from disk.
-    pub max_read_entries: usize,
+    /// Batch size for reading entries from disk.
+    pub read_batch_size: usize,
 }
 
 impl Default for AsyncTaskManagerConfig {
     fn default() -> Self {
         Self {
-            queue_config: AsyncTaskSorterConfig::default(),
-            task_delay: Duration::from_millis(100),
+            config: AsyncTaskSorterConfig::default(),
+            inter_task_delay: Duration::from_millis(100),
             max_concurrent_tasks: 4,
-            max_read_entries: 10,
+            read_batch_size: 10,
         }
     }
 }
@@ -337,8 +337,8 @@ where
         executor: Arc<E>,
     ) -> Result<Self> {
         let task_sorter =
-            Arc::new(AsyncTaskSorter::new(config.queue_config.clone(), store.clone()).await);
-        let (retry_signal_sender, retry_signal_receiver) = mpsc::unbounded_channel();
+            Arc::new(AsyncTaskSorter::new(config.config.clone(), store.clone()).await);
+        let (retry_notification_sender, retry_notification_receiver) = mpsc::unbounded_channel();
         let shutdown_token = CancellationToken::new();
 
         // Start the retry handler with a child cancellation token.
@@ -346,8 +346,8 @@ where
             store.clone(),
             executor.clone(),
             config.clone(),
-            retry_signal_receiver,
-            retry_signal_sender.clone(),
+            retry_notification_receiver,
+            retry_notification_sender.clone(),
             shutdown_token.child_token(),
         );
 
@@ -358,7 +358,7 @@ where
             executor,
             config,
             shutdown_token.child_token(),
-            retry_signal_sender,
+            retry_notification_sender,
         );
 
         Ok(Self {
@@ -391,7 +391,7 @@ where
         executor: Arc<E>,
         config: AsyncTaskManagerConfig,
         cancel_token: CancellationToken,
-        retry_signal_sender: mpsc::UnboundedSender<()>,
+        retry_notification_sender: mpsc::UnboundedSender<()>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             tracing::info!("Starting task processing loop");
@@ -404,9 +404,9 @@ where
                 task_sorter,
                 store,
                 executor,
-                config.task_delay,
+                config.inter_task_delay,
                 semaphore.clone(),
-                retry_signal_sender,
+                retry_notification_sender,
             );
 
             // Outer select for cancellation.
@@ -434,9 +434,9 @@ where
         task_sorter: Arc<AsyncTaskSorter<T, S>>,
         store: Arc<S>,
         executor: Arc<E>,
-        task_delay: Duration,
+        inter_task_delay: Duration,
         semaphore: Arc<Semaphore>,
-        retry_signal_sender: mpsc::UnboundedSender<()>,
+        retry_notification_sender: mpsc::UnboundedSender<()>,
     ) {
         loop {
             // Wait to get the next task.
@@ -444,12 +444,12 @@ where
                 Ok(Some(task)) => task,
                 Ok(None) => {
                     // No more tasks available, wait a bit and try again.
-                    tokio::time::sleep(task_delay).await;
+                    tokio::time::sleep(inter_task_delay).await;
                     continue;
                 }
                 Err(e) => {
                     tracing::error!("Failed to get next task: {}", e);
-                    tokio::time::sleep(task_delay).await;
+                    tokio::time::sleep(inter_task_delay).await;
                     continue;
                 }
             };
@@ -468,7 +468,7 @@ where
                 permit,
                 store.clone(),
                 executor.clone(),
-                Some(retry_signal_sender.clone()),
+                Some(retry_notification_sender.clone()),
             );
         }
     }
@@ -479,7 +479,7 @@ where
         permit: tokio::sync::OwnedSemaphorePermit,
         store: Arc<S>,
         executor: Arc<E>,
-        retry_signal_sender: Option<mpsc::UnboundedSender<()>>,
+        retry_notification_sender: Option<mpsc::UnboundedSender<()>>,
     ) {
         tokio::spawn(async move {
             tracing::debug!("Worker started for task {:?}", task);
@@ -493,34 +493,15 @@ where
                     tracing::debug!("Task {:?} executed successfully", task);
                 }
                 Err(e) => {
-                    tracing::debug!("Task {:?} failed: {}", task, e);
+                    tracing::info!("Task {:?} failed: {}, adding to retry queue", task, e);
 
-                    let original_retry_count = task.retry_count();
-                    let retry_task = task.increment_retry_count();
-
-                    if original_retry_count == 0 {
-                        // First failure - add to retry queue.
-                        tracing::info!(
-                            "Task {:?} failed (first attempt), adding to retry queue",
-                            task
-                        );
-                        if let Err(e) = store.add_to_retry_queue(&retry_task).await {
-                            tracing::error!("Failed to add task to retry queue: {}", e);
-                        }
-                    } else {
-                        // Subsequent failure - update in retry queue.
-                        tracing::warn!(
-                            "Task {:?} failed after {} retries, updating in retry queue",
-                            task,
-                            original_retry_count
-                        );
-                        if let Err(e) = store.add_to_retry_queue(&retry_task).await {
-                            tracing::error!("Failed to update task in retry queue: {}", e);
-                        }
+                    // Move to retry queue for retry processing.
+                    if let Err(e) = store.move_to_retry_queue(&task).await {
+                        tracing::error!("Failed to move task to retry queue: {}", e);
                     }
 
                     // Signal that retry processing is needed.
-                    if let Some(sender) = retry_signal_sender {
+                    if let Some(sender) = retry_notification_sender {
                         let _ = sender.send(());
                     }
                 }
@@ -602,14 +583,14 @@ mod tests {
             .try_init();
 
         let config = AsyncTaskManagerConfig {
-            queue_config: crate::async_task_sorter::AsyncTaskSorterConfig {
+            config: crate::async_task_sorter::AsyncTaskSorterConfig {
                 max_num_latest_tasks: 10,
                 load_batch_size: 5,
                 grace_period: Duration::from_millis(50),
             },
-            task_delay: Duration::from_millis(10),
+            inter_task_delay: Duration::from_millis(10),
             max_concurrent_tasks: 2,
-            max_read_entries: 10,
+            read_batch_size: 10,
         };
 
         let store = Arc::new(OrderedTestStore::new());
@@ -658,10 +639,10 @@ mod tests {
             .try_init();
 
         let config = AsyncTaskManagerConfig {
-            queue_config: crate::async_task_sorter::AsyncTaskSorterConfig::default(),
-            task_delay: Duration::from_millis(10),
+            config: crate::async_task_sorter::AsyncTaskSorterConfig::default(),
+            inter_task_delay: Duration::from_millis(10),
             max_concurrent_tasks: 4, // Allow 4 concurrent workers.
-            max_read_entries: 10,
+            read_batch_size: 10,
         };
 
         let store = Arc::new(OrderedTestStore::new());
@@ -712,14 +693,14 @@ mod tests {
             .try_init();
 
         let config = AsyncTaskManagerConfig {
-            queue_config: crate::async_task_sorter::AsyncTaskSorterConfig {
+            config: crate::async_task_sorter::AsyncTaskSorterConfig {
                 max_num_latest_tasks: 20,
                 load_batch_size: 10,
                 grace_period: Duration::from_millis(50),
             },
-            task_delay: Duration::from_millis(5),
+            inter_task_delay: Duration::from_millis(5),
             max_concurrent_tasks: 4,
-            max_read_entries: 10,
+            read_batch_size: 10,
         };
 
         let store = Arc::new(OrderedTestStore::new());

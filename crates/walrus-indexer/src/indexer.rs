@@ -93,7 +93,6 @@ pub struct QuiltIndexTask {
     pub bucket_id: ObjectID,
     pub identifier: String,
     pub retry: bool,
-    pub retry_count: usize,
 }
 
 impl QuiltIndexTask {
@@ -112,13 +111,12 @@ impl QuiltIndexTask {
             bucket_id,
             identifier,
             retry,
-            retry_count: 0,
         }
     }
 
     /// Create a QuiltIndexTask from an IndexMutation::Insert and sequence number.
     /// This is used when processing quilt index events to create async tasks.
-    pub fn from_quilt_insert(
+    pub fn from_index_mutation(
         insert: &walrus_sui::types::IndexMutation,
         bucket_id: &ObjectID,
         sequence_number: u64,
@@ -147,17 +145,6 @@ impl AsyncTask for QuiltIndexTask {
 
     fn task_id(&self) -> Self::TaskId {
         QuiltIndexTaskId::new(self.sequence_number, self.quilt_blob_id)
-    }
-
-    fn retry_count(&self) -> u32 {
-        self.retry_count as u32
-    }
-
-    fn increment_retry_count(&self) -> Self {
-        let mut task = self.clone();
-        task.retry_count += 1;
-        task.retry = true;
-        task
     }
 }
 
@@ -235,9 +222,7 @@ impl TaskExecutor<QuiltIndexTask> for QuiltTaskExecutor {
 
                 // For regular task execution failure, we still use move_to_retry_queue
                 // because the task is still in the pending queue.
-                let task_id = task.task_id();
-                self.storage
-                    .move_to_retry_queue(&task_id)
+                OrderedStore::move_to_retry_queue(&*self.storage, &task)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to move task to retry queue: {}", e))?;
 
@@ -281,7 +266,6 @@ impl QuiltTaskExecutor {
 pub struct RetryTaskExecutor {
     storage: Arc<WalrusIndexStore>,
     walrus_client: Option<Arc<WalrusNodeClient<SuiContractClient>>>,
-    max_retries: usize,
 }
 
 impl RetryTaskExecutor {
@@ -292,31 +276,18 @@ impl RetryTaskExecutor {
         Self {
             storage,
             walrus_client,
-            max_retries: 3,
         }
     }
 }
 
 #[async_trait]
 impl TaskExecutor<QuiltIndexTask> for RetryTaskExecutor {
-    async fn execute(&self, mut task: QuiltIndexTask) -> Result<()> {
+    async fn execute(&self, task: QuiltIndexTask) -> Result<()> {
         tracing::info!(
-            "Retrying quilt index task: sequence={}, quilt_id={}, retry_count={}",
+            "Retrying quilt index task: sequence={}, quilt_id={}",
             task.sequence_number,
-            task.quilt_blob_id,
-            task.retry_count
+            task.quilt_blob_id
         );
-
-        // Check if we've exceeded max retries.
-        if task.retry_count >= self.max_retries {
-            tracing::error!(
-                "Task {:?} exceeded max retries ({}). Dropping task.",
-                task.task_id(),
-                self.max_retries
-            );
-            // Task was already removed from retry queue, nothing more to do.
-            return Ok(());
-        }
 
         // Try to fetch and process the quilt patch.
         match self.fetch_quilt_patch(task.quilt_blob_id).await {
@@ -336,29 +307,16 @@ impl TaskExecutor<QuiltIndexTask> for RetryTaskExecutor {
                 tracing::warn!("Retry failed for task {:?}: {}", task.task_id(), e);
 
                 // Task was removed from retry queue before execution.
-                // We need to re-add it with incremented retry count.
-                if task.retry_count < self.max_retries {
-                    // Increment retry count and re-add to retry queue.
-                    task.retry_count += 1;
-                    task.retry = true;
-                    if let Err(e) = self.storage.add_to_retry_queue(&task).await {
-                        tracing::error!("Failed to re-add task to retry queue: {}", e);
-                        // Return Ok anyway - task is lost but we don't want to crash.
-                        return Ok(());
-                    }
-                    // Return error to signal that retry is needed.
-                    return Err(anyhow::anyhow!(
-                        "Retry failed, task re-added to retry queue"
-                    ));
+                // We need to re-add it to retry queue for another attempt.
+                if let Err(e) = OrderedStore::move_to_retry_queue(&*self.storage, &task).await {
+                    tracing::error!("Failed to re-add task to retry queue: {}", e);
+                    // Return Ok anyway - task is lost but we don't want to crash.
+                    return Ok(());
                 }
-
-                // Max retries exceeded.
-                tracing::error!(
-                    "Task {:?} failed after {} retries. Dropping task.",
-                    task.task_id(),
-                    task.retry_count
-                );
-                Ok(())
+                // Return error to signal that retry is needed.
+                Err(anyhow::anyhow!(
+                    "Retry failed, task re-added to retry queue"
+                ))
             }
         }
     }
@@ -685,7 +643,7 @@ impl WalrusIndexer {
 
         // Configure retry task manager with slower polling
         let mut retry_config = task_manager_config;
-        retry_config.task_delay = std::time::Duration::from_secs(30);
+        retry_config.inter_task_delay = std::time::Duration::from_secs(30);
 
         let retry_manager: Arc<RetryTaskManager> = Arc::new(
             AsyncTaskManager::new(retry_config, self.storage.clone(), Arc::new(retry_executor))
@@ -774,7 +732,7 @@ impl WalrusIndexer {
                         IndexMutation::Insert { is_quilt: true, .. } => {
                             // For quilt insertions, create async tasks instead of immediate
                             // processing
-                            if let Some(task) = QuiltIndexTask::from_quilt_insert(
+                            if let Some(task) = QuiltIndexTask::from_index_mutation(
                                 mutation,
                                 &mutation_set.bucket_id,
                                 sequence_number,

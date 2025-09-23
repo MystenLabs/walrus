@@ -123,7 +123,7 @@ async fn store_blobs(
         .collect();
 
     // Store the blobs.
-    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+    let store_args = StoreArgs::default_with_epochs(20).no_store_optimizations();
     let store_results = client
         .as_ref()
         .reserve_and_store_blobs_retry_committees(&unencoded_blobs, &store_args)
@@ -205,7 +205,7 @@ async fn store_quilt(
         .collect::<Result<Vec<_>, _>>()?;
 
     // Construct and store the quilt.
-    let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
+    let store_args = StoreArgs::default_with_epochs(20).no_store_optimizations();
     let quilt = client
         .as_ref()
         .quilt_client()
@@ -470,7 +470,7 @@ async fn test_walrus_indexer_basic() -> Result<()> {
     // === PHASE 1: Start the indexer ===
     // The indexer will start processing events from the blockchain.
     let temp_dir = TempDir::new()?;
-    let (indexer, cancel_token, indexer_handle) =
+    let (indexer, _cancel_token, _indexer_handle) =
         start_walrus_indexer(&sui_cluster_handle, &client, &temp_dir).await?;
 
     // === PHASE 2: Write data while indexer is running ===
@@ -532,13 +532,7 @@ async fn test_walrus_indexer_basic() -> Result<()> {
     )
     .await?;
 
-    // === PHASE 8: Shutdown ===
-    // Gracefully shutdown the indexer.
-    cancel_token.cancel();
-    drop(sui_cluster_handle);
-    let _ = tokio::time::timeout(Duration::from_secs(5), indexer_handle).await;
-
-    println!("\n✅ Test completed successfully");
+    indexer.stop().await;
     Ok(())
 }
 
@@ -584,7 +578,7 @@ async fn test_walrus_indexer_catchup() -> Result<()> {
 
     // Now start the indexer, which should catch up with all the events from phases 1-2.
     let temp_dir = TempDir::new()?;
-    let (indexer, cancel_token, indexer_handle) =
+    let (indexer, _cancel_token, _indexer_handle) =
         start_walrus_indexer(&sui_cluster_handle, &client, &temp_dir).await?;
 
     // Store additional blobs in two groups.
@@ -645,10 +639,6 @@ async fn test_walrus_indexer_catchup() -> Result<()> {
     )
     .await?;
 
-    // === PHASE 8: Verify complete state ===
-    // Final verification of the complete index state.
-    tracing::info!("📊 Phase 8: Verifying complete index state");
-
     // Count expected totals
     let expected_bucket_count = initial_blob_mapping.len()
         + additional_blob_mapping_1.len()
@@ -666,9 +656,6 @@ async fn test_walrus_indexer_catchup() -> Result<()> {
         bucket_entries.len()
     );
 
-    tracing::info!("✅ Bucket verification complete:");
-    tracing::info!("  - Bucket: {} entries", bucket_entries.len());
-
     // Verify quilt patch index completeness
     let patch_entries = indexer.storage.get_all_quilt_patch_entries()?;
     let expected_patch_count =
@@ -681,23 +668,15 @@ async fn test_walrus_indexer_catchup() -> Result<()> {
         patch_entries.len()
     );
 
-    tracing::info!(
-        "✅ Quilt patch index verification complete: {} entries",
-        patch_entries.len()
-    );
-
     // Check pending quilt tasks - should be empty after processing
     let pending_tasks = indexer.storage.get_all_pending_quilt_tasks()?;
-    tracing::info!(
-        "📋 Pending quilt tasks: {} (should be 0 when complete)",
-        pending_tasks.len()
+    assert_eq!(
+        pending_tasks.len(),
+        0,
+        "Pending quilt tasks should be 0 when complete"
     );
 
-    // === PHASE 9: Shutdown ===
-    // Gracefully shutdown the indexer.
-    cancel_token.cancel();
-    drop(sui_cluster_handle);
-    let _ = tokio::time::timeout(Duration::from_secs(5), indexer_handle).await;
+    indexer.stop().await;
 
     Ok(())
 }

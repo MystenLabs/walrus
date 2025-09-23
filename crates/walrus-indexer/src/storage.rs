@@ -40,7 +40,7 @@ const CF_NAME_PRIMARY_INDEX: &str = "walrus_index_primary";
 const CF_NAME_OBJECT_INDEX: &str = "walrus_index_object";
 const CF_NAME_SEQUENCE_STORE: &str = "walrus_sequence_store";
 const CF_NAME_QUILT_PATCH_INDEX: &str = "walrus_quilt_patch";
-const CF_NAME_PENDING_QUILT_INDEX_TASKS: &str = "walrus_pending_quilt_index_tasks";
+const CF_NAME_QUILT_INDEX_TASKS: &str = "walrus_quilt_index_tasks";
 const CF_NAME_RETRY_QUILT_INDEX_TASKS: &str = "walrus_retry_quilt_index_tasks";
 const SEQUENCE_KEY: &[u8] = b"sequence";
 
@@ -403,8 +403,8 @@ pub struct WalrusIndexStore {
     // Index for quilt patches, so that we can look up quilt patches by the corresponding
     // files' blob IDs.
     quilt_patch_index: DBMap<String, QuiltPatchId>,
-    // Pending quilt index tasks: stores the quilt index tasks that are pending to be processed.
-    pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
+    // Quilt index tasks: stores the quilt index tasks to be processed.
+    quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
     // Retry quilt index tasks: stores the quilt index tasks that failed and need to be retried.
     retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
 }
@@ -424,7 +424,7 @@ impl WalrusIndexStore {
                 (CF_NAME_OBJECT_INDEX, db_options.clone()),
                 (CF_NAME_SEQUENCE_STORE, db_options.clone()),
                 (CF_NAME_QUILT_PATCH_INDEX, db_options.clone()),
-                (CF_NAME_PENDING_QUILT_INDEX_TASKS, db_options.clone()),
+                (CF_NAME_QUILT_INDEX_TASKS, db_options.clone()),
                 (CF_NAME_RETRY_QUILT_INDEX_TASKS, db_options.clone()),
             ],
         )?;
@@ -457,13 +457,12 @@ impl WalrusIndexStore {
             false,
         )?;
 
-        let pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue> =
-            DBMap::reopen(
-                &db,
-                Some(CF_NAME_PENDING_QUILT_INDEX_TASKS),
-                &typed_store::rocks::ReadWriteOptions::default(),
-                false,
-            )?;
+        let quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue> = DBMap::reopen(
+            &db,
+            Some(CF_NAME_QUILT_INDEX_TASKS),
+            &typed_store::rocks::ReadWriteOptions::default(),
+            false,
+        )?;
 
         let retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue> = DBMap::reopen(
             &db,
@@ -478,31 +477,9 @@ impl WalrusIndexStore {
             object_index,
             sequence_store,
             quilt_patch_index,
-            pending_quilt_index_tasks,
+            quilt_index_tasks,
             retry_quilt_index_tasks,
         })
-    }
-
-    /// Create a new WalrusIndexStore from existing DBMap instances.
-    /// This is used for testing and migration purposes.
-    pub fn from_maps(
-        db: Arc<typed_store::rocks::RocksDB>,
-        primary_index: DBMap<String, IndexTarget>,
-        object_index: DBMap<String, ObjectIndexValue>,
-        sequence_store: DBMap<String, u64>,
-        quilt_patch_index: DBMap<String, QuiltPatchId>,
-        pending_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
-        retry_quilt_index_tasks: DBMap<QuiltIndexTaskId, QuiltIndexTaskValue>,
-    ) -> Self {
-        Self {
-            db,
-            primary_index,
-            object_index,
-            sequence_store,
-            quilt_patch_index,
-            pending_quilt_index_tasks,
-            retry_quilt_index_tasks,
-        }
     }
 
     /// Apply index mutations from Sui events with sequence number.
@@ -742,11 +719,7 @@ impl WalrusIndexStore {
         }
 
         Ok(txn
-            .get_for_update_cf(
-                &self.pending_quilt_index_tasks.cf()?,
-                task_id.to_key(),
-                true,
-            )
+            .get_for_update_cf(&self.quilt_index_tasks.cf()?, task_id.to_key(), true)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?
             .is_some())
     }
@@ -824,11 +797,8 @@ impl WalrusIndexStore {
             txn.delete_cf(&self.retry_quilt_index_tasks.cf()?, task.task_id().to_key())
                 .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
         } else {
-            txn.delete_cf(
-                &self.pending_quilt_index_tasks.cf()?,
-                task.task_id().to_key(),
-            )
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
+            txn.delete_cf(&self.quilt_index_tasks.cf()?, task.task_id().to_key())
+                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
         }
 
         Ok(())
@@ -892,7 +862,7 @@ impl WalrusIndexStore {
                         // Clean up pending task
                         let task_key = bcs::to_bytes(task_id)
                             .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-                        txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, task_key)
+                        txn.delete_cf(&self.quilt_index_tasks.cf()?, task_key)
                             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                     }
                     QuiltTaskStatus::Completed(patches) => {
@@ -1022,7 +992,7 @@ impl WalrusIndexStore {
                             // Clean up the pending task
                             let task_id_bytes = task_id.to_key();
                             let pending_cf = self
-                                .pending_quilt_index_tasks
+                                .quilt_index_tasks
                                 .cf()
                                 .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                             txn.delete_cf(&pending_cf, &task_id_bytes)
@@ -1119,7 +1089,7 @@ impl WalrusIndexStore {
                 let task_id_bytes = bcs::to_bytes(task_id)
                     .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
                 let cf = self
-                    .pending_quilt_index_tasks
+                    .quilt_index_tasks
                     .cf()
                     .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                 txn.delete_cf(&cf, &task_id_bytes)
@@ -1407,7 +1377,7 @@ impl WalrusIndexStore {
     ) -> Result<Vec<(QuiltIndexTaskId, QuiltIndexTaskValue)>, TypedStoreError> {
         let mut entries = Vec::new();
         for entry in self
-            .pending_quilt_index_tasks
+            .quilt_index_tasks
             .iter_with_bytes::<QuiltIndexTaskValue>(None, None)?
         {
             let (key, value) = entry?;
@@ -1524,7 +1494,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
         let value_bytes = bcs::to_bytes(&value)
             .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
         txn.put_cf(
-            &self.pending_quilt_index_tasks.cf()?,
+            &self.quilt_index_tasks.cf()?,
             task_id.to_key(),
             &value_bytes,
         )
@@ -1576,7 +1546,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
 
     /// Remove a quilt task from storage by its task ID.
     async fn remove(&self, task_id: &QuiltIndexTaskId) -> Result<(), TypedStoreError> {
-        self.pending_quilt_index_tasks.remove(task_id)
+        self.quilt_index_tasks.remove(task_id)
     }
 
     /// Load quilt tasks within a task_id range (exclusive on both ends).
@@ -1594,7 +1564,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
         let to_task_id_bytes = to_task_id.as_ref().map(|id| id.to_key());
 
         for entry in self
-            .pending_quilt_index_tasks
+            .quilt_index_tasks
             .iter_with_bytes::<QuiltIndexTaskValue>(
                 from_task_id_bytes.as_deref(),
                 to_task_id_bytes.as_deref(),
@@ -1643,7 +1613,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
     /// - Only moves from Running to InRetryQueue status
     /// - Skips if already Completed or already in retry queue
     /// - Ensures atomic transition with proper cleanup
-    async fn add_to_retry_queue(
+    async fn move_to_retry_queue(
         &self,
         task: &crate::indexer::QuiltIndexTask,
     ) -> Result<(), TypedStoreError> {
@@ -1674,7 +1644,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
             );
             // If primary doesn't exist, clean up any orphaned pending task
             let task_id_bytes = task_id.to_key();
-            txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
+            txn.delete_cf(&self.quilt_index_tasks.cf()?, &task_id_bytes)
                 .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
             txn.commit()
                 .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
@@ -1705,7 +1675,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
 
                 // Verify task exists in pending queue before moving
                 let pending_task = txn
-                    .get_for_update_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes, true)
+                    .get_for_update_cf(&self.quilt_index_tasks.cf()?, &task_id_bytes, true)
                     .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
                 if pending_task.is_none() {
@@ -1721,7 +1691,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
             QuiltTaskStatus::Completed(_) => {
                 tracing::debug!(?task_id, "Task already completed, skipping retry");
                 // Clean up any orphaned pending task
-                txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
+                txn.delete_cf(&self.quilt_index_tasks.cf()?, &task_id_bytes)
                     .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
                 txn.commit()
                     .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
@@ -1766,7 +1736,7 @@ impl crate::OrderedStore<crate::indexer::QuiltIndexTask> for WalrusIndexStore {
 
         // 4. Move task from pending to retry queue
         // Delete from pending queue
-        txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
+        txn.delete_cf(&self.quilt_index_tasks.cf()?, &task_id_bytes)
             .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
 
         // Add to retry queue
@@ -1871,150 +1841,6 @@ impl WalrusIndexStore {
         }
 
         Ok(())
-    }
-
-    /// Move a task from pending queue to retry queue.
-    /// Uses transactions to ensure atomicity and checks primary index status.
-    pub async fn move_to_retry_queue(
-        &self,
-        task_id: &QuiltIndexTaskId,
-    ) -> Result<(), TypedStoreError> {
-        // Use transaction to ensure atomicity
-        let optimistic_db = self.db.as_optimistic().ok_or_else(|| {
-            TypedStoreError::RocksDBError("Database is not optimistic transaction DB".to_string())
-        })?;
-        let txn = optimistic_db.transaction();
-
-        // 1. Check if task exists in pending queue
-        let task_id_bytes = task_id.to_key();
-        let pending_task_opt = txn
-            .get_for_update_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes, true)
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        let Some(pending_task_bytes) = pending_task_opt else {
-            tracing::debug!(
-                ?task_id,
-                "Task not found in pending queue, may have already been processed"
-            );
-            return Ok(());
-        };
-
-        let task_value: QuiltIndexTaskValue = bcs::from_bytes(&pending_task_bytes)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-
-        // 2. Check primary index status
-        let primary_key = PrimaryIndexKey::new(
-            task_value.bucket_id,
-            task_value.identifier.clone(),
-            task_value.sequence_number,
-        );
-        let primary_key_bytes = primary_key.to_key();
-
-        let primary_entry_opt = txn
-            .get_for_update_cf(&self.primary_index.cf()?, &primary_key_bytes, true)
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        let Some(primary_entry_bytes) = primary_entry_opt else {
-            tracing::warn!(
-                ?task_id,
-                "Primary index entry not found, cleaning up orphaned pending task"
-            );
-            // Clean up the orphaned pending task
-            txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
-                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-            txn.commit()
-                .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-            return Ok(());
-        };
-
-        let primary_entry: IndexTarget = bcs::from_bytes(&primary_entry_bytes)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-
-        let IndexTarget::Blob(mut blob_identity) = primary_entry else {
-            tracing::warn!(?task_id, "Primary index entry is not a blob");
-            return Ok(());
-        };
-
-        // 3. Check current status and handle accordingly
-        match &blob_identity.quilt_status {
-            QuiltTaskStatus::Running(stored_task_id) => {
-                // Expected case - proceed with move to retry
-                if stored_task_id != task_id {
-                    tracing::warn!(
-                        ?task_id,
-                        ?stored_task_id,
-                        "Task ID mismatch in Running status, but proceeding"
-                    );
-                }
-                // Continue to move to retry queue
-            }
-            QuiltTaskStatus::Completed(_) => {
-                tracing::debug!(?task_id, "Task already completed, skipping move to retry");
-                // Clean up the pending task
-                txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
-                    .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                txn.commit()
-                    .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                return Ok(());
-            }
-            QuiltTaskStatus::InRetryQueue(existing_task_id) => {
-                if existing_task_id == task_id {
-                    tracing::debug!(?task_id, "Task already in retry queue");
-                    // Clean up the pending task if it still exists
-                    txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
-                        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                } else {
-                    tracing::warn!(
-                        ?task_id,
-                        ?existing_task_id,
-                        "Different task in retry queue for this entry"
-                    );
-                }
-                txn.commit()
-                    .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                return Ok(());
-            }
-            QuiltTaskStatus::NotQuilt => {
-                tracing::debug!(?task_id, "Entry marked as NotQuilt, cannot move to retry");
-                // Clean up the pending task
-                txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
-                    .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                txn.commit()
-                    .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-                return Ok(());
-            }
-        }
-
-        // 4. Update primary index to InRetryQueue status
-        blob_identity.quilt_status = QuiltTaskStatus::InRetryQueue(task_id.clone());
-        let updated_index_target = IndexTarget::Blob(blob_identity);
-        let updated_value_bytes = bcs::to_bytes(&updated_index_target)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(
-            &self.primary_index.cf()?,
-            &primary_key_bytes,
-            &updated_value_bytes,
-        )
-        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        // 5. Move task from pending to retry queue
-        // Delete from pending queue
-        txn.delete_cf(&self.pending_quilt_index_tasks.cf()?, &task_id_bytes)
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        // Add to retry queue
-        let retry_value_bytes = bcs::to_bytes(&task_value)
-            .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?;
-        txn.put_cf(
-            &self.retry_quilt_index_tasks.cf()?,
-            &task_id_bytes,
-            &retry_value_bytes,
-        )
-        .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))?;
-
-        // 6. Commit the transaction
-        txn.commit()
-            .map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
     }
 }
 #[cfg(test)]
@@ -2480,7 +2306,10 @@ mod tests {
         check_pending_task(&store, sequence, quilt_blob_id, false).await?;
 
         // Transition to retry state
-        store.add_to_retry_queue(&task).await?;
+        <WalrusIndexStore as OrderedStore<crate::indexer::QuiltIndexTask>>::move_to_retry_queue(
+            &store, &task,
+        )
+        .await?;
 
         // Verify it's now in InRetryQueue state
         verify_quilt_status(
@@ -2569,7 +2398,7 @@ mod tests {
         let entries = store.get_by_bucket_identifier(&bucket_id1, identifier1)?;
         assert!(entries.is_empty());
         let task_id1 = QuiltIndexTaskId::new(event_index1, quilt_blob_id1);
-        assert!(store.pending_quilt_index_tasks.get(&task_id1)?.is_none());
+        assert!(store.quilt_index_tasks.get(&task_id1)?.is_none());
 
         // Test 2: Delete quilt in Completed state with patches
         let (_quilt2, quilt_blob_id2, quilt_index2) = create_test_quilt(4)?;
@@ -2637,7 +2466,10 @@ mod tests {
         .await?;
 
         // Move to retry queue
-        store.add_to_retry_queue(&task3).await?;
+        <WalrusIndexStore as OrderedStore<crate::indexer::QuiltIndexTask>>::move_to_retry_queue(
+            &store, &task3,
+        )
+        .await?;
 
         // Verify it's in retry queue
         verify_quilt_status(
