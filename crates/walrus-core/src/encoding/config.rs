@@ -501,6 +501,7 @@ impl ReedSolomonEncodingConfig {
     }
 
     /// Returns a [`BlobEncoder`] for the given blob.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn get_blob_encoder<'a>(
         &'a self,
         blob: &'a [u8],

@@ -234,6 +234,7 @@ impl<'a> BlobEncoder<'a> {
 
     /// Returns a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
     /// are initialized with the appropriate `symbol_size` and `length`.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards().get())
             .map(|i| SliverPair::new_empty(&self.config, self.symbol_size, SliverPairIndex(i)))
@@ -241,6 +242,7 @@ impl<'a> BlobEncoder<'a> {
     }
 
     /// Computes the fully expanded message matrix by encoding rows and columns.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix<'_> {
         self.span
             .in_scope(|| ExpandedMessageMatrix::new(&self.config, self.symbol_size, self.blob))
@@ -349,6 +351,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Computes the sliver pair metadata from the expanded message matrix.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
         tracing::debug!("computing blob metadata and ID");
 
@@ -401,6 +404,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Writes the secondary slivers to the provided mutable slice.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn write_secondary_slivers(&self, sliver_pairs: &mut [SliverPair]) {
         sliver_pairs
             .iter_mut()
@@ -422,6 +426,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// [`write_secondary_metadata`][Self::write_secondary_metadata], and
     /// [`write_primary_metadata`][Self::write_primary_metadata] no longer produce meaningful
     /// results.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn drop_recovery_symbols(&mut self) {
         self.matrix
             .iter_mut()
@@ -443,6 +448,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     ///
     /// Consumes the original matrix, as it creates the primary slivers by truncating the rows of
     /// the matrix.
+    #[tracing::instrument(level = "debug", skip_all)]
     fn write_primary_slivers(self, sliver_pairs: &mut [SliverPair]) {
         for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(self.matrix.into_iter()) {
             row.truncate(self.config.n_source_symbols::<Secondary>().get().into());

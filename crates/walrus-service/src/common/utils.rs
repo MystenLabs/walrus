@@ -692,9 +692,14 @@ fn prepare_subscriber(
     let (otlp_layer, guard) = if enable_tracing {
         let tracer_provider = init_tracer_provider();
         let tracer = tracer_provider.tracer("tracing-otel-subscriber");
+        let filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .with_env_var("TRACE_FILTER")
+            .from_env()
+            .context("failed to parse the TRACE_FILTER  environment variable")?;
 
         (
-            Some(OpenTelemetryLayer::new(tracer).with_filter(LevelFilter::DEBUG)),
+            Some(OpenTelemetryLayer::new(tracer).with_filter(filter)),
             SubscriberGuard::otlp(tracer_provider),
         )
     } else {
