@@ -9,7 +9,7 @@
     "payloadSize": "100Mi",
     "timeout": "5m",
     "environment": "walrus-testnet-ci",
-    "targetRate": "100",
+    "targetRate": "50",
     "duration": "5m"
   }
 }
