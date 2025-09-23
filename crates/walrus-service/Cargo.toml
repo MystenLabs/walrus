@@ -115,6 +115,9 @@ mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 object_store = { workspace = true, optional = true }
 opentelemetry.workspace = true
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions.workspace = true
+opentelemetry_sdk.workspace = true
 p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }

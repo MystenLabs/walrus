@@ -25,6 +25,12 @@ use fastcrypto::{
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
 use futures::future::FusedFuture;
+use opentelemetry::{KeyValue, trace::TracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    trace::{RandomIdGenerator, Sampler, TracerProvider as SdkTracerProvider},
+};
+use opentelemetry_semantic_conventions::attribute::{SERVICE_NAME, SERVICE_VERSION};
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
@@ -38,14 +44,9 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::subscriber::DefaultGuard;
-use tracing_subscriber::{
-    EnvFilter,
-    Layer,
-    filter::Filtered,
-    layer::{Layered, SubscriberExt as _},
-    util::SubscriberInitExt,
-};
+use tracing::{Subscriber, level_filters::LevelFilter, subscriber::DefaultGuard};
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
@@ -622,17 +623,48 @@ pub fn export_contract_info(
         .set(1);
 }
 
-type TracingSubscriberConfiguration = Layered<
-    Filtered<
-        Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    >,
-    tracing_subscriber::Registry,
->;
+/// Guard which performs any shutdown actions for a subscriber on drop.
+#[derive(Default, Debug)]
+pub struct SubscriberGuard {
+    tracer_provider: Option<SdkTracerProvider>,
+    default_guard: Option<DefaultGuard>,
+}
+
+impl SubscriberGuard {
+    fn with_default_guard(mut self, guard: DefaultGuard) -> Self {
+        self.default_guard = Some(guard);
+        self
+    }
+
+    fn otlp(provider: SdkTracerProvider) -> Self {
+        Self {
+            tracer_provider: Some(provider),
+            default_guard: None,
+        }
+    }
+}
+
+impl Drop for SubscriberGuard {
+    fn drop(&mut self) {
+        if let Some(provider) = self.tracer_provider.take() {
+            for result in provider.force_flush() {
+                if let Err(err) = result {
+                    eprintln!("{err:?}");
+                }
+            }
+
+            if let Err(err) = provider.shutdown() {
+                eprintln!("{err:?}");
+            }
+        }
+    }
+}
 
 /// Prepare the tracing subscriber based on the environment variables.
-fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscriberConfiguration> {
+fn prepare_subscriber(
+    default_log_format: Option<&str>,
+    enable_tracing: bool,
+) -> Result<(impl Subscriber + SubscriberInitExt, SubscriberGuard)> {
     // Use INFO level by default.
     let directive = format!(
         "info,{}",
@@ -644,6 +676,7 @@ fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscri
     let format = env::var("LOG_FORMAT")
         .ok()
         .or_else(|| default_log_format.map(|fmt| fmt.to_string()));
+
     let layer = if let Some(format) = &format {
         match format.to_lowercase().as_str() {
             "default" => layer.boxed(),
@@ -656,28 +689,67 @@ fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscri
         layer.boxed()
     };
 
-    Ok(tracing_subscriber::registry().with(layer.with_filter(EnvFilter::new(directive.clone()))))
+    let (otlp_layer, guard) = if enable_tracing {
+        let tracer_provider = init_tracer_provider();
+        let tracer = tracer_provider.tracer("tracing-otel-subscriber");
+
+        (
+            Some(OpenTelemetryLayer::new(tracer).with_filter(LevelFilter::DEBUG)),
+            SubscriberGuard::otlp(tracer_provider),
+        )
+    } else {
+        (None, SubscriberGuard::default())
+    };
+
+    let subscriber = tracing_subscriber::registry()
+        .with(layer.with_filter(EnvFilter::new(directive.clone())).boxed())
+        .with(otlp_layer);
+
+    Ok((subscriber, guard))
 }
 
-/// Initializes the logger and tracing subscriber as the global subscriber, requiring a preference
-/// for the log format.
-pub fn init_tracing_subscriber_with(default_log_format: &str) -> Result<()> {
-    prepare_subscriber(Some(default_log_format))?.init();
-    tracing::debug!("initialized global tracing subscriber");
-    Ok(())
+fn resource() -> Resource {
+    Resource::new([
+        KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+        KeyValue::new(SERVICE_NAME, "walrus-cli"),
+    ])
+}
+
+// Construct TracerProvider for OpenTelemetryLayer
+fn init_tracer_provider() -> SdkTracerProvider {
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .expect("building the OTLP exporter during startup should not fail");
+
+    SdkTracerProvider::builder()
+        // Customize sampling strategy
+        .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+            1.0,
+        ))))
+        // If export trace to AWS X-Ray, you can use XrayIdGenerator
+        .with_id_generator(RandomIdGenerator::default())
+        .with_resource(resource())
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .build()
 }
 
 /// Initializes the logger and tracing subscriber as the global subscriber. This routine expresses
 /// no preference for the log format.
-pub fn init_tracing_subscriber() -> Result<()> {
-    prepare_subscriber(None)?.init();
+pub fn init_tracing_subscriber(enable_tracing: bool) -> Result<SubscriberGuard> {
+    let (subscriber, guard) = prepare_subscriber(None, enable_tracing)?;
+
+    subscriber.init();
+
     tracing::debug!("initialized global tracing subscriber");
-    Ok(())
+    Ok(guard)
 }
 
 /// Initializes the logger and tracing subscriber as the subscriber for the current scope.
-pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
-    let guard = prepare_subscriber(None)?.set_default();
+pub fn init_scoped_tracing_subscriber() -> Result<SubscriberGuard> {
+    let (subscriber, mut guard) = prepare_subscriber(None, false)?;
+    let default_guard = subscriber.set_default();
+    guard = guard.with_default_guard(default_guard);
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
 }

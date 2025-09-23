@@ -414,7 +414,7 @@ mod commands {
             use_existing_wal_token,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
-        utils::init_tracing_subscriber()?;
+        utils::init_tracing_subscriber(false)?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
@@ -488,7 +488,7 @@ mod commands {
             sui_client_request_timeout,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
-        utils::init_tracing_subscriber()?;
+        utils::init_tracing_subscriber(false)?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
@@ -623,7 +623,7 @@ mod commands {
         }: UpgradeArgs,
         upgrade_type: UpgradeType,
     ) -> anyhow::Result<()> {
-        utils::init_tracing_subscriber()?;
+        utils::init_tracing_subscriber(false)?;
 
         let wallet =
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
@@ -686,7 +686,7 @@ mod commands {
             new_package_id,
         }: MigrateArgs,
     ) -> anyhow::Result<()> {
-        utils::init_tracing_subscriber()?;
+        utils::init_tracing_subscriber(false)?;
 
         let wallet =
             load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;

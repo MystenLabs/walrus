@@ -95,6 +95,12 @@ pub struct App {
     #[arg(long, global = true)]
     #[serde(default)]
     pub json: bool,
+
+    /// Enable tracing output for the CLI.
+    #[arg(long, default_value_t = false, global = true)]
+    #[serde(default)]
+    pub trace_cli: bool,
+
     /// The command to run.
     #[command(subcommand)]
     pub command: Commands,
@@ -637,6 +643,40 @@ pub enum CliCommands {
         /// The nodes to backfill with slivers and blob metadata.
         node_ids: Vec<ObjectID>,
     },
+}
+
+impl CliCommands {
+    /// Returns a string representation of the command's name.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CliCommands::Store { .. } => "store",
+            CliCommands::StoreQuilt { .. } => "store-quilt",
+            CliCommands::Read { .. } => "read",
+            CliCommands::ReadQuilt { .. } => "read-quilt",
+            CliCommands::ListPatchesInQuilt { .. } => "list-patches-in-quilt",
+            CliCommands::BlobStatus { .. } => "blob-status",
+            CliCommands::Info { .. } => "info",
+            CliCommands::Health { .. } => "health",
+            CliCommands::BlobId { .. } => "blob-id",
+            CliCommands::ConvertBlobId { .. } => "convert-blob-id",
+            CliCommands::ListBlobs { .. } => "list-blobs",
+            CliCommands::Delete { .. } => "delete",
+            CliCommands::Stake { .. } => "stake",
+            CliCommands::GenerateSuiWallet { .. } => "generate-sui-wallet",
+            CliCommands::GetWal { .. } => "get-wal",
+            CliCommands::BurnBlobs { .. } => "burn-blobs",
+            CliCommands::FundSharedBlob { .. } => "fund-shared-blob",
+            CliCommands::Extend { .. } => "extend",
+            CliCommands::Share { .. } => "share",
+            CliCommands::GetBlobAttribute { .. } => "get-blob-attribute",
+            CliCommands::SetBlobAttribute { .. } => "set-blob-attribute",
+            CliCommands::RemoveBlobAttributeFields { .. } => "remove-blob-attribute-fields",
+            CliCommands::RemoveBlobAttribute { .. } => "remove-blob-attribute",
+            CliCommands::NodeAdmin { .. } => "node-admin",
+            CliCommands::PullArchiveBlobs { .. } => "pull-archive-blobs",
+            CliCommands::BlobBackfill { .. } => "blob-backfill",
+        }
+    }
 }
 
 /// Subcommands for the `info` command.
@@ -1869,6 +1909,7 @@ mod tests {
             wallet: None,
             gas_budget: None,
             json: false,
+            trace_cli: false,
             command: Commands::Json {
                 command_string: Some(json.to_string()),
             },
