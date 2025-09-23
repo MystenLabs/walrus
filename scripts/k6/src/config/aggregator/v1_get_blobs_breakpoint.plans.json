@@ -6,10 +6,10 @@
     "duration": "5m"
   },
   "ci-testnet-performance:download:throughput:data": {
-    "payloadSize": "40Mi",
+    "payloadSize": "100Mi",
     "timeout": "5m",
     "environment": "walrus-testnet-ci",
-    "targetRate": "150",
+    "targetRate": "100",
     "duration": "5m"
   }
 }
