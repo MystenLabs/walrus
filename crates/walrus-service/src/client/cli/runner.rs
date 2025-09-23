@@ -195,11 +195,14 @@ impl ClientCommandRunner {
     /// Consumes `self`.
     #[tokio::main]
     pub async fn run_cli_app(self, command: CliCommands, enable_tracing: bool) -> Result<()> {
-        {
+        let result = {
             // Since we may export OTLP, this needs to be initialised in an async context.
             let _guard = utils::init_tracing_subscriber(enable_tracing)?;
             self.run_cli_app_inner(command).await
-        }
+        };
+
+        opentelemetry::global::shutdown_tracer_provider();
+        result
     }
 
     #[tracing::instrument(name="run", skip_all, fields(command = command.as_str()))]
