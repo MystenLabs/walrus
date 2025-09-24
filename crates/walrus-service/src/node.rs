@@ -3807,19 +3807,29 @@ mod tests {
         pub config: EncodingConfig,
         pub pairs: Vec<SliverPair>,
         pub metadata: VerifiedBlobMetadataWithId,
+        #[allow(unused)]
+        pub object_id: Option<ObjectID>,
     }
 
     impl EncodedBlob {
-        fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
+        fn new(blob: &[u8], config: EncodingConfig) -> Self {
             let (pairs, metadata) = config
                 .get_for_type(DEFAULT_ENCODING)
                 .encode_with_metadata(blob)
                 .expect("must be able to get encoder");
 
-            EncodedBlob {
+            Self {
                 pairs,
                 metadata,
                 config,
+                object_id: None,
+            }
+        }
+
+        fn new_with_object_id(blob: &[u8], config: EncodingConfig, object_id: ObjectID) -> Self {
+            Self {
+                object_id: Some(object_id),
+                ..Self::new(blob, config)
             }
         }
 
@@ -4046,10 +4056,10 @@ mod tests {
         let config = cluster.encoding_config();
         let mut details = Vec::new();
         for (i, blob) in blobs.iter().enumerate() {
-            let blob_details = EncodedBlob::new(blob, config.clone());
+            let object_id = ObjectID::random();
+            let blob_details = EncodedBlob::new_with_object_id(blob, config.clone(), object_id);
             let blob_end_epoch = blob_index_to_end_epoch(i);
             let deletable = blob_index_to_deletable(i);
-            let object_id = ObjectID::random();
             let blob_registration_event = BlobRegistered {
                 deletable,
                 end_epoch: blob_end_epoch,
@@ -5722,20 +5732,37 @@ mod tests {
 
                 for blob in blobs {
                     let blob_details = EncodedBlob::new(blob, config.clone());
+                    let object_id = ObjectID::random();
                     // Note: register and certify the blob are always using epoch 0.
-                    events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+                    events.send(
+                        BlobRegistered::for_testing_with_object_id(
+                            *blob_details.blob_id(),
+                            object_id,
+                        )
+                        .into(),
+                    )?;
                     store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-                    events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+                    events.send(
+                        BlobCertified::for_testing_with_object_id(
+                            *blob_details.blob_id(),
+                            object_id,
+                        )
+                        .into(),
+                    )?;
                     details.push(blob_details);
                 }
 
                 // These blobs will be expired at epoch 3.
                 for blob in blobs_expired {
                     let blob_details = EncodedBlob::new(blob, config.clone());
+                    let object_id = ObjectID::random();
                     events.send(
                         BlobRegistered {
                             end_epoch: 3,
-                            ..BlobRegistered::for_testing(*blob_details.blob_id())
+                            ..BlobRegistered::for_testing_with_object_id(
+                                *blob_details.blob_id(),
+                                object_id,
+                            )
                         }
                         .into(),
                     )?;
@@ -5743,7 +5770,10 @@ mod tests {
                     events.send(
                         BlobCertified {
                             end_epoch: 3,
-                            ..BlobCertified::for_testing(*blob_details.blob_id())
+                            ..BlobCertified::for_testing_with_object_id(
+                                *blob_details.blob_id(),
+                                object_id,
+                            )
                         }
                         .into(),
                     )?;
@@ -6330,25 +6360,24 @@ mod tests {
 
             // Send blob deletion event for blob 1.
             {
-                tracing::info!(
-                    "send blob deletion event for blob {:?}",
-                    blob_details[1].blob_id()
-                );
-                // Delete blob 1 and invalidate blob 2.
-                event_senders
-                    .all_other_node_events
-                    .send(BlobDeleted::for_testing(*blob_details[1].blob_id()).into())?;
+                let blob = &blob_details[1];
+                tracing::info!("send blob deletion event for blob {:?}", blob.blob_id());
+                event_senders.all_other_node_events.send(
+                    BlobDeleted::for_testing_with_object_id(
+                        *blob.blob_id(),
+                        blob.object_id.expect("object id should be set"),
+                    )
+                    .into(),
+                )?;
             }
 
             // Send invalid blob event for blob 2.
             {
-                tracing::info!(
-                    "send invalid blob evnt for blob {:?}",
-                    blob_details[2].blob_id()
-                );
+                let blob = &blob_details[2];
+                tracing::info!("send invalid blob event for blob {:?}", blob.blob_id());
                 event_senders
                     .all_other_node_events
-                    .send(InvalidBlobId::for_testing(*blob_details[2].blob_id()).into())?;
+                    .send(InvalidBlobId::for_testing(*blob.blob_id()).into())?;
             }
 
             // Advance to epoch 3, so that blob 0 expires.
