@@ -38,6 +38,9 @@ impl RetriableRpcError for sui_sdk::error::Error {
                 jsonrpsee::core::ClientError::RequestTimeout => {
                     return true;
                 }
+                jsonrpsee::core::ClientError::Transport(_) => {
+                    return true;
+                }
                 _ => {
                     let error_string = rpc_error.to_string();
                     if RETRIABLE_RPC_ERRORS
