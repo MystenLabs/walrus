@@ -787,7 +787,7 @@ impl ToBytes for BlobInfoV1 {}
 // INV: permanent_total.end_epoch >= permanent_certified.end_epoch
 // INV: initial_certified_epoch.is_some()
 //      <=> count_deletable_certified > 0 || permanent_certified.is_some()
-// INV: latest_seen_deletable_registered_epoch >= latest_seen_deletable_certified_epoch
+// INV: latest_seen_deletable_registered_end_epoch >= latest_seen_deletable_certified_end_epoch
 // Important: This struct MUST NOT be changed. Instead, if needed, a new `ValidBlobInfoV2` struct
 // should be created.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -804,8 +804,10 @@ pub(crate) struct ValidBlobInfoV1 {
     // we update the aggregate blob info in the background. So there is a delay between an epoch
     // change and the blob info being updated. During this delay, these fields are useful to
     // determine that a blob is already expired.
-    pub latest_seen_deletable_registered_epoch: Option<Epoch>,
-    pub latest_seen_deletable_certified_epoch: Option<Epoch>,
+    /// The latest end epoch recorded for a registered deletable blob.
+    pub latest_seen_deletable_registered_end_epoch: Option<Epoch>,
+    /// The latest end epoch recorded for a certified deletable blob.
+    pub latest_seen_deletable_certified_end_epoch: Option<Epoch>,
 }
 
 impl From<ValidBlobInfoV1> for BlobInfoV1 {
@@ -819,7 +821,7 @@ impl ValidBlobInfoV1 {
         // The check of the `latest_seen_*_epoch` fields is there to reduce the cases where we
         // report the existence of deletable blobs that are already expired.
         let count_deletable_total = if self
-            .latest_seen_deletable_registered_epoch
+            .latest_seen_deletable_registered_end_epoch
             .is_some_and(|e| e > current_epoch)
         {
             self.count_deletable_total
@@ -827,7 +829,7 @@ impl ValidBlobInfoV1 {
             Default::default()
         };
         let count_deletable_certified = if self
-            .latest_seen_deletable_certified_epoch
+            .latest_seen_deletable_certified_end_epoch
             .is_some_and(|e| e > current_epoch)
         {
             self.count_deletable_certified
@@ -880,11 +882,12 @@ impl ValidBlobInfoV1 {
     // The counts of deletable blobs are decreased when they expire. However, because this only
     // happens in the background, it is possible during a short time period at the beginning of an
     // epoch that all deletable blobs expired but the counts are not updated yet. For this case, we
-    // use the `latest_seen_deletable_certified_epoch` field as an additional check.
+    // use the `latest_seen_deletable_certified_end_epoch` field as an additional check.
     //
-    // There is still a corner case where the blob with the `latest_seen_deletable_certified_epoch`
-    // was deleted and all other blobs expired. In this case, we would nevertheless return `true`
-    // during a short time period, before the counts are updated in the background.
+    // There is still a corner case where the blob with the
+    // `latest_seen_deletable_certified_end_epoch` was deleted and all other blobs expired. In this
+    // case, we would nevertheless return `true` during a short time period, before the counts are
+    // updated in the background.
     fn is_certified(&self, current_epoch: Epoch) -> bool {
         let exists_certified_permanent_blob = self
             .permanent_certified
@@ -892,7 +895,7 @@ impl ValidBlobInfoV1 {
             .is_some_and(|p| p.end_epoch > current_epoch);
         let probably_exists_certified_deletable_blob = self.count_deletable_certified > 0
             && self
-                .latest_seen_deletable_certified_epoch
+                .latest_seen_deletable_certified_end_epoch
                 .is_some_and(|e| e > current_epoch);
         self.initial_certified_epoch
             .is_some_and(|epoch| epoch <= current_epoch)
@@ -927,7 +930,7 @@ impl ValidBlobInfoV1 {
                     self.maybe_increase_latest_deletable_certified_epoch(change_info.end_epoch);
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
-                    self.update_deletable_counters(was_certified);
+                    self.update_deletable_counters_and_end_epochs(was_certified);
                 }
             }
         } else {
@@ -973,14 +976,20 @@ impl ValidBlobInfoV1 {
     }
 
     fn deletable_expired(&mut self, was_certified: bool) {
-        self.update_deletable_counters(was_certified);
+        self.update_deletable_counters_and_end_epochs(was_certified);
         self.maybe_unset_initial_certified_epoch();
     }
 
-    fn update_deletable_counters(&mut self, was_certified: bool) {
-        Self::decrement_deletable_counter(&mut self.count_deletable_total);
+    fn update_deletable_counters_and_end_epochs(&mut self, was_certified: bool) {
+        Self::decrement_deletable_counter_and_maybe_unset_latest_end_epoch(
+            &mut self.count_deletable_total,
+            &mut self.latest_seen_deletable_registered_end_epoch,
+        );
         if was_certified {
-            Self::decrement_deletable_counter(&mut self.count_deletable_certified);
+            Self::decrement_deletable_counter_and_maybe_unset_latest_end_epoch(
+                &mut self.count_deletable_certified,
+                &mut self.latest_seen_deletable_certified_end_epoch,
+            );
         }
     }
 
@@ -1001,33 +1010,40 @@ impl ValidBlobInfoV1 {
     }
 
     fn maybe_increase_latest_deletable_registered_epoch(&mut self, epoch: Epoch) {
-        self.latest_seen_deletable_registered_epoch = Some(
+        self.latest_seen_deletable_registered_end_epoch = Some(
             epoch.max(
-                self.latest_seen_deletable_registered_epoch
+                self.latest_seen_deletable_registered_end_epoch
                     .unwrap_or_default(),
             ),
         )
     }
 
     fn maybe_increase_latest_deletable_certified_epoch(&mut self, epoch: Epoch) {
-        self.latest_seen_deletable_certified_epoch = Some(
+        self.latest_seen_deletable_certified_end_epoch = Some(
             epoch.max(
-                self.latest_seen_deletable_certified_epoch
+                self.latest_seen_deletable_certified_end_epoch
                     .unwrap_or_default(),
             ),
         )
     }
 
-    /// Decrements a counter on blob deletion.
+    /// Decrements a counter on blob deletion and unsets the corresponding latest seen end epoch in
+    /// case the counter reaches 0.
     ///
-    /// If the counter is 0, an error is logged in release builds and the function panics in dev
-    /// builds.
-    fn decrement_deletable_counter(counter: &mut u32) {
+    /// If the counter is already 0, an error is logged in release builds and the function panics in
+    /// dev builds.
+    fn decrement_deletable_counter_and_maybe_unset_latest_end_epoch(
+        counter: &mut u32,
+        latest_seen_end_epoch: &mut Option<Epoch>,
+    ) {
         debug_assert!(*counter > 0);
         *counter = counter.checked_sub(1).unwrap_or_else(|| {
             tracing::error!("attempt to delete blob when count was already 0");
             0
         });
+        if *counter == 0 {
+            *latest_seen_end_epoch = None;
+        }
     }
 
     /// Processes a register status change on the [`Option<PermanentBlobInfoV1>`] object
@@ -1128,8 +1144,8 @@ impl ValidBlobInfoV1 {
             permanent_total,
             permanent_certified,
             initial_certified_epoch,
-            latest_seen_deletable_registered_epoch,
-            latest_seen_deletable_certified_epoch,
+            latest_seen_deletable_registered_end_epoch,
+            latest_seen_deletable_certified_end_epoch,
             ..
         } = self;
 
@@ -1149,12 +1165,12 @@ impl ValidBlobInfoV1 {
         }
 
         match (
-            latest_seen_deletable_registered_epoch,
-            latest_seen_deletable_certified_epoch,
+            latest_seen_deletable_registered_end_epoch,
+            latest_seen_deletable_certified_end_epoch,
         ) {
             (None, Some(_)) => panic!(
-                "latest_seen_deletable_registered_epoch.is_none() => \
-                latest_seen_deletable_certified_epoch.is_none()"
+                "latest_seen_deletable_registered_end_epoch.is_none() => \
+                latest_seen_deletable_certified_end_epoch.is_none()"
             ),
             (Some(registered), Some(certified)) => {
                 assert!(registered >= certified);
@@ -1284,12 +1300,12 @@ impl BlobInfoApi for BlobInfoV1 {
     }
 
     // Note: See the `is_certified` method for an explanation of the use of the
-    // `latest_seen_deletable_registered_epoch` field.
+    // `latest_seen_deletable_registered_end_epoch` field.
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_total,
             permanent_total,
-            latest_seen_deletable_registered_epoch,
+            latest_seen_deletable_registered_end_epoch,
             ..
         }) = self
         else {
@@ -1300,7 +1316,7 @@ impl BlobInfoApi for BlobInfoV1 {
             .as_ref()
             .is_some_and(|p| p.end_epoch > current_epoch);
         let probably_exists_registered_deletable_blob = *count_deletable_total > 0
-            && latest_seen_deletable_registered_epoch.is_some_and(|e| e > current_epoch);
+            && latest_seen_deletable_registered_end_epoch.is_some_and(|e| e > current_epoch);
 
         exists_registered_permanent_blob || probably_exists_registered_deletable_blob
     }
@@ -1379,7 +1395,7 @@ impl Mergeable for BlobInfoV1 {
                 if deletable {
                     ValidBlobInfoV1 {
                         count_deletable_total: 1,
-                        latest_seen_deletable_registered_epoch: Some(end_epoch),
+                        latest_seen_deletable_registered_end_epoch: Some(end_epoch),
                         ..Default::default()
                     }
                 } else {
@@ -1974,14 +1990,14 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 1,
-                    latest_seen_deletable_registered_epoch: Some(2),
+                    latest_seen_deletable_registered_end_epoch: Some(2),
                     ..Default::default()
                 },
             ),
             register_additional_deletable1: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
-                    latest_seen_deletable_registered_epoch: Some(2),
+                    latest_seen_deletable_registered_end_epoch: Some(2),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -1989,14 +2005,14 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 4,
-                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
                     ..Default::default()
                 },
             ),
             register_additional_deletable2: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
-                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2004,14 +2020,14 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 4,
-                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
                     ..Default::default()
                 },
             ),
             certify_first_deletable: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
-                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2021,8 +2037,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(4),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
             ),
@@ -2031,8 +2047,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(0),
-                    latest_seen_deletable_registered_epoch: Some(4),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2042,8 +2058,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(0),
-                    latest_seen_deletable_registered_epoch: Some(4),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
             ),
@@ -2052,8 +2068,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2063,8 +2079,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(0),
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(5),
                     ..Default::default()
                 },
             ),
@@ -2085,8 +2101,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(0),
-                    latest_seen_deletable_registered_epoch: Some(4),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(4),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2096,8 +2112,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(0),
-                    latest_seen_deletable_registered_epoch: Some(42),
-                    latest_seen_deletable_certified_epoch: Some(42),
+                    latest_seen_deletable_registered_end_epoch: Some(42),
+                    latest_seen_deletable_certified_end_epoch: Some(42),
                     ..Default::default()
                 },
             ),
@@ -2123,8 +2139,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(8),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(8),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2134,8 +2150,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(4),
-                    latest_seen_deletable_registered_epoch: Some(8),
-                    latest_seen_deletable_certified_epoch: Some(6),
+                    latest_seen_deletable_registered_end_epoch: Some(8),
+                    latest_seen_deletable_certified_end_epoch: Some(6),
                     ..Default::default()
                 },
             ),
@@ -2216,8 +2232,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2231,8 +2247,8 @@ mod tests {
                     count_deletable_total: 2,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
             ),
@@ -2241,8 +2257,8 @@ mod tests {
                     count_deletable_total: 2,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2256,8 +2272,8 @@ mod tests {
                     count_deletable_total: 1,
                     count_deletable_certified: 0,
                     initial_certified_epoch: None,
-                    latest_seen_deletable_registered_epoch: Some(5),
-                    latest_seen_deletable_certified_epoch: Some(4),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
+                    latest_seen_deletable_certified_end_epoch: None,
                     ..Default::default()
                 },
             ),
@@ -2298,7 +2314,7 @@ mod tests {
             delete_uncertified_deletable_blob: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
-                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2310,14 +2326,14 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 2,
-                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
                     ..Default::default()
                 },
             ),
             delete_last_uncertified_deletable_blob: (
                 ValidBlobInfoV1{
                     count_deletable_total: 1,
-                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: Some(5),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -2329,7 +2345,7 @@ mod tests {
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 0,
-                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_registered_end_epoch: None,
                     ..Default::default()
                 },
             ),
@@ -2410,7 +2426,7 @@ mod tests {
             expired_deletable_registered: (
                 ValidBlobInfoV1 {
                     count_deletable_total: 1,
-                    latest_seen_deletable_registered_epoch: Some(2),
+                    latest_seen_deletable_registered_end_epoch: Some(2),
                     ..Default::default()
                 },
                 1,
@@ -2419,9 +2435,9 @@ mod tests {
             expired_deletable_certified: (
                 ValidBlobInfoV1 {
                     count_deletable_total: 1,
-                    latest_seen_deletable_registered_epoch: Some(2),
+                    latest_seen_deletable_registered_end_epoch: Some(2),
                     count_deletable_certified: 1,
-                    latest_seen_deletable_certified_epoch: Some(2),
+                    latest_seen_deletable_certified_end_epoch: Some(2),
                     ..Default::default()
                 },
                 1,
