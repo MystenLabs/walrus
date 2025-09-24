@@ -1021,6 +1021,11 @@ impl WalrusNodeClient<SuiContractClient> {
         let results = walrus_store_blobs
             .into_par_iter()
             .map(|blob| {
+                let WalrusStoreBlob::Unencoded(blob) = blob else {
+                    return Err(ClientError::from(ClientErrorKind::Other(
+                        "the blob is already encoded or failed".into(),
+                    )));
+                };
                 let _entered =
                     tracing::info_span!(parent: parent.clone(), "encode_blobs__par_iter").entered();
 
