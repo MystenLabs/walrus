@@ -926,7 +926,7 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+    walrus_test_utils::init_tracing();
     let epoch_duration = Duration::from_secs(15);
     let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_epoch_duration(epoch_duration)

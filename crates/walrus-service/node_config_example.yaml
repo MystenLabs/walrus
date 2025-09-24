@@ -205,3 +205,5 @@ node_recovery_config:
   max_concurrent_blob_syncs_during_recovery: 1000
 blob_event_processor_config:
   num_workers: 10
+garbage_collection:
+  enable_blob_info_cleanup: false

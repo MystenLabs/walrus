@@ -593,13 +593,13 @@ impl Storage {
         &self,
         current_epoch: Epoch,
     ) -> anyhow::Result<()> {
-        tracing::info!(epoch = %current_epoch, "processing expired deletable blobs");
+        tracing::info!(epoch = %current_epoch, "processing expired blob objects");
 
         self.blob_info
             .process_expired_blob_objects(current_epoch)
             .await?;
 
-        tracing::info!(epoch = %current_epoch, "finished processing expired deletable blobs");
+        tracing::info!(epoch = %current_epoch, "finished processing expired blob objects");
 
         Ok(())
     }

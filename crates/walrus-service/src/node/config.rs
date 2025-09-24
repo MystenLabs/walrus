@@ -192,6 +192,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blob event processor.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub blob_event_processor_config: BlobEventProcessorConfig,
+    /// Configuration for garbage collection and related tasks.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub garbage_collection: GarbageCollectionConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -235,6 +238,7 @@ impl Default for StorageNodeConfig {
             admin_socket_path: None,
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
+            garbage_collection: Default::default(),
         }
     }
 }
@@ -725,6 +729,34 @@ pub struct BlobEventProcessorConfig {
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
         Self { num_workers: 10 }
+    }
+}
+
+/// Configuration for garbage collection and related tasks.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct GarbageCollectionConfig {
+    /// Whether to enable the blob info cleanup at the beginning of each epoch.
+    pub enable_blob_info_cleanup: bool,
+}
+
+#[allow(clippy::derivable_impls)] // making the default explicit as a reminder for future changes
+impl Default for GarbageCollectionConfig {
+    fn default() -> Self {
+        Self {
+            // TODO(WAL-1040): Enable this by default.
+            enable_blob_info_cleanup: false,
+        }
+    }
+}
+
+impl GarbageCollectionConfig {
+    /// Returns a default configuration for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            enable_blob_info_cleanup: true,
+        }
     }
 }
 

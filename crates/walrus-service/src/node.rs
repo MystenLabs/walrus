@@ -166,7 +166,7 @@ use crate::{
             PositionedStreamEvent,
         },
     },
-    node::event_blob_writer::EventBlobWriter,
+    node::{config::GarbageCollectionConfig, event_blob_writer::EventBlobWriter},
     utils::ShardDiffCalculator,
 };
 
@@ -544,6 +544,7 @@ pub struct StorageNodeInner {
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
+    garbage_collection_config: GarbageCollectionConfig,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -688,6 +689,7 @@ impl StorageNode {
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
+            garbage_collection_config: config.garbage_collection.clone(),
         });
 
         blocklist.start_refresh_task();
@@ -1584,11 +1586,17 @@ impl StorageNode {
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
-        // TODO(WAL-473): Move this to a background task.
-        self.inner
-            .storage
-            .process_expired_blob_objects(event.epoch)
-            .await?;
+        // TODO(WAL-1040): Move this to a background task.
+        if self
+            .inner
+            .garbage_collection_config
+            .enable_blob_info_cleanup
+        {
+            self.inner
+                .storage
+                .process_expired_blob_objects(event.epoch)
+                .await?;
+        }
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch.

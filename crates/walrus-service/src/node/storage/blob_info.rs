@@ -369,8 +369,6 @@ impl BlobInfoTable {
         &self,
         current_epoch: Epoch,
     ) -> anyhow::Result<()> {
-        tracing::info!(epoch = %current_epoch, "processing expired deletable blobs");
-
         for entry in self.per_object_blob_info.safe_iter()? {
             let (object_id, per_object_blob_info) = match entry {
                 Ok(entry) => entry,
