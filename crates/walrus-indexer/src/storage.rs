@@ -25,6 +25,8 @@ use walrus_core::{
     metadata::QuiltIndex,
 };
 
+#[allow(unused)]
+
 /// Primary index, blob_manager/identifier/sequence_number -> blob or quilt patch.
 const CF_NAME_PRIMARY_INDEX: &str = "walrus_index_primary";
 /// Object index, object_id -> blob_manager/identifier/sequence_number.
