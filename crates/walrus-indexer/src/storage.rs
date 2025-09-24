@@ -59,7 +59,7 @@ impl PrimaryIndexKey {
     }
 
     /// Custom serialization to preserve alphanumeric order.
-    /// Format: [blob_manager_bytes(32 bytes)] / [identifier_utf8] / [sequence_be_bytes(8 bytes)]
+    /// Format: [blob_manager_bytes(32 bytes)] / [identifier_utf8] / [sequence_be_bytes(8 bytes)].
     fn to_key(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
@@ -85,15 +85,15 @@ impl PrimaryIndexKey {
     /// Optimized parsing: first 32 bytes = blob_manager, last 8 bytes = sequence,
     /// middle = /<identifier>/.
     fn from_key(bytes: &[u8]) -> Result<Self> {
-        // Minimum size: 32 (blob_manager) + 1 (/) + 0 (empty identifier) + 1 (/) + 8 (sequence)
+        // Minimum size: 32 (blob_manager) + 1 (/) + 0 (empty identifier) + 1 (/) + 8 (sequence).
         if bytes.len() < 42 {
             return Err(anyhow::anyhow!("Key too short: minimum 42 bytes required"));
         }
 
-        // Extract blob_manager (first 32 bytes)
+        // Extract blob_manager (first 32 bytes).
         let blob_manager = ObjectID::from_bytes(&bytes[0..32])?;
 
-        // Check for first separator
+        // Check for first separator.
         if bytes[32] != b'/' {
             return Err(anyhow::anyhow!(
                 "Missing first '/' separator after blob_manager"
@@ -112,8 +112,8 @@ impl PrimaryIndexKey {
             ));
         }
 
-        // Extract identifier (everything between the two separators)
-        // From position 33 to (length - 9)
+        // Extract identifier (everything between the two separators).
+        // From position 33 to (length - 9).
         let identifier =
             String::from_utf8(bytes[33..bytes.len() - Self::SEQUENCE_LEN - 1].to_vec())?;
 
@@ -147,9 +147,9 @@ impl ObjectIndexKey {
     }
 
     /// Convert to optimized byte representation for RocksDB key.
-    /// Format: [object_id_bytes(32 bytes)]
+    /// Format: [object_id_bytes(32 bytes)].
     fn to_key(&self) -> Vec<u8> {
-        // Simply use the raw ObjectID bytes (32 bytes)
+        // Simply use the raw ObjectID bytes (32 bytes).
         self.object_id.as_ref().to_vec()
     }
 
@@ -197,7 +197,7 @@ impl QuiltPatchIndexKey {
     }
 
     /// Convert to optimized byte representation for RocksDB key.
-    /// Format: [patch_blob_id_bytes(32 bytes)] \x00 [object_id_bytes(32 bytes)]
+    /// Format: [patch_blob_id_bytes(32 bytes)] \x00 [object_id_bytes(32 bytes)].
     /// \x00 is added here for future validation marker, e.g., if a quilt patch blob id is invalid,
     /// we set the \x00 to \x01 to avoid reading it.
     fn to_key(&self) -> Vec<u8> {
@@ -209,7 +209,7 @@ impl QuiltPatchIndexKey {
         // Add \x00 separator.
         bytes.push(0x00);
 
-        // Add ObjectID bytes (32 bytes)
+        // Add ObjectID bytes (32 bytes).
         bytes.extend_from_slice(self.object_id.as_ref());
 
         bytes
@@ -242,7 +242,7 @@ impl QuiltPatchIndexKey {
     }
 }
 
-// For scanning all entries with a specific blob_manager and identifier
+// For scanning all entries with a specific blob_manager and identifier.
 fn get_primary_index_bounds(blob_manager: &ObjectID, identifier: &str) -> (Vec<u8>, Vec<u8>) {
     let mut lower_bound = Vec::new();
 
@@ -266,7 +266,7 @@ fn get_primary_index_bounds(blob_manager: &ObjectID, identifier: &str) -> (Vec<u
     (lower_bound, upper_bound)
 }
 
-// For scanning all entries in a blob manager
+// For scanning all entries in a blob manager.
 fn get_blob_manager_bounds(blob_manager: &ObjectID) -> (Vec<u8>, Vec<u8>) {
     let mut lower_bound = Vec::new();
     let mut upper_bound = Vec::new();
