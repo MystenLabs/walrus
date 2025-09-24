@@ -461,11 +461,13 @@ pub struct BlobDecoder<'a, D: Decoder, E: EncodingAxis = Primary> {
     blob_size: usize,
     symbol_size: NonZeroU16,
     sliver_length: usize,
+    /// The number of columns of the blob's message matrix (i.e., the number of secondary slivers).
     n_columns: usize,
     config: &'a D::Config,
     /// The workspace used to store the sliver data and iteratively overwrite it with the decoded
-    /// blob. The layout is the same as the resulting blob; that is, primary slivers are written as
-    /// "rows" while secondary slivers are written as "columns".
+    /// blob. While a flat byte array, this is interpreted as a matrix of symbols. The layout is the
+    /// same as the blob's message matrix; that is, primary slivers are written as "rows" while
+    /// secondary slivers are written as "columns".
     workspace: Symbols,
     /// The indices of the slivers that have been provided and added to the workspace.
     sliver_indices: Vec<SliverIndex>,

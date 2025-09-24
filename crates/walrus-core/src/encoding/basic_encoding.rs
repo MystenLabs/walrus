@@ -210,7 +210,9 @@ impl<'a> ReedSolomonEncoder<'a> {
     }
 }
 
-/// Wrapper to perform a single decoding with Reed-Solomon for the provided parameters.
+/// Wrapper to perform a 1D decoding with Reed-Solomon for the provided parameters.
+///
+/// The object can be reused for multiple consecutive decodings with the same parameters.
 pub struct ReedSolomonDecoder {
     decoder: reed_solomon_simd::ReedSolomonDecoder,
     n_source_symbols: NonZeroU16,
