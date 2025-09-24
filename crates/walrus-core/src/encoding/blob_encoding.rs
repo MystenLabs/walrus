@@ -26,6 +26,7 @@ use crate::{
     SliverIndex,
     SliverPairIndex,
     encoding::config::EncodingFactory as _,
+    ensure,
     merkle::{MerkleTree, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
@@ -456,12 +457,18 @@ impl<'a> ExpandedMessageMatrix<'a> {
 #[derive(Debug)]
 pub struct BlobDecoder<'a, D: Decoder, E: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<E>,
-    decoders: Vec<D>,
+    decoder: D,
     blob_size: usize,
     symbol_size: NonZeroU16,
+    sliver_length: usize,
+    n_columns: usize,
     config: &'a D::Config,
-    /// A tracing span associated with this blob decoder.
-    span: Span,
+    /// The workspace used to store the sliver data and iteratively overwrite it with the decoded
+    /// blob. The layout is the same as the resulting blob; that is, primary slivers are written as
+    /// "rows" while secondary slivers are written as "columns".
+    workspace: Symbols,
+    /// The indices of the slivers that have been provided and added to the workspace.
+    sliver_indices: Vec<SliverIndex>,
 }
 
 impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
@@ -482,24 +489,33 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
         let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
+        let n_source_symbols = config.n_source_symbols::<E>();
 
-        let decoders = (0..config.n_source_symbols::<E::OrthogonalAxis>().get())
-            .map(|_| {
-                D::new(
-                    config.n_source_symbols::<E>(),
-                    config.n_shards(),
-                    symbol_size,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let decoder = D::new(n_source_symbols, config.n_shards(), symbol_size)?;
+
+        let sliver_length = config.n_source_symbols::<E::OrthogonalAxis>().get().into();
+        let sliver_count = usize::from(n_source_symbols.get());
+        let workspace_size = sliver_length * sliver_count;
+
+        let (n_columns, workspace) = if E::IS_PRIMARY {
+            (
+                sliver_length,
+                Symbols::with_capacity(workspace_size, symbol_size),
+            )
+        } else {
+            (sliver_count, Symbols::zeros(workspace_size, symbol_size))
+        };
 
         Ok(Self {
             _decoding_axis: PhantomData,
-            decoders,
+            decoder,
             blob_size,
             symbol_size,
+            sliver_length,
+            n_columns,
             config,
-            span: tracing::span!(Level::ERROR, "BlobDecoder", blob_size),
+            workspace,
+            sliver_indices: Vec::with_capacity(n_source_symbols.get().into()),
         })
     }
 
@@ -513,27 +529,41 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     ///
     /// Returns a [`DecodeError::DecodingUnsuccessful`] if decoding was unsuccessful.
     ///
-    /// If decoding failed due to an insufficient number of provided slivers, it can be continued by
-    /// additional calls to [`decode`][Self::decode] providing more slivers.
-    ///
     /// # Panics
     ///
     /// This function can panic if there is insufficient virtual memory for the decoded blob in
     /// addition to the slivers, notably on 32-bit architectures.
-    pub fn decode<S>(&mut self, slivers: S) -> Result<Vec<u8>, DecodeError>
+    #[tracing::instrument(skip_all, level = Level::ERROR, "BlobDecoder")]
+    pub fn decode<S>(mut self, slivers: S) -> Result<Vec<u8>, DecodeError>
     where
         S: IntoIterator<Item = SliverData<E>>,
         E: EncodingAxis,
     {
-        let _guard = self.span.enter();
         tracing::debug!(axis = E::NAME, "starting to decode");
-        // Depending on the decoding axis, this represents the message matrix's columns (primary)
-        // or rows (secondary).
-        let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
-        let mut decoding_successful = false;
 
+        self.check_and_write_slivers_to_workspace(slivers)?;
+        self.perform_decoding()?;
+
+        let mut blob = self.workspace.into_vec();
+        blob.truncate(self.blob_size);
+        tracing::debug!("returning truncated decoded blob");
+        Ok(blob)
+    }
+
+    fn check_and_write_slivers_to_workspace(
+        &mut self,
+        slivers: impl IntoIterator<Item = SliverData<E>>,
+    ) -> Result<(), DecodeError> {
+        let expected_sliver_count = self.n_source_symbols();
+
+        let mut slivers_count = 0;
         for sliver in slivers {
-            let expected_len = self.decoders.len();
+            if slivers_count == expected_sliver_count {
+                tracing::info!("dropping surplus slivers during blob decoding");
+                break;
+            }
+
+            let expected_len = self.sliver_length;
             let expected_symbol_size = self.symbol_size;
             if sliver.symbols.len() != expected_len
                 || sliver.symbols.symbol_size() != expected_symbol_size
@@ -547,55 +577,66 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
                 );
                 continue;
             }
-            for (decoder, symbol) in self.decoders.iter_mut().zip(sliver.symbols.to_symbols()) {
-                if let Ok(decoded_data) = decoder
-                    // NOTE: The encoding axis of the following symbol is irrelevant, but since we
-                    // are reconstructing from slivers of type `T`, it should be of type `T`.
-                    .decode([DecodingSymbol::<E>::new(sliver.index.0, symbol.into())])
-                {
-                    // If one decoding succeeds, all succeed as they have identical
-                    // encoding/decoding matrices.
-                    decoding_successful = true;
-                    columns_or_rows.push(decoded_data);
-                }
+
+            if E::IS_PRIMARY {
+                self.write_primary_sliver_to_workspace(sliver.symbols);
+            } else {
+                self.write_secondary_sliver_to_workspace(sliver.symbols, slivers_count);
             }
-            // Stop decoding as soon as we are done.
-            if decoding_successful {
-                tracing::debug!("decoding finished successfully");
-                break;
-            }
+            self.sliver_indices.push(sliver.index);
+            slivers_count += 1;
         }
 
-        if !decoding_successful {
-            tracing::debug!("decoding attempt unsuccessful");
-            return Err(DecodeError::DecodingUnsuccessful);
-        }
+        ensure!(
+            slivers_count == expected_sliver_count,
+            DecodeError::DecodingUnsuccessful
+        );
+        Ok(())
+    }
 
-        let mut blob: Vec<_> = if E::IS_PRIMARY {
-            // Primary decoding: transpose columns to get to the original blob.
-            let mut columns: Vec<_> = columns_or_rows
-                .into_iter()
-                .map(|col_index| col_index.into_iter())
-                .collect();
-            (0..self.config.n_source_symbols::<E>().get())
-                .flat_map(|_| {
-                    {
-                        columns
-                            .iter_mut()
-                            .map(|column| column.take(self.symbol_size.get().into()))
-                    }
-                    .flatten()
-                    .collect::<Vec<u8>>()
-                })
-                .collect()
-        } else {
-            // Secondary decoding: these are the rows and can be used directly as the blob.
-            columns_or_rows.into_iter().flatten().collect()
+    /// Writes the primary sliver as a new row in the workspace.
+    fn write_primary_sliver_to_workspace(&mut self, sliver: Symbols) {
+        self.workspace
+            .extend(sliver.data())
+            .expect("we checked above that the symbol size is correct");
+    }
+
+    /// Writes the secondary sliver as a column in the workspace.
+    fn write_secondary_sliver_to_workspace(&mut self, sliver: Symbols, column: usize) {
+        sliver.to_symbols().enumerate().for_each(|(row, symbol)| {
+            self.workspace[row * self.n_columns + column].copy_from_slice(symbol);
+        });
+    }
+
+    fn perform_decoding(&mut self) -> Result<(), DecodeError> {
+        let workspace_symbol_index = |sliver_index: usize, decoder_index: usize| {
+            if E::IS_PRIMARY {
+                sliver_index * self.n_columns + decoder_index
+            } else {
+                decoder_index * self.n_columns + sliver_index
+            }
         };
 
-        blob.truncate(self.blob_size);
-        tracing::debug!("returning truncated decoded blob");
-        Ok(blob)
+        for decoder_index in 0..self.sliver_length {
+            let symbols =
+                self.sliver_indices
+                    .iter()
+                    .enumerate()
+                    .map(|(row_index, sliver_index)| {
+                        DecodingSymbol::<E>::new(
+                            sliver_index.0,
+                            self.workspace[workspace_symbol_index(row_index, decoder_index)]
+                                .to_vec(),
+                        )
+                    });
+            let decoded_data = self.decoder.decode(symbols)?;
+            // Overwrite the decoding symbols in the workspace with the decoded data.
+            for (row_index, symbol) in decoded_data.chunks(self.symbol_usize()).enumerate() {
+                self.workspace[workspace_symbol_index(row_index, decoder_index)]
+                    .copy_from_slice(symbol);
+            }
+        }
+        Ok(())
     }
 
     /// Attempts to decode the source blob from the provided slivers, and to verify that the decoded
@@ -624,13 +665,13 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     /// metadata, similar limits apply as in [`BlobEncoder::encode_with_metadata`].
     #[tracing::instrument(skip_all,err(level = Level::INFO))]
     pub fn decode_and_verify(
-        &mut self,
+        self,
         blob_id: &BlobId,
         slivers: impl IntoIterator<Item = SliverData<E>>,
     ) -> Result<(Vec<u8>, VerifiedBlobMetadataWithId), DecodeError> {
+        let config = self.config;
         let decoded_blob = self.decode(slivers)?;
-        let blob_metadata = self
-            .config
+        let blob_metadata = config
             .compute_metadata(&decoded_blob)
             .expect("the blob size cannot be too large since we were able to decode");
         if blob_metadata.blob_id() == blob_id {
@@ -638,6 +679,14 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
         } else {
             Err(DecodeError::VerificationError)
         }
+    }
+
+    fn n_source_symbols(&self) -> usize {
+        self.config.n_source_symbols::<E>().get().into()
+    }
+
+    fn symbol_usize(&self) -> usize {
+        self.symbol_size.get().into()
     }
 }
 
@@ -748,7 +797,7 @@ mod tests {
         )
         .collect();
 
-        let mut primary_decoder = config.get_blob_decoder::<Primary>(blob_size).unwrap();
+        let primary_decoder = config.get_blob_decoder::<Primary>(blob_size).unwrap();
         assert_eq!(
             primary_decoder
                 .decode(
@@ -762,7 +811,7 @@ mod tests {
             blob
         );
 
-        let mut secondary_decoder = config.get_blob_decoder::<Secondary>(blob_size).unwrap();
+        let secondary_decoder = config.get_blob_decoder::<Secondary>(blob_size).unwrap();
         assert_eq!(
             secondary_decoder
                 .decode(

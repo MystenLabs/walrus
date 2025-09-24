@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::vec::Vec;
-use core::{fmt, num::NonZeroU16};
+use core::{fmt, mem, num::NonZeroU16};
 
 use reed_solomon_simd;
 use tracing::Level;
@@ -10,7 +10,14 @@ use tracing::Level;
 use super::{DecodingSymbol, EncodingAxis, EncodingFactory};
 use crate::{
     EncodingType,
-    encoding::{DecodeError, EncodeError, InvalidDataSizeError, ReedSolomonEncodingConfig, utils},
+    encoding::{
+        DecodeError,
+        EncodeError,
+        InvalidDataSizeError,
+        ReedSolomonEncodingConfig,
+        Symbols,
+        utils,
+    },
 };
 
 /// The key of blob attribute, used to identify the type of the blob.
@@ -46,6 +53,12 @@ pub trait Decoder: Sized {
     ///
     /// If decoding failed due to an insufficient number of provided symbols, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more symbols.
+    ///
+    /// After the decoding is complete, the decoder can be reused for a new decoding.
+    ///
+    /// # Panics
+    ///
+    /// Can panic if the provided symbols have an incorrect size.
     fn decode<T, U>(&mut self, symbols: T) -> Result<Vec<u8>, DecodeError>
     where
         T: IntoIterator,
@@ -201,14 +214,15 @@ impl<'a> ReedSolomonEncoder<'a> {
 pub struct ReedSolomonDecoder {
     decoder: reed_solomon_simd::ReedSolomonDecoder,
     n_source_symbols: NonZeroU16,
-    symbol_size: NonZeroU16,
-    source_symbols: Vec<Vec<u8>>,
+    n_shards: NonZeroU16,
+    source_symbols: Symbols,
 }
 
 impl fmt::Debug for ReedSolomonDecoder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RSDecoder")
-            .field("symbol_size", &self.symbol_size)
+        f.debug_struct("ReedSolomonDecoder")
+            .field("n_source_symbols", &self.n_source_symbols)
+            .field("n_shards", &self.n_shards)
             .finish()
     }
 }
@@ -223,6 +237,7 @@ impl Decoder for ReedSolomonDecoder {
         symbol_size: NonZeroU16,
     ) -> Result<Self, DecodeError> {
         tracing::trace!("creating a new Decoder");
+        let source_symbols = Symbols::zeros(n_source_symbols.get().into(), symbol_size);
         Ok(Self {
             decoder: reed_solomon_simd::ReedSolomonDecoder::new(
                 n_source_symbols.get().into(),
@@ -231,8 +246,8 @@ impl Decoder for ReedSolomonDecoder {
             )
             .map_err(DecodeError::IncompatibleParameters)?,
             n_source_symbols,
-            symbol_size,
-            source_symbols: alloc::vec![alloc::vec![]; n_source_symbols.get().into()],
+            n_shards,
+            source_symbols,
         })
     }
 
@@ -243,9 +258,10 @@ impl Decoder for ReedSolomonDecoder {
         U: EncodingAxis,
     {
         let decoder = &mut self.decoder;
+        let symbol_size = self.source_symbols.symbol_size();
         for symbol in symbols.into_iter() {
             if symbol.index < self.n_source_symbols.get() {
-                self.source_symbols[usize::from(symbol.index)] = symbol.data.clone();
+                self.source_symbols[usize::from(symbol.index)].copy_from_slice(&symbol.data);
                 let _ = decoder.add_original_shard(symbol.index.into(), symbol.data);
             } else {
                 let _ = decoder.add_recovery_shard(
@@ -254,14 +270,25 @@ impl Decoder for ReedSolomonDecoder {
                 );
             }
         }
-        let result = decoder.decode()?;
-        for (index, symbol) in result.restored_original_iter() {
-            self.source_symbols[index] = symbol.to_vec();
+        for (index, symbol) in decoder.decode()?.restored_original_iter() {
+            self.source_symbols[index].copy_from_slice(symbol);
         }
 
-        Ok((0..self.n_source_symbols.get())
-            .flat_map(|i| self.source_symbols[usize::from(i)].clone())
-            .collect())
+        // Take the decoded data and reset the decoder so it can be reused for a new decoding.
+        let result = mem::replace(
+            &mut self.source_symbols,
+            Symbols::zeros(self.n_source_symbols.get().into(), symbol_size),
+        )
+        .into_vec();
+        decoder
+            .reset(
+                self.n_source_symbols.get().into(),
+                (self.n_shards.get() - self.n_source_symbols.get()).into(),
+                self.source_symbols.symbol_size().get().into(),
+            )
+            .expect("cannot fail as we use the same parameters as when the decoder was created");
+
+        Ok(result)
     }
 }
 
