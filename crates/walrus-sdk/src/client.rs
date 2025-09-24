@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Low-level client for use when communicating directly with Walrus nodes.
+//! Low-level client for use in communicating directly with Walrus nodes.
 
 use std::{
     collections::HashMap,
