@@ -6,6 +6,7 @@ import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
 // @ts-ignore
 import { expect } from 'https://jslib.k6.io/k6-testing/0.5.0/index.js';
 import { File, SeekMode } from 'k6/experimental/fs';
+import { randomBytes } from 'k6/crypto';
 
 /**
  * Returns a random range `[start, length]` on the interval `[0, limit)`.
@@ -82,4 +83,99 @@ export function parseHumanFileSize(value: string): number {
         return Math.floor(numericValue * 1024);
     }
     return Math.floor(numericValue);
+}
+
+/**
+ * Loads the plan if specified.
+ *
+ * If the specified plan does not exist an error is raised.
+ */
+function loadPlan(path: string, plan?: string): Record<string, any> {
+    if (plan == undefined) {
+        return {};
+    }
+    const plans = JSON.parse(open(path));
+    if (!(plan in plans)) {
+        throw new Error(`The requested plan "${plan}" is not present in "${path}"`);
+    } else {
+        return plans[plan];
+    }
+}
+
+
+type Parameters = Record<string, string | number>;
+
+/**
+ * For each camelCase property in `example`, load the corresponding UPPER_SNAKE_CASE
+ * value from __ENV and return it.
+ */
+function loadEnv(keysAndTypes: Record<string, string>): Parameters {
+    const output: Parameters = {}
+
+    for (const [key, keyType] of Object.entries(keysAndTypes)) {
+        const value = __ENV[key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()];
+        if (value !== undefined) {
+            if (keyType == "number") {
+                output[key] = parseFloat(value)
+            } else {
+                output[key] = value;
+            }
+        }
+    }
+    return output
+}
+
+
+/**
+ * Loads parameters from a plan and __ENV.
+ *
+ * Variables set in __ENV take precedence over those in the plan.
+ *
+ * @param defaults - The default parameters. The keys in the `defaults` are converted from camelCase
+ * to UPPER_SNAKE_CASE and used as keys to fetch any set values in __ENV.
+ * @param planFilePath - A path within the config/ directory that contains the plans. If specified,
+ * then the environment variable __ENV.PLAN is checked for a plan name and the defaults are updated
+ * with the named plan.
+ * @returns The loaded parameters.
+ */
+export function loadParameters<T extends object>(defaults: T, planFilePath?: string): T {
+    var output = defaults;
+
+    if (planFilePath != undefined) {
+        output = Object.assign(
+            output,
+            loadPlan(import.meta.resolve("../config/" + planFilePath), __ENV.PLAN),
+        );
+    }
+
+    const keysAndTypes = Object.fromEntries(
+        Object.entries(defaults).map(([key, value]) => [key, typeof (value)])
+    );
+    return Object.assign(output, loadEnv(keysAndTypes))
+}
+
+/**
+ * Gets the TEST_ID  and TEST_RUN_ID tags from the environment, if present, and returns them
+ * as testid and test_run_id
+ */
+export function getTestIdTags(): { testid?: string, test_run_id?: string } {
+    return {
+        testid: __ENV["TEST_ID"],
+        test_run_id: __ENV["TEST_RUN_ID"],
+    }
+}
+
+/**
+ * Perturbs a random number (maximum 30) bytes in the provided data array.
+ */
+export function perturbData(array: Uint8Array): Uint8Array {
+    const count = randomIntBetween(1, Math.min(array.length, 30))
+    const newRandomBytes = randomBytes(count);
+
+    for (var i = 0; i < newRandomBytes.byteLength; ++i) {
+        const index = randomIntBetween(0, array.length - 1);
+        array[index] = randomIntBetween(0, 255);
+    }
+
+    return array;
 }
