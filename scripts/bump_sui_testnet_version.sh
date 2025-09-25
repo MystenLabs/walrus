@@ -27,14 +27,14 @@ if [[ ! "$NEW_TAG" =~ ^testnet-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Warning: NEW_TAG '$NEW_TAG' doesn't look like testnet-vX.Y.Z" >&2
 fi
 
-# Make sure GITHUB_ACTOR is set.
-if [[ -z "${GITHUB_ACTOR:-}" ]]; then
-  GITHUB_ACTOR="$(git config user.name 2>/dev/null || echo github-actions[bot])"
-fi
+# # Make sure GITHUB_ACTOR is set.
+# if [[ -z "${GITHUB_ACTOR:-}" ]]; then
+#   GITHUB_ACTOR="$(git config user.name 2>/dev/null || echo github-actions[bot])"
+# fi
 
 # Set up branch for changes.
 STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="${GITHUB_ACTOR}/bump-sui-${NEW_TAG}-${STAMP}"
+BRANCH="ebmifa/bump-sui-${NEW_TAG}-${STAMP}"
 git checkout -b "$BRANCH"
 
 # Allow recursive globs.
@@ -105,7 +105,7 @@ BODY="This PR updates the Sui testnet version to ${NEW_TAG}"
 # Create PR
 echo "Creating pull request..."
 if PR_OUTPUT=$(gh pr create \
-  --base main \
+  --base releases/walrus-v1.33.0-release \
   --head "$BRANCH" \
   --title "ci: bump Sui testnet version to ${NEW_TAG}" \
   --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
