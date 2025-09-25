@@ -264,6 +264,11 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
+    /// The blob size exceeds the maximum allowed size.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::InvalidArgument)]
+    BlobTooLarge(u64),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -277,6 +282,7 @@ impl From<ClientError> for GetBlobError {
             ClientErrorKind::QuiltError(QuiltError::BlobsNotFoundInQuilt(_)) => {
                 Self::QuiltPatchNotFound
             }
+            ClientErrorKind::BlobTooLarge(max_blob_size) => Self::BlobTooLarge(*max_blob_size),
             _ => anyhow::anyhow!(error).into(),
         }
     }
