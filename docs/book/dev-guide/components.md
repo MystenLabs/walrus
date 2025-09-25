@@ -13,7 +13,7 @@ Walrus defines a number of objects and smart contracts on Sui:
 - Changes to these objects emit *Walrus-related events*.
 
 The Walrus system object ID can be found in the Walrus `client_config.yaml` file (see
-[Configuration](../usage/setup.md#configuration)). You may use any Sui explorer to look at its
+[Configuration](../usage/started.md#configuration)). You may use any Sui explorer to look at its
 content, as well as explore the content of blob objects. There is more information about these in
 the [quick reference to the Walrus Sui structures](sui-struct.md).
 

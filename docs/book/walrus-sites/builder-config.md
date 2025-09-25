@@ -11,7 +11,7 @@ here the details for all the configuration options.
 ## Minimal configuration
 
 The config file is expected to be in one of the [default
-locations](../usage/setup.md#config-custom-path), and it is possible to point elsewhere with the
+locations](../usage/started.md#config-custom-path), and it is possible to point elsewhere with the
 `--config` flag. For your first run, it should be sufficient to call the `site-builder` without
 specifying the config explicitly, which is already configured if you followed thoroughly the
 [installation steps](./tutorial-install.md#configuration).
@@ -37,7 +37,7 @@ following variables in the config file:
   - `walrus_binary`: Pointer to the `walrus` binary. By default, this is expected to be run from
     `$PATH`.
   - `walrus_config`: The configuration for the `walrus` client binary, see the [relevant
-    chapter](../usage/setup.md).
+    chapter](../usage/started.md).
   - `gas_budget`: The maximum amount of gas to be spent for transactions (default: 500M MIST).
 
 ```admonish note

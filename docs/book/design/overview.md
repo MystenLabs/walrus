@@ -5,3 +5,5 @@ mechanisms](./encoding.md) of the Walrus system.
 
 Use the [glossary](../glossary.md) as a reference for many of the bolded terms used in this
 documentation.
+
+Learn more about the [science](https://snowreads.wal.app) behind Walrus.
