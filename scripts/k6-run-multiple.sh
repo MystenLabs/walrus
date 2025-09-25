@@ -10,6 +10,7 @@
 #     to "${TEST_ID}:${TEST_RUN_ID_SUFFIX}".
 #   CONTINUE_ON_THRESHOLD_FAILURE - Either true or false (default). If set to true, do not exit on a threshold failure.
 #   K6_PROMETHEUS_EXPORT - Either true or false. If set to true, each k6 command is run with --out experimental-prometheus-rw
+#   K6_OTLP_EXPORT - Either true or false. If set to true, each k6 command is run with --out experimental-opentelemetry
 #   K6_REPORT_DIRECTORY - If specified, reports are written to the identified directory.
 set -eou pipefail
 
@@ -27,6 +28,7 @@ k6_run_plan() {
   [ -n "${TEST_RUN_ID_SUFFIX-}" ] && set -- "$@" --env TEST_RUN_ID="${test_id}:${TEST_RUN_ID_SUFFIX}"
   # shellcheck disable=2086 # This is intentional splitting to add to the arguments
   [ "${K6_PROMETHEUS_EXPORT-false}" = "true" ] && set -- "$@" --out experimental-prometheus-rw
+  [ "${K6_OTLP_EXPORT-false}" = "true" ] && set -- "$@" --out experimental-opentelemetry
 
   if [ -n "${K6_REPORT_DIRECTORY-}" ]; then
     filename=$(echo "${test_id}" | sed 's/:/-/g')
