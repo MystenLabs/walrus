@@ -108,5 +108,17 @@ elif [ "$resolved_walrus" != "$install_dir"/walrus ]; then
     "ensure that $install_dir appears before $(dirname "$resolved_walrus") in your PATH."
 fi
 
+config_filename="$HOME"/.config/walrus/client_config.yaml
+if [ -f "$config_filename" ]; then
+  msg "a walrus client configuration file already exists at $config_filename"
+else
+  msg "creating a default walrus client configuration file at $config_filename"
+  curl \
+    --create-dirs \
+    https://docs.wal.app/setup/client_config.yaml \
+    -o "$config_filename" \
+  || die "failed to create a default client configuration file"
+fi
+
 # Success.
 exit 0

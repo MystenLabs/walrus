@@ -194,7 +194,7 @@ CLI configuration refers to the standard location for Sui configuration
 The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
 
 ```sh
-curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 ````
 

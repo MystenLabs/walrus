@@ -47,6 +47,5 @@ jobs:
         run: "cp setup/walrus-install.sh ${{ env.BUILD_DIR }}"
       - name: Write WS resources file
         run: echo '${{ vars.WALRUS_SITE_INSTALL_WS_RESOURCES }}' > ${{ env.BUILD_DIR }}/ws-resources.json
-
       - name: Update Walrus Site
         run: site-builder deploy ${{ env.BUILD_DIR }} --epochs ${{ env.EPOCHS }} --check-extend
