@@ -114,10 +114,11 @@ if [ -f "$config_filename" ]; then
 else
   msg "creating a default walrus client configuration file at $config_filename"
   curl \
-    -s \
     --create-dirs \
-    https://install.wal.app/client_config.yaml \
+    https://docs.wal.app/setup/client_config.yaml \
     -o "$config_filename" \
-    || die "failed to download the default client testnet configuration file"
+  || die "failed to create a default client configuration file"
 fi
+
+# Success.
 exit 0
