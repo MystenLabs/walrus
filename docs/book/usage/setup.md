@@ -17,7 +17,7 @@ for an overview over all Walrus networks.
 
 ```admonish tip title="Quick wallet setup"
 If you just want to set up a new Sui wallet for Walrus, you can generate one using the
-`walrus generate-sui-wallet --network mainnet` command after [installing Walrus](#installation).
+`walrus generate-sui-wallet --sui-network mainnet` command after [installing Walrus](#installation).
 You still need to obtain some SUI and WAL tokens, but you do not have to install the Sui CLI.
 ```
 
