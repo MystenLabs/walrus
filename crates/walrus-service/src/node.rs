@@ -6534,6 +6534,59 @@ mod tests {
             clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())
         }
+
+        // Tests that blob extension can trigger blob sync.
+        #[walrus_simtest]
+        async fn blob_extension_triggers_blob_sync() -> TestResult {
+            let _ = tracing_subscriber::fmt::try_init();
+
+            // Set the fail point to skip non-extension certified event triggered blob sync.
+            register_fail_point_if(
+                "skip_non_extension_certified_event_triggered_blob_sync",
+                move || true,
+            );
+
+            let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
+            let own_shards = [ShardIndex(1), ShardIndex(6)];
+
+            let (cluster, events, blob) =
+                cluster_with_partially_stored_blob(shards, BLOB, |shard, _| {
+                    !own_shards.contains(shard)
+                })
+                .await?;
+            let node_client = cluster.client(0);
+
+            // Send a certified event for the blob.
+            events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+            // Send a certified event for the blob with extension. This should trigger blob sync.
+            events.send(
+                BlobCertified {
+                    end_epoch: 62,
+                    is_extension: true,
+                    ..BlobCertified::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+
+            // Wait for the blob sync to complete.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            // Check that the sliver pairs are stored in the shards.
+            for shard in own_shards {
+                let synced_sliver_pair =
+                    expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT)
+                        .await;
+                let expected = blob.assigned_sliver_pair(shard);
+
+                assert_eq!(
+                    synced_sliver_pair, *expected,
+                    "invalid sliver pair for {shard}"
+                );
+            }
+
+            Ok(())
+        }
     }
 
     /// Waits until the storage node processes the specified number of events.

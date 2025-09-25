@@ -285,6 +285,10 @@ impl BlobSyncHandler {
     }
 
     /// Starts a blob sync for the given `blob_id` and `certified_epoch`.
+    /// The `certified_epoch` is only used to find the proper committee to read the slivers, and
+    /// may not be the same as the current epoch.
+    /// To find the shard assignment the blob is stored at, we uses `current_event_epoch()` instead.
+    /// See `recover_blob_slivers()` for more details.
     ///
     /// Returns a `Notify` that is notified when the sync task is finished.
     #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
