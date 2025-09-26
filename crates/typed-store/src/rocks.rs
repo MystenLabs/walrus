@@ -32,11 +32,13 @@ use rocksdb::{
     DBPinnableSlice,
     DBWithThreadMode,
     Error,
+    IngestExternalFileOptions,
     LiveFile,
     MultiThreaded,
     OptimisticTransactionDB,
     OptimisticTransactionOptions,
     ReadOptions,
+    SstFileWriter,
     Transaction,
     WriteBatch,
     WriteBatchWithTransaction,
@@ -521,7 +523,24 @@ impl RocksDB {
         delegate_call!(self.compact_range_cf_opt(cf, start, end, opt))
     }
 
-    /// Flush the database.
+    /// Ingest external SST files into a specific column family. Ingesting into an existing
+    /// column family is allowed. If any ingested keys already exist in the target CF,
+    /// RocksDB will, by default, assign a global sequence number to the ingested entries so
+    /// that they are treated as the latest versions. Reads will then observe the ingested
+    /// values for those conflicting keys. Behavior can be tuned via `IngestExternalFileOptions`
+    /// (e.g., file move vs copy, and other ingestion modes provided by RocksDB).
+    /// Note: Files must reside on the same filesystem for move/link optimizations.
+    pub fn ingest_external_file_cf<P: AsRef<Path>>(
+        &self,
+        cf: &impl AsColumnFamilyRef,
+        paths: &[P],
+        opts: &IngestExternalFileOptions,
+    ) -> Result<(), rocksdb::Error> {
+        let v: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
+        delegate_call!(self.ingest_external_file_cf_opts(cf, opts, v))
+    }
+
+    /// Flush the database
     #[allow(dead_code)]
     pub fn flush(&self) -> Result<(), TypedStoreError> {
         delegate_call!(self.flush()).map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
@@ -966,6 +985,23 @@ impl<K, V> DBMap<K, V> {
         self.rocksdb
             .flush_cf(&self.cf()?)
             .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
+    }
+
+    /// Ingest external SST files into this map's column family.
+    /// Ingesting into an existing column family is allowed. If any ingested keys
+    /// already exist in the target CF, RocksDB will, by default, assign a global
+    /// sequence number to the ingested entries so that they are treated as the
+    /// latest versions. Reads will then observe the ingested values for those
+    /// conflicting keys. Behavior can be tuned via `IngestExternalFileOptions`
+    /// (e.g., file move vs copy, and other ingestion modes provided by RocksDB).
+    pub fn ingest_external_file<P: AsRef<Path>>(
+        &self,
+        paths: &[P],
+        opts: &IngestExternalFileOptions,
+    ) -> Result<(), TypedStoreError> {
+        self.rocksdb
+            .ingest_external_file_cf(&self.cf()?, paths, opts)
+            .map_err(typed_store_err_from_rocks_err)
     }
 
     fn get_int_property(
@@ -2514,7 +2550,7 @@ pub fn safe_drop_db(path: PathBuf) -> Result<(), rocksdb::Error> {
     rocksdb::DB::destroy(&rocksdb::Options::default(), path)
 }
 
-/// Populate missing column families.
+/// Populate missing column families
 fn populate_missing_cfs(
     input_cfs: &[(&str, rocksdb::Options)],
     path: &Path,
@@ -2559,6 +2595,203 @@ fn big_endian_saturating_add_one(v: &mut [u8]) {
 /// Check if all the bytes in the vector are 0xFF.
 fn is_max(v: &[u8]) -> bool {
     v.iter().all(|&x| x == u8::MAX)
+}
+
+/// Build an SST file from raw key value bytes.
+/// NOTE: Keys need to be pre-sorted and no duplicates are allowed or else ingester will
+/// reject the file.
+pub fn build_sst_from_kv<P, K, V, I>(sst_path: P, entries: I) -> Result<(), TypedStoreError>
+where
+    P: AsRef<Path>,
+    K: Borrow<[u8]>,
+    V: Borrow<[u8]>,
+    I: IntoIterator<Item = (K, V)>,
+{
+    let entries_vec: Vec<(Vec<u8>, Vec<u8>)> = entries
+        .into_iter()
+        .map(|(k, v)| (k.borrow().to_vec(), v.borrow().to_vec()))
+        .collect();
+    let writer_opts = rocksdb::Options::default();
+    let mut writer = SstFileWriter::create(&writer_opts);
+    writer
+        .open(sst_path.as_ref())
+        .map_err(typed_store_err_from_rocks_err)?;
+    for (k, v) in &entries_vec {
+        writer.put(k, v).map_err(typed_store_err_from_rocks_err)?;
+    }
+    writer.finish().map_err(typed_store_err_from_rocks_err)?;
+    Ok(())
+}
+
+/// Build an SST file from typed key value pairs using typed-store serialization.
+/// Keys are serialized with big-endian fixed-int encoding and values use BCS.
+pub fn build_sst_from_typed<P: AsRef<Path>, K, V, I>(
+    sst_path: P,
+    entries: I,
+) -> Result<(), TypedStoreError>
+where
+    K: Serialize,
+    V: Serialize,
+    I: IntoIterator<Item = (K, V)>,
+{
+    let mut kv_bytes: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    for (k, v) in entries.into_iter() {
+        let key = be_fix_int_ser(&k)?;
+        let val = bcs::to_bytes(&v).map_err(typed_store_err_from_bcs_err)?;
+        kv_bytes.push((key, val));
+    }
+    build_sst_from_kv(sst_path, kv_bytes)
+}
+
+/// Options to control buffered SST ingestion.
+#[derive(Debug, Clone)]
+pub struct SstIngestOptions {
+    /// Flush when the number of buffered entries reaches this threshold.
+    pub max_entries: usize,
+    /// Optional subdirectory under the RocksDB path where SST files are written.
+    /// If `None`, defaults to `sst_ingest/<column_family_name>`.
+    pub dir_name: Option<String>,
+    /// If false, keys will be serialized and sorted before building the SST.
+    /// If true, the buffer assumes keys are appended in sorted order.
+    pub assume_sorted: bool,
+}
+
+impl Default for SstIngestOptions {
+    fn default() -> Self {
+        Self {
+            max_entries: 100_000,
+            dir_name: None,
+            assume_sorted: true,
+        }
+    }
+}
+
+fn sst_current_nanos() -> u128 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u128::from(d.as_secs()) * 1_000_000_000u128 + u128::from(d.subsec_nanos()))
+        .unwrap_or(0)
+}
+
+/// A typed buffer that writes entries to SST files and ingests them into RocksDB upon flush.
+#[derive(Debug)]
+pub struct SstIngestBuffer<K, V> {
+    rocksdb: Arc<RocksDB>,
+    cf_name: String,
+    options: SstIngestOptions,
+    buffer: Vec<(K, V)>,
+}
+
+impl<K, V> SstIngestBuffer<K, V>
+where
+    K: serde::Serialize,
+    V: serde::Serialize,
+{
+    /// Create a new buffer associated with a specific map.
+    pub fn new(map: &DBMap<K, V>, options: SstIngestOptions) -> Result<Self, TypedStoreError> {
+        let buffer = Self {
+            rocksdb: map.rocksdb.clone(),
+            cf_name: map.cf_name().to_string(),
+            options,
+            buffer: Vec::new(),
+        };
+        buffer.cleanup_ingest_dir_with_self()?;
+        Ok(buffer)
+    }
+
+    /// Remove the SST ingest directory used by this buffer's configuration.
+    pub fn cleanup_ingest_dir_with_self(&self) -> Result<(), TypedStoreError> {
+        let base_dir = if let Some(dir) = &self.options.dir_name {
+            self.rocksdb.path().join(dir)
+        } else {
+            self.rocksdb.path().join("sst_ingest").join(&self.cf_name)
+        };
+
+        if !std::path::Path::new(&base_dir).exists() {
+            return Ok(());
+        }
+
+        std::fs::remove_dir_all(&base_dir).map_err(|e| TypedStoreError::RocksDBError(e.to_string()))
+    }
+
+    /// Push a single entry. Flushes automatically when threshold is reached.
+    pub fn push(&mut self, key: K, value: V) -> Result<(), TypedStoreError> {
+        self.buffer.push((key, value));
+        Ok(())
+    }
+
+    /// Push multiple entries. May flush multiple times if needed.
+    pub fn push_iter<I>(&mut self, iter: I) -> Result<(), TypedStoreError>
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        for (k, v) in iter {
+            self.push(k, v)?;
+        }
+        Ok(())
+    }
+
+    /// Force a flush of the current buffer. No-op if buffer is empty.
+    pub fn flush(&mut self) -> Result<(), TypedStoreError> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+
+        let entries: Vec<(K, V)> = std::mem::take(&mut self.buffer);
+
+        let base_dir = if let Some(dir) = &self.options.dir_name {
+            self.rocksdb.path().join(dir)
+        } else {
+            self.rocksdb.path().join("sst_ingest").join(&self.cf_name)
+        };
+
+        if let Err(e) = std::fs::create_dir_all(&base_dir) {
+            return Err(TypedStoreError::RocksDBError(e.to_string()));
+        }
+        let sst_path = base_dir.join(format!("ingest-{}.sst", sst_current_nanos()));
+
+        if self.options.assume_sorted {
+            build_sst_from_typed(&sst_path, entries)?;
+        } else {
+            let mut kv_bytes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(entries.len());
+            for (k, v) in entries.into_iter() {
+                let key = be_fix_int_ser(&k)?;
+                let val = bcs::to_bytes(&v).map_err(typed_store_err_from_bcs_err)?;
+                kv_bytes.push((key, val));
+            }
+            kv_bytes.sort_by(|a, b| a.0.cmp(&b.0));
+            build_sst_from_kv(&sst_path, kv_bytes)?;
+        }
+
+        let mut ingest_opts = rocksdb::IngestExternalFileOptions::default();
+        ingest_opts.set_move_files(true);
+        let cf = self
+            .rocksdb
+            .cf_handle(&self.cf_name)
+            .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf_name.clone()))?;
+        self.rocksdb
+            .ingest_external_file_cf(&cf, &[sst_path], &ingest_opts)
+            .map_err(|e| TypedStoreError::RocksDBError(e.into_string()))
+    }
+
+    /// Flush remaining entries and consume the buffer.
+    pub fn close(mut self) -> Result<(), TypedStoreError> {
+        self.flush()
+    }
+
+    /// Get the number of entries in the buffer.
+    pub fn size(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Clear any buffered entries without flushing them.
+    /// Intended for abort/restart scenarios where the producer will re-fetch entries.
+    pub fn clear(&mut self) -> Result<(), TypedStoreError> {
+        self.buffer.clear();
+        self.cleanup_ingest_dir_with_self()?;
+        Ok(())
+    }
 }
 
 #[allow(clippy::assign_op_pattern)]
@@ -2641,4 +2874,230 @@ fn test_bincode_string_ordering_not_preserved() {
         serialized5 < serialized6,
         "But serialized 'z' < serialized 'aaa' due to length prefix"
     );
+}
+
+#[cfg(test)]
+mod sst_tests {
+    use prometheus::Registry;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn sst_ingest_accepts_sorted_unique_keys() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+
+        let dir = tempdir().unwrap();
+        let mut db_options = rocksdb::Options::default();
+        db_options.create_missing_column_families(true);
+        db_options.create_if_missing(true);
+        db_options.set_enable_blob_files(true);
+        db_options.set_min_blob_size(1);
+        let rocks = open_cf(
+            dir.path(),
+            Some(db_options),
+            MetricConf::default(),
+            &["cf1"],
+        )
+        .unwrap();
+
+        let dbmap =
+            DBMap::<u32, u32>::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+                .expect("open cf1");
+
+        let entries: Vec<(u32, u32)> = (1..=1000).map(|k| (k, k * 2)).collect();
+
+        let sst_dir = dbmap.rocksdb.path().join("sst_tests");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+        let sst_path = sst_dir.join("sorted_unique.sst");
+        let mut writer_opts = rocksdb::Options::default();
+        writer_opts.set_enable_blob_files(true);
+        writer_opts.set_min_blob_size(1);
+        let mut writer = SstFileWriter::create(&writer_opts);
+        writer.open(&sst_path).unwrap();
+        for (k, v) in &entries {
+            let kb = be_fix_int_ser(k).unwrap();
+            let vb = bcs::to_bytes(v).unwrap();
+            writer.put(&kb, &vb).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let mut ingest_opts = IngestExternalFileOptions::default();
+        ingest_opts.set_move_files(true);
+        dbmap
+            .ingest_external_file(std::slice::from_ref(&sst_path), &ingest_opts)
+            .expect("ingest should succeed");
+
+        dbmap.flush().expect("flush should succeed");
+        dbmap
+            .compact_range_to_bottom(&0u32, &1000u32)
+            .expect("compact should succeed");
+
+        assert_eq!(dbmap.get(&1).unwrap(), Some(2));
+        assert_eq!(dbmap.get(&500).unwrap(), Some(1000));
+        assert_eq!(dbmap.get(&1000).unwrap(), Some(2000));
+    }
+
+    #[tokio::test]
+    async fn sst_writer_rejects_out_of_order_keys() {
+        let dir = tempdir().unwrap();
+        let sst_path = dir.path().join("bad_order.sst");
+        let writer_opts = rocksdb::Options::default();
+        let mut writer = SstFileWriter::create(&writer_opts);
+        writer.open(&sst_path).unwrap();
+        let k2 = be_fix_int_ser(&2u32).unwrap();
+        let k1 = be_fix_int_ser(&1u32).unwrap();
+        let v = bcs::to_bytes(&0u32).unwrap();
+        writer.put(&k2, &v).unwrap();
+        let err = writer.put(&k1, &v).err();
+        assert!(err.is_some());
+        writer.finish().unwrap();
+    }
+
+    #[tokio::test]
+    async fn sst_ingest_buffer_flush_assume_sorted_true() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+
+        let dir = tempdir().unwrap();
+        let mut db_options = rocksdb::Options::default();
+        db_options.create_missing_column_families(true);
+        db_options.create_if_missing(true);
+        let rocks = open_cf(
+            dir.path(),
+            Some(db_options),
+            MetricConf::default(),
+            &["cf1"],
+        )
+        .unwrap();
+
+        let dbmap =
+            DBMap::<u32, u32>::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+                .expect("open cf1");
+
+        let options = SstIngestOptions {
+            max_entries: 10,
+            dir_name: Some("sst_buffer_cf1".to_string()),
+            assume_sorted: true,
+        };
+
+        let mut buf = SstIngestBuffer::new(&dbmap, options).expect("create buffer");
+        for k in 1..=5u32 {
+            buf.push(k, k * 10).unwrap();
+        }
+        assert_eq!(buf.size(), 5);
+        buf.flush().expect("flush should succeed");
+        assert_eq!(buf.size(), 0);
+
+        dbmap.flush().expect("flush should succeed");
+        dbmap
+            .compact_range_to_bottom(&0u32, &10u32)
+            .expect("compact should succeed");
+
+        assert_eq!(dbmap.get(&1).unwrap(), Some(10));
+        assert_eq!(dbmap.get(&3).unwrap(), Some(30));
+        assert_eq!(dbmap.get(&5).unwrap(), Some(50));
+    }
+
+    #[tokio::test]
+    async fn sst_ingest_buffer_flush_assume_sorted_false() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+
+        // Create temp DB with a single CF
+        let dir = tempdir().unwrap();
+        let mut db_options = rocksdb::Options::default();
+        db_options.create_missing_column_families(true);
+        db_options.create_if_missing(true);
+        let rocks = open_cf(
+            dir.path(),
+            Some(db_options),
+            MetricConf::default(),
+            &["cf1"],
+        )
+        .unwrap();
+
+        let dbmap =
+            DBMap::<u32, u32>::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+                .expect("open cf1");
+
+        let options = SstIngestOptions {
+            max_entries: 10,
+            dir_name: None,
+            assume_sorted: false,
+        };
+
+        let mut buf = SstIngestBuffer::new(&dbmap, options).expect("create buffer");
+
+        // Intentionally push in unsorted order
+        for (k, v) in [(5u32, 50u32), (1, 10), (3, 30), (2, 20), (4, 40)] {
+            buf.push(k, v).unwrap();
+        }
+        buf.flush().expect("flush should succeed");
+
+        dbmap.flush().expect("flush should succeed");
+        dbmap
+            .compact_range_to_bottom(&0u32, &10u32)
+            .expect("compact should succeed");
+
+        assert_eq!(dbmap.get(&1).unwrap(), Some(10));
+        assert_eq!(dbmap.get(&2).unwrap(), Some(20));
+        assert_eq!(dbmap.get(&3).unwrap(), Some(30));
+        assert_eq!(dbmap.get(&4).unwrap(), Some(40));
+        assert_eq!(dbmap.get(&5).unwrap(), Some(50));
+    }
+
+    #[tokio::test]
+    async fn sst_ingest_two_flushes_with_overlapping_keys() {
+        crate::metrics::DBMetrics::init(&Registry::default());
+
+        let dir = tempdir().unwrap();
+        let mut db_options = rocksdb::Options::default();
+        db_options.create_missing_column_families(true);
+        db_options.create_if_missing(true);
+        db_options.set_enable_blob_files(true);
+        db_options.set_min_blob_size(1);
+        let rocks = open_cf(
+            dir.path(),
+            Some(db_options),
+            MetricConf::default(),
+            &["cf1"],
+        )
+        .unwrap();
+
+        let dbmap =
+            DBMap::<u32, u32>::reopen(&rocks, Some("cf1"), &ReadWriteOptions::default(), false)
+                .expect("open cf1");
+
+        let options = SstIngestOptions {
+            max_entries: 10,
+            dir_name: None,
+            assume_sorted: true,
+        };
+
+        // First flush: keys 1..=5
+        let mut buf = SstIngestBuffer::new(&dbmap, options.clone()).expect("create buffer");
+        for k in 1..=5u32 {
+            buf.push(k, k * 10).unwrap();
+        }
+        buf.flush().expect("first flush should succeed");
+
+        // Second flush: overlapping keys 3..=7
+        let mut buf2 = SstIngestBuffer::new(&dbmap, options).expect("create buffer");
+        for k in 3..=7u32 {
+            buf2.push(k, k * 100).unwrap();
+        }
+        buf2.flush().expect("second flush should succeed");
+
+        dbmap.flush().expect("flush should succeed");
+        dbmap
+            .compact_range_to_bottom(&1u32, &7u32)
+            .expect("compact should succeed");
+
+        assert_eq!(dbmap.get(&1).unwrap(), Some(10));
+        assert_eq!(dbmap.get(&2).unwrap(), Some(20));
+        assert_eq!(dbmap.get(&3).unwrap(), Some(300));
+        assert_eq!(dbmap.get(&4).unwrap(), Some(400));
+        assert_eq!(dbmap.get(&5).unwrap(), Some(500));
+        assert_eq!(dbmap.get(&6).unwrap(), Some(600));
+        assert_eq!(dbmap.get(&7).unwrap(), Some(700));
+    }
 }

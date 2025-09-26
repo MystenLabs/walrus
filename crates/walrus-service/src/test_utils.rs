@@ -85,6 +85,8 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
+#[cfg(msim)]
+use crate::node::config::SstIngestionConfig;
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
@@ -1175,6 +1177,18 @@ impl StorageNodeHandleBuilder {
             blob_recovery: BlobRecoveryConfig::default_for_test(),
             ..storage_node_config().inner
         };
+
+        if rand::random::<bool>() {
+            storage_node_config.shard_sync_config.sst_ingestion_config =
+                Some(SstIngestionConfig::default());
+            storage_node_config
+                .shard_sync_config
+                .sst_ingestion_config
+                .as_mut()
+                .unwrap()
+                .max_entries = Some(1);
+            tracing::info!("SST based ingestion is enabled on the node");
+        }
 
         randomize_sliver_recovery_additional_symbols(&mut storage_node_config);
 
