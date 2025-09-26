@@ -280,7 +280,7 @@ file is located at [`target/criterion/report/index.html].
 
 Criterion automatically compares the results from multiple runs. To check if your code changes
 improve or worsen the performance, run the benchmarks first on the latest `main` branch and then
-again with your code changes or explicitly set and use baselines with `--set-baseline` and
+again with your code changes or explicitly set and use baselines with `--save-baseline` and
 `--baseline`. See the [Criterion
 documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines)
 for further details.
