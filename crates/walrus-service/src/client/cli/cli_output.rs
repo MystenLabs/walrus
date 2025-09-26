@@ -343,7 +343,7 @@ fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Tab
     table.set_titles(row![
         b->"Index",
         b->"QuiltPatchId",
-        b->"Range",
+        b->"Sliver Range",
         b->"Identifier",
     ]);
 
