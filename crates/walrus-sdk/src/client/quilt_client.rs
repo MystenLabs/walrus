@@ -806,7 +806,18 @@ impl QuiltClient<'_, SuiContractClient> {
             .patches()
             .iter()
             .map(|patch| {
+                let sliver_indices = patch.quilt_patch_internal_id().sliver_indices();
+                let start_index = sliver_indices
+                    .first()
+                    .expect("sliver indices should not be empty")
+                    .get();
+                let end_index = sliver_indices
+                    .last()
+                    .expect("sliver indices should not be empty")
+                    .get()
+                    + 1;
                 StoredQuiltPatch::new(blob_id, patch.identifier(), patch.quilt_patch_internal_id())
+                    .with_range(start_index.into(), end_index.into())
             })
             .collect::<Vec<_>>();
 
