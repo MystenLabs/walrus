@@ -343,18 +343,18 @@ fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Tab
     table.set_titles(row![
         b->"Index",
         b->"QuiltPatchId",
+        b->"Range",
         b->"Identifier",
-        b->"Range"
     ]);
 
     for (i, quilt_patch) in quilt_patches.iter().enumerate() {
         table.add_row(row![
             bFc->format!("{i}"),
             quilt_patch.quilt_patch_id,
-            quilt_patch.identifier,
             quilt_patch
                 .range
                 .map_or_else(String::new, |range| format!("[{}, {})", range.0, range.1)),
+            quilt_patch.identifier,
         ]);
     }
 
