@@ -2840,6 +2840,7 @@ pub mod test_cluster {
                     .unwrap_or_else(ClientCommunicationConfig::default_for_test),
                 refresh_config: Default::default(),
                 quilt_client_config: Default::default(),
+                async_upload: Default::default(),
             };
 
             let client = admin_contract_client

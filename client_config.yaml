@@ -1,0 +1,39 @@
+contexts:
+  mainnet:
+    system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+    wallet_config:
+      path: ~/.sui/sui_config/client.yaml
+      active_env: mainnet
+  testnet:
+    system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
+    staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
+    subsidies_object: 0xda799d85db0429765c8291c594d334349ef5bc09220e79ad397b30106161a0af
+    exchange_objects:
+      # - 0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073
+      - 0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862
+      - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
+      - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
+    wallet_config:
+      path: ~/.sui/sui_config/client.yaml
+      active_env: testnet
+    communication_config:
+      max_concurrent_writes: 100
+      max_concurrent_sliver_reads: 10
+      max_concurrent_metadata_reads: 5
+      max_concurrent_status_reads: 3 # Changed from max_concurrent_blob_status_reads
+      max_data_in_flight: 120500000
+
+  ptn:
+    system_object: 0xf18dacb3459b7c4d371e93c749c4e821f43b194fa57e3cfee64ac00e5ef2ae00
+    staking_object: 0x6fb903f9ce2b91bfa6f383251181d0f7a631c9b7e41ce8bba8c737b792b9e5d8
+    subsidies_object: 0x5f65a13c926ebc132810846c10daac6a7322e1d825e141beeb2466500913aee6
+    exchange_objects:
+      - 0x170e0c3c1ade938cb75cb2397bbaf170fa68486ce58a3e09857e9353171dda9a
+    wallet_config:
+      path: ~/.sui/sui_config/client.yaml
+      active_env: testnet
+
+#wallet_config: /Users/heliu/.sui/sui_config/client.yaml
+default_context: testnet
