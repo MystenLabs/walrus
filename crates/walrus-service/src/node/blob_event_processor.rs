@@ -233,11 +233,10 @@ impl BackgroundEventProcessor {
             event_handle.mark_as_complete();
 
             tracing::debug!(
-                "skipping syncing blob during certified event processing for blob id: {}, \
-                epoch: {}, is_extension: {}",
-                event.blob_id,
-                event.epoch,
-                event.is_extension
+                %event.blob_id,
+                %event.epoch,
+                %event.is_extension,
+                "skipping syncing blob during certified event processing",
             );
 
             walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
