@@ -191,7 +191,9 @@ CLI configuration refers to the standard location for Sui configuration
 <!-- markdownlint-disable code-fence-style -->
 
 ````admonish tip
-The easiest way to obtain the latest configuration is by downloading it directly from Walrus:
+If you installed Walrus through the [install script](#nix-install), a configuration file was
+already created. If not, the easiest way to obtain the latest configuration is by downloading it
+directly from Walrus:
 
 ```sh
 curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
