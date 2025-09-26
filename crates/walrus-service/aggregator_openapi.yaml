@@ -38,6 +38,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The blob size exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
@@ -89,6 +95,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The blob size exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
@@ -133,6 +145,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The blob size exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
@@ -175,6 +193,12 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+        '400':
+          description: The blob size exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:
@@ -217,6 +241,12 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/QuiltPatchItem'
+        '400':
+          description: The blob size exceeds the maximum allowed size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '404':
           description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
           content:

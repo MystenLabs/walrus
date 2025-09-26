@@ -164,6 +164,7 @@ pub struct WalrusNodeClient<T> {
     encoding_config: Arc<EncodingConfig>,
     blocklist: Option<Blocklist>,
     communication_factory: NodeCommunicationFactory,
+    max_blob_size: Option<u64>,
 }
 
 impl WalrusNodeClient<()> {
@@ -172,7 +173,15 @@ impl WalrusNodeClient<()> {
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, None).await
+        Self::new_inner(config, committees_handle, None, None).await
+    }
+    /// Creates a new Walrus client without a Sui client.
+    pub async fn new_with_max_blob_size(
+        config: ClientConfig,
+        committees_handle: CommitteesRefresherHandle,
+        max_blob_size: Option<u64>,
+    ) -> ClientResult<Self> {
+        Self::new_inner(config, committees_handle, None, max_blob_size).await
     }
 
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
@@ -182,13 +191,14 @@ impl WalrusNodeClient<()> {
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
     ) -> ClientResult<Self> {
-        Self::new_inner(config, committees_handle, Some(metrics_registry)).await
+        Self::new_inner(config, committees_handle, Some(metrics_registry), None).await
     }
 
     async fn new_inner(
         config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Option<Registry>,
+        max_blob_size: Option<u64>,
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
@@ -216,6 +226,7 @@ impl WalrusNodeClient<()> {
                 metrics_registry,
             )?,
             config,
+            max_blob_size,
         })
     }
 
@@ -229,6 +240,7 @@ impl WalrusNodeClient<()> {
             communication_limits,
             blocklist,
             communication_factory: node_client_factory,
+            max_blob_size,
         } = self;
         WalrusNodeClient::<C> {
             config,
@@ -238,6 +250,7 @@ impl WalrusNodeClient<()> {
             communication_limits,
             blocklist,
             communication_factory: node_client_factory,
+            max_blob_size,
         }
     }
 }
@@ -253,6 +266,21 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .await?
             .with_client(sui_read_client)
             .await)
+    }
+
+    /// Creates a new read client starting from a config file with an optional maximum blob size.
+    pub async fn new_read_client_with_max_blob_size(
+        config: ClientConfig,
+        committees_handle: CommitteesRefresherHandle,
+        sui_read_client: T,
+        max_blob_size: Option<u64>,
+    ) -> ClientResult<Self> {
+        Ok(
+            WalrusNodeClient::new_with_max_blob_size(config, committees_handle, max_blob_size)
+                .await?
+                .with_client(sui_read_client)
+                .await,
+        )
     }
 
     /// Creates a new read client, and starts a committes refresher process in the background.
@@ -458,6 +486,13 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         SliverData<U>: TryFrom<Sliver>,
     {
         let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
+        if let Some(max_blob_size) = self.max_blob_size
+            && metadata.metadata().unencoded_length() > max_blob_size
+        {
+            return Err(ClientError::from(ClientErrorKind::BlobTooLarge(
+                max_blob_size,
+            )));
+        };
         self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
             .await
     }

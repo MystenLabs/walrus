@@ -568,7 +568,7 @@ impl ClientCommandRunner {
         out: Option<PathBuf>,
         rpc_url: Option<String>,
     ) -> Result<()> {
-        let client = get_read_client(self.config?, rpc_url, self.wallet, &None).await?;
+        let client = get_read_client(self.config?, rpc_url, self.wallet, &None, None).await?;
 
         let start_timer = std::time::Instant::now();
         let blob = client.read_blob::<Primary>(&blob_id).await?;
@@ -1191,8 +1191,14 @@ impl ClientCommandRunner {
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-        let client =
-            get_read_client(self.config?, rpc_url, self.wallet, &daemon_args.blocklist).await?;
+        let client = get_read_client(
+            self.config?,
+            rpc_url,
+            self.wallet,
+            &daemon_args.blocklist,
+            aggregator_args.max_blob_size,
+        )
+        .await?;
         ClientDaemon::new_aggregator(
             client,
             daemon_args.bind_address,
