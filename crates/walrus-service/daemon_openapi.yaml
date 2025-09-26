@@ -918,6 +918,19 @@ components:
         quiltPatchId:
           type: string
           description: The quilt patch id.
+        range:
+          type:
+          - array
+          - 'null'
+          items: false
+          prefixItems:
+          - type: integer
+            format: int64
+            minimum: 0
+          - type: integer
+            format: int64
+            minimum: 0
+          description: The range of the quilt patch.
     SuiAddress:
       type: string
       title: Sui address
