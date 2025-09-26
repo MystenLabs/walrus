@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeSet, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
@@ -558,11 +558,17 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     ) -> Result<(), DecodeError> {
         let expected_sliver_count = self.n_source_symbols();
 
+        let mut sliver_indices_set = BTreeSet::new();
         let mut slivers_count = 0;
         for sliver in slivers {
             if slivers_count == expected_sliver_count {
                 tracing::info!("dropping surplus slivers during blob decoding");
                 break;
+            }
+
+            if sliver_indices_set.contains(&sliver.index) {
+                tracing::warn!("dropping duplicate sliver during blob decoding");
+                continue;
             }
 
             let expected_len = self.sliver_length;
@@ -586,6 +592,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
                 self.write_secondary_sliver_to_workspace(sliver.symbols, slivers_count);
             }
             self.sliver_indices.push(sliver.index);
+            sliver_indices_set.insert(sliver.index);
             slivers_count += 1;
         }
 
@@ -611,31 +618,28 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     }
 
     fn perform_decoding(&mut self) -> Result<(), DecodeError> {
-        let workspace_symbol_index = |sliver_index: usize, decoder_index: usize| {
-            if E::IS_PRIMARY {
-                sliver_index * self.n_columns + decoder_index
-            } else {
-                decoder_index * self.n_columns + sliver_index
-            }
-        };
-
         for decoder_index in 0..self.sliver_length {
-            let symbols =
-                self.sliver_indices
-                    .iter()
-                    .enumerate()
-                    .map(|(row_index, sliver_index)| {
-                        DecodingSymbol::<E>::new(
-                            sliver_index.0,
-                            self.workspace[workspace_symbol_index(row_index, decoder_index)]
-                                .to_vec(),
-                        )
-                    });
+            let symbols = self.sliver_indices.iter().enumerate().map(
+                |(sliver_index_in_workspace, sliver_index)| {
+                    let index = if E::IS_PRIMARY {
+                        sliver_index_in_workspace * self.n_columns + decoder_index
+                    } else {
+                        decoder_index * self.n_columns + sliver_index_in_workspace
+                    };
+                    DecodingSymbol::<E>::new(sliver_index.0, self.workspace[index].to_vec())
+                },
+            );
             let decoded_data = self.decoder.decode(symbols)?;
             // Overwrite the decoding symbols in the workspace with the decoded data.
-            for (row_index, symbol) in decoded_data.chunks(self.symbol_usize()).enumerate() {
-                self.workspace[workspace_symbol_index(row_index, decoder_index)]
-                    .copy_from_slice(symbol);
+            if E::IS_PRIMARY {
+                for (row_index, symbol) in decoded_data.chunks(self.symbol_usize()).enumerate() {
+                    self.workspace[self.n_columns * row_index + decoder_index]
+                        .copy_from_slice(symbol);
+                }
+            } else {
+                self.workspace
+                    [self.n_columns * decoder_index..self.n_columns * (decoder_index + 1)]
+                    .copy_from_slice(&decoded_data);
             }
         }
         Ok(())
