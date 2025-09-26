@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(dead_code)]
+
 //! Storage layer for the Walrus Indexer.
 //!
 //! This module implements the Walrus Index schema for indexing blobs and quilt patches.
@@ -24,8 +26,6 @@ use walrus_core::{
     encoding::quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
     metadata::QuiltIndex,
 };
-
-#[allow(unused)]
 
 /// Primary index, blob_manager/identifier/sequence_number -> blob or quilt patch.
 const CF_NAME_PRIMARY_INDEX: &str = "walrus_index_primary";
