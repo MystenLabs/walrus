@@ -87,7 +87,7 @@ export const options = {
         }
     },
 
-    setupTimeout: "3m",
+    setupTimeout: "5m",
 
     thresholds: {
         http_req_failed: [{ threshold: 'rate <= 0.05', abortOnFail: true }],
