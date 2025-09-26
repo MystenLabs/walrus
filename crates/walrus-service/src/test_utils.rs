@@ -109,6 +109,7 @@ use crate::{
             BlobEventProcessorConfig,
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
+            GarbageCollectionConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
             StorageNodeConfig,
@@ -994,6 +995,7 @@ impl StorageNodeHandleBuilder {
                 Default::default()
             },
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1175,6 +1177,7 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -3074,6 +3077,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
         },
         temp_dir,
     }
