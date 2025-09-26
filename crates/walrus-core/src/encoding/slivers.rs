@@ -574,10 +574,10 @@ mod tests {
     param_test! {
         test_recover_sliver_failure: [
             no_symbols: (&[], 2, 2),
-            #[should_panic] empty_symbols: (&[&[], &[]], 2, 2),
+            empty_symbols: (&[&[], &[]], 2, 2),
             too_few_symbols: (&[&[1,2]], 2, 2),
-            #[should_panic] inconsistent_size: (&[&[1,2],&[3]], 2, 2),
-            #[should_panic] inconsistent_and_empty_size: (&[&[1],&[]], 2, 2),
+            inconsistent_size: (&[&[1,2],&[3]], 2, 2),
+            inconsistent_and_empty_size: (&[&[1],&[]], 2, 2),
         ]
     }
     // Only testing for failures in the decoding. The correct decoding is tested below.

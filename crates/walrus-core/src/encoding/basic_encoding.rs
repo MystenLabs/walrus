@@ -49,16 +49,16 @@ pub trait Decoder: Sized {
     /// Attempts to decode the source data from the provided iterator over
     /// [`DecodingSymbol`s][DecodingSymbol].
     ///
-    /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
+    /// Returns the source data as a byte vector if decoding succeeds or a [`DecodeError`] if
+    /// decoding fails.
     ///
-    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
-    /// by additional calls to [`decode`][Self::decode] providing more symbols.
+    /// Symbols of incorrect size are dropped with a warning.
+    ///
+    /// If decoding failed due to an insufficient number of provided symbols
+    /// ([`DecodeError::DecodingUnsuccessful`]), it can be continued by additional calls to
+    /// [`decode`][Self::decode] providing more symbols.
     ///
     /// After the decoding is complete, the decoder can be reused for a new decoding.
-    ///
-    /// # Panics
-    ///
-    /// Can panic if the provided symbols have an incorrect size.
     fn decode<T, U>(&mut self, symbols: T) -> Result<Vec<u8>, DecodeError>
     where
         T: IntoIterator,
@@ -262,6 +262,10 @@ impl Decoder for ReedSolomonDecoder {
         let decoder = &mut self.decoder;
         let symbol_size = self.source_symbols.symbol_size();
         for symbol in symbols.into_iter() {
+            if symbol.data.len() != usize::from(symbol_size.get()) {
+                tracing::warn!("dropping symbol of incorrect size");
+                continue;
+            }
             if symbol.index < self.n_source_symbols.get() {
                 self.source_symbols[usize::from(symbol.index)].copy_from_slice(&symbol.data);
                 let _ = decoder.add_original_shard(symbol.index.into(), symbol.data);
