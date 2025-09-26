@@ -203,20 +203,41 @@ impl BackgroundEventProcessor {
 
         let histogram_set = self.node.metrics.recover_blob_duration_seconds.clone();
 
-        if !self.node.is_blob_certified(&event.blob_id)?
-            // For blob extension events, the original blob certified event should already recover
-            // the entire blob, and we can skip the recovery.
-            || event.is_extension
+        // Get the current event epoch to check if the blob is fully stored up to the shard
+        // assignment in this epoch. If the current event epoch is not set (the node may just
+        // started), we always start the blob sync.
+        let current_event_epoch = self.node.try_get_current_event_epoch();
+
+        #[allow(unused_mut)]
+        let mut skip_blob_sync_in_test = false;
+        // No op when not in simtest mode.
+        sui_macros::fail_point_if!(
+            "skip_non_extension_certified_event_triggered_blob_sync",
+            || {
+                skip_blob_sync_in_test = !event.is_extension;
+            }
+        );
+
+        if skip_blob_sync_in_test
+            || !self.node.is_blob_certified(&event.blob_id)?
             || self.node.storage.node_status()?.is_catching_up()
-            || self
-                .node
-                .is_stored_at_all_shards_at_epoch(
-                    &event.blob_id,
-                    self.node.current_event_epoch().await?,
-                )
-                .await?
+            || (current_event_epoch.is_some()
+                && self
+                    .node
+                    .is_stored_at_all_shards_at_epoch(
+                        &event.blob_id,
+                        current_event_epoch.expect("just checked that current event epoch is set"),
+                    )
+                    .await?)
         {
             event_handle.mark_as_complete();
+
+            tracing::debug!(
+                %event.blob_id,
+                %event.epoch,
+                %event.is_extension,
+                "skipping syncing blob during certified event processing",
+            );
 
             walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());

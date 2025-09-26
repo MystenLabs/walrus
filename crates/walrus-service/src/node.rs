@@ -166,7 +166,7 @@ use crate::{
             PositionedStreamEvent,
         },
     },
-    node::event_blob_writer::EventBlobWriter,
+    node::{config::GarbageCollectionConfig, event_blob_writer::EventBlobWriter},
     utils::ShardDiffCalculator,
 };
 
@@ -544,6 +544,7 @@ pub struct StorageNodeInner {
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
+    garbage_collection_config: GarbageCollectionConfig,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -688,6 +689,7 @@ impl StorageNode {
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
+            garbage_collection_config: config.garbage_collection.clone(),
         });
 
         blocklist.start_refresh_task();
@@ -1583,6 +1585,18 @@ impl StorageNode {
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
         let shard_map_lock = self.inner.storage.lock_shards().await;
+
+        // TODO(WAL-1040): Move this to a background task.
+        if self
+            .inner
+            .garbage_collection_config
+            .enable_blob_info_cleanup
+        {
+            self.inner
+                .storage
+                .process_expired_blob_objects(event.epoch)
+                .await?;
+        }
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch.
@@ -3223,7 +3237,7 @@ mod tests {
     use walrus_storage_node_client::{StorageNodeClient, api::errors::STORAGE_NODE_ERROR_DOMAIN};
     use walrus_sui::{
         client::FixedSystemParameters,
-        test_utils::{EventForTesting, event_id_for_testing},
+        test_utils::{EventForTesting, FIXED_OBJECT_ID, event_id_for_testing},
         types::{
             BlobCertified,
             BlobDeleted,
@@ -3793,19 +3807,29 @@ mod tests {
         pub config: EncodingConfig,
         pub pairs: Vec<SliverPair>,
         pub metadata: VerifiedBlobMetadataWithId,
+        #[allow(unused)]
+        pub object_id: Option<ObjectID>,
     }
 
     impl EncodedBlob {
-        fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
+        fn new(blob: &[u8], config: EncodingConfig) -> Self {
             let (pairs, metadata) = config
                 .get_for_type(DEFAULT_ENCODING)
                 .encode_with_metadata(blob)
                 .expect("must be able to get encoder");
 
-            EncodedBlob {
+            Self {
                 pairs,
                 metadata,
                 config,
+                object_id: None,
+            }
+        }
+
+        fn new_with_object_id(blob: &[u8], config: EncodingConfig, object_id: ObjectID) -> Self {
+            Self {
+                object_id: Some(object_id),
+                ..Self::new(blob, config)
             }
         }
 
@@ -3915,7 +3939,7 @@ mod tests {
     }
 
     // Creates a test cluster with custom initial epoch and blobs that are already certified.
-    async fn cluster_with_initial_epoch_and_certified_blob(
+    async fn cluster_with_initial_epoch_and_certified_blobs(
         assignment: &[&[u16]],
         blobs: &[&[u8]],
         initial_epoch: Epoch,
@@ -3930,10 +3954,17 @@ mod tests {
         // Add the blobs at epoch 1, the epoch at which the cluster starts.
         for blob in blobs {
             let blob_details = EncodedBlob::new(blob, config.clone());
+            let object_id = ObjectID::random();
             // Note: register and certify the blob are always using epoch 0.
-            events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+            events.send(
+                BlobRegistered::for_testing_with_object_id(*blob_details.blob_id(), object_id)
+                    .into(),
+            )?;
             store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-            events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+            events.send(
+                BlobCertified::for_testing_with_object_id(*blob_details.blob_id(), object_id)
+                    .into(),
+            )?;
             details.push(blob_details);
         }
 
@@ -4025,13 +4056,14 @@ mod tests {
         let config = cluster.encoding_config();
         let mut details = Vec::new();
         for (i, blob) in blobs.iter().enumerate() {
-            let blob_details = EncodedBlob::new(blob, config.clone());
+            let object_id = ObjectID::random();
+            let blob_details = EncodedBlob::new_with_object_id(blob, config.clone(), object_id);
             let blob_end_epoch = blob_index_to_end_epoch(i);
             let deletable = blob_index_to_deletable(i);
             let blob_registration_event = BlobRegistered {
                 deletable,
                 end_epoch: blob_end_epoch,
-                ..BlobRegistered::for_testing(*blob_details.blob_id())
+                ..BlobRegistered::for_testing_with_object_id(*blob_details.blob_id(), object_id)
             };
             node_0_events.send(blob_registration_event.clone().into())?;
             all_other_node_events.send(blob_registration_event.into())?;
@@ -4039,7 +4071,7 @@ mod tests {
             let blob_certified_event = BlobCertified {
                 deletable,
                 end_epoch: blob_end_epoch,
-                ..BlobCertified::for_testing(*blob_details.blob_id())
+                ..BlobCertified::for_testing_with_object_id(*blob_details.blob_id(), object_id)
             };
             if blob_index_store_at_shard_0(i) {
                 store_at_shards(&blob_details, &cluster, |_, _| true).await?;
@@ -4242,7 +4274,7 @@ mod tests {
                 blob_id: *blob.blob_id(),
                 end_epoch: 2,
                 deletable: false,
-                object_id: ObjectID::random(),
+                object_id: FIXED_OBJECT_ID,
                 is_extension: false,
                 event_id: event_id_for_testing(),
             }
@@ -4589,7 +4621,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
                 .await?;
 
         let blob_id = *blob_detail[0].blob_id();
@@ -4634,7 +4666,7 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
         let blob_id = *blob_detail[0].blob_id();
@@ -4661,7 +4693,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
         let error: walrus_storage_node_client::error::NodeError = cluster.nodes[0]
@@ -4681,7 +4713,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
@@ -4725,7 +4757,7 @@ mod tests {
         requester_epoch: Epoch,
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
-        let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blob(
+        let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blobs(
             &[&[0, 1], &[2, 3]],
             &[BLOB],
             cluster_epoch,
@@ -4897,9 +4929,13 @@ mod tests {
         let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
-        let (cluster, _, blob_details) =
-            cluster_with_initial_epoch_and_certified_blob(assignment, &blobs, 2, shard_sync_config)
-                .await?;
+        let (cluster, _, blob_details) = cluster_with_initial_epoch_and_certified_blobs(
+            assignment,
+            &blobs,
+            2,
+            shard_sync_config,
+        )
+        .await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
@@ -5565,6 +5601,16 @@ mod tests {
         ) -> TestResult {
             let shard_sync_config = ShardSyncConfig {
                 sliver_count_per_sync_request: 2,
+                // Align SST flush threshold with the request size for this test.
+                // For this test, we need one flush (and thus one progress persist) per request
+                // to preserve the original progress semantics being asserted (whether shard sync
+                // "makes progress" between retriable failures). Setting `sst_max_entries` equal
+                // or less to the request size ensures each request triggers a flush and records
+                // `last_synced_blob_id` deterministically.
+                sst_ingestion_config: Some(crate::node::config::SstIngestionConfig {
+                    max_entries: Some(2),
+                    compact_after_sync: true,
+                }),
                 shard_sync_retry_min_backoff: Duration::from_secs(1),
                 shard_sync_retry_max_backoff: Duration::from_secs(5),
                 shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(10),
@@ -5696,20 +5742,37 @@ mod tests {
 
                 for blob in blobs {
                     let blob_details = EncodedBlob::new(blob, config.clone());
+                    let object_id = ObjectID::random();
                     // Note: register and certify the blob are always using epoch 0.
-                    events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+                    events.send(
+                        BlobRegistered::for_testing_with_object_id(
+                            *blob_details.blob_id(),
+                            object_id,
+                        )
+                        .into(),
+                    )?;
                     store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-                    events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+                    events.send(
+                        BlobCertified::for_testing_with_object_id(
+                            *blob_details.blob_id(),
+                            object_id,
+                        )
+                        .into(),
+                    )?;
                     details.push(blob_details);
                 }
 
                 // These blobs will be expired at epoch 3.
                 for blob in blobs_expired {
                     let blob_details = EncodedBlob::new(blob, config.clone());
+                    let object_id = ObjectID::random();
                     events.send(
                         BlobRegistered {
                             end_epoch: 3,
-                            ..BlobRegistered::for_testing(*blob_details.blob_id())
+                            ..BlobRegistered::for_testing_with_object_id(
+                                *blob_details.blob_id(),
+                                object_id,
+                            )
                         }
                         .into(),
                     )?;
@@ -5717,7 +5780,10 @@ mod tests {
                     events.send(
                         BlobCertified {
                             end_epoch: 3,
-                            ..BlobCertified::for_testing(*blob_details.blob_id())
+                            ..BlobCertified::for_testing_with_object_id(
+                                *blob_details.blob_id(),
+                                object_id,
+                            )
                         }
                         .into(),
                     )?;
@@ -5976,7 +6042,7 @@ mod tests {
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
             let (cluster, events, _blob_detail) =
-                cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[BLOB], 2, None)
+                cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1, 2, 3]], &[BLOB], 2, None)
                     .await?;
             cluster.nodes[0]
                 .storage_node
@@ -6304,25 +6370,24 @@ mod tests {
 
             // Send blob deletion event for blob 1.
             {
-                tracing::info!(
-                    "send blob deletion event for blob {:?}",
-                    blob_details[1].blob_id()
-                );
-                // Delete blob 1 and invalidate blob 2.
-                event_senders
-                    .all_other_node_events
-                    .send(BlobDeleted::for_testing(*blob_details[1].blob_id()).into())?;
+                let blob = &blob_details[1];
+                tracing::info!("send blob deletion event for blob {:?}", blob.blob_id());
+                event_senders.all_other_node_events.send(
+                    BlobDeleted::for_testing_with_object_id(
+                        *blob.blob_id(),
+                        blob.object_id.expect("object id should be set"),
+                    )
+                    .into(),
+                )?;
             }
 
             // Send invalid blob event for blob 2.
             {
-                tracing::info!(
-                    "send invalid blob evnt for blob {:?}",
-                    blob_details[2].blob_id()
-                );
+                let blob = &blob_details[2];
+                tracing::info!("send invalid blob event for blob {:?}", blob.blob_id());
                 event_senders
                     .all_other_node_events
-                    .send(InvalidBlobId::for_testing(*blob_details[2].blob_id()).into())?;
+                    .send(InvalidBlobId::for_testing(*blob.blob_id()).into())?;
             }
 
             // Advance to epoch 3, so that blob 0 expires.
@@ -6534,6 +6599,59 @@ mod tests {
             clear_fail_point("fail_point_process_blob_certified_event");
             Ok(())
         }
+
+        // Tests that blob extension can trigger blob sync.
+        #[walrus_simtest]
+        async fn blob_extension_triggers_blob_sync() -> TestResult {
+            let _ = tracing_subscriber::fmt::try_init();
+
+            // Set the fail point to skip non-extension certified event triggered blob sync.
+            register_fail_point_if(
+                "skip_non_extension_certified_event_triggered_blob_sync",
+                move || true,
+            );
+
+            let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
+            let own_shards = [ShardIndex(1), ShardIndex(6)];
+
+            let (cluster, events, blob) =
+                cluster_with_partially_stored_blob(shards, BLOB, |shard, _| {
+                    !own_shards.contains(shard)
+                })
+                .await?;
+            let node_client = cluster.client(0);
+
+            // Send a certified event for the blob.
+            events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+            // Send a certified event for the blob with extension. This should trigger blob sync.
+            events.send(
+                BlobCertified {
+                    end_epoch: 62,
+                    is_extension: true,
+                    ..BlobCertified::for_testing(*blob.blob_id())
+                }
+                .into(),
+            )?;
+
+            // Wait for the blob sync to complete.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            // Check that the sliver pairs are stored in the shards.
+            for shard in own_shards {
+                let synced_sliver_pair =
+                    expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT)
+                        .await;
+                let expected = blob.assigned_sliver_pair(shard);
+
+                assert_eq!(
+                    synced_sliver_pair, *expected,
+                    "invalid sliver pair for {shard}"
+                );
+            }
+
+            Ok(())
+        }
     }
 
     /// Waits until the storage node processes the specified number of events.
@@ -6732,7 +6850,7 @@ mod tests {
         walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
                 .await?;
         let lookup_service_handle = cluster
             .lookup_service_handle
@@ -6825,7 +6943,7 @@ mod tests {
         walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
         events.send(
@@ -6881,7 +6999,7 @@ mod tests {
         walrus_test_utils::init_tracing();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
 
