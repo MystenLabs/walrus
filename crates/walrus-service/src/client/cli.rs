@@ -85,6 +85,7 @@ pub async fn get_read_client(
 
 /// Creates a [`WalrusNodeClient<SuiContractClient>`] based on the provided [`ClientConfig`] with
 /// write access to Sui.
+#[tracing::instrument(skip_all)]
 pub async fn get_contract_client(
     config: ClientConfig,
     wallet: Result<Wallet>,
