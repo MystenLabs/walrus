@@ -4,6 +4,8 @@
 [advisories]
 version = 2
 ignore = [
+  # `fxhash` is unmaintained, but is a transitive dependency via starlark_map from Sui.
+  { id = "RUSTSEC-2025-0057", reason = "transitive dependency from Sui via starlark_map" },
   # We depend on `rsa` via `fastcrypto` but don't actually use it.
   "RUSTSEC-2023-0071",
   # `rust-yaml` is not maintained, but is a dependency in many of our packages.
