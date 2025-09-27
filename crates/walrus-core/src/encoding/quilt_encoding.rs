@@ -1588,7 +1588,7 @@ impl QuiltEncoderApi<QuiltVersionV1> for QuiltEncoderV1<'_> {
 /// A quilt decoder of version V1.
 #[derive(Debug)]
 pub struct QuiltDecoderV1<'a> {
-    slivers: HashMap<SliverIndex, &'a SliverData<Secondary>>,
+    slivers: HashMap<SliverIndex, Cow<'a, SliverData<Secondary>>>,
     quilt_index: Option<QuiltIndexV1>,
     column_size: Option<usize>,
 }
@@ -1655,7 +1655,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
         for sliver in slivers {
             self.column_size
                 .get_or_insert_with(|| sliver.symbols.data().len());
-            self.slivers.insert(sliver.index, sliver);
+            self.slivers.insert(sliver.index, Cow::Borrowed(sliver));
         }
     }
 }
@@ -1675,10 +1675,10 @@ impl QuiltColumnRangeReader for QuiltDecoderV1<'_> {
 
         let slivers: Vec<&SliverData<Secondary>> = (start_col..end_col)
             .map(|col| {
-                *self
-                    .slivers
+                self.slivers
                     .get(&SliverIndex::new(col as u16))
                     .expect("sliver exists")
+                    .as_ref()
             })
             .collect();
 
@@ -1719,7 +1719,7 @@ impl<'a> QuiltDecoderV1<'a> {
     {
         let slivers = slivers
             .into_iter()
-            .map(|s| (s.index, s))
+            .map(|s| (s.index, Cow::Borrowed(s)))
             .collect::<HashMap<_, _>>();
         let column_size = slivers.values().next().map(|s| s.symbols.data().len());
         Self {
@@ -1739,13 +1739,37 @@ impl<'a> QuiltDecoderV1<'a> {
     {
         let slivers = slivers
             .into_iter()
-            .map(|s| (s.index, s))
+            .map(|s| (s.index, Cow::Borrowed(s)))
             .collect::<HashMap<_, _>>();
         let column_size = slivers.values().next().map(|s| s.symbols.data().len());
         Self {
             slivers,
             quilt_index: Some(quilt_index),
             column_size,
+        }
+    }
+
+    /// Creates a new QuiltDecoderV1 with owned slivers.
+    pub fn new_with_owned(slivers: impl IntoIterator<Item = SliverData<Secondary>>) -> Self {
+        let slivers: HashMap<SliverIndex, Cow<'a, SliverData<Secondary>>> = slivers
+            .into_iter()
+            .map(|s| (s.index, Cow::Owned(s)))
+            .collect();
+        let column_size = slivers.values().next().map(|s| s.symbols.data().len());
+        Self {
+            slivers,
+            quilt_index: None,
+            column_size,
+        }
+    }
+
+    /// Adds owned slivers to the decoder.
+    pub fn add_owned_slivers(&mut self, slivers: impl IntoIterator<Item = SliverData<Secondary>>) {
+        for sliver in slivers {
+            self.column_size
+                .get_or_insert_with(|| sliver.symbols.data().len());
+            let index = sliver.index;
+            self.slivers.insert(index, Cow::Owned(sliver));
         }
     }
 
