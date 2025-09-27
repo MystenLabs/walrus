@@ -2372,8 +2372,13 @@ pub fn default_db_options() -> DBOptions {
 
     // Increase block size to 16KiB.
     // https://github.com/EighteenZi/rocksdb_wiki/blob/master/.
-    // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks.
-    opt.set_block_based_table_factory(&get_block_options(128 << 20, Some(16 << 10), Some(true)));
+    // Memory-usage-in-RocksDB.md#indexes-and-filter-blocks
+    opt.set_block_based_table_factory(&get_block_options(
+        // Use a dedicated 128MB block cache for the default column family.
+        &Cache::new_lru_cache(128 << 20),
+        Some(16 << 10),
+        Some(true),
+    ));
 
     // Set memtable bloomfilter.
     opt.set_memtable_prefix_bloom_ratio(0.02);
@@ -2385,8 +2390,11 @@ pub fn default_db_options() -> DBOptions {
 }
 
 /// Get the block options.
+///
+/// Note that this function requires the caller to provide a block cache. If each column family
+/// uses different block cache, the caller should create a block cache for each column family.
 pub fn get_block_options(
-    block_cache_size_bytes: usize,
+    block_cache: &Cache,
     block_size_bytes: Option<usize>,
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
 ) -> BlockBasedOptions {
@@ -2398,7 +2406,7 @@ pub fn get_block_options(
         block_options.set_block_size(block_size_bytes);
     }
     // Configure a block cache.
-    block_options.set_block_cache(&Cache::new_lru_cache(block_cache_size_bytes));
+    block_options.set_block_cache(block_cache);
     block_options.set_cache_index_and_filter_blocks(true);
     // Set a bloomfilter with 1% false positive rate.
     block_options.set_bloom_filter(10.0, false);
