@@ -463,7 +463,12 @@ impl ParallelCheckpointDownloaderInner {
                 sequence_number += 1;
             }
 
-            let Some(entry) = self.checkpoint_receiver.recv().await else {
+            let maybe_entry = tokio::select! {
+                _ = self.cancellation_token.cancelled() => None,
+                entry = self.checkpoint_receiver.recv() => entry,
+            };
+            let Some(entry) = maybe_entry else {
+                tracing::info!("no checkpoint received, stopping checkpoint fetcher");
                 break;
             };
 

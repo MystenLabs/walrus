@@ -1150,6 +1150,7 @@ impl StorageNodeHandleBuilder {
                     // in simtest.
                     200
                 },
+                runtime_catchup_lag_threshold: 200,
                 ..Default::default()
             },
             use_legacy_event_provider: false,
