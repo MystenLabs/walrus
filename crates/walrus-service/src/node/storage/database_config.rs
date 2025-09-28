@@ -526,6 +526,8 @@ impl DatabaseTableOptionsFactory {
     /// Creates a new DatabaseTableOptionsFactory with a shared block cache.
     /// If `is_storage_db` is true, the database table config is for storage DB, and therefore
     /// the shared block cache will be used for shard storage column families if it is set.
+    /// If `is_storage_db` is false, despite whether the shared block cache is set, column
+    /// families in this DB will not use the shared block cache.
     pub fn new(config: DatabaseConfig, is_storage_db: bool) -> Self {
         let shared_shard_storage_block_cache = if is_storage_db {
             config.shared_shard_storage_block_cache_config.as_ref().map(
