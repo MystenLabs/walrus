@@ -1,9 +1,18 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use rocksdb::{DBCompressionType, Options, statistics::StatsLevel};
+use core::fmt;
+
+use rocksdb::{Cache, DBCompressionType, Options, statistics::StatsLevel};
 use serde::{Deserialize, Serialize};
 use typed_store::rocks::get_block_options;
+
+/// Configuration for shared block cache mode.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SharedBlockCacheConfig {
+    /// Total size of the shared block cache in bytes.
+    pub cache_size: usize,
+}
 
 /// Options for configuring a column family.
 /// One option object can be mapped to a specific RocksDB column family option used to create and
@@ -200,72 +209,6 @@ impl DatabaseTableOptions {
                 .or(default_override.hard_pending_compaction_bytes_limit),
         }
     }
-
-    /// Converts the DatabaseTableOptions to a RocksDB Options object.
-    pub fn to_options(&self) -> Options {
-        let mut options = Options::default();
-        if let Some(enable_blob_files) = self.enable_blob_files {
-            options.set_enable_blob_files(enable_blob_files);
-        }
-        if let Some(min_blob_size) = self.min_blob_size {
-            options.set_min_blob_size(min_blob_size);
-        }
-        if let Some(blob_file_size) = self.blob_file_size {
-            options.set_blob_file_size(blob_file_size);
-        }
-        if let Some(blob_compression_type) = &self.blob_compression_type {
-            let compression_type = match blob_compression_type.as_str() {
-                "none" => DBCompressionType::None,
-                "snappy" => DBCompressionType::Snappy,
-                "zlib" => DBCompressionType::Zlib,
-                "lz4" => DBCompressionType::Lz4,
-                "lz4hc" => DBCompressionType::Lz4hc,
-                "zstd" => DBCompressionType::Zstd,
-                _ => DBCompressionType::None,
-            };
-            options.set_blob_compression_type(compression_type);
-        }
-        if let Some(enable_blob_garbage_collection) = self.enable_blob_garbage_collection {
-            options.set_enable_blob_gc(enable_blob_garbage_collection);
-        }
-        if let Some(blob_garbage_collection_age_cutoff) = self.blob_garbage_collection_age_cutoff {
-            options.set_blob_gc_age_cutoff(blob_garbage_collection_age_cutoff);
-        }
-        if let Some(blob_garbage_collection_force_threshold) =
-            self.blob_garbage_collection_force_threshold
-        {
-            options.set_blob_gc_force_threshold(blob_garbage_collection_force_threshold);
-        }
-        if let Some(blob_compaction_read_ahead_size) = self.blob_compaction_read_ahead_size {
-            options.set_blob_compaction_readahead_size(blob_compaction_read_ahead_size);
-        }
-        if let Some(write_buffer_size) = self.write_buffer_size {
-            options.set_write_buffer_size(write_buffer_size);
-        }
-        if let Some(target_file_size_base) = self.target_file_size_base {
-            options.set_target_file_size_base(target_file_size_base);
-        }
-        if let Some(max_bytes_for_level_base) = self.max_bytes_for_level_base {
-            options.set_max_bytes_for_level_base(max_bytes_for_level_base);
-        }
-        if let Some(block_cache_size) = self.block_cache_size {
-            let block_based_options = get_block_options(
-                block_cache_size,
-                self.block_size,
-                self.pin_l0_filter_and_index_blocks_in_block_cache,
-            );
-            options.set_block_based_table_factory(&block_based_options);
-        }
-        if let Some(soft_pending_compaction_bytes_limit) = self.soft_pending_compaction_bytes_limit
-        {
-            options.set_soft_pending_compaction_bytes_limit(soft_pending_compaction_bytes_limit);
-        }
-        if let Some(hard_pending_compaction_bytes_limit) = self.hard_pending_compaction_bytes_limit
-        {
-            options.set_hard_pending_compaction_bytes_limit(hard_pending_compaction_bytes_limit);
-        }
-        options
-    }
 }
 
 /// RocksDB options applied to the overall database.
@@ -402,6 +345,12 @@ pub struct DatabaseConfig {
     pub(super) event_store: Option<DatabaseTableOptions>,
     /// Init state store database options.
     pub(super) init_state: Option<DatabaseTableOptions>,
+
+    /// Shared block cache configuration for column families in shard storage DB.
+    /// If not set, the block cache will be created for each column family specified in the shard
+    /// storage option config.
+    /// If set, only the column families used in shard storage will use the shared block cache.
+    pub shared_shard_storage_block_cache_config: Option<SharedBlockCacheConfig>,
 }
 
 impl DatabaseConfig {
@@ -558,7 +507,252 @@ impl Default for DatabaseConfig {
             committee_store: None,
             event_store: None,
             init_state: None,
+            shared_shard_storage_block_cache_config: None,
         }
+    }
+}
+
+/// A factory for creating RocksDB Options from DatabaseTableOptions with a shared block cache.
+/// This ensures all column families share the same block cache instance.
+#[derive(Clone)]
+pub struct DatabaseTableOptionsFactory {
+    /// The shared block cache instance for all column families.
+    shared_shard_storage_block_cache: Option<Cache>,
+    /// The database configuration.
+    config: DatabaseConfig,
+}
+
+impl DatabaseTableOptionsFactory {
+    /// Creates a new DatabaseTableOptionsFactory with a shared block cache.
+    /// If `is_storage_db` is true, the database table config is for storage DB, and therefore
+    /// the shared block cache will be used for shard storage column families if it is set.
+    /// If `is_storage_db` is false, despite whether the shared block cache is set, column
+    /// families in this DB will not use the shared block cache.
+    pub fn new(config: DatabaseConfig, is_storage_db: bool) -> Self {
+        let shared_shard_storage_block_cache = if is_storage_db {
+            config.shared_shard_storage_block_cache_config.as_ref().map(
+                |shared_block_cache_config| {
+                    Cache::new_lru_cache(shared_block_cache_config.cache_size)
+                },
+            )
+        } else {
+            None
+        };
+
+        Self {
+            shared_shard_storage_block_cache,
+            config,
+        }
+    }
+
+    /// Converts a DatabaseTableOptions to a RocksDB Options object with the shared block cache.
+    /// If `shard_storage_option` is true, the shared block cache will be used for shard storage
+    /// column families if it is set.
+    fn to_options(
+        &self,
+        table_options: &DatabaseTableOptions,
+        shard_storage_option: bool,
+    ) -> Options {
+        let mut options = Options::default();
+        if let Some(enable_blob_files) = table_options.enable_blob_files {
+            options.set_enable_blob_files(enable_blob_files);
+        }
+        if let Some(min_blob_size) = table_options.min_blob_size {
+            options.set_min_blob_size(min_blob_size);
+        }
+        if let Some(blob_file_size) = table_options.blob_file_size {
+            options.set_blob_file_size(blob_file_size);
+        }
+        if let Some(blob_compression_type) = &table_options.blob_compression_type {
+            let compression_type = match blob_compression_type.as_str() {
+                "none" => DBCompressionType::None,
+                "snappy" => DBCompressionType::Snappy,
+                "zlib" => DBCompressionType::Zlib,
+                "lz4" => DBCompressionType::Lz4,
+                "lz4hc" => DBCompressionType::Lz4hc,
+                "zstd" => DBCompressionType::Zstd,
+                _ => DBCompressionType::None,
+            };
+            options.set_blob_compression_type(compression_type);
+        }
+        if let Some(enable_blob_garbage_collection) = table_options.enable_blob_garbage_collection {
+            options.set_enable_blob_gc(enable_blob_garbage_collection);
+        }
+        if let Some(blob_garbage_collection_age_cutoff) =
+            table_options.blob_garbage_collection_age_cutoff
+        {
+            options.set_blob_gc_age_cutoff(blob_garbage_collection_age_cutoff);
+        }
+        if let Some(blob_garbage_collection_force_threshold) =
+            table_options.blob_garbage_collection_force_threshold
+        {
+            options.set_blob_gc_force_threshold(blob_garbage_collection_force_threshold);
+        }
+        if let Some(blob_compaction_read_ahead_size) = table_options.blob_compaction_read_ahead_size
+        {
+            options.set_blob_compaction_readahead_size(blob_compaction_read_ahead_size);
+        }
+        if let Some(write_buffer_size) = table_options.write_buffer_size {
+            options.set_write_buffer_size(write_buffer_size);
+        }
+        if let Some(target_file_size_base) = table_options.target_file_size_base {
+            options.set_target_file_size_base(target_file_size_base);
+        }
+        if let Some(max_bytes_for_level_base) = table_options.max_bytes_for_level_base {
+            options.set_max_bytes_for_level_base(max_bytes_for_level_base);
+        }
+        if let Some(block_cache_size) = table_options.block_cache_size {
+            let block_cache = if shard_storage_option {
+                if let Some(block_cache) = &self.shared_shard_storage_block_cache {
+                    block_cache.clone()
+                } else {
+                    Cache::new_lru_cache(block_cache_size)
+                }
+            } else {
+                Cache::new_lru_cache(block_cache_size)
+            };
+
+            let block_based_options = get_block_options(
+                &block_cache,
+                table_options.block_size,
+                table_options.pin_l0_filter_and_index_blocks_in_block_cache,
+            );
+            options.set_block_based_table_factory(&block_based_options);
+        }
+        if let Some(soft_pending_compaction_bytes_limit) =
+            table_options.soft_pending_compaction_bytes_limit
+        {
+            options.set_soft_pending_compaction_bytes_limit(soft_pending_compaction_bytes_limit);
+        }
+        if let Some(hard_pending_compaction_bytes_limit) =
+            table_options.hard_pending_compaction_bytes_limit
+        {
+            options.set_hard_pending_compaction_bytes_limit(hard_pending_compaction_bytes_limit);
+        }
+        options
+    }
+
+    /// Returns the global database options.
+    pub fn global(&self) -> GlobalDatabaseOptions {
+        self.config.global()
+    }
+
+    /// Returns the standard (default) database option.
+    pub fn standard(&self) -> Options {
+        self.to_options(&self.config.standard(), false)
+    }
+
+    // Below 5 options are for storage nodes column families that is independent to shard storage.
+
+    /// Returns the node status database option with shared cache.
+    pub fn node_status(&self) -> Options {
+        self.to_options(&self.config.node_status(), false)
+    }
+
+    /// Returns the metadata database option with shared cache.
+    pub fn metadata(&self) -> Options {
+        self.to_options(&self.config.metadata(), false)
+    }
+
+    /// Returns the blob info database option with shared cache.
+    pub fn blob_info(&self) -> Options {
+        self.to_options(&self.config.blob_info(), false)
+    }
+
+    /// Returns the per object blob info database option with shared cache.
+    pub fn per_object_blob_info(&self) -> Options {
+        self.to_options(&self.config.per_object_blob_info(), false)
+    }
+
+    /// Returns the event cursor database option with shared cache.
+    pub fn event_cursor(&self) -> Options {
+        self.to_options(&self.config.event_cursor(), false)
+    }
+
+    // Below 4 options are for shard storage column families.
+
+    /// Returns the shard database option with shared cache.
+    pub fn shard(&self) -> Options {
+        self.to_options(&self.config.shard(), true)
+    }
+
+    /// Returns the shard status database option with shared cache.
+    pub fn shard_status(&self) -> Options {
+        self.to_options(&self.config.shard_status(), true)
+    }
+
+    /// Returns the shard sync progress database option with shared cache.
+    pub fn shard_sync_progress(&self) -> Options {
+        self.to_options(&self.config.shard_sync_progress(), true)
+    }
+
+    /// Returns the pending recover slivers database option with shared cache.
+    pub fn pending_recover_slivers(&self) -> Options {
+        self.to_options(&self.config.pending_recover_slivers(), true)
+    }
+
+    // Below 5 options are for event blob writer column families.
+
+    /// Returns the event blob writer certified database option with shared cache.
+    pub fn certified(&self) -> Options {
+        self.to_options(&self.config.certified(), false)
+    }
+
+    /// Returns the event blob writer pending database option with shared cache.
+    pub fn pending(&self) -> Options {
+        self.to_options(&self.config.pending(), false)
+    }
+
+    /// Returns the event blob writer attested database option with shared cache.
+    pub fn attested(&self) -> Options {
+        self.to_options(&self.config.attested(), false)
+    }
+
+    /// Returns the event blob writer failed to attest database option with shared cache.
+    pub fn failed_to_attest(&self) -> Options {
+        self.to_options(&self.config.failed_to_attest(), false)
+    }
+
+    /// Returns the checkpoint store database option with shared cache.
+    pub fn checkpoint_store(&self) -> Options {
+        self.to_options(&self.config.checkpoint_store(), false)
+    }
+
+    // Below 4 options are for the event processor column families.
+
+    /// Returns the walrus package store database option with shared cache.
+    pub fn walrus_package_store(&self) -> Options {
+        self.to_options(&self.config.walrus_package_store(), false)
+    }
+
+    /// Returns the committee store database option with shared cache.
+    pub fn committee_store(&self) -> Options {
+        self.to_options(&self.config.committee_store(), false)
+    }
+
+    /// Returns the event store database option with shared cache.
+    pub fn event_store(&self) -> Options {
+        self.to_options(&self.config.event_store(), false)
+    }
+
+    /// Returns the init state store database option with shared cache.
+    pub fn init_state(&self) -> Options {
+        self.to_options(&self.config.init_state(), false)
+    }
+}
+
+impl fmt::Debug for DatabaseTableOptionsFactory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DatabaseTableOptionsFactory")?;
+        // write debug info for the config
+        write!(f, "config: {:?}", self.config)?;
+        // write debug info for the block cache
+        write!(
+            f,
+            "shared_shard_storage_block_cache set: {:?}",
+            self.shared_shard_storage_block_cache.is_some()
+        )?;
+        Ok(())
     }
 }
 
@@ -938,6 +1132,43 @@ mod tests {
             config.shard().blob_compression_type,
             Some("test_optimized_for_blobs".to_string())
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_factory_uses_storage_shared_cache_config() -> TestResult {
+        let yaml = indoc! {"
+            shared_shard_storage_block_cache_config:
+                cache_size: 4294967296  # 4 GB
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        assert!(config.shared_shard_storage_block_cache_config.is_some());
+
+        let factory = DatabaseTableOptionsFactory::new(config.clone(), true);
+
+        // Factory should have created a shared cache from the config
+        assert!(factory.shared_shard_storage_block_cache.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_factory_not_uses_storage_shared_cache_config() -> TestResult {
+        let yaml = indoc! {"
+            shared_shard_storage_block_cache_config:
+                cache_size: 4294967296  # 4 GB
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+        assert!(config.shared_shard_storage_block_cache_config.is_some());
+
+        let factory = DatabaseTableOptionsFactory::new(config.clone(), false);
+
+        // Factory should not have created a shared cache from the config, even if the config is
+        // set.
+        assert!(factory.shared_shard_storage_block_cache.is_none());
 
         Ok(())
     }
