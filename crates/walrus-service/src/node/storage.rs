@@ -63,8 +63,15 @@ pub(crate) mod constants;
 mod database_config;
 pub use database_config::DatabaseConfig;
 
-mod event_cursor_table;
+pub(crate) mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
+
+/// Get event cursor table options (exposed for db_options module)
+pub(crate) fn event_cursor_table_options(
+    config: &DatabaseConfig,
+) -> (&'static str, rocksdb::Options) {
+    event_cursor_table::EventCursorTable::options(config)
+}
 
 mod event_sequencer;
 mod metrics;
@@ -265,7 +272,7 @@ impl Storage {
         let metadata_options = metadata_options(&db_config);
         let metadata_cf_name = metadata_cf_name();
         let blob_info_column_families = BlobInfoTable::options(&db_config);
-        let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
+        let (event_cursor_cf_name, event_cursor_options) = event_cursor_table_options(&db_config);
 
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -302,7 +309,7 @@ impl Storage {
             false,
         )?;
 
-        let event_cursor = EventCursorTable::reopen(&database)?;
+        let event_cursor = event_cursor_table::EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use bincode::Options;
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -27,6 +27,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        db_options::{DbType, open_db_readonly},
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -40,13 +41,7 @@ use crate::{
         storage::{
             PrimarySliverData,
             SecondarySliverData,
-            blob_info::{
-                BlobInfo,
-                CertifiedBlobInfoApi,
-                PerObjectBlobInfo,
-                blob_info_cf_options,
-                per_object_blob_info_cf_options,
-            },
+            blob_info::{BlobInfo, CertifiedBlobInfoApi, PerObjectBlobInfo},
             constants::{
                 aggregate_blob_info_cf_name,
                 metadata_cf_name,
@@ -54,12 +49,31 @@ use crate::{
                 primary_slivers_column_family_name,
                 secondary_slivers_column_family_name,
             },
-            metadata_options,
-            primary_slivers_column_family_options,
-            secondary_slivers_column_family_options,
         },
     },
 };
+
+/// Database type selector for db_tools commands
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, Default)]
+pub enum DbTypeArg {
+    /// Main storage database (default)
+    #[default]
+    Main,
+    /// Event processor database
+    EventProcessor,
+    /// Event blob writer database
+    EventBlobWriter,
+}
+
+impl From<DbTypeArg> for DbType {
+    fn from(arg: DbTypeArg) -> Self {
+        match arg {
+            DbTypeArg::Main => DbType::Main,
+            DbTypeArg::EventProcessor => DbType::EventProcessor,
+            DbTypeArg::EventBlobWriter => DbType::EventBlobWriter,
+        }
+    }
+}
 
 /// Database inspection and maintenance tools.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +92,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long)]
+        db_type: DbTypeArg,
         /// Start index of the events to scan.
         #[arg(long)]
         start_event_index: u64,
@@ -91,6 +108,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -105,6 +125,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Start object ID to read.
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -119,6 +142,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Epoch the blobs are in certified status.
         #[arg(long)]
         epoch: Epoch,
@@ -147,6 +173,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -164,6 +193,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -181,6 +213,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "main")]
+        db_type: DbTypeArg,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -198,6 +233,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long, default_value = "event-blob-writer")]
+        db_type: DbTypeArg,
         /// Commands to read event blob writer metadata.
         #[command(subcommand)]
         command: EventBlobWriterCommands,
@@ -208,6 +246,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer)
+        #[arg(long)]
+        db_type: DbTypeArg,
         /// Commands to read event processor metadata.
         #[command(subcommand)]
         command: EventProcessorCommands,
@@ -255,20 +296,27 @@ impl DbToolCommands {
             Self::RepairDb { db_path } => repair_db(db_path),
             Self::ScanEvents {
                 db_path,
+                db_type,
                 start_event_index,
                 count,
-            } => scan_events(db_path, start_event_index, count),
+            } => scan_events(db_path, db_type.into(), start_event_index, count),
             Self::ReadBlobInfo {
                 db_path,
+                db_type,
                 start_blob_id,
                 count,
-            } => read_blob_info(db_path, start_blob_id, count),
+            } => read_blob_info(db_path, db_type.into(), start_blob_id, count),
             Self::ReadObjectBlobInfo {
                 db_path,
+                db_type,
                 start_object_id,
                 count,
-            } => read_object_blob_info(db_path, start_object_id, count),
-            Self::CountCertifiedBlobs { db_path, epoch } => count_certified_blobs(db_path, epoch),
+            } => read_object_blob_info(db_path, db_type.into(), start_object_id, count),
+            Self::CountCertifiedBlobs {
+                db_path,
+                db_type,
+                epoch,
+            } => count_certified_blobs(db_path, db_type.into(), epoch),
             Self::DropColumnFamilies {
                 db_path,
                 column_family_names,
@@ -276,23 +324,36 @@ impl DbToolCommands {
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
             Self::ReadBlobMetadata {
                 db_path,
+                db_type,
                 start_blob_id,
                 count,
                 output_size_only,
-            } => read_blob_metadata(db_path, start_blob_id, count, output_size_only),
+            } => read_blob_metadata(
+                db_path,
+                db_type.into(),
+                start_blob_id,
+                count,
+                output_size_only,
+            ),
             Self::ReadPrimarySlivers {
                 db_path,
+                db_type,
                 start_blob_id,
                 count,
                 shard_index,
-            } => read_primary_slivers(db_path, start_blob_id, count, shard_index),
+            } => read_primary_slivers(db_path, db_type.into(), start_blob_id, count, shard_index),
             Self::ReadSecondarySlivers {
                 db_path,
+                db_type,
                 start_blob_id,
                 count,
                 shard_index,
-            } => read_secondary_slivers(db_path, start_blob_id, count, shard_index),
-            Self::EventBlobWriter { db_path, command } => match command {
+            } => read_secondary_slivers(db_path, db_type.into(), start_blob_id, count, shard_index),
+            Self::EventBlobWriter {
+                db_path,
+                db_type: _,
+                command,
+            } => match command {
                 EventBlobWriterCommands::ReadCertified => read_certified_event_blobs(db_path),
                 EventBlobWriterCommands::ReadAttested => read_attested_event_blobs(db_path),
                 EventBlobWriterCommands::ReadPending { start_seq, count } => {
@@ -302,7 +363,11 @@ impl DbToolCommands {
                     read_failed_to_attest_event_blobs(db_path)
                 }
             },
-            Self::EventProcessor { db_path, command } => match command {
+            Self::EventProcessor {
+                db_path,
+                db_type: _,
+                command,
+            } => match command {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
         }
@@ -316,15 +381,15 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
     DB::repair(&opts, db_path).map_err(Into::into)
 }
 
-fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result<()> {
+fn scan_events(
+    db_path: PathBuf,
+    db_type: DbType,
+    start_event_index: u64,
+    count: usize,
+) -> Result<()> {
     println!("Scanning events from event index {start_event_index}");
-    let opts = RocksdbOptions::default();
-    let db = DB::open_cf_for_read_only(
-        &opts,
-        db_path,
-        [event_processor_constants::EVENT_STORE],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
     let cf = db
         .cf_handle(event_processor_constants::EVENT_STORE)
         .expect("event store column family should exist");
@@ -356,14 +421,14 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: usize) -> Result
     Ok(())
 }
 
-fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize) -> Result<()> {
-    let blob_info_options = blob_info_cf_options(&DatabaseConfig::default());
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(aggregate_blob_info_cf_name(), blob_info_options)],
-        false,
-    )?;
+fn read_blob_info(
+    db_path: PathBuf,
+    db_type: DbType,
+    start_blob_id: Option<BlobId>,
+    count: usize,
+) -> Result<()> {
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let cf = db
         .cf_handle(aggregate_blob_info_cf_name())
@@ -397,16 +462,12 @@ fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize)
 
 fn read_object_blob_info(
     db_path: PathBuf,
+    db_type: DbType,
     start_object_id: Option<ObjectID>,
     count: usize,
 ) -> Result<()> {
-    let per_object_blob_info_options = per_object_blob_info_cf_options(&DatabaseConfig::default());
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(per_object_blob_info_cf_name(), per_object_blob_info_options)],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
@@ -438,14 +499,9 @@ fn read_object_blob_info(
     Ok(())
 }
 
-fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
-    let blob_info_options = blob_info_cf_options(&DatabaseConfig::default());
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(aggregate_blob_info_cf_name(), blob_info_options)],
-        false,
-    )?;
+fn count_certified_blobs(db_path: PathBuf, db_type: DbType, epoch: Epoch) -> Result<()> {
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let cf = db
         .cf_handle(aggregate_blob_info_cf_name())
@@ -511,19 +567,13 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
 
 fn read_blob_metadata(
     db_path: PathBuf,
+    db_type: DbType,
     start_blob_id: Option<BlobId>,
     count: usize,
     output_size_only: bool,
 ) -> Result<()> {
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(
-            metadata_cf_name(),
-            metadata_options(&DatabaseConfig::default()),
-        )],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let Some(cf) = db.cf_handle(metadata_cf_name()) else {
         println!("Metadata column family not found");
@@ -566,20 +616,14 @@ fn read_blob_metadata(
 
 fn read_primary_slivers(
     db_path: PathBuf,
+    db_type: DbType,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: u16,
 ) -> Result<()> {
     let shard_index = ShardIndex::from(shard_index);
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(
-            primary_slivers_column_family_name(shard_index),
-            primary_slivers_column_family_options(&DatabaseConfig::default()),
-        )],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let Some(cf) = db.cf_handle(&primary_slivers_column_family_name(shard_index)) else {
         println!("Primary slivers column family not found for shard {shard_index}");
@@ -614,20 +658,14 @@ fn read_primary_slivers(
 
 fn read_secondary_slivers(
     db_path: PathBuf,
+    db_type: DbType,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: u16,
 ) -> Result<()> {
     let shard_index = ShardIndex::from(shard_index);
-    let db = DB::open_cf_with_opts_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [(
-            secondary_slivers_column_family_name(shard_index),
-            secondary_slivers_column_family_options(&DatabaseConfig::default()),
-        )],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, db_type, &config)?;
 
     let Some(cf) = db.cf_handle(&secondary_slivers_column_family_name(shard_index)) else {
         println!("Secondary slivers column family not found for shard {shard_index}");
@@ -661,12 +699,8 @@ fn read_secondary_slivers(
 }
 
 fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [event_processor_constants::INIT_STATE],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, DbType::EventProcessor, &config)?;
 
     let Some(cf) = db.cf_handle(event_processor_constants::INIT_STATE) else {
         println!("Event processor init state column family not found");
@@ -688,12 +722,8 @@ fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [certified_cf_name()],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, DbType::EventBlobWriter, &config)?;
 
     let Some(cf) = db.cf_handle(certified_cf_name()) else {
         println!("Certified event blobs column family not found");
@@ -713,12 +743,8 @@ fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [attested_cf_name()],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, DbType::EventBlobWriter, &config)?;
 
     let Some(cf) = db.cf_handle(attested_cf_name()) else {
         println!("Attested event blobs column family not found");
@@ -739,12 +765,8 @@ fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: usize) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [pending_cf_name()],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, DbType::EventBlobWriter, &config)?;
 
     let Some(cf) = db.cf_handle(pending_cf_name()) else {
         println!("Pending event blobs column family not found");
@@ -778,12 +800,8 @@ fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: usi
 }
 
 fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(
-        &RocksdbOptions::default(),
-        db_path,
-        [failed_to_attest_cf_name()],
-        false,
-    )?;
+    let config = DatabaseConfig::default();
+    let db = open_db_readonly(&db_path, DbType::EventBlobWriter, &config)?;
 
     let Some(cf) = db.cf_handle(failed_to_attest_cf_name()) else {
         println!("Failed-to-attest event blobs column family not found");
