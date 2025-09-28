@@ -176,6 +176,7 @@ pub mod committee;
 pub mod config;
 pub(crate) mod consistency_check;
 pub mod contract_service;
+pub mod db_options;
 pub mod dbtool;
 pub mod event_blob_writer;
 pub mod server;
