@@ -230,13 +230,79 @@
                 <div id="content" class="content">
                     <main>
                         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
-<h1 id="getting-started"><a class="header" href="#getting-started">Getting started</a></h1>
-<p>You want to get a taste of Walrus? Here are some sites that are built on and/or use Walrus:</p>
+<h1 id="getting-started-with-walrus"><a class="header" href="#getting-started-with-walrus">Getting started with Walrus</a></h1>
+<p>By the end of this Getting Started deep dive, we want you to be able to</p>
 <ul>
-<li><a href="https://flatland.wal.app">Mint a toy NFT</a> on the flatland application.</li>
-<li><a href="https://snowreads.wal.app">Browse scientific papers</a>.</li>
+<li>Explain what a blob is.</li>
+<li>Explain the difference between testnet and mainnet.</li>
+<li>Create a Sui wallet and locate its balances.</li>
+<li>Use the Sui testnet "faucet" to get coins for use in testing Walrus.</li>
+<li>Convert SUI coins to WAL coins on testnet.</li>
+<li>Explain what Walrus "epochs" are.</li>
+<li>Store blobs on Walrus.</li>
+<li>Read blobs from Walrus.</li>
+<li>Extend the lifetime of a blob.</li>
+<li>Delete a blob.</li>
+<li>Understand the fundamentals of public data on Walrus and know where to look for more information.</li>
 </ul>
-<p>You can explore blobs that are stored on Walrus through the <a href="https://walruscan.com">Walruscan explorer</a>.</p>
+<h2 id="blobs"><a class="header" href="#blobs">Blobs</a></h2>
+<p>Walrus is all about blobs. A blob is like a file on your computer. It's an array of bytes that has a
+fixed size. Just like your local file system, Walrus is indifferent to the type of data being stored. It could be text, images, videos, source code, etc. To Walrus it's just a "blob" of data.</p>
+<p>To store a blob on Walrus, you upload it to the Walrus network. From then on you (and others) can refer to it by its <code>blob_id</code>. Blobs are immutable which means their contents - once written - cannot change. Blobs are generally <em>owned</em> by an <a href="https://www.notion.so/Getting-started-with-Walrus-27d6d9dcb4e980b7b6d3e92b6982bb87?pvs=21">Address</a>. Blobs have a finite lifetime but can be extended indefinitely.</p>
+<p>TK figure out the right info-architecture transition here.</p>
+<aside>
+💡 Walrus depends on Sui.
+</aside>
+<h2 id="sui"><a class="header" href="#sui">Sui</a></h2>
+<p>Because Walrus depends on Sui, it's important to digress a bit from our focus on Walrus to make sure you're up to speed on some details about Sui.</p>
+<h3 id="testnet-and-mainnet"><a class="header" href="#testnet-and-mainnet">Testnet and Mainnet</a></h3>
+<p>Sui and Walrus are both decentralized distributed systems. In practice this means they are made up of a bunch of independent servers communicating and collectively establishing shared state. A group of servers together is called a network.</p>
+<p>Sui and Walrus each have multiple corresponding networks.</p>
+<ul>
+<li><strong>Testnet</strong> is a sandbox-like network where coins are free and software packages can be built, tested, and debugged without fear of losing money or losing valuable data.</li>
+<li><strong>Mainnet</strong> is the production environment where coins are typically <em>not</em> free, and folks depend on various package behaviors.</li>
+</ul>
+<p>When you are getting started, it's best to play around in <strong>Testnet</strong> until you get the hang of the
+various tools and the larger ecosystem.</p>
+<h3 id="addresses-and-accounts"><a class="header" href="#addresses-and-accounts">Addresses and Accounts</a></h3>
+<p>Sui has the concept of Addresses and Accounts. Think of them like a mailbox and a key. These are important for Walrus because when you store blobs on Walrus, they will be bound to an Object on Sui, that is owned by an Address, potentially the Address of your Account.</p>
+<h3 id="address"><a class="header" href="#address">Address</a></h3>
+<p>A <strong>unique location</strong> on the blockchain, like a mailbox number. Anyone can see it and send things to
+it (like cryptocurrency or digital items). It's just a public identifier - a string of letters and numbers like <code>0x1234abcd...</code></p>
+<ul>
+<li>A 32-byte identifier (displayed as 64 hex characters with <code>0x</code> prefix)</li>
+<li>Represents a location on the blockchain that can own objects</li>
+<li>Derived from a public key using a hash function</li>
+</ul>
+<h3 id="account"><a class="header" href="#account">Account</a></h3>
+<p>An address <strong>plus the key to access it</strong>. If you have the private key (like a mailbox key), you can
+actually use what's stored at that address - send money, move items, etc.</p>
+<p>Another simple analogy would be that an <strong>address</strong> is like your email address (public, anyone can
+send you stuff), and an <strong>account</strong> is like your email address + the password (you can read and send emails).</p>
+<p>You can have an address without controlling it, but an account means you have both the address and the ability to use it.</p>
+<ul>
+<li>An <strong>account</strong> is the combination of an address and its controlling private key</li>
+<li>Represents actual ownership and control</li>
+<li>The private key holder can sign transactions for that address</li>
+</ul>
+<h3 id="sui-objects"><a class="header" href="#sui-objects">Sui Objects</a></h3>
+<p>Sui is a blockchain that supports programmability at a <a href="https://docs.sui.io/concepts/transactions/prog-txn-blocks">fundamental level</a>. Almost everything on Sui is an object. This includes Walrus Blobs. Importantly, objects within Sui are subject to
+<a href="https://docs.sui.io/concepts/object-ownership">ownership</a> rules. For the purpose of this deep dive, we'll only look at "Address-Owned" objects, but be aware that there are other types of ownership.</p>
+<p><strong>Object Ownership</strong>: Objects on Sui are owned by addresses, not accounts. The distinction matters for:</p>
+<ul>
+<li>Shared objects (no single controlling account)</li>
+<li>Immutable objects (no account can modify)</li>
+<li>Address-owned objects (controlled by whoever has the private key)</li>
+</ul>
+<h3 id="sui-transactions"><a class="header" href="#sui-transactions">Sui Transactions</a></h3>
+<p>Changes to objects on Sui happen through the use of transactions. We won't say too much about
+transactions, except that they are a low-level primitive that Sui uses to change data on the blockchain. These transactions are <em>signed</em> by accounts on behalf of addresses and result in objects being created, updated, transferred, and sometimes destroyed. Learn more about
+<a href="https://docs.sui.io/concepts/transactions">transactions</a>.</p>
+<h3 id="walrus-and-sui"><a class="header" href="#walrus-and-sui">Walrus and Sui</a></h3>
+<p>Sui allows its users to store information in and emit events onto the blockchain. Walrus leverages these capabilities to track Blobs, their respective owners, and their lifetimes, as well as many other aspects of the Walrus network that we can get into later. For now, let's move on to getting our hands dirty with the tools.</p>
+<h2 id="setting-up-sui"><a class="header" href="#setting-up-sui">Setting up Sui</a></h2>
+<p>TK continue from here
+######################</p>
 
                     </main>
 
