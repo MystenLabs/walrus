@@ -12763,7 +12763,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.16",
  "tracing",
- "typed-store 1.34.0",
+ "typed-store 1.35.0",
  "walrus-core",
  "walrus-sdk",
  "walrus-service",
