@@ -51,6 +51,11 @@ use walrus_utils::{
     metrics::{OwnedGaugeGuard, Registry, TaskMonitorFamily},
 };
 
+mod tracing_export;
+pub(crate) use tracing_export::TracingSubscriberBuilder;
+mod subscriber_guard;
+pub use subscriber_guard::SubscriberGuard;
+
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 

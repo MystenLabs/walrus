@@ -95,6 +95,7 @@ diesel-async = { workspace = true, optional = true }
 diesel_migrations = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
+flate2 = "1"
 futures.workspace = true
 futures-util.workspace = true
 home.workspace = true
@@ -116,12 +117,14 @@ num-bigint.workspace = true
 object_store = { workspace = true, optional = true }
 opentelemetry.workspace = true
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
+opentelemetry-proto.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
+prost = { workspace = true, features = ["std"] }
 rand.workspace = true
 rayon.workspace = true
 rcgen.workspace = true
@@ -171,6 +174,7 @@ walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "log", "metrics", "tokio-metrics"] }
 x509-cert = { workspace = true, optional = true }
+zstd = "0.13.3"
 
 [dev-dependencies]
 hex.workspace = true

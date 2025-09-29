@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
@@ -96,10 +96,19 @@ pub struct App {
     #[serde(default)]
     pub json: bool,
 
-    /// Enable tracing output for the CLI.
-    #[arg(long, default_value_t = false, global = true)]
+    /// Enable tracing output for the CLI, possible options are 'otlp' and 'file=<path>'.
+    ///
+    /// The value 'otlp' sends the traces to an OTLP trace collector. The destination can be
+    /// configured using standard OTLP environment variables.
+    ///
+    /// The value 'file=<path>' writes JSON-encoded gzipped traces to the file at the specified
+    /// path. These traces can later be replayed to an OTLP/HTTP collector.
+    ///
+    /// See https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/ for more
+    /// information on OTLP environment variables.
+    #[arg(long, global = true)]
     #[serde(default)]
-    pub trace_cli: bool,
+    pub trace_cli: Option<TraceExporter>,
 
     /// The command to run.
     #[command(subcommand)]
@@ -1616,6 +1625,29 @@ impl NodeSelection {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum TraceExporter {
+    #[serde(rename = "otlp")]
+    Otlp,
+    #[serde(rename = "file")]
+    File(PathBuf),
+}
+
+impl FromStr for TraceExporter {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s == "otlp" {
+            Ok(TraceExporter::Otlp)
+        } else if s.starts_with("file=") {
+            let (_, path) = s.split_once('=').expect("checked for equal sign above");
+            Ok(TraceExporter::File(Path::new(path).into()))
+        } else {
+            Err(anyhow::anyhow!("unrecognised trace exporter '{}'", s))
+        }
+    }
+}
+
 /// The number of epochs to store the blob for.
 ///
 /// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
@@ -1909,7 +1941,7 @@ mod tests {
             wallet: None,
             gas_budget: None,
             json: false,
-            trace_cli: false,
+            trace_cli: None,
             command: Commands::Json {
                 command_string: Some(json.to_string()),
             },

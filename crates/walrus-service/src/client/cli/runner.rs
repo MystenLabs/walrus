@@ -108,6 +108,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
+            args::TraceExporter,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -141,6 +142,7 @@ use crate::{
             WalletOutput,
         },
     },
+    common::telemetry::TracingSubscriberBuilder,
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
 
@@ -194,10 +196,25 @@ impl ClientCommandRunner {
     ///
     /// Consumes `self`.
     #[tokio::main]
-    pub async fn run_cli_app(self, command: CliCommands, enable_tracing: bool) -> Result<()> {
+    pub async fn run_cli_app(
+        self,
+        command: CliCommands,
+        trace_cli: Option<TraceExporter>,
+    ) -> Result<()> {
         let result = {
+            let mut subscriber_builder = TracingSubscriberBuilder::default();
+            match trace_cli {
+                Some(TraceExporter::Otlp) => {
+                    subscriber_builder.with_otlp_trace_exporter();
+                }
+                Some(TraceExporter::File(path)) => {
+                    subscriber_builder.with_file_trace_exporter(path);
+                }
+                None => (),
+            }
             // Since we may export OTLP, this needs to be initialised in an async context.
-            let _guard = utils::init_tracing_subscriber(enable_tracing)?;
+            let _guard = subscriber_builder.init()?;
+
             self.run_cli_app_inner(command).await
         };
 

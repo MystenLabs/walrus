@@ -5,7 +5,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    env,
     fmt::Debug,
     future::Future,
     mem,
@@ -18,19 +17,13 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use fastcrypto::{
     encoding::Base64,
     secp256r1::Secp256r1KeyPair,
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
 use futures::future::FusedFuture;
-use opentelemetry::{KeyValue, trace::TracerProvider};
-use opentelemetry_sdk::{
-    Resource,
-    trace::{RandomIdGenerator, Sampler, TracerProvider as SdkTracerProvider},
-};
-use opentelemetry_semantic_conventions::attribute::{SERVICE_NAME, SERVICE_VERSION};
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
@@ -44,9 +37,6 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{Subscriber, level_filters::LevelFilter, subscriber::DefaultGuard};
-use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
@@ -57,7 +47,10 @@ use walrus_sui::{
 };
 use walrus_utils::metrics::{Registry, monitored_scope};
 
-use crate::node::config::MetricsPushConfig;
+use crate::{
+    common::telemetry::{SubscriberGuard, TracingSubscriberBuilder},
+    node::config::MetricsPushConfig,
+};
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -623,140 +616,15 @@ pub fn export_contract_info(
         .set(1);
 }
 
-/// Guard which performs any shutdown actions for a subscriber on drop.
-#[derive(Default, Debug)]
-pub struct SubscriberGuard {
-    tracer_provider: Option<SdkTracerProvider>,
-    default_guard: Option<DefaultGuard>,
-}
-
-impl SubscriberGuard {
-    fn with_default_guard(mut self, guard: DefaultGuard) -> Self {
-        self.default_guard = Some(guard);
-        self
-    }
-
-    fn otlp(provider: SdkTracerProvider) -> Self {
-        Self {
-            tracer_provider: Some(provider),
-            default_guard: None,
-        }
-    }
-}
-
-impl Drop for SubscriberGuard {
-    fn drop(&mut self) {
-        if let Some(provider) = self.tracer_provider.take() {
-            for result in provider.force_flush() {
-                if let Err(err) = result {
-                    eprintln!("{err:?}");
-                }
-            }
-
-            if let Err(err) = provider.shutdown() {
-                eprintln!("{err:?}");
-            }
-        }
-    }
-}
-
-/// Prepare the tracing subscriber based on the environment variables.
-fn prepare_subscriber(
-    default_log_format: Option<&str>,
-    enable_tracing: bool,
-) -> Result<(impl Subscriber + SubscriberInitExt, SubscriberGuard)> {
-    // Use INFO level by default.
-    let directive = format!(
-        "info,{}",
-        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
-    );
-    let layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
-
-    // Control output format based on `LOG_FORMAT` env variable.
-    let format = env::var("LOG_FORMAT")
-        .ok()
-        .or_else(|| default_log_format.map(|fmt| fmt.to_string()));
-
-    let layer = if let Some(format) = &format {
-        match format.to_lowercase().as_str() {
-            "default" => layer.boxed(),
-            "compact" => layer.compact().boxed(),
-            "pretty" => layer.pretty().boxed(),
-            "json" => layer.json().boxed(),
-            s => Err(anyhow!("LOG_FORMAT '{}' is not supported", s))?,
-        }
-    } else {
-        layer.boxed()
-    };
-
-    let (otlp_layer, guard) = if enable_tracing {
-        let tracer_provider = init_tracer_provider();
-        let tracer = tracer_provider.tracer("tracing-otel-subscriber");
-        let filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .with_env_var("TRACE_FILTER")
-            .from_env()
-            .context("failed to parse the TRACE_FILTER  environment variable")?;
-
-        (
-            Some(OpenTelemetryLayer::new(tracer).with_filter(filter)),
-            SubscriberGuard::otlp(tracer_provider),
-        )
-    } else {
-        (None, SubscriberGuard::default())
-    };
-
-    let subscriber = tracing_subscriber::registry()
-        .with(layer.with_filter(EnvFilter::new(directive.clone())).boxed())
-        .with(otlp_layer);
-
-    Ok((subscriber, guard))
-}
-
-fn resource() -> Resource {
-    Resource::new([
-        KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-        KeyValue::new(SERVICE_NAME, "walrus-cli"),
-    ])
-}
-
-// Construct TracerProvider for OpenTelemetryLayer
-fn init_tracer_provider() -> SdkTracerProvider {
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .expect("building the OTLP exporter during startup should not fail");
-
-    SdkTracerProvider::builder()
-        // Customize sampling strategy
-        .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-            1.0,
-        ))))
-        // If export trace to AWS X-Ray, you can use XrayIdGenerator
-        .with_id_generator(RandomIdGenerator::default())
-        .with_resource(resource())
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .build()
-}
-
-/// Initializes the logger and tracing subscriber as the global subscriber. This routine expresses
+/// Initializes the logger as the global subscriber. This routine expresses
 /// no preference for the log format.
-pub fn init_tracing_subscriber(enable_tracing: bool) -> Result<SubscriberGuard> {
-    let (subscriber, guard) = prepare_subscriber(None, enable_tracing)?;
-
-    subscriber.init();
-
-    tracing::debug!("initialized global tracing subscriber");
-    Ok(guard)
+pub fn init_tracing_subscriber() -> Result<SubscriberGuard> {
+    TracingSubscriberBuilder::default().init()
 }
 
 /// Initializes the logger and tracing subscriber as the subscriber for the current scope.
 pub fn init_scoped_tracing_subscriber() -> Result<SubscriberGuard> {
-    let (subscriber, mut guard) = prepare_subscriber(None, false)?;
-    let default_guard = subscriber.set_default();
-    guard = guard.with_default_guard(default_guard);
-    tracing::debug!("initialized scoped tracing subscriber");
-    Ok(guard)
+    TracingSubscriberBuilder::default().init_scoped()
 }
 
 /// Wait for SIGINT and SIGTERM (unix only).

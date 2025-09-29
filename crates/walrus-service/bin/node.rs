@@ -491,7 +491,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if !matches!(args.command, Commands::Run { .. }) {
-        utils::init_tracing_subscriber(false)?;
+        utils::init_tracing_subscriber()?;
     }
 
     match args.command {
