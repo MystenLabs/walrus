@@ -48,7 +48,7 @@ pub struct BlobEncoder<'a> {
     /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
     n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
-    config: EncodingConfigEnum<'a>,
+    config: EncodingConfigEnum,
     /// A tracing span associated with this blob encoder.
     span: Span,
 }
@@ -68,7 +68,7 @@ impl<'a> BlobEncoder<'a> {
     ///    [`EncodingConfigEnum::max_blob_size`] method.
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
-    pub fn new(config: EncodingConfigEnum<'a>, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: EncodingConfigEnum, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
         let symbol_size = utils::compute_symbol_size_from_usize(
             blob.len(),
@@ -244,7 +244,7 @@ impl<'a> BlobEncoder<'a> {
     /// Computes the fully expanded message matrix by encoding rows and columns.
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix<'_> {
         self.span
-            .in_scope(|| ExpandedMessageMatrix::new(&self.config, self.symbol_size, self.blob))
+            .in_scope(|| ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob))
     }
 }
 
@@ -257,7 +257,7 @@ struct ExpandedMessageMatrix<'a> {
     matrix: Vec<Symbols>,
     // INV: `blob.len() > 0`
     blob: &'a [u8],
-    config: &'a EncodingConfigEnum<'a>,
+    config: EncodingConfigEnum,
     /// The number of rows in the non-expanded message matrix.
     n_rows: usize,
     /// The number of columns in the non-expanded message matrix.
@@ -266,7 +266,7 @@ struct ExpandedMessageMatrix<'a> {
 }
 
 impl<'a> ExpandedMessageMatrix<'a> {
-    fn new(config: &'a EncodingConfigEnum<'a>, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+    fn new(config: EncodingConfigEnum, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
         let matrix = vec![
             Symbols::zeros(config.n_shards_as_usize(), symbol_size);
@@ -275,9 +275,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
         let mut expanded_matrix = Self {
             matrix,
             blob,
-            config,
             n_rows: config.n_source_symbols::<Primary>().get().into(),
             n_columns: config.n_source_symbols::<Secondary>().get().into(),
+            config,
             symbol_size,
         };
         expanded_matrix.fill_systematic_with_rows();
