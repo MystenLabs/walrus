@@ -247,6 +247,13 @@ impl BackgroundEventProcessor {
 
         fail_point_async!("fail_point_process_blob_certified_event");
 
+        tracing::debug!(
+            %event.blob_id,
+            %event.epoch,
+            %event.is_extension,
+            "syncing blob during certified event processing",
+        );
+
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
             .start_sync(event.blob_id, event.epoch, Some(event_handle))
