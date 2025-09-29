@@ -1047,6 +1047,12 @@ impl ShardStorage {
                 .inc_by(fetched_slivers.len() as u64);
 
                 if last_synced_blob_id.is_none() {
+                    // TODO(WAL-1050): when the remote server returns no slivers, it is possible
+                    // that the local shard is still expecting more slivers (end_of_range is still
+                    //false). In this case, the buffer may still have slivers that are not flushed
+                    // to the database.
+                    // We need to make sure that the after this loop finishes, the last batch
+                    // in the buffer is flushed to the database.
                     break;
                 }
             }
