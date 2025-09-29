@@ -34,6 +34,7 @@ public fun test_event_blob_certify_happy_path() {
             ROOT_HASH,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             100,
             0,
             ctx,
@@ -67,6 +68,7 @@ public fun test_event_blob_certify_repeated_attestation() {
         ROOT_HASH,
         SIZE,
         RS2,
+        0, // chunk_size for RS2
         100,
         0,
         ctx,
@@ -79,6 +81,7 @@ public fun test_event_blob_certify_repeated_attestation() {
         ROOT_HASH,
         SIZE,
         RS2,
+        0, // chunk_size for RS2
         100,
         0,
         ctx,
@@ -107,6 +110,7 @@ public fun test_multiple_event_blobs_in_flight() {
             0xabc,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             100,
             0,
             ctx,
@@ -117,6 +121,7 @@ public fun test_multiple_event_blobs_in_flight() {
             0xdef,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             200,
             0,
             ctx,
@@ -146,6 +151,7 @@ public fun test_event_blob_certify_change_epoch() {
             ROOT_HASH,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             100,
             0,
             ctx,
@@ -171,6 +177,7 @@ public fun test_event_blob_certify_change_epoch() {
         ROOT_HASH,
         SIZE,
         RS2,
+        0, // chunk_size for RS2
         100,
         1,
         ctx,
@@ -191,6 +198,7 @@ public fun test_event_blob_certify_change_epoch() {
             ROOT_HASH,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             100,
             1,
             ctx,
@@ -235,6 +243,7 @@ public fun test_certify_invalid_blob_id() {
                 i,
                 SIZE,
                 RS2,
+                0, // chunk_size for RS2
                 good_checkpoint,
                 0,
                 ctx,
@@ -258,6 +267,7 @@ public fun test_certify_invalid_blob_id() {
             0xbeef,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             bad_checkpoint,
             0,
             ctx,
@@ -298,6 +308,7 @@ public fun test_block_blob_events() {
                 i as u256,
                 SIZE,
                 RS2,
+                0, // chunk_size for RS2
                 good_cp,
                 0,
                 ctx,
@@ -320,6 +331,7 @@ public fun test_block_blob_events() {
             hash,
             SIZE,
             RS2,
+            0, // chunk_size for RS2
             bad_cp,
             0,
             ctx,

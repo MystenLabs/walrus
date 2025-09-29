@@ -494,6 +494,8 @@ pub trait BlobMetadataApi {
 pub enum BlobMetadata {
     /// Version 1 of the blob metadata.
     V1(BlobMetadataV1),
+    /// Version 2 of the blob metadata with chunk support.
+    V2(BlobMetadataV2),
 }
 
 impl BlobMetadata {
@@ -515,6 +517,7 @@ impl BlobMetadata {
     pub fn encoding_type(&self) -> EncodingType {
         match self {
             BlobMetadata::V1(inner) => inner.encoding_type,
+            BlobMetadata::V2(inner) => inner.encoding_type,
         }
     }
 
@@ -525,6 +528,7 @@ impl BlobMetadata {
     pub fn mut_inner(&mut self) -> &mut BlobMetadataV1 {
         match self {
             BlobMetadata::V1(inner) => inner,
+            BlobMetadata::V2(_) => panic!("mut_inner called on V2 metadata"),
         }
     }
 }
@@ -599,6 +603,113 @@ impl BlobMetadataApi for BlobMetadataV1 {
 
     fn hashes(&self) -> &Vec<SliverPairMetadata> {
         &self.hashes
+    }
+}
+
+/// Metadata about a blob with chunked encoding, without its corresponding [`BlobId`].
+///
+/// For chunked blobs, the blob-level hashes are Merkle tree roots computed over chunk-level hashes.
+/// This enables streaming decoding where each chunk can be decoded independently with proof verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobMetadataV2 {
+    /// The type of encoding used to erasure encode the blob (should be RS2Chunked).
+    pub encoding_type: EncodingType,
+    /// The length of the unencoded blob.
+    pub unencoded_length: u64,
+    /// The blob-level hashes over the slivers (Merkle tree roots over chunk hashes).
+    pub hashes: Vec<SliverPairMetadata>,
+    /// The number of chunks in the blob.
+    pub num_chunks: u32,
+    /// The size of each chunk in bytes (all chunks except possibly the last are this size).
+    pub chunk_size: u64,
+    /// The chunk-level hashes for all chunks and slivers.
+    ///
+    /// Structure: `chunk_hashes[chunk_index][sliver_pair_index]`
+    /// This allows storage nodes to provide Merkle proofs when serving chunk slivers.
+    pub chunk_hashes: Vec<Vec<SliverPairMetadata>>,
+}
+
+impl BlobMetadataApi for BlobMetadataV2 {
+    fn get_sliver_hash(
+        &self,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Option<&MerkleNode> {
+        self.hashes.get(sliver_pair_index.as_usize()).map(
+            |sliver_pair_metadata| match sliver_type {
+                SliverType::Primary => &sliver_pair_metadata.primary_hash,
+                SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
+            },
+        )
+    }
+
+    fn compute_root_hash(&self) -> MerkleNode {
+        MerkleTree::<Blake2b256>::build(
+            self.hashes
+                .iter()
+                .map(|h| h.pair_leaf_input::<Blake2b256>()),
+        )
+        .root()
+    }
+
+    fn symbol_size(
+        &self,
+        encoding_config: &EncodingConfig,
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        // For chunked encoding, symbol size is computed based on chunk size, not total blob size
+        encoding_config
+            .get_for_type(self.encoding_type)
+            .symbol_size_for_blob(self.chunk_size)
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        // For chunked blobs, encoded size is computed per chunk and summed
+        let n_shards = NonZeroU16::new(self.hashes.len().try_into().ok()?)?;
+
+        // Each chunk (except possibly last) has the same encoded size
+        let chunk_encoded_size =
+            encoded_blob_length_for_n_shards(n_shards, self.chunk_size, self.encoding_type)?;
+
+        // Last chunk may be smaller
+        let last_chunk_size =
+            self.unencoded_length - (u64::from(self.num_chunks - 1) * self.chunk_size);
+        let last_chunk_encoded_size = if last_chunk_size < self.chunk_size {
+            encoded_blob_length_for_n_shards(n_shards, last_chunk_size, self.encoding_type)?
+        } else {
+            chunk_encoded_size
+        };
+
+        Some(chunk_encoded_size * u64::from(self.num_chunks - 1) + last_chunk_encoded_size)
+    }
+
+    fn encoding_type(&self) -> EncodingType {
+        self.encoding_type
+    }
+
+    fn unencoded_length(&self) -> u64 {
+        self.unencoded_length
+    }
+
+    fn hashes(&self) -> &Vec<SliverPairMetadata> {
+        &self.hashes
+    }
+}
+
+impl BlobMetadataV2 {
+    /// Returns the chunk-level hash for a specific chunk and sliver pair.
+    pub fn get_chunk_sliver_hash(
+        &self,
+        chunk_index: u32,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Option<&MerkleNode> {
+        self.chunk_hashes
+            .get(chunk_index as usize)?
+            .get(sliver_pair_index.as_usize())
+            .map(|metadata| match sliver_type {
+                SliverType::Primary => &metadata.primary_hash,
+                SliverType::Secondary => &metadata.secondary_hash,
+            })
     }
 }
 

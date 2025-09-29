@@ -290,6 +290,7 @@ fn prepare_blob_metadata() -> BlobObjectMetadata {
         unencoded_size: size,
         encoded_size: resource_size,
         encoding_type,
+        chunk_size: 0, // RS2 blobs don't use chunks
     }
 }
 

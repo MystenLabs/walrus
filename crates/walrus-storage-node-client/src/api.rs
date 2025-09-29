@@ -328,3 +328,27 @@ pub struct EventProgress {
     /// The highest event index that has been finished.
     pub highest_finished_event_index: Option<u64>,
 }
+
+/// A sliver for a specific chunk, along with Merkle proofs for verification.
+///
+/// For chunked blobs (RS2_CHUNKED encoding), this response provides both:
+/// 1. A proof from the sliver symbols to the chunk-level hash
+/// 2. A proof from the chunk-level hash to the blob-level hash
+///
+/// This enables clients to verify individual chunks without downloading the entire blob.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkedSliverWithProof {
+    /// The index of the chunk within the blob.
+    pub chunk_index: u32,
+    /// Merkle proof from sliver symbols to chunk-level hash.
+    ///
+    /// This proves that the sliver data is correctly part of this specific chunk.
+    #[schema(value_type = [u8])]
+    pub chunk_level_proof: Vec<u8>,
+    /// Merkle proof from chunk-level hash to blob-level hash.
+    ///
+    /// This proves that the chunk is correctly part of the overall blob.
+    #[schema(value_type = [u8])]
+    pub blob_level_proof: Vec<u8>,
+}

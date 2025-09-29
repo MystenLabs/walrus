@@ -244,6 +244,32 @@ impl<W> NodeCommunication<'_, W> {
         self.to_node_result(1, sliver)
     }
 
+    /// Retrieves a chunk sliver for a chunked blob from the storage node.
+    pub async fn retrieve_chunk_sliver<A: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        chunk_index: u32,
+        shard_index: ShardIndex,
+    ) -> NodeResult<SliverData<A>, NodeError>
+    where
+        SliverData<A>: TryFrom<Sliver>,
+    {
+        tracing::debug!(
+            walrus.shard_index = %shard_index,
+            walrus.chunk_index = chunk_index,
+            sliver_type = A::NAME,
+            "retrieving chunk sliver"
+        );
+        let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
+        let sliver = self
+            .client
+            .get_chunk_sliver(metadata.blob_id(), chunk_index, sliver_pair_index)
+            .await;
+
+        // Each sliver is in this case requested individually, so the weight is 1.
+        self.to_node_result(1, sliver)
+    }
+
     /// Requests the status for a blob ID from the node.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> NodeResult<BlobStatus, NodeError> {
@@ -358,9 +384,7 @@ impl NodeWriteCommunication<'_> {
                 blob_id = %metadata.blob_id(),
                 "finished storing metadata on node");
 
-            let n_stored_slivers = self
-                .store_pairs(metadata.blob_id(), &metadata_status, pairs)
-                .await?;
+            let n_stored_slivers = self.store_pairs(metadata, &metadata_status, pairs).await?;
             tracing::debug!(
                 node = %self.node.public_key,
                 n_stored_slivers,
@@ -416,25 +440,48 @@ impl NodeWriteCommunication<'_> {
     /// Returns the number of slivers stored (twice the number of pairs).
     async fn store_pairs(
         &self,
-        blob_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
         metadata_status: &StoredOnNodeStatus,
         pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Result<usize, SliverStoreError> {
-        let mut requests = pairs
-            .into_iter()
-            .flat_map(|pair| {
+        let blob_id = metadata.blob_id();
+
+        // Determine number of shards per chunk for chunked blobs
+        let (num_chunks, shards_per_chunk) = match metadata.metadata() {
+            walrus_core::metadata::BlobMetadata::V2(v2) if v2.num_chunks > 1 => {
+                let n_shards =
+                    u32::try_from(v2.hashes.len()).expect("number of shards fits in u32");
+                (v2.num_chunks, n_shards)
+            }
+            _ => (1, 0), // Non-chunked or single-chunk blob
+        };
+
+        let pairs_vec: Vec<_> = pairs.into_iter().collect();
+        let mut requests = pairs_vec
+            .iter()
+            .enumerate()
+            .flat_map(|(pair_idx, pair)| {
+                // Calculate chunk_index for chunked blobs
+                let chunk_index = if num_chunks > 1 {
+                    Some(u32::try_from(pair_idx).expect("fits in u32") / shards_per_chunk)
+                } else {
+                    None
+                };
+
                 vec![
                     Either::Left(self.check_and_store_sliver(
                         blob_id,
                         metadata_status,
                         &pair.primary,
                         pair.index(),
+                        chunk_index,
                     )),
                     Either::Right(self.check_and_store_sliver(
                         blob_id,
                         metadata_status,
                         &pair.secondary,
                         pair.index(),
+                        chunk_index,
                     )),
                 ]
             })
@@ -475,10 +522,12 @@ impl NodeWriteCommunication<'_> {
         metdadata_status: &StoredOnNodeStatus,
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
+        chunk_index: Option<u32>,
     ) -> Result<(), SliverStoreError> {
         let print_debug = |message| {
             tracing::debug!(
                 ?pair_index,
+                ?chunk_index,
                 sliver_type=?A::sliver_type(),
                 sliver_len=sliver.len(),
                 message
@@ -493,13 +542,16 @@ impl NodeWriteCommunication<'_> {
                 "the sliver is sufficiently small not to require a status check; \
                 storing the sliver",
             );
-        } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
+        } else if self
+            .get_sliver_status::<A>(blob_id, pair_index, chunk_index)
+            .await?
             == StoredOnNodeStatus::Nonexistent
         {
             print_debug("the sliver is not stored on the node; storing the sliver");
         } else {
             tracing::debug!(
                 ?pair_index,
+                ?chunk_index,
                 sliver_type=?A::sliver_type(),
                 sliver_len=sliver.len(),
                 "the sliver is already stored on the node"
@@ -507,7 +559,8 @@ impl NodeWriteCommunication<'_> {
             return Ok(());
         }
 
-        self.store_sliver(blob_id, sliver, pair_index).await
+        self.store_sliver(blob_id, sliver, pair_index, chunk_index)
+            .await
     }
 
     /// Stores a sliver on a node.
@@ -516,14 +569,18 @@ impl NodeWriteCommunication<'_> {
         blob_id: &BlobId,
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
+        chunk_index: Option<u32>,
     ) -> Result<(), SliverStoreError> {
-        self.retry_with_limits_and_backoff(|| self.client.store_sliver(blob_id, pair_index, sliver))
-            .await
-            .map_err(|error| SliverStoreError {
-                pair_index,
-                sliver_type: A::sliver_type(),
-                error,
-            })
+        self.retry_with_limits_and_backoff(|| {
+            self.client
+                .store_sliver(blob_id, pair_index, sliver, chunk_index)
+        })
+        .await
+        .map_err(|error| SliverStoreError {
+            pair_index,
+            sliver_type: A::sliver_type(),
+            error,
+        })
     }
 
     /// Requests the status for sliver after retrying.
@@ -531,9 +588,11 @@ impl NodeWriteCommunication<'_> {
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
+        chunk_index: Option<u32>,
     ) -> Result<StoredOnNodeStatus, SliverStoreError> {
         self.retry_with_limits_and_backoff(|| {
-            self.client.get_sliver_status::<A>(blob_id, pair_index)
+            self.client
+                .get_sliver_status::<A>(blob_id, pair_index, chunk_index)
         })
         .await
         .map_err(|error| SliverStoreError {

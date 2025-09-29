@@ -81,6 +81,7 @@ public fun certify_event_blob(
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    chunk_size: u64,
     ending_checkpoint_sequence_num: u64,
     epoch: u32,
     ctx: &mut TxContext,
@@ -93,6 +94,7 @@ public fun certify_event_blob(
             root_hash,
             size,
             encoding_type,
+            chunk_size,
             ending_checkpoint_sequence_num,
             epoch,
             ctx,
@@ -129,6 +131,7 @@ public fun reserve_space_for_epochs(
 /// Registers a new blob in the system.
 /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
 /// least the size of the encoded blob.
+/// For RS2_CHUNKED encoding, `chunk_size` specifies the chunk size. For RS2, pass 0.
 public fun register_blob(
     self: &mut System,
     storage: Storage,
@@ -136,6 +139,7 @@ public fun register_blob(
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    chunk_size: u64,
     deletable: bool,
     write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
@@ -148,6 +152,7 @@ public fun register_blob(
             root_hash,
             size,
             encoding_type,
+            chunk_size,
             deletable,
             write_payment,
             ctx,

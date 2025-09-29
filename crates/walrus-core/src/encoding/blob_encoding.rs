@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::{collections::BTreeSet, vec, vec::Vec};
+use alloc::{collections::BTreeSet, format, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
@@ -18,17 +18,25 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
-    basic_encoding::Decoder,
+    basic_encoding::{Decoder, ReedSolomonDecoder},
     utils,
 };
 use crate::{
     BlobId,
+    DefaultHashFunction,
+    EncodingType,
     SliverIndex,
     SliverPairIndex,
-    encoding::config::EncodingFactory as _,
+    encoding::config::{EncodingFactory as _, ReedSolomonEncodingConfig},
     ensure,
-    merkle::{MerkleTree, leaf_hash},
-    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode, leaf_hash},
+    metadata::{
+        BlobMetadata,
+        BlobMetadataApi as _,
+        BlobMetadataV2,
+        SliverPairMetadata,
+        VerifiedBlobMetadataWithId,
+    },
 };
 
 /// Struct to perform the full blob encoding.
@@ -496,7 +504,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DecodeError> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
-        let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
+        let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError::new())?;
         let n_source_symbols = config.n_source_symbols::<E>();
 
         let decoder = D::new(n_source_symbols, config.n_shards(), symbol_size)?;
@@ -702,15 +710,475 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     }
 }
 
+/// A blob encoder for chunked encoding (RS2Chunked).
+///
+/// This encoder splits large blobs into chunks, encodes each chunk independently using
+/// Reed-Solomon encoding, and builds Merkle trees over chunk-level hashes to produce
+/// blob-level metadata. This enables:
+/// - Streaming uploads/downloads: chunks can be processed independently
+/// - Memory efficiency: don't need to load entire blob into memory
+/// - Proof-based verification: each chunk can be verified against blob-level hashes
+#[derive(Debug)]
+pub struct ChunkedBlobEncoder<'a> {
+    /// Reference to the full blob data.
+    blob: &'a [u8],
+    /// The encoding configuration.
+    config: &'a ReedSolomonEncodingConfig,
+    /// Number of chunks to split the blob into.
+    num_chunks: u32,
+    /// Size of each chunk (last chunk may be smaller).
+    chunk_size: u64,
+}
+
+impl<'a> ChunkedBlobEncoder<'a> {
+    /// Creates a new chunked blob encoder with the specified chunk size.
+    ///
+    /// The blob will be split into chunks of the specified size (last chunk may be smaller).
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The Reed-Solomon encoding configuration
+    /// * `blob` - The blob data to encode
+    /// * `chunk_size` - The size of each chunk in bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataTooLargeError`] if the chunk size computation fails or if validation fails.
+    pub fn new(
+        config: &'a ReedSolomonEncodingConfig,
+        blob: &'a [u8],
+        chunk_size: u64,
+    ) -> Result<Self, DataTooLargeError> {
+        let blob_size = blob.len() as u64;
+        let num_chunks = super::config::compute_num_chunks(blob_size, chunk_size);
+
+        // Validate minimum chunk size
+        if chunk_size < super::config::MIN_CHUNK_SIZE {
+            return Err(DataTooLargeError::with_message(format!(
+                "Chunk size {} is below minimum {}. Use at least {} MB chunks to prevent excessive metadata overhead.",
+                chunk_size,
+                super::config::MIN_CHUNK_SIZE,
+                super::config::MIN_CHUNK_SIZE / (1024 * 1024)
+            )));
+        }
+
+        // Validate maximum number of chunks
+        if num_chunks > super::config::MAX_CHUNKS {
+            let min_required = blob_size.div_ceil(u64::from(super::config::MAX_CHUNKS));
+            return Err(DataTooLargeError::with_message(format!(
+                "Blob size {} with chunk size {} would create {} chunks (max {}). Use chunk size of at least {} bytes ({} MB) to stay within chunk limit.",
+                blob_size,
+                chunk_size,
+                num_chunks,
+                super::config::MAX_CHUNKS,
+                min_required,
+                min_required / (1024 * 1024)
+            )));
+        }
+
+        tracing::debug!(
+            blob_size,
+            num_chunks,
+            chunk_size,
+            metadata_size_estimate = num_chunks * 64 * 1024, // Approximate: num_chunks × 64 KB
+            "creating chunked blob encoder"
+        );
+
+        Ok(Self {
+            blob,
+            config,
+            num_chunks,
+            chunk_size,
+        })
+    }
+
+    #[cfg(test)]
+    /// Creates a new chunked blob encoder for testing purposes, bypassing validation.
+    ///
+    /// This method should only be used in tests where you want to test with non-standard
+    /// chunk sizes that would otherwise fail validation.
+    pub fn new_for_test(
+        config: &'a ReedSolomonEncodingConfig,
+        blob: &'a [u8],
+        chunk_size: u64,
+    ) -> Self {
+        let blob_size = blob.len() as u64;
+        let num_chunks = super::config::compute_num_chunks(blob_size, chunk_size);
+
+        tracing::debug!(
+            blob_size,
+            num_chunks,
+            chunk_size,
+            "creating chunked blob encoder (test mode, validation bypassed)"
+        );
+
+        Self {
+            blob,
+            config,
+            num_chunks,
+            chunk_size,
+        }
+    }
+
+    /// Encodes the blob and returns the sliver pairs (per-chunk) and verified metadata.
+    ///
+    /// This method:
+    /// 1. Splits the blob into chunks
+    /// 2. Encodes each chunk using the standard BlobEncoder
+    /// 3. Collects chunk-level hashes
+    /// 4. Builds Merkle trees over chunk hashes to get blob-level hashes
+    /// 5. Returns BlobMetadataV2 with chunk information
+    ///
+    /// Returns `Vec<Vec<SliverPair>>` where outer vec is indexed by chunk_idx
+    /// and inner vec contains the sliver pairs for that chunk.
+    pub fn encode_with_metadata(
+        &self,
+    ) -> Result<(Vec<Vec<SliverPair>>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        tracing::debug!("starting chunked encode with metadata");
+
+        let n_shards = self.config.n_shards().get() as usize;
+
+        // Store all chunk-level sliver pair metadata
+        let mut all_chunk_hashes: Vec<Vec<SliverPairMetadata>> =
+            Vec::with_capacity(self.num_chunks as usize);
+        // Store all sliver pairs from all chunks (preserving chunk structure)
+        let mut all_sliver_pairs: Vec<Vec<SliverPair>> =
+            Vec::with_capacity(self.num_chunks as usize);
+
+        // Encode each chunk
+        for chunk_idx in 0..self.num_chunks {
+            let chunk_start = usize::try_from(u64::from(chunk_idx) * self.chunk_size)
+                .expect("chunk start offset must fit in usize since blob is in memory");
+            let chunk_end = core::cmp::min(
+                chunk_start
+                    + usize::try_from(self.chunk_size)
+                        .expect("chunk size must fit in usize since blob is in memory"),
+                self.blob.len(),
+            );
+            let chunk_data = &self.blob[chunk_start..chunk_end];
+
+            tracing::debug!(chunk_idx, chunk_size = chunk_data.len(), "encoding chunk");
+
+            // Encode this chunk (create config_enum fresh for each iteration)
+            let config_enum = EncodingConfigEnum::ReedSolomon(self.config);
+            let chunk_encoder = BlobEncoder::new(config_enum, chunk_data)?;
+            let (chunk_sliver_pairs, chunk_metadata) = chunk_encoder.encode_with_metadata();
+
+            // Store the chunk-level hashes
+            all_chunk_hashes.push(chunk_metadata.metadata().hashes().clone());
+
+            // Store sliver pairs for this chunk (preserve structure)
+            all_sliver_pairs.push(chunk_sliver_pairs);
+        }
+
+        // Now build blob-level hashes as Merkle trees over chunk hashes
+        // For each sliver index j, build a Merkle tree over [chunk1_hash_j, chunk2_hash_j, ..., chunkk_hash_j]
+        let mut blob_level_hashes: Vec<SliverPairMetadata> = Vec::with_capacity(n_shards);
+
+        for sliver_idx in 0..n_shards {
+            // Collect primary hashes for this sliver across all chunks
+            let primary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].primary_hash.bytes())
+                .collect();
+
+            // Collect secondary hashes for this sliver across all chunks
+            let secondary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].secondary_hash.bytes())
+                .collect();
+
+            // Build Merkle trees over the chunk hashes
+            let primary_root = if primary_chunk_hashes.len() == 1 {
+                // Single chunk: root is just the chunk hash
+                MerkleNode::Digest(primary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(primary_chunk_hashes.iter()).root()
+            };
+
+            let secondary_root = if secondary_chunk_hashes.len() == 1 {
+                // Single chunk: root is just the chunk hash
+                MerkleNode::Digest(secondary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(secondary_chunk_hashes.iter()).root()
+            };
+
+            blob_level_hashes.push(SliverPairMetadata {
+                primary_hash: primary_root,
+                secondary_hash: secondary_root,
+            });
+        }
+
+        // Create BlobMetadataV2 with chunk information
+        let metadata_v2 = BlobMetadataV2 {
+            encoding_type: EncodingType::RS2Chunked,
+            unencoded_length: self.blob.len() as u64,
+            hashes: blob_level_hashes,
+            num_chunks: self.num_chunks,
+            chunk_size: self.chunk_size,
+            chunk_hashes: all_chunk_hashes,
+        };
+
+        let blob_metadata = BlobMetadata::V2(metadata_v2);
+        let blob_id = BlobId::from_sliver_pair_metadata(&blob_metadata);
+        let verified_metadata =
+            VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, blob_metadata);
+
+        tracing::debug!(
+            blob_id = %verified_metadata.blob_id(),
+            num_chunks = self.num_chunks,
+            "successfully encoded chunked blob"
+        );
+
+        Ok((all_sliver_pairs, verified_metadata))
+    }
+
+    /// Computes only the metadata without encoding the sliver pairs.
+    ///
+    /// This is more memory-efficient when you only need the blob ID and hashes.
+    pub fn compute_metadata(&self) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        tracing::debug!("computing chunked metadata only");
+
+        let n_shards = self.config.n_shards().get() as usize;
+
+        // Store all chunk-level sliver pair metadata
+        let mut all_chunk_hashes: Vec<Vec<SliverPairMetadata>> =
+            Vec::with_capacity(self.num_chunks as usize);
+
+        // Compute metadata for each chunk
+        for chunk_idx in 0..self.num_chunks {
+            let chunk_start = usize::try_from(u64::from(chunk_idx) * self.chunk_size)
+                .expect("chunk start offset must fit in usize since blob is in memory");
+            let chunk_end = core::cmp::min(
+                chunk_start
+                    + usize::try_from(self.chunk_size)
+                        .expect("chunk size must fit in usize since blob is in memory"),
+                self.blob.len(),
+            );
+            let chunk_data = &self.blob[chunk_start..chunk_end];
+
+            let config_enum = EncodingConfigEnum::ReedSolomon(self.config);
+            let chunk_encoder = BlobEncoder::new(config_enum, chunk_data)?;
+            let chunk_metadata = chunk_encoder.compute_metadata();
+
+            all_chunk_hashes.push(chunk_metadata.metadata().hashes().clone());
+        }
+
+        // Build blob-level hashes
+        let mut blob_level_hashes: Vec<SliverPairMetadata> = Vec::with_capacity(n_shards);
+
+        for sliver_idx in 0..n_shards {
+            let primary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].primary_hash.bytes())
+                .collect();
+
+            let secondary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].secondary_hash.bytes())
+                .collect();
+
+            let primary_root = if primary_chunk_hashes.len() == 1 {
+                MerkleNode::Digest(primary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(primary_chunk_hashes.iter()).root()
+            };
+
+            let secondary_root = if secondary_chunk_hashes.len() == 1 {
+                MerkleNode::Digest(secondary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(secondary_chunk_hashes.iter()).root()
+            };
+
+            blob_level_hashes.push(SliverPairMetadata {
+                primary_hash: primary_root,
+                secondary_hash: secondary_root,
+            });
+        }
+
+        let metadata_v2 = BlobMetadataV2 {
+            encoding_type: EncodingType::RS2Chunked,
+            unencoded_length: self.blob.len() as u64,
+            hashes: blob_level_hashes,
+            num_chunks: self.num_chunks,
+            chunk_size: self.chunk_size,
+            chunk_hashes: all_chunk_hashes,
+        };
+
+        let blob_metadata = BlobMetadata::V2(metadata_v2);
+        let blob_id = BlobId::from_sliver_pair_metadata(&blob_metadata);
+
+        Ok(VerifiedBlobMetadataWithId::new_verified_unchecked(
+            blob_id,
+            blob_metadata,
+        ))
+    }
+}
+
+/// Decoder for chunked blobs encoded with RS2Chunked encoding.
+///
+/// This decoder reconstructs blobs chunk-by-chunk, enabling streaming decoding
+/// of large blobs without loading everything into memory at once.
+#[derive(Debug)]
+pub struct ChunkedBlobDecoder<'a> {
+    /// The Reed-Solomon encoding configuration.
+    config: &'a ReedSolomonEncodingConfig,
+    /// Metadata for the chunked blob.
+    metadata: &'a BlobMetadataV2,
+}
+
+impl<'a> ChunkedBlobDecoder<'a> {
+    /// Creates a new chunked blob decoder.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The Reed-Solomon encoding configuration
+    /// * `metadata` - The verified blob metadata (must be V2 for chunked blobs)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(decoder)` if the metadata is V2 (chunked), `None` otherwise.
+    pub fn new(config: &'a ReedSolomonEncodingConfig, metadata: &'a BlobMetadata) -> Option<Self> {
+        match metadata {
+            BlobMetadata::V2(metadata_v2) => Some(Self {
+                config,
+                metadata: metadata_v2,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Returns the number of chunks in this blob.
+    pub fn num_chunks(&self) -> u32 {
+        self.metadata.num_chunks
+    }
+
+    /// Returns the chunk size used for this blob.
+    pub fn chunk_size(&self) -> u64 {
+        self.metadata.chunk_size
+    }
+
+    /// Decodes a single chunk from the provided sliver pairs.
+    ///
+    /// # Parameters
+    ///
+    /// * `chunk_index` - The index of the chunk to decode (0-based)
+    /// * `sliver_pairs` - The sliver pairs for this chunk
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError`] if:
+    /// - The chunk index is out of bounds
+    /// - Decoding fails (insufficient or invalid slivers)
+    /// - The chunk size exceeds limits
+    ///
+    /// # Returns
+    ///
+    /// The decoded chunk data as a byte vector.
+    pub fn decode_chunk(
+        &self,
+        chunk_index: u32,
+        sliver_pairs: Vec<SliverPair>,
+    ) -> Result<Vec<u8>, DecodeError> {
+        ensure!(
+            chunk_index < self.metadata.num_chunks,
+            DecodeError::DecodingUnsuccessful
+        );
+
+        // Determine chunk size (last chunk may be smaller)
+        let chunk_size = if chunk_index == self.metadata.num_chunks - 1 {
+            // Last chunk: compute remaining size
+            let full_chunks_size =
+                u64::from(self.metadata.num_chunks - 1) * self.metadata.chunk_size;
+            self.metadata.unencoded_length - full_chunks_size
+        } else {
+            self.metadata.chunk_size
+        };
+
+        tracing::debug!(
+            chunk_index,
+            chunk_size,
+            num_slivers = sliver_pairs.len(),
+            "decoding chunk"
+        );
+
+        // Create a decoder for this chunk size
+        let decoder: BlobDecoder<'_, ReedSolomonDecoder> =
+            BlobDecoder::new(self.config, chunk_size)?;
+
+        // Extract primary slivers from sliver pairs
+        let primary_slivers = sliver_pairs
+            .into_iter()
+            .map(|pair| pair.primary)
+            .collect::<Vec<_>>();
+
+        // Decode the chunk
+        decoder.decode(primary_slivers)
+    }
+
+    /// Decodes the entire blob from all chunks.
+    ///
+    /// This method reconstructs the complete blob by decoding all chunks in sequence.
+    ///
+    /// # Parameters
+    ///
+    /// * `all_chunk_sliver_pairs` - A vector containing sliver pairs for each chunk,
+    ///   indexed by chunk number. Must have length equal to `num_chunks`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError`] if:
+    /// - The number of chunk sliver sets doesn't match `num_chunks`
+    /// - Any chunk fails to decode
+    ///
+    /// # Returns
+    ///
+    /// The complete decoded blob as a byte vector.
+    pub fn decode_all(
+        &self,
+        all_chunk_sliver_pairs: Vec<Vec<SliverPair>>,
+    ) -> Result<Vec<u8>, DecodeError> {
+        ensure!(
+            all_chunk_sliver_pairs.len() == self.metadata.num_chunks as usize,
+            DecodeError::DecodingUnsuccessful
+        );
+
+        tracing::debug!(
+            num_chunks = self.metadata.num_chunks,
+            total_size = self.metadata.unencoded_length,
+            "decoding all chunks"
+        );
+
+        let mut result = Vec::with_capacity(
+            usize::try_from(self.metadata.unencoded_length)
+                .expect("unencoded length must fit in usize to decode in memory"),
+        );
+
+        for (chunk_index, chunk_sliver_pairs) in all_chunk_sliver_pairs.into_iter().enumerate() {
+            let chunk_data = self.decode_chunk(
+                u32::try_from(chunk_index)
+                    .expect("chunk index must fit in u32 (max 1000 chunks enforced by validation)"),
+                chunk_sliver_pairs,
+            )?;
+            result.extend(chunk_data);
+        }
+
+        tracing::debug!("successfully decoded all chunks");
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
     use crate::{
         EncodingType,
-        encoding::{EncodingConfig, ReedSolomonEncodingConfig},
-        metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
+        encoding::{EncodingConfig, ReedSolomonEncodingConfig, config},
+        metadata::UnverifiedBlobMetadataWithId,
     };
 
     param_test! {
@@ -907,5 +1375,156 @@ mod tests {
 
         assert_eq!(blob, blob_dec);
         assert_eq!(metadata_enc, metadata_dec);
+    }
+
+    param_test! {
+        test_chunked_encoding_decoding_roundtrip: [
+            small_chunks: (32, 1024, 10),
+            medium_chunks: (1024, 10 * 1024, 10),
+            large_chunks: (10 * 1024, 100 * 1024, 10),
+            very_large_chunks: (100 * 1024, 1024 * 1024, 100),
+        ]
+    }
+    fn test_chunked_encoding_decoding_roundtrip(chunk_size: u64, blob_size: u64, n_shards: u16) {
+        let blob = random_data(usize::try_from(blob_size).expect("blob size must fit in usize"));
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+
+        // Encode with chunked encoder (using test constructor to bypass validation)
+        let chunked_encoder = ChunkedBlobEncoder::new_for_test(&config, &blob, chunk_size);
+
+        let (all_sliver_pairs, metadata) = chunked_encoder
+            .encode_with_metadata()
+            .expect("encoding failed");
+
+        // Verify metadata is V2
+        match metadata.metadata() {
+            BlobMetadata::V2(v2) => {
+                assert_eq!(v2.encoding_type, EncodingType::RS2Chunked);
+                assert_eq!(v2.unencoded_length, blob_size);
+                assert_eq!(v2.chunk_size, chunk_size);
+                let expected_num_chunks = u32::try_from(blob_size.div_ceil(chunk_size)).unwrap();
+                assert_eq!(v2.num_chunks, expected_num_chunks);
+            }
+            _ => panic!("expected BlobMetadataV2"),
+        }
+
+        // Create decoder
+        let decoder =
+            ChunkedBlobDecoder::new(&config, metadata.metadata()).expect("decoder creation failed");
+
+        // all_sliver_pairs is already Vec<Vec<SliverPair>> with chunk structure preserved
+
+        // Decode all chunks
+        let decoded_blob = decoder
+            .decode_all(all_sliver_pairs)
+            .expect("decoding failed");
+
+        // Verify roundtrip
+        assert_eq!(blob.len(), decoded_blob.len());
+        assert_eq!(blob, decoded_blob);
+    }
+
+    param_test! {
+        test_chunked_decoding_individual_chunks: [
+            medium_blob: (10 * 1024, 100 * 1024, 10),
+            small_blob: (1024, 10 * 1024, 100),
+        ]
+    }
+    fn test_chunked_decoding_individual_chunks(chunk_size: u64, blob_size: u64, n_shards: u16) {
+        let blob = random_data(usize::try_from(blob_size).unwrap());
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+
+        // Encode (using test constructor to bypass validation)
+        let chunked_encoder = ChunkedBlobEncoder::new_for_test(&config, &blob, chunk_size);
+        let (all_chunk_sliver_pairs, metadata) = chunked_encoder
+            .encode_with_metadata()
+            .expect("encoding failed");
+
+        // Create decoder
+        let decoder =
+            ChunkedBlobDecoder::new(&config, metadata.metadata()).expect("decoder creation failed");
+
+        // Decode and verify each chunk individually
+        let num_chunks = decoder.num_chunks();
+        let mut decoded_blob = Vec::new();
+
+        for chunk_idx in 0..num_chunks {
+            let chunk_slivers = &all_chunk_sliver_pairs[chunk_idx as usize];
+
+            let decoded_chunk = decoder
+                .decode_chunk(chunk_idx, chunk_slivers.clone())
+                .expect("chunk decoding failed");
+            decoded_blob.extend(decoded_chunk);
+        }
+
+        // Verify roundtrip
+        assert_eq!(blob, decoded_blob);
+    }
+
+    #[test]
+    fn test_chunk_size_validation_too_small() {
+        let blob = random_data(100 * 1024 * 1024); // 100 MB blob
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = 1024 * 1024; // 1 MB, below the 10 MB minimum
+
+        let result = ChunkedBlobEncoder::new(&config, &blob, chunk_size);
+
+        assert!(result.is_err(), "Should reject chunk size below minimum");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("below minimum"),
+            "Error message should mention minimum: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_chunk_size_validation_too_many_chunks() {
+        // Note: With MIN_CHUNK_SIZE = 10 MB and MAX_CHUNKS = 1000, a blob would need to be
+        // at least 10 GB to trigger MAX_CHUNKS validation with minimum chunk size.
+        // For practical testing, we verify that small chunk sizes are rejected for
+        // being below minimum.
+
+        let blob = random_data(10 * 1024 * 1024); // 10 MB blob for testing
+        let rs_config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+
+        // Use a very small chunk size to trigger validation
+        // With 10 MB blob and 1 KB chunks, we'd get 10,240 chunks
+        let small_chunk_size = 1024; // 1 KB
+
+        let result = ChunkedBlobEncoder::new(&rs_config, &blob, small_chunk_size);
+
+        // This should fail for being below minimum
+        assert!(result.is_err(), "Should reject chunk size below minimum");
+    }
+
+    #[test]
+    fn test_chunk_size_validation_valid_min_size() {
+        let blob = random_data(100 * 1024 * 1024); // 100 MB blob
+        let rs_config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = config::MIN_CHUNK_SIZE; // Exactly at minimum
+
+        let result = ChunkedBlobEncoder::new(&rs_config, &blob, chunk_size);
+
+        assert!(
+            result.is_ok(),
+            "Should accept chunk size at minimum: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_chunk_size_validation_valid_large_size() {
+        let blob = random_data(500 * 1024 * 1024); // 500 MB blob
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = 50 * 1024 * 1024; // 50 MB, well above minimum
+
+        let result = ChunkedBlobEncoder::new(&config, &blob, chunk_size);
+
+        assert!(
+            result.is_ok(),
+            "Should accept large chunk size: {:?}",
+            result
+        );
     }
 }

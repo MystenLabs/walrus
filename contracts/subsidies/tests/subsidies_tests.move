@@ -636,6 +636,7 @@ fun register_default_blob(
         ROOT_HASH,
         UNENCODED_SIZE,
         RS2,
+        0, // chunk_size: 0 for RS2 encoding (non-chunked)
         deletable,
         &mut fake_coin,
         ctx,

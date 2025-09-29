@@ -55,6 +55,8 @@ public struct Blob has key, store {
     storage: Storage,
     // Marks if this blob can be deleted.
     deletable: bool,
+    // Chunk size for RS2_CHUNKED encoding. For RS2, this is 0.
+    chunk_size: u64,
 }
 
 // === Accessors ===
@@ -91,11 +93,16 @@ public fun is_deletable(self: &Blob): bool {
     self.deletable
 }
 
+public fun chunk_size(self: &Blob): u64 {
+    self.chunk_size
+}
+
 public fun encoded_size(self: &Blob, n_shards: u16): u64 {
     encoding::encoded_blob_length(
         self.size,
         self.encoding_type,
         n_shards,
+        self.chunk_size,
     )
 }
 
@@ -140,12 +147,14 @@ public fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
 /// Creates a new blob in `registered_epoch`.
 /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
 /// least the size of the encoded blob.
+/// For RS2_CHUNKED encoding, `chunk_size` specifies the chunk size. For RS2, pass 0.
 public(package) fun new(
     storage: Storage,
     blob_id: u256,
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    chunk_size: u64,
     deletable: bool,
     registered_epoch: u32,
     n_shards: u16,
@@ -162,6 +171,7 @@ public(package) fun new(
         size,
         encoding_type,
         n_shards,
+        chunk_size,
     );
     assert!(encoded_size <= storage.size(), EResourceSize);
 
@@ -189,6 +199,7 @@ public(package) fun new(
         certified_epoch: option::none(),
         storage,
         deletable,
+        chunk_size,
     }
 }
 

@@ -383,6 +383,7 @@ where
                 routes::SLIVER_STATUS_ENDPOINT,
                 get(routes::get_sliver_status),
             )
+            .route(routes::CHUNK_SLIVER_ENDPOINT, get(routes::get_chunk_sliver))
             .route(
                 routes::PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
                 get(routes::get_permanent_blob_confirmation),
@@ -996,12 +997,12 @@ mod tests {
         let blob_id = walrus_core::test_utils::random_blob_id();
 
         let stored_sliver = client
-            .get_sliver_status::<Primary>(&blob_id, SliverPairIndex(0)) // 0 triggers "stored"
+            .get_sliver_status::<Primary>(&blob_id, SliverPairIndex(0), None) // 0 triggers "stored"
             .await
             .expect("should successfully retrieve sliver status");
 
         let nonexistent_sliver = client
-            .get_sliver_status::<Primary>(&blob_id, SliverPairIndex(1)) // 1 triggers "nonexistent"
+            .get_sliver_status::<Primary>(&blob_id, SliverPairIndex(1), None) // 1 triggers "nonexistent"
             .await
             .expect("should successfully retrieve sliver status");
 
@@ -1020,7 +1021,7 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(0); // Triggers an ok response
 
         client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver, None)
             .await
             .expect("sliver should be successfully stored");
     }
@@ -1035,7 +1036,7 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(1); // Triggers an internal server error
 
         let err = client
-            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver, None)
             .await
             .expect_err("store sliver should fail");
 

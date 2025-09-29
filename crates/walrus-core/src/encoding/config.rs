@@ -32,6 +32,30 @@ use crate::{
 /// Reed-Solomon). This is dictated by [`reed_solomon_simd::engine::GF_ORDER`].
 pub const MAX_SOURCE_SYMBOLS: u16 = u16::MAX;
 
+/// The default chunk size for chunked encoding (10 MB).
+///
+/// This size balances:
+/// - Memory efficiency: Chunks can be encoded/decoded independently without loading entire blob
+/// - Storage overhead: Each chunk adds metadata storage on nodes
+/// - Streaming performance: Smaller chunks enable faster initial data delivery
+pub const DEFAULT_CHUNK_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Minimum chunk size to prevent excessive metadata overhead.
+///
+/// With 1000 shards, each chunk requires 64 KB of metadata (1000 × 64 bytes).
+/// Setting a 10 MB minimum ensures metadata overhead remains reasonable:
+/// - 10 MB chunk → 64 KB metadata = 0.64% overhead
+/// - Prevents accidental use of very small chunks (e.g., 1 MB) which would have 6.4% overhead
+pub const MIN_CHUNK_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Maximum number of chunks per blob to bound metadata size.
+///
+/// With 1000 shards and 1000 chunks maximum:
+/// - Total metadata ≤ 64 MB (1000 chunks × 64 KB per chunk)
+/// - Reasonable complexity: max 1000 chunk downloads per blob
+/// - For larger blobs, chunk size increases automatically to stay under this limit
+pub const MAX_CHUNKS: u32 = 1000;
+
 /// Trait for encoding functionality, including configuration, encoding, and decoding.
 #[enum_dispatch]
 pub trait EncodingFactory {
@@ -267,7 +291,7 @@ pub trait EncodingFactory {
     ) -> Result<NonZeroU32, DataTooLargeError> {
         NonZeroU32::from(self.n_source_symbols::<T::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
-            .ok_or(DataTooLargeError)
+            .ok_or_else(DataTooLargeError::new)
     }
 
     /// Computes the length of a blob of given `unencoded_length`, once encoded.
@@ -363,7 +387,11 @@ impl EncodingConfig {
     /// [`EncodingConfigEnum`].
     pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
         match encoding_type {
-            EncodingType::RS2 => self.reed_solomon.into(),
+            EncodingType::RS2 | EncodingType::RS2Chunked => {
+                // Both RS2 and RS2Chunked use the same Reed-Solomon encoding.
+                // The difference is in how metadata is constructed (single vs chunked).
+                self.reed_solomon.into()
+            }
             _ => panic!("unsupported encoding type: {:?}", encoding_type),
         }
     }
@@ -749,6 +777,58 @@ pub fn encoded_slivers_length_for_n_shards(
     Some(u64::from(n_shards.get()) * single_shard_slivers_size)
 }
 
+/// Computes the number of chunks for a blob given the chunk size.
+///
+/// Returns the number of chunks needed to split the blob into chunks of the specified size.
+/// The chunk_size parameter allows per-blob configuration of chunk size.
+pub fn compute_num_chunks(blob_size: u64, chunk_size: u64) -> u32 {
+    blob_size
+        .div_ceil(chunk_size)
+        .try_into()
+        .expect("number of chunks fits in u32")
+}
+
+/// Computes the number of chunks and chunk size for a given blob size.
+///
+/// Returns `(num_chunks, chunk_size)` where:
+/// - `num_chunks` is the number of chunks needed
+/// - `chunk_size` is the size of each chunk (last chunk may be smaller)
+///
+/// For blobs smaller than or equal to the max single-chunk size, returns `(1, blob_size)`.
+/// For larger blobs, uses DEFAULT_CHUNK_SIZE and computes the number of chunks needed.
+///
+/// Note: This function is provided for backward compatibility. For new code requiring
+/// custom chunk sizes, use `compute_num_chunks` with an explicit chunk_size parameter.
+pub fn compute_chunk_parameters(
+    blob_size: u64,
+    n_shards: NonZeroU16,
+    encoding_type: EncodingType,
+) -> (u32, u64) {
+    let max_single_chunk_size = max_blob_size_for_n_shards(n_shards, encoding_type);
+
+    if blob_size <= max_single_chunk_size {
+        // Blob fits in a single chunk
+        (1, blob_size)
+    } else {
+        // Multiple chunks needed
+        let chunk_size = DEFAULT_CHUNK_SIZE;
+        let num_chunks = compute_num_chunks(blob_size, chunk_size);
+        (num_chunks, chunk_size)
+    }
+}
+
+/// Returns true if a blob of the given size should use chunked encoding.
+///
+/// Blobs larger than the maximum single-chunk size must use chunked encoding.
+#[allow(dead_code)] // Public API for external use
+pub fn should_use_chunked_encoding(
+    blob_size: u64,
+    n_shards: NonZeroU16,
+    encoding_type: EncodingType,
+) -> bool {
+    blob_size > max_blob_size_for_n_shards(n_shards, encoding_type)
+}
+
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;
@@ -764,7 +844,7 @@ mod tests {
             full_matrix_plus_1: (31, Ok(20)),
             too_large: (
                 3 * 5 * u64::from(EncodingType::RS2.max_symbol_size()) + 1,
-                Err(DataTooLargeError)
+                Err(DataTooLargeError::new())
             ),
         ]
     }

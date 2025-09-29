@@ -65,6 +65,10 @@ const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
 const SLIVER_STATUS_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
+const CHUNK_SLIVER_URL_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/chunks/:chunk_index/slivers/:sliver_pair_index/:sliver_type";
+const CHUNK_SLIVER_STATUS_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/chunks/:chunk_index/slivers/:sliver_pair_index/:sliver_type/status";
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
@@ -177,6 +181,44 @@ impl UrlEndpoints {
         (
             self.sliver_path::<A>(blob_id, sliver_pair_index, Some("status")),
             SLIVER_STATUS_TEMPLATE,
+        )
+    }
+
+    fn chunk_sliver<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        chunk_index: u32,
+        sliver_pair_index: SliverPairIndex,
+    ) -> (Url, &'static str) {
+        let sliver_type = SliverType::for_encoding::<A>();
+        (
+            self.blob_resource(
+                blob_id,
+                &format!(
+                    "chunks/{chunk_index}/slivers/{}/{sliver_type}",
+                    sliver_pair_index.0
+                ),
+            ),
+            CHUNK_SLIVER_URL_TEMPLATE,
+        )
+    }
+
+    fn chunk_sliver_status<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        chunk_index: u32,
+        sliver_pair_index: SliverPairIndex,
+    ) -> (Url, &'static str) {
+        let sliver_type = SliverType::for_encoding::<A>();
+        (
+            self.blob_resource(
+                blob_id,
+                &format!(
+                    "chunks/{chunk_index}/slivers/{}/{sliver_type}/status",
+                    sliver_pair_index.0
+                ),
+            ),
+            CHUNK_SLIVER_STATUS_TEMPLATE,
         )
     }
 
@@ -481,6 +523,30 @@ impl StorageNodeClient {
             .await
     }
 
+    /// Gets a chunk sliver for a chunked blob.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.chunk_index = %chunk_index,
+            walrus.sliver.pair_index = %sliver_pair_index,
+            walrus.sliver.r#type = A::NAME,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn get_chunk_sliver<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        chunk_index: u32,
+        sliver_pair_index: SliverPairIndex,
+    ) -> Result<SliverData<A>, NodeError> {
+        let (url, template) =
+            self.endpoints
+                .chunk_sliver::<A>(blob_id, chunk_index, sliver_pair_index);
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
+            .await
+    }
+
     /// Requests the status of a sliver from the node.
     #[tracing::instrument(
         skip_all,
@@ -494,10 +560,16 @@ impl StorageNodeClient {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
+        chunk_index: Option<u32>,
     ) -> Result<StoredOnNodeStatus, NodeError> {
-        let (url, template) = self
-            .endpoints
-            .sliver_status::<A>(blob_id, sliver_pair_index);
+        let (url, template) = match chunk_index {
+            Some(idx) => self
+                .endpoints
+                .chunk_sliver_status::<A>(blob_id, idx, sliver_pair_index),
+            None => self
+                .endpoints
+                .sliver_status::<A>(blob_id, sliver_pair_index),
+        };
         self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
     }
@@ -758,9 +830,13 @@ impl StorageNodeClient {
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &SliverData<A>,
+        chunk_index: Option<u32>,
     ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
-        let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
+        let (url, template) = match chunk_index {
+            Some(idx) => self.endpoints.chunk_sliver::<A>(blob_id, idx, pair_index),
+            None => self.endpoints.sliver::<A>(blob_id, pair_index),
+        };
         let request = self.create_request_with_payload(Method::PUT, url, &sliver);
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
@@ -775,10 +851,17 @@ impl StorageNodeClient {
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &Sliver,
+        chunk_index: Option<u32>,
     ) -> Result<(), NodeError> {
         match sliver {
-            Sliver::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
-            Sliver::Secondary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
+            Sliver::Primary(sliver) => {
+                self.store_sliver(blob_id, pair_index, sliver, chunk_index)
+                    .await
+            }
+            Sliver::Secondary(sliver) => {
+                self.store_sliver(blob_id, pair_index, sliver, chunk_index)
+                    .await
+            }
         }
     }
 

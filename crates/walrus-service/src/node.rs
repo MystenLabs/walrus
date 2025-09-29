@@ -2512,7 +2512,7 @@ impl StorageNodeInner {
         }
 
         if shard_storage
-            .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
+            .is_sliver_type_stored(metadata.blob_id(), None, sliver.r#type())
             .context("database error when checking sliver existence")?
         {
             return Ok(false);
@@ -2532,7 +2532,7 @@ impl StorageNodeInner {
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
-            .put_sliver(*metadata.blob_id(), sliver)
+            .put_sliver(*metadata.blob_id(), None, sliver)
             .await
             .context("unable to store sliver")?;
 
@@ -2655,6 +2655,37 @@ impl StorageNodeInner {
         ensure!(!self.is_blocked(blob_id), forbidden_error);
         ensure!(self.is_blob_registered(blob_id)?, unavailable_error,);
         Ok(())
+    }
+
+    /// Retrieves a sliver for a specific chunk of a blob.
+    /// This is used for chunked blob retrieval where each chunk is stored separately.
+    pub async fn retrieve_sliver_with_chunk_index(
+        &self,
+        blob_id: &BlobId,
+        chunk_index: Option<u32>,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Result<Sliver, RetrieveSliverError> {
+        self.check_index(sliver_pair_index)?;
+
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
+            RetrieveSliverError::Unavailable,
+        )?;
+
+        let shard_storage = self
+            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
+            .await?;
+
+        shard_storage
+            .get_sliver(blob_id, chunk_index, sliver_type)
+            .context("unable to retrieve sliver")?
+            .ok_or(RetrieveSliverError::Unavailable)
+            .inspect(|sliver| {
+                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
+                    .inc();
+            })
     }
 }
 
@@ -2913,7 +2944,7 @@ impl ServiceState for StorageNodeInner {
             .await?;
 
         shard_storage
-            .get_sliver(blob_id, sliver_type)
+            .get_sliver(blob_id, None, sliver_type)
             .context("unable to retrieve sliver")?
             .ok_or(RetrieveSliverError::Unavailable)
             .inspect(|sliver| {
@@ -3187,7 +3218,7 @@ impl ServiceState for StorageNodeInner {
         match self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?
-            .is_sliver_stored::<A>(blob_id)
+            .is_sliver_stored::<A>(blob_id, None)
         {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
@@ -3910,13 +3941,23 @@ mod tests {
 
             if store_at_shard(&shard, SliverType::Primary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.primary,
+                        None,
+                    )
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
                 node.client()
-                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
+                    .store_sliver(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.secondary,
+                        None,
+                    )
                     .await?;
             }
         }
@@ -4684,7 +4725,7 @@ mod tests {
                     .shard_storage(ShardIndex(0))
                     .await
                     .unwrap()
-                    .get_primary_sliver(&blob_id)
+                    .get_primary_sliver(&blob_id, None)
                     .unwrap()
                     .unwrap()
             )
@@ -5025,13 +5066,13 @@ mod tests {
                 if skip_blob_indices.contains(&i) {
                     assert!(
                         shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Primary)
+                            .get_sliver(&blob_id, None, SliverType::Primary)
                             .unwrap()
                             .is_none()
                     );
                     assert!(
                         shard_storage_dst
-                            .get_sliver(&blob_id, SliverType::Secondary)
+                            .get_sliver(&blob_id, None, SliverType::Secondary)
                             .unwrap()
                             .is_none()
                     );
@@ -5039,14 +5080,14 @@ mod tests {
                 }
 
                 let Sliver::Primary(dst_primary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Primary)
+                    .get_sliver(&blob_id, None, SliverType::Primary)
                     .unwrap()
                     .unwrap()
                 else {
                     panic!("Must get primary sliver");
                 };
                 let Sliver::Secondary(dst_secondary) = shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Secondary)
+                    .get_sliver(&blob_id, None, SliverType::Secondary)
                     .unwrap()
                     .unwrap()
                 else {

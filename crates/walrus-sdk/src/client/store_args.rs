@@ -33,6 +33,8 @@ pub struct StoreArgs {
     pub metrics: Option<Arc<ClientMetrics>>,
     /// The optional upload relay client, that allows to store the blob via the relay.
     pub upload_relay_client: Option<UploadRelayClient>,
+    /// Optional chunk size for chunked encoding, in bytes.
+    pub chunk_size: Option<u64>,
 }
 
 impl StoreArgs {
@@ -52,6 +54,7 @@ impl StoreArgs {
             post_store,
             metrics: None,
             upload_relay_client: None,
+            chunk_size: None,
         }
     }
 
@@ -69,6 +72,7 @@ impl StoreArgs {
             post_store: PostStoreAction::Keep,
             metrics: None,
             upload_relay_client: None,
+            chunk_size: None,
         }
     }
 
@@ -122,6 +126,12 @@ impl StoreArgs {
     /// Returns a reference to the metrics if present.
     pub fn metrics_ref(&self) -> Option<&Arc<ClientMetrics>> {
         self.metrics.as_ref()
+    }
+
+    /// Sets the chunk size for chunked encoding.
+    pub fn with_chunk_size(mut self, chunk_size: Option<u64>) -> Self {
+        self.chunk_size = chunk_size;
+        self
     }
 
     /// Convenience method for `with_store_optimizations(StoreOptimizations::none())`.

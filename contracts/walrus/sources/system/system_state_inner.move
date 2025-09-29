@@ -311,6 +311,7 @@ public(package) fun invalidate_blob_id(
 /// Registers a new blob in the system.
 /// - `size` is the size of the unencoded blob.
 /// - The reserved space in `storage` must be at least the size of the encoded blob.
+/// - For RS2_CHUNKED encoding, `chunk_size` specifies the chunk size. For RS2, pass 0.
 public(package) fun register_blob(
     self: &mut SystemStateInnerV1,
     storage: Storage,
@@ -318,6 +319,7 @@ public(package) fun register_blob(
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    chunk_size: u64,
     deletable: bool,
     write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
@@ -328,6 +330,7 @@ public(package) fun register_blob(
         root_hash,
         size,
         encoding_type,
+        chunk_size,
         deletable,
         self.epoch(),
         self.n_shards(),
@@ -447,6 +450,7 @@ public(package) fun certify_event_blob(
     root_hash: u256,
     size: u64,
     encoding_type: u8,
+    chunk_size: u64,
     ending_checkpoint_sequence_num: u64,
     epoch: u32,
     ctx: &mut TxContext,
@@ -514,7 +518,7 @@ public(package) fun certify_event_blob(
     let num_shards = self.n_shards();
     let epochs_ahead = self.future_accounting.max_epochs_ahead();
     let storage = self.reserve_space_without_payment(
-        encoded_blob_length(size, encoding_type, num_shards),
+        encoded_blob_length(size, encoding_type, num_shards, chunk_size),
         0,
         epochs_ahead,
         false, // Do not check total capacity, event blobs are certified already at this point.
@@ -526,6 +530,7 @@ public(package) fun certify_event_blob(
         root_hash,
         size,
         encoding_type,
+        chunk_size,
         false,
         self.epoch(),
         self.n_shards(),

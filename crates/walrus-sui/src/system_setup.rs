@@ -101,6 +101,12 @@ fn compile_package_inner_blocking(
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
 ) -> Result<(CompiledPackage, MoveBuildConfig)> {
+    tracing::info!(
+        ?package_path,
+        ?build_config,
+        chain_id,
+        "Compiling Walrus package"
+    );
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
@@ -116,7 +122,7 @@ fn compile_package_inner_blocking(
     };
 
     let run_bytecode_verifier = true;
-    let print_diags_to_stderr = false;
+    let print_diags_to_stderr = true;
     let config = BuildConfig {
         config: build_config.clone(),
         run_bytecode_verifier,

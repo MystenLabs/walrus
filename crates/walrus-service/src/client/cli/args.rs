@@ -1163,6 +1163,15 @@ pub struct CommonStoreOptions {
     #[arg(long, value_enum)]
     #[serde(default)]
     pub upload_mode: Option<UploadModeCli>,
+    /// The chunk size for chunked encoding, in bytes.
+    ///
+    /// When specified, forces the use of chunked encoding (RS2Chunked) for the blob, splitting it
+    /// into chunks of the specified size. This is useful for storing very large blobs that exceed
+    /// memory limits. If not specified, the SDK will automatically choose between standard and
+    /// chunked encoding based on the blob size.
+    #[arg(long)]
+    #[serde(default)]
+    pub chunk_size: Option<u64>,
 }
 
 #[serde_as]
@@ -1922,6 +1931,7 @@ mod tests {
                 upload_relay: None,
                 skip_tip_confirmation: false,
                 upload_mode: None,
+                chunk_size: None,
             },
         })
     }

@@ -793,6 +793,7 @@ components:
       description: Supported Walrus encoding types.
       enum:
       - RS2
+      - RS2Chunked
     Epoch:
       type: integer
       format: int32
