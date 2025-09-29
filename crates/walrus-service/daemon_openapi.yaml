@@ -148,8 +148,8 @@ paths:
       summary: Retrieve a Walrus blob with its associated attribute.
       description: |-
         First retrieves the blob metadata from Sui using the provided object ID (either of the blob
-        object or a shared blob), then uses the blob_id from that metadata to fetch the actual blob
-        data via the get_blob function. The response includes the binary data along with any attribute
+        object or a shared blob), then uses the blob ID from that metadata to fetch the actual blob
+        data via the get_blob function. The response includes the raw data along with any attribute
         headers from the metadata that are present in the configured allowed_headers set.
       operationId: get_blob_by_object_id
       parameters:
@@ -160,7 +160,7 @@ paths:
           $ref: '#/components/schemas/ObjectID'
       responses:
         '200':
-          description: The blob was reconstructed successfully. Any attribute headers present in the allowed_headers configuration will be included in the response.
+          description: The blob was reconstructed successfully. Any attribute headers present in this aggregator's allowed_headers configuration will be included in the response.
           content:
             application/octet-stream:
               schema:
@@ -169,8 +169,8 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
-        '400':
-          description: The blob size exceeds the maximum allowed size.
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
             application/json:
               schema:
@@ -197,27 +197,45 @@ paths:
     get:
       tags:
       - routes
-      summary: Get blob from quilt by ID and identifier
-      description: Retrieve a specific blob from a quilt using the quilt ID and its identifier. Returns the raw blob bytes, the identifier and other attributes are returned as headers. If the quilt ID or identifier is not found, the response is 404.
-      operationId: get_blob_by_quilt_id_and_identifier
+      summary: Retrieve a patch from a Walrus quilt by its quilt ID and identifier.
+      description: |-
+        Takes a quilt ID and an identifier and returns the corresponding patch from the quilt.
+        The patch content is returned as raw bytes in the response body, while metadata
+        such as the patch identifier and tags are returned in response headers.
+
+        # Example
+        ```bash
+        curl -X GET "$aggregator/v1/blobs/by-quilt-id/\
+        rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU/my-file.txt"
+        ```
+
+        Response:
+        ```text
+        HTTP/1.1 200 OK
+        Content-Type: application/octet-stream
+        X-Quilt-Patch-Identifier: my-file.txt
+        ETag: "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+
+        [raw data]
+        ```
+      operationId: get_patch_by_quilt_id_and_identifier
       parameters:
       - name: quilt_id
         in: path
-        description: The quilt ID encoded as URL-safe base64
+        description: The quilt's blob ID.
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
-        example: rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU
       - name: identifier
         in: path
-        description: The identifier of the blob within the quilt
+        description: The identifier of the patch within the quilt
         required: true
         schema:
           type: string
         example: my-file.txt
       responses:
         '200':
-          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+          description: The patch was retrieved successfully. Returns the raw bytes of the patch; the identifier and other attributes are returned as headers.
           content:
             application/octet-stream:
               schema:
@@ -226,8 +244,8 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
-        '400':
-          description: The blob size exceeds the maximum allowed size.
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
             application/json:
               schema:
@@ -254,20 +272,39 @@ paths:
     get:
       tags:
       - routes
-      summary: Get blob from quilt
-      description: Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
-      operationId: get_blob_by_quilt_patch_id
+      summary: Retrieve a patch from a Walrus quilt by its quilt patch ID.
+      description: |-
+        Takes a quilt patch ID and returns the corresponding patch from the quilt.
+        The patch content is returned as raw bytes in the response body, while metadata
+        such as the patch identifier and tags are returned in response headers.
+
+        # Example
+        ```bash
+        curl -X GET "$AGGREGATOR/v1/blobs/by-quilt-patch-id/\
+        DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+        ```
+
+        Response:
+        ```text
+        HTTP/1.1 200 OK
+        Content-Type: application/octet-stream
+        X-Quilt-Patch-Identifier: my-file.txt
+        ETag: "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+
+        [raw data]
+        ```
+      operationId: get_patch_by_quilt_patch_id
       parameters:
       - name: quilt_patch_id
         in: path
-        description: The QuiltPatchId encoded as URL-safe base64
+        description: The quilt patch ID encoded as a URL-safe base64 string, without the trailing equal (=) signs.
         required: true
         schema:
           $ref: '#/components/schemas/QuiltPatchId'
         example: DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw
       responses:
         '200':
-          description: The blob was retrieved successfully. Returns the raw blob bytes, the identifier and other attributes are returned as headers.
+          description: The patch was retrieved successfully. Returns the raw bytes of the patch; the identifier and other attributes are returned as header.
           content:
             application/octet-stream:
               schema:
@@ -276,8 +313,8 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
-        '400':
-          description: The blob size exceeds the maximum allowed size.
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
             application/json:
               schema:
@@ -305,7 +342,7 @@ paths:
       tags:
       - routes
       summary: Retrieve a Walrus blob.
-      description: Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
+      description: Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
       operationId: get_blob
       parameters:
       - name: blob_id
@@ -324,8 +361,8 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
-        '400':
-          description: The blob size exceeds the maximum allowed size.
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
           content:
             application/json:
               schema:
@@ -352,31 +389,31 @@ paths:
     put:
       tags:
       - routes
-      summary: Store multiple blobs as a quilt using multipart/form-data.
+      summary: Store multiple files as a quilt using multipart/form-data.
       description: |-
-        Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+        Accepts a multipart form with files and optional per-file Walrus-native metadata.
         The form contains:
-        - Blobs identified by their identifiers as field names
-        - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+        - Files identified by their identifiers as field names
+        - An optional `_metadata` field containing a JSON array with per-file Walrus-native metadata
 
         # Contents of Walrus-native metadata
-        - `identifier`: The identifier of the blob, must match the corresponding blob field name
+        - `identifier`: The identifier of the file, must match the corresponding file field name
         - `tags`: JSON object with string key-value pairs (optional)
 
-        Blobs without corresponding metadata entries will be stored with empty tags.
+        Files without corresponding metadata entries will be stored with empty tags.
 
         # Examples
 
-        ## Blobs without Walrus-native metadata, with quilt version V1
+        ## Files without Walrus-native metadata, with quilt version V1
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+        curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&quilt_version=V1" \
           -F "contract-v2=@document.pdf" \
           -F "logo-2024=@image.png"
         ```
 
-        ## Blobs with Walrus-native metadata, with default quilt version
+        ## Files with Walrus-native metadata, with default quilt version
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+        curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
           -F "quilt-manual=@document.pdf" \
           -F "logo-2025=@image.png" \
           -F "_metadata=[
@@ -468,7 +505,7 @@ paths:
           description: The exclusive option to share the blob or to send it to an address.
         style: form
       requestBody:
-        description: Multipart form with blobs and their Walrus-native metadata
+        description: Multipart form with files and their Walrus-native metadata
         content:
           multipart/form-data: {}
       responses:
@@ -500,6 +537,77 @@ paths:
                 $ref: '#/components/schemas/Status'
         '504':
           description: The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /v1/quilts/{quilt_id}/patches:
+    get:
+      tags:
+      - routes
+      summary: List patches in a quilt.
+      description: |-
+        Returns a list of identifiers and quilt patch IDs for all patches contained in the specified
+        quilt. Each quilt patch ID can be used with the `/v1/blobs/by-quilt-patch-id` endpoint to
+        retrieve the actual blob data.
+
+        # Example
+        ```bash
+        curl -X GET "$aggregator/v1/quilts/patches-by-id/\
+        rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
+        ```
+
+        Response:
+        ```json
+        [
+          {
+            "identifier": "walrus-38.jpeg",
+            "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABAQANAA"
+          },
+          {
+            "identifier": "walrus-39.avif",
+            "patch_id": "uIiEbhP2qgZYygEGxJX1GeB-rQATo2yufC2DCp7B4iABDQBnAA"
+          }
+        ]
+        ```
+      operationId: list_patches_in_quilt
+      parameters:
+      - name: quilt_id
+        in: path
+        description: The quilt ID encoded as URL-safe base64
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+        example: rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU
+      responses:
+        '200':
+          description: Successfully retrieved the list of patches in the quilt
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuiltPatchItem'
+        '403':
+          description: The blob size exceeds the maximum allowed size that was configured for this service. The blob is still stored on Walrus and may be accessible through a different aggregator or the CLI.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: May be returned when (1) The requested blob has not yet been stored on Walrus. (2) The requested quilt patch does not exist on Walrus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The blob cannot be returned as has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
           content:
             application/json:
               schema:
@@ -719,6 +827,49 @@ components:
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+    QuiltPatchId:
+      type: object
+      description: |-
+        A QuiltPatchId is a globally unique id for a quilt patch.
+
+        A quilt patch is a individual blob within a quilt.
+      required:
+      - quiltId
+      - patchIdBytes
+      properties:
+        patchIdBytes:
+          type: array
+          items:
+            type: integer
+            format: int32
+            minimum: 0
+          description: The patch id of the quilt patch.
+        quiltId:
+          $ref: '#/components/schemas/BlobId'
+          description: The BlobId of the quilt as a Walrus blob.
+    QuiltPatchItem:
+      type: object
+      description: Response item for a patch in a quilt.
+      required:
+      - identifier
+      - patch_id
+      - tags
+      properties:
+        identifier:
+          type: string
+          description: The identifier of the patch (e.g., filename).
+        patch_id:
+          $ref: '#/components/schemas/QuiltPatchId'
+          description: |-
+            The patch ID for this patch, encoded as a URL-safe base64 string, without the trailing equal
+            (=) signs.
+        tags:
+          type: object
+          description: Tags for the patch.
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
     QuiltStoreResult:
       type: object
       description: Result when attempting to store a quilt.

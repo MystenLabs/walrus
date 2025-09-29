@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use utoipa::OpenApi;
-use walrus_core::{BlobId, EncodingType, EpochSchema};
+use walrus_core::{BlobId, EncodingType, EpochSchema, QuiltPatchId};
 use walrus_sdk::client::{
     resource::RegisterBlobOp,
     responses::{BlobStoreResult, EventOrObjectId, QuiltStoreResult},
@@ -24,11 +24,11 @@ use crate::common::api::Binary;
     paths(
         routes::get_blob,
         routes::get_blob_by_object_id,
-        routes::get_blob_by_quilt_patch_id,
-        routes::get_blob_by_quilt_id_and_identifier,
+        routes::get_patch_by_quilt_patch_id,
+        routes::get_patch_by_quilt_id_and_identifier,
         routes::list_patches_in_quilt,
     ),
-    components(schemas(BlobId, Status,))
+    components(schemas(BlobId, ObjectIdSchema, Status, QuiltPatchId))
 )]
 pub(super) struct AggregatorApiDoc;
 
@@ -37,19 +37,19 @@ pub(super) struct AggregatorApiDoc;
     info(title = "Walrus Publisher"),
     paths(routes::put_blob, routes::put_quilt),
     components(schemas(
+        Binary,
         Blob,
         BlobId,
-        QuiltStoreResult,
         EncodingType,
         EpochSchema,
         EventIdSchema,
         EventOrObjectId,
         ObjectIdSchema,
+        QuiltStoreResult,
         RegisterBlobOp,
         Status,
         StorageResource,
         SuiAddressSchema,
-        Binary,
     ))
 )]
 pub(super) struct PublisherApiDoc;
@@ -59,11 +59,12 @@ pub(super) struct PublisherApiDoc;
     info(title = "Walrus Daemon"),
     paths(
         routes::get_blob,
+        routes::get_blob_by_object_id,
+        routes::get_patch_by_quilt_patch_id,
+        routes::get_patch_by_quilt_id_and_identifier,
+        routes::list_patches_in_quilt,
         routes::put_blob,
         routes::put_quilt,
-        routes::get_blob_by_object_id,
-        routes::get_blob_by_quilt_patch_id,
-        routes::get_blob_by_quilt_id_and_identifier,
     ),
     components(schemas(
         Blob,
