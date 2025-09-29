@@ -918,6 +918,88 @@ async fn test_storage_nodes_do_not_serve_data_for_deleted_blobs() -> TestResult 
     assert_eq!(count_deleted, 1, "should have deleted one blob");
     tokio::time::sleep(Duration::from_millis(50)).await;
 
+    check_that_blob_is_not_available(client, blob_id).await
+}
+
+/// Tests that nodes correctly update the blob info for expired deletable blobs and no longer serve
+/// data for them.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_storage_nodes_do_not_serve_data_for_expired_deletable_blobs() -> TestResult {
+    walrus_test_utils::init_tracing();
+    let epoch_duration = Duration::from_secs(15);
+    let (_sui_cluster_handle, cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(epoch_duration)
+        .build()
+        .await?;
+    let client = client.as_ref();
+    let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
+
+    // Store the blob for 42 epochs.
+    let [
+        BlobStoreResult::NewlyCreated {
+            blob_object:
+                Blob {
+                    blob_id,
+                    id: object_id,
+                    ..
+                },
+            ..
+        },
+    ] = client
+        .reserve_and_store_blobs(
+            &blobs,
+            &StoreArgs::default_with_epochs(42)
+                .no_store_optimizations()
+                .deletable(),
+        )
+        .await?[..]
+    else {
+        panic!("should have exactly one newly created blob");
+    };
+
+    // Store the blob again for a single epoch.
+    let [
+        BlobStoreResult::NewlyCreated {
+            ref blob_object, ..
+        },
+    ] = client
+        .reserve_and_store_blobs(
+            &blobs,
+            &StoreArgs::default_with_epochs(1)
+                .no_store_optimizations()
+                .deletable(),
+        )
+        .await?[..]
+    else {
+        panic!("should have exactly one newly created blob");
+    };
+    assert_eq!(blob_object.blob_id, blob_id);
+    let early_end_epoch = blob_object.storage.end_epoch;
+
+    // Make sure we can read the blob.
+    assert_eq!(client.read_blob::<Primary>(&blob_id).await?, blob);
+
+    // Delete the blob with the later end epoch.
+    client.delete_owned_blob_by_object(object_id).await?;
+
+    // Wait until the end epoch of the early blob is reached, at which point it should no longer be
+    // available.
+    tokio::time::timeout(
+        epoch_duration * 3,
+        cluster.wait_for_nodes_to_reach_epoch(early_end_epoch),
+    )
+    .await
+    .expect("timed out waiting for nodes to reach end epoch of first blob");
+
+    check_that_blob_is_not_available(client, blob_id).await
+}
+
+async fn check_that_blob_is_not_available(
+    client: &WalrusNodeClient<SuiContractClient>,
+    blob_id: BlobId,
+) -> TestResult {
     let status_result = client
         .get_verified_blob_status(
             &blob_id,

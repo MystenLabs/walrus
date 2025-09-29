@@ -114,7 +114,7 @@ pub trait WalrusReadClient {
 
     /// Retrieves a blob from quilt by quilt ID and identifier.
     /// Default implementation returns an error indicating quilt is not supported.
-    fn get_blob_by_quilt_id_and_identifier(
+    fn get_patch_by_quilt_id_and_identifier(
         &self,
         _quilt_id: &BlobId,
         _identifier: &str,
@@ -195,7 +195,7 @@ impl<T: ReadClient> WalrusReadClient for WalrusNodeClient<T> {
         self.quilt_client().get_blobs_by_ids(quilt_patch_ids).await
     }
 
-    async fn get_blob_by_quilt_id_and_identifier(
+    async fn get_patch_by_quilt_id_and_identifier(
         &self,
         quilt_id: &BlobId,
         identifier: &str,
@@ -386,12 +386,12 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             )
             .route(
                 QUILT_PATCH_BY_ID_GET_ENDPOINT,
-                get(routes::get_blob_by_quilt_patch_id)
+                get(routes::get_patch_by_quilt_patch_id)
                     .with_state((self.client.clone(), self.response_header_config.clone())),
             )
             .route(
                 QUILT_PATCH_BY_IDENTIFIER_GET_ENDPOINT,
-                get(routes::get_blob_by_quilt_id_and_identifier)
+                get(routes::get_patch_by_quilt_id_and_identifier)
                     .with_state((self.client.clone(), self.response_header_config.clone())),
             )
             .route(

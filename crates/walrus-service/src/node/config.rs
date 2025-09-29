@@ -192,6 +192,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blob event processor.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub blob_event_processor_config: BlobEventProcessorConfig,
+    /// Configuration for garbage collection and related tasks.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub garbage_collection: GarbageCollectionConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -235,6 +238,7 @@ impl Default for StorageNodeConfig {
             admin_socket_path: None,
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
+            garbage_collection: Default::default(),
         }
     }
 }
@@ -675,6 +679,9 @@ pub struct ShardSyncConfig {
     /// transfer. This is the preferred option since it's always cheaper to scan the blob info
     /// table without transferring the shards.
     pub restart_shard_sync_always_retry_transfer_first: bool,
+    /// Configuration for using SST ingestion during shard sync. None disables this feature.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub sst_ingestion_config: Option<SstIngestionConfig>,
 }
 
 impl Default for ShardSyncConfig {
@@ -689,6 +696,26 @@ impl Default for ShardSyncConfig {
             shard_sync_concurrency: 10,
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
+            sst_ingestion_config: Some(SstIngestionConfig::default()),
+        }
+    }
+}
+
+/// Configuration for SST ingestion during shard sync.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SstIngestionConfig {
+    /// SST flush thresholds for shard sync (per SST file).
+    pub max_entries: Option<usize>,
+    /// Compact SST after shard sync completes.
+    pub compact_after_sync: bool,
+}
+
+impl Default for SstIngestionConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: None,
+            compact_after_sync: true,
         }
     }
 }
@@ -725,6 +752,34 @@ pub struct BlobEventProcessorConfig {
 impl Default for BlobEventProcessorConfig {
     fn default() -> Self {
         Self { num_workers: 10 }
+    }
+}
+
+/// Configuration for garbage collection and related tasks.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct GarbageCollectionConfig {
+    /// Whether to enable the blob info cleanup at the beginning of each epoch.
+    pub enable_blob_info_cleanup: bool,
+}
+
+#[allow(clippy::derivable_impls)] // making the default explicit as a reminder for future changes
+impl Default for GarbageCollectionConfig {
+    fn default() -> Self {
+        Self {
+            // TODO(WAL-1040): Enable this by default.
+            enable_blob_info_cleanup: false,
+        }
+    }
+}
+
+impl GarbageCollectionConfig {
+    /// Returns a default configuration for testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        Self {
+            enable_blob_info_cleanup: true,
+        }
     }
 }
 

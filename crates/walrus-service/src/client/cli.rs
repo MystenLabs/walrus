@@ -59,6 +59,7 @@ pub async fn get_read_client(
     rpc_url: Option<String>,
     wallet: Result<Wallet>,
     blocklist_path: &Option<PathBuf>,
+    max_blob_size: Option<u64>,
 ) -> Result<WalrusNodeClient<SuiReadClient>> {
     let sui_read_client =
         get_sui_read_client_from_rpc_node_or_wallet(&config, rpc_url, wallet).await?;
@@ -67,7 +68,13 @@ pub async fn get_read_client(
         .refresh_config
         .build_refresher_and_run(sui_read_client.clone())
         .await?;
-    let client = WalrusNodeClient::new_read_client(config, refresh_handle, sui_read_client).await?;
+    let client = WalrusNodeClient::new_read_client_with_max_blob_size(
+        config,
+        refresh_handle,
+        sui_read_client,
+        max_blob_size,
+    )
+    .await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))

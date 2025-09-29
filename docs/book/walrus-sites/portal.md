@@ -10,6 +10,22 @@ portals:
 
 Currently, only a server-side portal is served at <https://wal.app>.
 
+We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
+to the list.
+
+## Known portals
+
+Portals can self-identify by opening a PR that adds an entry to `docs/book/portals/list.json`.
+
+{{#if portals}}
+{{#each portals}}
+
+- `{{@key}}{{#if this.operator}} ({{this.operator}}){{/if}}`
+  {{/each}}
+  {{else}}
+- `https://wal.app (operated by Mysten Labs)`
+  {{/if}}
+
 ```admonish warning
 We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
 at <https://wal.app>.
@@ -39,7 +55,7 @@ cd walrus-sites
 
 Make sure you are on the stable branch:
 
-``` sh
+```sh
 git checkout mainnet
 ```
 
@@ -100,13 +116,13 @@ serving sites that are not published by you.
 - `AGGREGATOR_URL`: The url to a Walrus aggregator that will fetch the site resources from Walrus.
 
 - `AMPLITUDE_API_KEY`: Provide it if you want to enable [Amplitude](https://amplitude.com/) for your
-server analytics.
+  server analytics.
 
 - `EDGE_CONFIG`: If you host your portal on Vercel, you can use the [Edge Config][edge-config] to
-blocklist certain SuiNS subdomains or b36 object ids.
+  blocklist certain SuiNS subdomains or b36 object ids.
 
 - `EDGE_CONFIG_ALLOWLIST`: Similar to blocklist, but allows certain subdomains to use the premium
-rpc url list.
+  rpc url list.
 
 - `ENABLE_ALLOWLIST`: Enable the allowlist feature.
 
@@ -117,10 +133,10 @@ rpc url list.
 - `ENABLE_VERCEL_WEB_ANALYTICS`: Enable Vercel web analytics.
 
 - `LANDING_PAGE_OID_B36`: The b36 object id of the landing page Walrus Site. i.e. the page you get
-when you visit `localhost:3000`.
+  when you visit `localhost:3000`.
 
 - `PORTAL_DOMAIN_NAME_LENGTH`: If you connect your portal with a domain name, specify the length of
-the domain name. e.g. `example.com` has a length of 11.
+  the domain name. e.g. `example.com` has a length of 11.
 
 - `PREMIUM_RPC_URL_LIST`: A list of rpc urls that are used when a site belongs to the allowlist.
 
@@ -131,15 +147,15 @@ the domain name. e.g. `example.com` has a length of 11.
 - `SENTRY_DSN`: If you enable Sentry error tracking, provide your Sentry DSN.
 
 - `SENTRY_TRACES_SAMPLE_RATE`: If you enable Sentry error tracking, provide the sample rate for
-traces.
+  traces.
 
 - `SITE_PACKAGE`: The Walrus Site package id. Depending on the network you are using, you will
-have to specify the correct package id.
+  have to specify the correct package id.
 
 - `SUINS_CLIENT_NETWORK`: The network of the SuiNS client.
 
 - `B36_DOMAIN_RESOLUTION_SUPPORT`: Define if b36 domain resolution is supported. Otherwise the
-site will not be served.
+  site will not be served.
 
 #### Constants
 
@@ -153,7 +169,7 @@ here are the explanations for each parameter:
   only. Use this at your own risk, may render some sites with legitimate SuiNS names unusable.
 
 - `FALLBACK_PORTAL`: This is related only to the service worker portal. The fallback portal should
-be a server-side portal that is used in cases where some browsers do not support service workers.
+  be a server-side portal that is used in cases where some browsers do not support service workers.
 
 ### Deploying the Portal
 
@@ -192,7 +208,7 @@ This requires having the [`bun`](https://bun.sh/) tool installed:
 
 Check if bun is installed with:
 
-``` sh
+```sh
 bun --version
 ```
 

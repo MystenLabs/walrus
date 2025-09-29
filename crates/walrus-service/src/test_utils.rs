@@ -85,6 +85,8 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
+#[cfg(msim)]
+use crate::node::config::SstIngestionConfig;
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
@@ -107,6 +109,7 @@ use crate::{
             BlobEventProcessorConfig,
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
+            GarbageCollectionConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
             StorageNodeConfig,
@@ -992,6 +995,7 @@ impl StorageNodeHandleBuilder {
                 Default::default()
             },
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1173,8 +1177,21 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
+
+        if rand::random::<bool>() {
+            storage_node_config.shard_sync_config.sst_ingestion_config =
+                Some(SstIngestionConfig::default());
+            storage_node_config
+                .shard_sync_config
+                .sst_ingestion_config
+                .as_mut()
+                .unwrap()
+                .max_entries = Some(1);
+            tracing::info!("SST based ingestion is enabled on the node");
+        }
 
         randomize_sliver_recovery_additional_symbols(&mut storage_node_config);
 
@@ -3060,6 +3077,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
         },
         temp_dir,
     }

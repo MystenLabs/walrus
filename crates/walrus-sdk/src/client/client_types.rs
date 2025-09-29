@@ -41,6 +41,9 @@ pub struct StoredQuiltPatch {
     pub identifier: String,
     /// The quilt patch id.
     pub quilt_patch_id: String,
+    /// The range of the quilt patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<(u64, u64)>,
 }
 
 impl StoredQuiltPatch {
@@ -49,6 +52,16 @@ impl StoredQuiltPatch {
         Self {
             identifier: identifier.to_string(),
             quilt_patch_id: QuiltPatchId::new(blob_id, patch_id.to_bytes()).to_string(),
+            range: None,
+        }
+    }
+
+    /// Create a new stored quilt patch with range.
+    pub fn with_range(self, start_index: u64, end_index: u64) -> Self {
+        Self {
+            identifier: self.identifier,
+            quilt_patch_id: self.quilt_patch_id,
+            range: Some((start_index, end_index)),
         }
     }
 }

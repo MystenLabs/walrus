@@ -321,6 +321,7 @@ fn get_stored_quilt_patches(quilt_index: &QuiltIndex, quilt_id: BlobId) -> Vec<S
         .iter()
         .map(|patch| {
             StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
+                .with_range(patch.start_index.into(), patch.end_index.into())
         })
         .collect()
 }
@@ -342,14 +343,18 @@ fn construct_stored_quilt_patch_table(quilt_patches: &[StoredQuiltPatch]) -> Tab
     table.set_titles(row![
         b->"Index",
         b->"QuiltPatchId",
-        b->"Identifier"
+        b->"Sliver Range",
+        b->"Identifier",
     ]);
 
     for (i, quilt_patch) in quilt_patches.iter().enumerate() {
         table.add_row(row![
             bFc->format!("{i}"),
             quilt_patch.quilt_patch_id,
-            quilt_patch.identifier
+            quilt_patch
+                .range
+                .map_or_else(String::new, |range| format!("[{}, {})", range.0, range.1)),
+            quilt_patch.identifier,
         ]);
     }
 

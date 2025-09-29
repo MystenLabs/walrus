@@ -823,6 +823,10 @@ pub struct AggregatorArgs {
     #[arg(long, default_value_t = false)]
     #[serde(default)]
     pub allow_quilt_patch_tags_in_response: bool,
+    /// The maximum blob size in bytes.
+    #[arg(long)]
+    #[serde(default)]
+    pub max_blob_size: Option<u64>,
 }
 
 /// The arguments for the publisher service.
@@ -1846,6 +1850,7 @@ mod tests {
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
                 allow_quilt_patch_tags_in_response: false,
+                max_blob_size: None,
             },
         })
     }
