@@ -140,7 +140,10 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::{encoding::ReedSolomonEncodingConfig, test_utils};
+    use crate::{
+        encoding::{EncodingConfigEnum, ReedSolomonEncodingConfig},
+        test_utils,
+    };
 
     // Fixture
     fn sliver_pairs(num: u16) -> Vec<SliverPair> {
@@ -148,7 +151,7 @@ mod tests {
         (0..num)
             .map(|n| {
                 SliverPair::new_empty(
-                    &(&encoding_config).into(),
+                    EncodingConfigEnum::ReedSolomon(encoding_config),
                     1.try_into().unwrap(),
                     SliverPairIndex(n),
                 )

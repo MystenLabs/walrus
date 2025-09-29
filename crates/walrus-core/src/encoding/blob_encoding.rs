@@ -237,7 +237,7 @@ impl<'a> BlobEncoder<'a> {
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards().get())
-            .map(|i| SliverPair::new_empty(&self.config, self.symbol_size, SliverPairIndex(i)))
+            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverPairIndex(i)))
             .collect()
     }
 

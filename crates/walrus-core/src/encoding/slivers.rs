@@ -245,7 +245,7 @@ impl<T: EncodingAxis> SliverData<T> {
         recovery_symbols: I,
         target_index: SliverIndex,
         symbol_size: NonZeroU16,
-        config: &EncodingConfigEnum,
+        config: EncodingConfigEnum,
     ) -> Result<Self, DecodeError>
     where
         I: IntoIterator,
@@ -309,7 +309,7 @@ impl<T: EncodingAxis> SliverData<T> {
             verified_recovery_symbols.clone(),
             target_index,
             symbol_size,
-            &config_enum,
+            config_enum,
         )
         .map_err(|_| SliverRecoveryError::DecodingFailure)?;
 
@@ -389,7 +389,7 @@ impl SliverPair {
     /// Creates a new sliver pair containing two empty [`SliverData`] instances of the specified
     /// size.
     pub fn new_empty(
-        config: &EncodingConfigEnum,
+        config: EncodingConfigEnum,
         symbol_size: NonZeroU16,
         index: SliverPairIndex,
     ) -> Self {
@@ -599,7 +599,7 @@ mod tests {
             recovery_symbols,
             SliverIndex(0),
             symbol_size.try_into().unwrap(),
-            &(&config).into(),
+            EncodingConfigEnum::ReedSolomon(config),
         );
         assert!(recovered.is_err());
     }
@@ -653,7 +653,7 @@ mod tests {
                 recovery_symbols.iter().map(|s| s.primary.clone()),
                 pair.primary.index,
                 symbol_size,
-                &encoding_config_enum,
+                encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.primary);
@@ -663,7 +663,7 @@ mod tests {
                 recovery_symbols.iter().map(|s| s.secondary.clone()),
                 pair.secondary.index,
                 symbol_size,
-                &encoding_config_enum,
+                encoding_config_enum,
             )
             .unwrap();
             assert_eq!(recovered, pair.secondary);
@@ -733,7 +733,7 @@ mod tests {
                     }),
                     SliverIndex(n_shards - 1 - target_index),
                     symbol_size,
-                    &encoding_config_enum,
+                    encoding_config_enum,
                 )
                 .unwrap()
             })
@@ -757,7 +757,7 @@ mod tests {
                     }),
                 index.into(),
                 symbol_size,
-                &encoding_config_enum,
+                encoding_config_enum,
             )
             .unwrap()
         }));
