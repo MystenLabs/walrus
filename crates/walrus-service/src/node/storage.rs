@@ -66,7 +66,7 @@ pub use database_config::DatabaseConfig;
 pub(crate) mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
 
-/// Get event cursor table options (exposed for db_options module)
+/// Get event cursor table options (exposed for db_options module).
 pub(crate) fn event_cursor_table_options(
     config: &DatabaseConfig,
 ) -> (&'static str, rocksdb::Options) {
