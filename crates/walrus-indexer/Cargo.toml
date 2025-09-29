@@ -26,11 +26,11 @@ tracing = { workspace = true }
 typed-store = { workspace = true }
 
 # Walrus dependencies
-walrus-core = { path = "../walrus-core" }
-walrus-sdk = { path = "../walrus-sdk" }
-walrus-service = { path = "../walrus-service" }
-walrus-sui = { path = "../walrus-sui" }
-walrus-utils = { path = "../walrus-utils" }
+walrus-core.workspace = true
+walrus-sdk.workspace = true
+walrus-service.workspace = true
+walrus-sui.workspace = true
+walrus-utils.workspace = true```
 
 # Sui dependencies
 sui-types = { workspace = true }
