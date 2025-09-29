@@ -1,5 +1,7 @@
 # Setup
 
+In order to learn to use Walrus, we recommend starting with the command-line interface.
+
 We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
 supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
 the [prerequisites](#prerequisites), [installation](#installation), and
