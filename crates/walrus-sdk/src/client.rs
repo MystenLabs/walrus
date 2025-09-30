@@ -1128,9 +1128,7 @@ impl WalrusNodeClient<SuiContractClient> {
             match encoding_type {
                 EncodingType::RS2Chunked => {
                     // Get the Reed-Solomon config
-                    let rs_config = match self.encoding_config.get_for_type(encoding_type) {
-                        walrus_core::encoding::EncodingConfigEnum::ReedSolomon(config) => config,
-                    };
+                    let walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs_config) = self.encoding_config.get_for_type(encoding_type);
 
                     let chunked_encoder = ChunkedBlobEncoder::new(rs_config, blob, chunk_size)
                         .map_err(ClientError::other)?;
@@ -2051,16 +2049,17 @@ impl<T> WalrusNodeClient<T> {
             .get_for_type(metadata.metadata().encoding_type());
 
         // Extract the ReedSolomonEncodingConfig (chunked blobs always use RS2Chunked)
-        let rs_config = match encoding_config {
-            walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs) => rs,
-        };
+        let walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs_config) = encoding_config;
 
         // Create the chunked decoder
         let chunked_decoder = ChunkedBlobDecoder::new(rs_config, metadata.metadata())
             .ok_or_else(|| ClientErrorKind::NotEnoughSlivers)?;
 
         // Result buffer to accumulate decoded chunks
-        let mut result = Vec::with_capacity(metadata_v2.unencoded_length as usize);
+        let mut result = Vec::with_capacity(
+            usize::try_from(metadata_v2.unencoded_length)
+                .expect("unencoded length must fit in usize to decode in memory")
+        );
 
         // Download and decode each chunk
         for chunk_index in 0..num_chunks {

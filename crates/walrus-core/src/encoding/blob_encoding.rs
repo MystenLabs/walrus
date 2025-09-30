@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::{collections::BTreeSet, vec, vec::Vec};
+use alloc::{collections::BTreeSet, format, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
@@ -498,7 +498,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DecodeError> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
-        let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
+        let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError::new())?;
         let n_source_symbols = config.n_source_symbols::<E>();
 
         let decoder = D::new(n_source_symbols, config.n_shards(), symbol_size)?;
@@ -712,6 +712,7 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
 /// - Streaming uploads/downloads: chunks can be processed independently
 /// - Memory efficiency: don't need to load entire blob into memory
 /// - Proof-based verification: each chunk can be verified against blob-level hashes
+#[derive(Debug)]
 pub struct ChunkedBlobEncoder<'a> {
     /// Reference to the full blob data.
     blob: &'a [u8],
@@ -736,7 +737,7 @@ impl<'a> ChunkedBlobEncoder<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`DataTooLargeError`] if the chunk size computation fails.
+    /// Returns [`DataTooLargeError`] if the chunk size computation fails or if validation fails.
     pub fn new(
         config: &'a ReedSolomonEncodingConfig,
         blob: &'a [u8],
@@ -745,10 +746,39 @@ impl<'a> ChunkedBlobEncoder<'a> {
         let blob_size = blob.len() as u64;
         let num_chunks = super::config::compute_num_chunks(blob_size, chunk_size);
 
+        // Validate minimum chunk size
+        if chunk_size < super::config::MIN_CHUNK_SIZE {
+            return Err(DataTooLargeError::with_message(
+                format!(
+                    "Chunk size {} is below minimum {}. Use at least {} MB chunks to prevent excessive metadata overhead.",
+                    chunk_size,
+                    super::config::MIN_CHUNK_SIZE,
+                    super::config::MIN_CHUNK_SIZE / (1024 * 1024)
+                )
+            ));
+        }
+
+        // Validate maximum number of chunks
+        if num_chunks > super::config::MAX_CHUNKS {
+            let min_required = blob_size.div_ceil(u64::from(super::config::MAX_CHUNKS));
+            return Err(DataTooLargeError::with_message(
+                format!(
+                    "Blob size {} with chunk size {} would create {} chunks (max {}). Use chunk size of at least {} bytes ({} MB) to stay within chunk limit.",
+                    blob_size,
+                    chunk_size,
+                    num_chunks,
+                    super::config::MAX_CHUNKS,
+                    min_required,
+                    min_required / (1024 * 1024)
+                )
+            ));
+        }
+
         tracing::debug!(
             blob_size,
             num_chunks,
             chunk_size,
+            metadata_size_estimate = num_chunks * 64 * 1024,  // Approximate: num_chunks × 64 KB
             "creating chunked blob encoder"
         );
 
@@ -758,6 +788,34 @@ impl<'a> ChunkedBlobEncoder<'a> {
             num_chunks,
             chunk_size,
         })
+    }
+
+    #[cfg(test)]
+    /// Creates a new chunked blob encoder for testing purposes, bypassing validation.
+    ///
+    /// This method should only be used in tests where you want to test with non-standard
+    /// chunk sizes that would otherwise fail validation.
+    pub fn new_for_test(
+        config: &'a ReedSolomonEncodingConfig,
+        blob: &'a [u8],
+        chunk_size: u64,
+    ) -> Self {
+        let blob_size = blob.len() as u64;
+        let num_chunks = super::config::compute_num_chunks(blob_size, chunk_size);
+
+        tracing::debug!(
+            blob_size,
+            num_chunks,
+            chunk_size,
+            "creating chunked blob encoder (test mode, validation bypassed)"
+        );
+
+        Self {
+            blob,
+            config,
+            num_chunks,
+            chunk_size,
+        }
     }
 
     /// Encodes the blob and returns the sliver pairs and verified metadata.
@@ -783,8 +841,13 @@ impl<'a> ChunkedBlobEncoder<'a> {
 
         // Encode each chunk
         for chunk_idx in 0..self.num_chunks {
-            let chunk_start = (chunk_idx as u64 * self.chunk_size) as usize;
-            let chunk_end = std::cmp::min(chunk_start + self.chunk_size as usize, self.blob.len());
+            let chunk_start = usize::try_from(u64::from(chunk_idx) * self.chunk_size)
+                .expect("chunk start offset must fit in usize since blob is in memory");
+            let chunk_end = core::cmp::min(
+                chunk_start + usize::try_from(self.chunk_size)
+                    .expect("chunk size must fit in usize since blob is in memory"),
+                self.blob.len()
+            );
             let chunk_data = &self.blob[chunk_start..chunk_end];
 
             tracing::debug!(chunk_idx, chunk_size = chunk_data.len(), "encoding chunk");
@@ -877,8 +940,13 @@ impl<'a> ChunkedBlobEncoder<'a> {
 
         // Compute metadata for each chunk
         for chunk_idx in 0..self.num_chunks {
-            let chunk_start = (chunk_idx as u64 * self.chunk_size) as usize;
-            let chunk_end = std::cmp::min(chunk_start + self.chunk_size as usize, self.blob.len());
+            let chunk_start = usize::try_from(u64::from(chunk_idx) * self.chunk_size)
+                .expect("chunk start offset must fit in usize since blob is in memory");
+            let chunk_end = core::cmp::min(
+                chunk_start + usize::try_from(self.chunk_size)
+                    .expect("chunk size must fit in usize since blob is in memory"),
+                self.blob.len()
+            );
             let chunk_data = &self.blob[chunk_start..chunk_end];
 
             let config_enum = EncodingConfigEnum::ReedSolomon(self.config);
@@ -943,6 +1011,7 @@ impl<'a> ChunkedBlobEncoder<'a> {
 ///
 /// This decoder reconstructs blobs chunk-by-chunk, enabling streaming decoding
 /// of large blobs without loading everything into memory at once.
+#[derive(Debug)]
 pub struct ChunkedBlobDecoder<'a> {
     /// The Reed-Solomon encoding configuration.
     config: &'a ReedSolomonEncodingConfig,
@@ -1073,10 +1142,17 @@ impl<'a> ChunkedBlobDecoder<'a> {
             "decoding all chunks"
         );
 
-        let mut result = Vec::with_capacity(self.metadata.unencoded_length as usize);
+        let mut result = Vec::with_capacity(
+            usize::try_from(self.metadata.unencoded_length)
+                .expect("unencoded length must fit in usize to decode in memory")
+        );
 
         for (chunk_index, chunk_sliver_pairs) in all_chunk_sliver_pairs.into_iter().enumerate() {
-            let chunk_data = self.decode_chunk(chunk_index as u32, chunk_sliver_pairs)?;
+            let chunk_data = self.decode_chunk(
+                u32::try_from(chunk_index)
+                    .expect("chunk index must fit in u32 (max 1000 chunks enforced by validation)"),
+                chunk_sliver_pairs
+            )?;
             result.extend(chunk_data);
         }
 
@@ -1087,12 +1163,14 @@ impl<'a> ChunkedBlobDecoder<'a> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
     use crate::{
         EncodingType,
-        encoding::{EncodingConfig, ReedSolomonEncodingConfig},
+        encoding::{EncodingConfig, ReedSolomonEncodingConfig, config},
         metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
     };
 
@@ -1304,9 +1382,8 @@ mod tests {
         let blob = random_data(blob_size as usize);
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
-        // Encode with chunked encoder
-        let chunked_encoder =
-            ChunkedBlobEncoder::new(&config, &blob, chunk_size).expect("encoder creation failed");
+        // Encode with chunked encoder (using test constructor to bypass validation)
+        let chunked_encoder = ChunkedBlobEncoder::new_for_test(&config, &blob, chunk_size);
 
         let (all_sliver_pairs, metadata) = chunked_encoder
             .encode_with_metadata()
@@ -1360,9 +1437,8 @@ mod tests {
         let blob = random_data(blob_size as usize);
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
-        // Encode
-        let chunked_encoder =
-            ChunkedBlobEncoder::new(&config, &blob, chunk_size).expect("encoder creation failed");
+        // Encode (using test constructor to bypass validation)
+        let chunked_encoder = ChunkedBlobEncoder::new_for_test(&config, &blob, chunk_size);
         let (all_sliver_pairs, metadata) = chunked_encoder
             .encode_with_metadata()
             .expect("encoding failed");
@@ -1389,5 +1465,72 @@ mod tests {
 
         // Verify roundtrip
         assert_eq!(blob, decoded_blob);
+    }
+
+    #[test]
+    fn test_chunk_size_validation_too_small() {
+        let blob = random_data(100 * 1024 * 1024); // 100 MB blob
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = 1024 * 1024; // 1 MB, below the 10 MB minimum
+
+        let result = ChunkedBlobEncoder::new(&config, &blob, chunk_size);
+
+        assert!(result.is_err(), "Should reject chunk size below minimum");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("below minimum"),
+            "Error message should mention minimum: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_chunk_size_validation_too_many_chunks() {
+        // Note: With MIN_CHUNK_SIZE = 10 MB and MAX_CHUNKS = 1000, a blob would need to be
+        // at least 10 GB to trigger MAX_CHUNKS validation with minimum chunk size.
+        // For practical testing, we verify that small chunk sizes are rejected for
+        // being below minimum.
+
+        let blob = random_data(10 * 1024 * 1024); // 10 MB blob for testing
+        let rs_config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+
+        // Use a very small chunk size to trigger validation
+        // With 10 MB blob and 1 KB chunks, we'd get 10,240 chunks
+        let small_chunk_size = 1024; // 1 KB
+
+        let result = ChunkedBlobEncoder::new(&rs_config, &blob, small_chunk_size);
+
+        // This should fail for being below minimum
+        assert!(result.is_err(), "Should reject chunk size below minimum");
+    }
+
+    #[test]
+    fn test_chunk_size_validation_valid_min_size() {
+        let blob = random_data(100 * 1024 * 1024); // 100 MB blob
+        let rs_config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = config::MIN_CHUNK_SIZE; // Exactly at minimum
+
+        let result = ChunkedBlobEncoder::new(&rs_config, &blob, chunk_size);
+
+        assert!(
+            result.is_ok(),
+            "Should accept chunk size at minimum: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_chunk_size_validation_valid_large_size() {
+        let blob = random_data(500 * 1024 * 1024); // 500 MB blob
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let chunk_size = 50 * 1024 * 1024; // 50 MB, well above minimum
+
+        let result = ChunkedBlobEncoder::new(&config, &blob, chunk_size);
+
+        assert!(
+            result.is_ok(),
+            "Should accept large chunk size: {:?}",
+            result
+        );
     }
 }
