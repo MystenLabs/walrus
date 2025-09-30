@@ -86,8 +86,10 @@ pub type Epoch = u32;
 pub type EpochCount = u32;
 
 /// A tuple containing the list of supported encodings, and the default encoding type.
-const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) =
-    (&[EncodingType::RS2], EncodingType::RS2);
+const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) = (
+    &[EncodingType::RS2, EncodingType::RS2Chunked],
+    EncodingType::RS2,
+);
 
 /// The encoding types supported for this build.
 pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = SUPPORTED_AND_DEFAULT_ENCODING.0;
@@ -772,6 +774,8 @@ mod encoding_type {
         RedStuffRaptorQ = 0,
         /// RedStuff using the Reed-Solomon erasure code.
         RS2 = 1,
+        /// RedStuff using the Reed-Solomon erasure code allowing for multiple chunks.
+        RS2Chunked = 2,
     }
 
     impl From<EncodingType> for u8 {
@@ -788,6 +792,7 @@ mod encoding_type {
         fn try_from(value: u8) -> Result<Self, Self::Error> {
             match value {
                 1 => Ok(EncodingType::RS2),
+                2 => Ok(EncodingType::RS2Chunked),
                 _ => Err(InvalidEncodingType),
             }
         }
@@ -800,6 +805,7 @@ mod encoding_type {
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             match s.trim().to_lowercase().as_str() {
                 "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
+                "rs2-chunked" => Ok(Self::RS2Chunked),
                 _ => Err(InvalidEncodingType),
             }
         }
@@ -831,6 +837,7 @@ mod encoding_type {
             match self {
                 Self::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
                 Self::RS2 => write!(f, "RedStuff/Reed-Solomon"),
+                Self::RS2Chunked => write!(f, "RedStuff/Reed-Solomon-Chunked"),
             }
         }
     }
