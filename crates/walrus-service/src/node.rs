@@ -2174,7 +2174,7 @@ impl StorageNode {
         // any information about the shards that the node should own.
         //
         // The node now will try to only process blob info upon receiving a blob event
-        // and blob recovery will be triggered when the node is in the lasted epoch.
+        // and blob recovery will be triggered when the node is in the latest epoch.
         self.blob_sync_handler
             .cancel_all_syncs_and_mark_events_completed()
             .await?;
