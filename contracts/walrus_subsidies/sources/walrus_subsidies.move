@@ -39,7 +39,7 @@ fun package_id_for_current_version(): ID {
 
 /// Returns the package ID for the given type.
 fun package_id_for_type<T>(): ID {
-    let address_str = type_name::get<T>().get_address().to_lowercase();
+    let address_str = type_name::with_defining_ids<T>().address_string().to_lowercase();
     let address_bytes = hex::decode(address_str.into_bytes());
     object::id_from_bytes(address_bytes)
 }
@@ -228,5 +228,8 @@ use std::unit_test::assert_eq;
 #[test]
 fun test_package_id_for_current_version() {
     let package_id = package_id_for_current_version();
-    assert_eq!(type_name::get<V2>().get_address(), package_id.to_address().to_ascii_string());
+    assert_eq!(
+        type_name::with_defining_ids<V2>().address_string(),
+        package_id.to_address().to_ascii_string(),
+    );
 }

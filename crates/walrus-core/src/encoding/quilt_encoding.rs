@@ -935,6 +935,10 @@ impl QuiltApi<QuiltVersionV1> for QuiltV1 {
         quilt_blob: Vec<u8>,
         encoding_config: &EncodingConfigEnum<'_>,
     ) -> Result<QuiltV1, QuiltError> {
+        if quilt_blob.is_empty() {
+            return Err(QuiltError::EmptyInput("quilt_blob".to_string()));
+        }
+
         let n_primary_source_symbols =
             usize::from(encoding_config.n_source_symbols::<Primary>().get());
         let n_secondary_source_symbols =
@@ -1612,7 +1616,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patches_by_identifiers(identifiers))?
             .iter()
-            .map(|patch| self.get_blob_by_quilt_patch(patch))
+            .map(|patch| self.get_patch_by_quilt_patch(patch))
             .collect()
     }
 
@@ -1639,7 +1643,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
                 quilt_index
                     .get_quilt_patches_by_tag(target_tag, target_value)
                     .iter()
-                    .map(|patch| self.get_blob_by_quilt_patch(patch))
+                    .map(|patch| self.get_patch_by_quilt_patch(patch))
                     .collect()
             })
     }
@@ -1746,7 +1750,7 @@ impl<'a> QuiltDecoderV1<'a> {
     }
 
     /// Gets the blob by QuiltPatchV1.
-    fn get_blob_by_quilt_patch(
+    fn get_patch_by_quilt_patch(
         &self,
         quilt_patch: &QuiltPatchV1,
     ) -> Result<QuiltStoreBlob<'static>, QuiltError> {
@@ -1961,7 +1965,7 @@ mod tests {
         max_num_slivers_for_quilt_index: usize,
         expected: Result<usize, QuiltError>,
     ) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
         let res = utils::compute_symbol_size(
             blobs,
             n_columns,
@@ -2109,7 +2113,7 @@ mod tests {
     }
 
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
 
@@ -2195,7 +2199,7 @@ mod tests {
         max_blob_size: usize,
         n_shards: u16,
     ) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         const MAX_NUM_TAGS: usize = 10;
         const MAX_VALUE_LENGTH: usize = 100;
@@ -2218,7 +2222,7 @@ mod tests {
     }
 
     fn encode_decode_quilt(mut test_data: QuiltTestData<'_>, config: EncodingConfigEnum) {
-        let _ = tracing_subscriber::fmt().try_init();
+        walrus_test_utils::init_tracing();
 
         let quilt_store_blobs = test_data.take_blobs();
 
@@ -2259,7 +2263,7 @@ mod tests {
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         let missing_slivers =
             if let Err(QuiltError::MissingSlivers(missing_indices)) = decode_index_result {
-                tracing::info!("missing_indices: {:?}", missing_indices);
+                tracing::debug!("missing_indices: {:?}", missing_indices);
                 slivers
                     .iter()
                     .filter(|sliver| missing_indices.contains(&sliver.index))
@@ -2485,5 +2489,12 @@ mod tests {
         assert_ne!(borrowed_with_tags, borrowed_different_tags);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_new_from_quilt_blob_panics_on_empty_input() {
+        use core::num::NonZeroU16;
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(7).unwrap());
+        let _ = QuiltV1::new_from_quilt_blob(Vec::new(), &EncodingConfigEnum::ReedSolomon(&config));
     }
 }

@@ -56,6 +56,13 @@ impl CommitteeLookupService for SuiReadClient {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
         self.flush_cache().await;
         let committees_and_state = self.get_committees_and_state().await?;
+        if cfg!(msim) {
+            // In simtest, print out the committees and state for easier debugging.
+            tracing::info!(
+                "fetching new committees and state: {:?}",
+                committees_and_state
+            );
+        }
         ActiveCommittees::try_from(committees_and_state)
     }
 }

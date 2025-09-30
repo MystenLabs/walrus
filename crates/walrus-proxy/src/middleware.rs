@@ -43,31 +43,12 @@ static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     )
 });
 
-static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(
-        CounterVec::new(
-            Opts::new(
-                "middleware_headers",
-                "Operations counters and status for axum middleware.",
-            ),
-            &["header", "value"]
-        )
-        .expect("metric creation cannot fail with valid parameters")
-    )
-});
-
 /// we expect walrus-node to send us an http header content-length encoding.
 pub async fn expect_content_length(
-    TypedHeader(content_length): TypedHeader<ContentLength>,
+    TypedHeader(_content_length): TypedHeader<ContentLength>,
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    walrus_utils::with_label!(
-        MIDDLEWARE_HEADERS,
-        "content-length",
-        &format!("{}", content_length.0)
-    )
-    .inc();
     Ok(next.run(request).await)
 }
 

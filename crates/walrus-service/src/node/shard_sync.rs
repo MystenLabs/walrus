@@ -72,16 +72,19 @@ impl ShardSyncHandler {
     ) -> Result<(), SyncShardClientError> {
         let mut task_handle = self.task_handle.lock().await;
         let sync_handler = self.clone();
+
+        // If there is an existing task, we need to abort it first before starting a new one.
+        if let Some(old_task) = task_handle.take() {
+            old_task.abort();
+        }
+
         let new_task = tokio::spawn(async move {
             sync_handler
                 .sync_shards_task(shards, recover_metadata)
                 .await
         });
 
-        // Abort any existing task before replacing it
-        if let Some(old_task) = task_handle.replace(new_task) {
-            old_task.abort();
-        }
+        *task_handle = Some(new_task);
 
         Ok(())
     }
@@ -135,7 +138,7 @@ impl ShardSyncHandler {
         let blob_infos = self
             .node
             .storage
-            .certified_blob_info_iter_before_epoch(self.node.current_epoch());
+            .certified_blob_info_iter_before_epoch(self.node.current_committee_epoch());
 
         #[cfg(msim)]
         {
@@ -250,10 +253,10 @@ impl ShardSyncHandler {
                 tracing::error!(
                     "{shard_index} is not assigned to this node; cannot start shard sync"
                 );
-                ShardNotAssigned(shard_index, self.node.current_epoch())
+                ShardNotAssigned(shard_index, self.node.current_committee_epoch())
             })?;
 
-        let shard_status = shard_storage.status()?;
+        let shard_status = shard_storage.status().await?;
 
         // Skip if shard is already active
         if shard_status == ShardStatus::Active {
@@ -266,7 +269,7 @@ impl ShardSyncHandler {
 
         // Update status and start sync. After this function returns, we can always restart
         // the sync upon node restart.
-        shard_storage.record_start_shard_sync()?;
+        shard_storage.record_start_shard_sync().await?;
         self.start_shard_sync_impl(shard_storage.clone()).await;
         Ok(())
     }
@@ -296,23 +299,15 @@ impl ShardSyncHandler {
                 }));
         } else {
             for shard_storage in self.node.storage.existing_shard_storages().await {
-                // Restart the syncing task for shards that were previously syncing (in ActiveSync
-                // status).
-                let shard_status = shard_storage.status()?;
+                let shard_status = shard_storage
+                    .shard_status_resume_active_shard_sync(
+                        self.config.restart_shard_sync_always_retry_transfer_first,
+                    )
+                    .await?;
+
                 match shard_status {
-                    ShardStatus::ActiveSync => {
-                        self.start_shard_sync_impl(shard_storage.clone()).await;
-                    }
-                    ShardStatus::ActiveRecover => {
-                        if self.config.restart_shard_sync_always_retry_transfer_first {
-                            let shard_last_sync_status =
-                                shard_storage.resume_active_shard_sync()?;
-                            tracing::info!(
-                                walrus.shard_index = %shard_storage.id(),
-                                ?shard_last_sync_status,
-                                "resuming shard sync from the last synced blob id"
-                            );
-                        }
+                    // Restart the syncing task for shards that were previously syncing.
+                    ShardStatus::ActiveSync | ShardStatus::ActiveRecover => {
                         self.start_shard_sync_impl(shard_storage.clone()).await;
                     }
                     _ => {}
@@ -325,7 +320,7 @@ impl ShardSyncHandler {
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
         // This epoch must be the same as the epoch in the committee we refreshed when processing
         // epoch start event, or when the node starts up.
-        let current_epoch = self.node.current_epoch();
+        let current_epoch = self.node.current_committee_epoch();
 
         tracing::info!(
             walrus.shard_index = %shard_storage.id(),
@@ -697,6 +692,7 @@ mod tests {
                 .await
                 .expect("Failed to get shard storage")
                 .update_status_in_test(ShardStatus::ActiveSync)
+                .await
                 .expect("Failed to update shard status");
         }
         let shard_sync_handler = ShardSyncHandler::new(
@@ -740,6 +736,7 @@ mod tests {
             .await
             .expect("Failed to get shard storage")
             .update_status_in_test(ShardStatus::None)
+            .await
             .expect("Failed to update shard status");
 
         assert_eq!(shard_sync_handler.current_sync_task_count().await, 0);

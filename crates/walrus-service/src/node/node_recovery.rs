@@ -121,13 +121,13 @@ impl NodeRecoveryHandler {
 
                     // Note that here we need to use the current epoch to check if the blob is
                     // still certified. If the blob is retired, we don't need to recover it anymore.
-                    if !blob_info.is_certified(node.current_epoch()) {
+                    if !blob_info.is_certified(node.current_committee_epoch()) {
                         // Skip blobs that are not certified in the given epoch. This
                         // includes blobs that are invalid or expired.
                         tracing::debug!(
                             walrus.blob_id = %blob_id,
                             walrus.blob_certified_before_epoch = certified_before_epoch,
-                            walrus.current_epoch = node.current_epoch(),
+                            walrus.current_epoch = node.current_committee_epoch(),
                             "skip non-certified blob"
                         );
                         continue;
@@ -141,7 +141,7 @@ impl NodeRecoveryHandler {
                         if stored_at_all_shards {
                             tracing::debug!(
                                 walrus.blob_certified_before_epoch = certified_before_epoch,
-                                walrus.current_epoch = node.current_epoch(),
+                                walrus.current_epoch = node.current_committee_epoch(),
                                 "blob is stored at all shards; skip recovery"
                             );
                             continue;
@@ -171,13 +171,13 @@ impl NodeRecoveryHandler {
 
                         // Since there is a wait, the blob might not be certified anymore. Check
                         // again before starting the sync.
-                        if !blob_info.is_certified(node.current_epoch()) {
+                        if !blob_info.is_certified(node.current_committee_epoch()) {
                             // Skip blobs that are not certified in the given epoch. This
                             // includes blobs that are invalid or expired.
                             tracing::debug!(
                                 walrus.blob_id = %blob_id,
                                 walrus.blob_certified_before_epoch = certified_before_epoch,
-                                walrus.current_epoch = node.current_epoch(),
+                                walrus.current_epoch = node.current_committee_epoch(),
                                 "skip non-certified blob, post concurrency limit wait"
                             );
                             continue;

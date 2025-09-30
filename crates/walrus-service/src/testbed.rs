@@ -751,6 +751,7 @@ pub async fn create_storage_node_configs(
             admin_socket_path: Some(working_dir.join(format!("admin-{node_index}.sock"))),
             node_recovery_config: Default::default(),
             blob_event_processor_config: Default::default(),
+            garbage_collection: Default::default(),
         });
     }
 

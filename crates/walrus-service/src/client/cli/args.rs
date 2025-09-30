@@ -823,6 +823,10 @@ pub struct AggregatorArgs {
     #[arg(long, default_value_t = false)]
     #[serde(default)]
     pub allow_quilt_patch_tags_in_response: bool,
+    /// The maximum blob size in bytes.
+    #[arg(long)]
+    #[serde(default)]
+    pub max_blob_size: Option<u64>,
 }
 
 /// The arguments for the publisher service.
@@ -1058,22 +1062,21 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub ignore_resources: bool,
-    // TODO(WAL-911): Change the docstrings when the default behavior changes.
-    /// Mark the blob/quilt as deletable.
+    /// Mark the blob/quilt as deletable. Conflicts with `--permanent`.
     ///
     /// Deletable blobs/quilts can be removed from Walrus before their expiration time.
     ///
-    /// *This will become the default behavior in v1.33.*
+    /// New blobs are created as deletable by default since v1.33, and this flag is no longer
+    /// required.
     #[arg(long, conflicts_with = "permanent")]
     #[serde(default)]
     pub deletable: bool,
-    /// Mark the blob/quilt as permanent.
+    /// Mark the blob/quilt as permanent. Conflicts with `--deletable`.
     ///
     /// Permanent blobs/quilts *cannot* be removed from Walrus before their expiration time. This is
     /// beneficial if strong availability guarantees are required.
     ///
-    /// This is currently the default behavior; but *blobs will be deletable by
-    /// default starting with v1.33*.
+    /// This was the default behavior before v1.33, but *blobs are now deletable by default*.
     #[arg(long)]
     #[serde(default)]
     pub permanent: bool,
@@ -1847,6 +1850,7 @@ mod tests {
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),
                 allow_quilt_patch_tags_in_response: false,
+                max_blob_size: None,
             },
         })
     }

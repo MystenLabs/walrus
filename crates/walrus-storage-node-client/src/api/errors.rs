@@ -350,6 +350,10 @@ status_codes![
     /// execute the specified operation.
     (PermissionDenied, "PERMISSION_DENIED", HttpStatusCode::FORBIDDEN),
 
+    /// The requested resource exceeds the maximum allowed size that was configured for this
+    /// service.
+    (SizeExceeded, "SIZE_EXCEEDED", HttpStatusCode::FORBIDDEN),
+
     /// An internal error.
     ///
     /// Some invariant expected by the underlying system has been broken.  This error code is

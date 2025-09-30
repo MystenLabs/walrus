@@ -99,6 +99,11 @@ pub trait EncodingFactory {
         blob: &[u8],
     ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError>;
 
+    /// Computes the blob ID for the provided blob.
+    fn compute_blob_id(&self, blob: &[u8]) -> Result<BlobId, DataTooLargeError> {
+        Ok(*self.compute_metadata(blob)?.blob_id())
+    }
+
     /// Attempts to decode the source blob from the provided slivers.
     ///
     /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.

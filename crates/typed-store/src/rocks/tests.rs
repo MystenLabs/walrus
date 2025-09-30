@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
 use rstest::rstest;
 
 use super::*;
@@ -14,6 +16,12 @@ fn temp_dir() -> std::path::PathBuf {
     tempfile::tempdir()
         .expect("Failed to open temporary directory")
         .keep()
+}
+
+// Prevent tests running simultaneously to avoid interferences with metric registration.
+fn global_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(Mutex::default).lock().unwrap()
 }
 
 enum TestIteratorWrapper<'a, K, V> {
@@ -408,14 +416,17 @@ async fn test_insert_batch_across_different_db() {
 
 #[tokio::test]
 async fn test_delete_batch() {
-    let db = DBMap::<i32, String>::open(
-        temp_dir(),
-        MetricConf::default(),
-        None,
-        None,
-        &ReadWriteOptions::default(),
-    )
-    .expect("Failed to open storage");
+    let db = {
+        let _lock = global_test_lock();
+        DBMap::<i32, String>::open(
+            temp_dir(),
+            MetricConf::default(),
+            None,
+            None,
+            &ReadWriteOptions::default(),
+        )
+        .expect("Failed to open storage")
+    };
 
     let keys_vals = (1..100).map(|i| (i, i.to_string()));
     let mut batch = db.batch();
@@ -438,14 +449,17 @@ async fn test_delete_batch() {
 
 #[tokio::test]
 async fn test_delete_range() {
-    let db: DBMap<i32, String> = DBMap::open(
-        temp_dir(),
-        MetricConf::default(),
-        None,
-        None,
-        &ReadWriteOptions::default().set_ignore_range_deletions(false),
-    )
-    .expect("Failed to open storage");
+    let db: DBMap<i32, String> = {
+        let _lock = global_test_lock();
+        DBMap::open(
+            temp_dir(),
+            MetricConf::default(),
+            None,
+            None,
+            &ReadWriteOptions::default().set_ignore_range_deletions(false),
+        )
+        .expect("Failed to open storage")
+    };
 
     // Note that the last element is (100, "100".to_owned()) here
     let keys_vals = (0..101).map(|i| (i, i.to_string()));
@@ -477,14 +491,17 @@ async fn test_delete_range() {
 
 #[tokio::test]
 async fn test_clear() {
-    let db = DBMap::<i32, String>::open(
-        temp_dir(),
-        MetricConf::default(),
-        None,
-        Some("table"),
-        &ReadWriteOptions::default(),
-    )
-    .expect("Failed to open storage");
+    let db = {
+        let _lock = global_test_lock();
+        DBMap::<i32, String>::open(
+            temp_dir(),
+            MetricConf::default(),
+            None,
+            Some("table"),
+            &ReadWriteOptions::default(),
+        )
+        .expect("Failed to open storage")
+    };
     // Test clear of empty map
     let _ = db.unsafe_clear();
 
@@ -618,14 +635,17 @@ async fn test_range_iter() {
 
 #[tokio::test]
 async fn test_is_empty() {
-    let db = DBMap::<i32, String>::open(
-        temp_dir(),
-        MetricConf::default(),
-        None,
-        Some("table"),
-        &ReadWriteOptions::default(),
-    )
-    .expect("Failed to open storage");
+    let db = {
+        let _lock = global_test_lock();
+        DBMap::<i32, String>::open(
+            temp_dir(),
+            MetricConf::default(),
+            None,
+            Some("table"),
+            &ReadWriteOptions::default(),
+        )
+        .expect("Failed to open storage")
+    };
 
     // Test empty map is truly empty
     assert!(db.is_empty());
@@ -736,6 +756,8 @@ async fn test_multi_remove() {
 }
 
 fn open_map<P: AsRef<Path>, K, V>(path: P, opt_cf: Option<&str>) -> DBMap<K, V> {
+    let _lock = global_test_lock();
+
     DBMap::<K, V>::open(
         path,
         MetricConf::default(),
@@ -866,16 +888,19 @@ async fn test_dbmap_ticker_statistics() {
     let metric_conf = MetricConf::new("test_db");
 
     // Open the database with multiple column families
-    let rocks = open_cf_opts(
-        &path,
-        Some(db_options),
-        metric_conf,
-        &[
-            ("cf1", default_db_options().options),
-            ("cf2", default_db_options().options),
-        ],
-    )
-    .expect("Failed to open database");
+    let rocks = {
+        let _lock = global_test_lock();
+        open_cf_opts(
+            &path,
+            Some(db_options),
+            metric_conf,
+            &[
+                ("cf1", default_db_options().options),
+                ("cf2", default_db_options().options),
+            ],
+        )
+        .expect("Failed to open database")
+    };
 
     // Create DBMaps for different column families
     let db_cf1: DBMap<i32, String> =

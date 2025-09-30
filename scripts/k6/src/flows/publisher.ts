@@ -1,10 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-// @ts-check
-import { randomRange, readFileRange } from "../lib/utils.ts";
+import { perturbData, randomRange, readFileRange } from "../lib/utils.ts";
 import { File } from 'k6/experimental/fs';
 import http from 'k6/http';
+// @ts-ignore
+import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js'
 
 /**
  * Options provided to the `putBlob` method.
@@ -45,7 +46,11 @@ export async function putBlob(
     const [dataStart, dataLength] = randomRange(
         options.minLength, options.maxLength, dataFileLength
     );
-    const blob = await readFileRange(dataFile, dataStart, dataLength);
+
+    // A 1GiB file can only provide ~1000 unique 100MiB sub-ranges. To increase
+    // the number of 'files' that we can get from the source data, we therefore
+    // mutate some bytes.
+    const blob = perturbData(await readFileRange(dataFile, dataStart, dataLength));
 
     return http.put(`${publisherUrl}/v1/blobs`, blob, { timeout: options.timeout });
 }

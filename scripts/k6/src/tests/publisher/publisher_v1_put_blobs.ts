@@ -12,68 +12,96 @@
 // a publisher already running on localhost.
 //
 // See `environment.ts` for ENVIRONMENT defaults.
-import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from '../../config/environment.ts'
+import { DEFAULT_ENVIRONMENT, loadEnvironment } from '../../config/environment.ts'
 import { PutBlobOptions, putBlob } from '../../flows/publisher.ts'
-import { open } from 'k6/experimental/fs';
-import { parseHumanFileSize } from "../../lib/utils.ts"
+import * as fs from 'k6/experimental/fs';
+import { parseHumanFileSize, loadParameters, getTestIdTags } from "../../lib/utils.ts"
+import { BlobHistory } from "../../lib/blob_history.ts"
+import { check } from 'k6';
 
-/**
- * Number of blobs to store
- * @default 20
- */
-const BLOBS_TO_STORE: number = parseInt(__ENV.BLOBS_TO_STORE || '20');
 
-/**
- * The number of virtual users that will repeatedly store blobs.
- * @default 1
- */
-const VUS: number = parseInt(__ENV.VUS || '1');
+interface TestParameters {
+    /** Number of blobs to store. */
+    blobsToStore: number,
+    /** The number of virtual users that will repeatedly store blobs. */
+    vus: number,
+    /** The payload size of each request with a Ki or Mi or Gi suffix. */
+    payloadSize: string,
+    /** The timeout for storing each blob. */
+    timeout: string,
+    /** The environment in which the test is running. */
+    environment: string,
+}
 
-/**
- * The payload size of each request with a Ki or Mi or Gi suffix.
- * @default '1Ki'
- */
-const PAYLOAD_SIZE: string = __ENV.PAYLOAD_SIZE || '1Ki';
+const params = loadParameters<TestParameters>(
+    {
+        blobsToStore: 20,
+        vus: 1,
+        payloadSize: "1Ki",
+        timeout: "1m",
+        environment: DEFAULT_ENVIRONMENT,
+    },
+    "publisher/v1_put_blobs.plans.json"
+);
 
-/**
- * The timeout for storing each blob.
- * @default 5m
- */
-const TIMEOUT: string = __ENV.TIMEOUT || '5m';
+const env = loadEnvironment(params.environment);
 
+const dataFile = await fs.open(env.payloadSourceFile);
+
+const blobHistory = new BlobHistory(env.redisUrl);
 
 export const options = {
     scenarios: {
         "putBlobs": {
             executor: 'shared-iterations',
-            vus: VUS,
-            iterations: BLOBS_TO_STORE,
+            vus: params.vus,
+            iterations: params.blobsToStore,
             maxDuration: "15m",
         }
     },
 
     tags: {
-        "blobs": `${BLOBS_TO_STORE}`,
-        "payload-size": `${PAYLOAD_SIZE}`,
+        ...getTestIdTags(),
+        payload_size: `${params.payloadSize}`,
+        payload_size_bytes: `${parseHumanFileSize(params.payloadSize)}`,
     },
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
 };
 
-const dataFile = await open(PAYLOAD_SOURCE_FILE);
 
 export function setup() {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
-    console.log(`Publisher URL: ${PUBLISHER_URL}`);
-    console.log(`Blobs to store: ${BLOBS_TO_STORE}`);
-    console.log(`Virtual users: ${VUS}`);
-    console.log(`Data file path: ${PAYLOAD_SOURCE_FILE}`);
-    console.log(`Payload size: ${PAYLOAD_SIZE} (${parseHumanFileSize(PAYLOAD_SIZE)} B)`);
-    console.log(`Blob store timeout: ${TIMEOUT}`);
+    console.log(`Publisher URL: ${env.publisherUrl}`);
+    console.log(`Blobs to store: ${params.blobsToStore}`);
+    console.log(`Virtual users: ${params.vus}`);
+    console.log(`Data file path: ${env.payloadSourceFile}`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
+    console.log(`Blob store timeout: ${params.timeout}`);
+    if (env.redisUrl != undefined) {
+        console.log(`Blob history written to: ${env.redisUrl}`);
+    }
 }
 
 export default async function () {
-    const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
-    await putBlob(dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT))
+    const payloadSize = parseHumanFileSize(params.payloadSize);
+    const response = await putBlob(
+        dataFile, env.publisherUrl, new PutBlobOptions(payloadSize, payloadSize, params.timeout)
+    );
+
+    check(response, {
+        'is status 200': (r) => r.status === 200,
+    });
+
+    await blobHistory.maybeRecordFromResponse(params.payloadSize, response);
+}
+
+export async function teardown() {
+    const blobIdCount = await blobHistory.len(params.payloadSize);
+    if (blobIdCount != null) {
+        console.log(`Total Blob IDs stored under key "${params.payloadSize}": ${blobIdCount}`);
+    }
 }

@@ -353,10 +353,11 @@ impl BlobPersistence {
         matches!(self, Self::Deletable)
     }
 
-    /// Constructs [`Self`] based on the value of a `deletable` flag.
+    /// Constructs [`Self`] based on the value of a `deletable` and a `permanent` flag.
     ///
-    /// If `deletable` is true, returns [`Self::Deletable`], force otherwise returns
-    /// [`Self::Permanent`].
+    /// Returns the appropriate [`Self`] variant if exactly one of the flags is true. Returns an
+    /// error, if both flags are true. Returns [`Self::Deletable`] (new default behavior) if both
+    /// flags are false, but logs a warning in that case.
     pub fn from_deletable_and_permanent(
         deletable: bool,
         permanent: bool,
@@ -366,14 +367,12 @@ impl BlobPersistence {
             (false, true) => Ok(Self::Permanent),
             (true, true) => Err(InvalidBlobPersistenceError),
             (false, false) => {
-                // TODO(WAL-911): Change the default behavior to return `Deletable` after a few
-                // releases.
                 tracing::warn!(
-                    "blob is marked as neither deletable nor permanent; blobs are currently \
-                    permanent by default, but this behavior will change starting with v1.33; use \
-                    `--deletable` or `--permanent` to explicitly specify the desired behavior"
+                    "blob is marked as neither deletable nor permanent; blobs are now deletable \
+                    by default (since v1.33); it is recommended to use `--deletable` or \
+                    `--permanent` to explicitly specify the desired behavior"
                 );
-                Ok(Self::Permanent)
+                Ok(Self::Deletable)
             }
         }
     }
@@ -1321,6 +1320,7 @@ impl SuiContractClient {
     ///
     /// Returns the shared blob object ID if the post store action is Share.
     /// See [`CertifyAndExtendBlobParams`] for the details of the parameters.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn certify_and_extend_blobs(
         &self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
@@ -1349,7 +1349,21 @@ impl SuiContractClient {
             .await
     }
 
-    async fn retry_on_wrong_version<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
+    /// Same as [`Self::retry_on_wrong_version_unboxed`], but returns a boxed future to prevent very
+    /// large futures stored on the stack.
+    fn retry_on_wrong_version<F, Fut, T>(
+        &self,
+        f: F,
+    ) -> impl Future<Output = SuiClientResult<T>> + Send
+    where
+        F: Fn() -> Fut + Send,
+        Fut: Future<Output = SuiClientResult<T>> + Send,
+        T: Send,
+    {
+        Box::pin(self.retry_on_wrong_version_unboxed(f))
+    }
+
+    async fn retry_on_wrong_version_unboxed<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
     where
         F: Fn() -> Fut + Send,
         Fut: Future<Output = SuiClientResult<T>> + Send,
@@ -2714,7 +2728,12 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
         with_credits: bool,
     ) -> SuiClientResult<Vec<CertifyAndExtendBlobResult>> {
+        if blobs_with_certificates.is_empty() {
+            return Ok(vec![]);
+        }
+
         let mut pt_builder = self.transaction_builder()?;
+
         for blob_params in blobs_with_certificates {
             let blob = blob_params.blob;
 

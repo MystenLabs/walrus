@@ -17,6 +17,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use regex::Regex;
 use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use typed_store::{
     Map,
     TypedStoreError,
@@ -25,6 +26,7 @@ use typed_store::{
         DBMap,
         ReadWriteOptions,
         RocksDB,
+        SstIngestOptions,
         be_fix_int_ser as to_rocks_db_key,
         errors::typed_store_err_from_rocks_err,
     },
@@ -42,7 +44,7 @@ use walrus_core::{
 use walrus_utils::metrics::Registry;
 
 use super::{
-    DatabaseConfig,
+    DatabaseTableOptionsFactory,
     blob_info::{BlobInfo, BlobInfoIterator},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
@@ -92,6 +94,33 @@ impl ShardColumnFamilyNames {
     }
 }
 
+/// Indicates the current status of a shard.
+///
+/// ## State Transitions (Stable Status)
+///
+/// When the node is in stable status (not during recovery), the following transitions are allowed:
+///
+/// ```text
+///     ┌──────┐
+///     │ None │
+///     └──┬─┬─┘
+///        │ │
+///        │ └──────────────┐
+///        ▼                ▼
+///   ┌────────┐    ┌──────────────┐
+///   │ Active │    │ ActiveSync   │
+///   └────┬───┘    └──┬───┬───────┘
+///        │           │   │
+///        │           │   ▼
+///        │           │ ┌──────────────┐
+///        │           │ │ActiveRecover │
+///        │           │ └──────┬───────┘
+///        │           │        │
+///        ▼           ▼        ▼
+///   ┌─────────────────────────┐
+///   │    LockedToMove         │
+///   └─────────────────────────┘
+/// ```
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -134,6 +163,31 @@ impl ShardStatus {
             ShardStatus::ActiveRecover => "ActiveRecover",
             ShardStatus::LockedToMove => "LockedToMove",
         }
+    }
+}
+
+#[derive(Debug)]
+struct ShardStatusState {
+    shard_status: DBMap<(), ShardStatus>,
+}
+
+impl ShardStatusState {
+    pub fn update_status(&mut self, new_status: ShardStatus) -> Result<(), TypedStoreError> {
+        self.shard_status.insert(&(), &new_status)?;
+        Ok(())
+    }
+
+    pub fn get_status(&self) -> Result<Option<ShardStatus>, TypedStoreError> {
+        self.shard_status.get(&())
+    }
+
+    /// Executes a function with mutable access to the shard_status DBMap.
+    /// This allows atomic operations on the shard status within a critical section.
+    pub fn with_shard_status_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut DBMap<(), ShardStatus>) -> R,
+    {
+        f(&mut self.shard_status)
     }
 }
 
@@ -224,13 +278,21 @@ impl From<SecondarySliverData> for SecondarySliver {
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
-    shard_status: DBMap<(), ShardStatus>,
+    shard_status: Arc<RwLock<ShardStatusState>>,
     primary_slivers: DBMap<BlobId, PrimarySliverData>,
     secondary_slivers: DBMap<BlobId, SecondarySliverData>,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
     metrics: ShardMetrics,
     cf_names: Arc<ShardColumnFamilyNames>,
+    sst_primary_buffer: Arc<
+        OnceLock<std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, PrimarySliverData>>>,
+    >,
+    sst_secondary_buffer: Arc<
+        OnceLock<
+            std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, SecondarySliverData>>,
+        >,
+    >,
 }
 
 macro_rules! reopen_cf {
@@ -252,7 +314,7 @@ impl ShardStorage {
     pub(crate) fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,
-        db_config: &DatabaseConfig,
+        db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         registry: &Registry,
     ) -> Result<Self, TypedStoreError> {
@@ -270,7 +332,7 @@ impl ShardStorage {
         let response = Self::create_or_reopen_inner(
             id,
             database,
-            db_config,
+            db_table_opts_factory,
             initial_shard_status,
             metrics.clone(),
         );
@@ -286,25 +348,33 @@ impl ShardStorage {
     fn create_or_reopen_inner(
         id: ShardIndex,
         database: &Arc<RocksDB>,
-        db_config: &DatabaseConfig,
+        db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         metrics: ShardMetrics,
     ) -> Result<Self, TypedStoreError> {
         let cf_names = ShardColumnFamilyNames::new(id);
         let rw_options = ReadWriteOptions::default();
 
-        let shard_status = reopen_cf!(
-            (
-                &cf_names.shard_status,
-                shard_status_column_family_options(db_config),
-            ),
+        // Initialize the shard status column family.
+        let status_cf: DBMap<(), ShardStatus> = reopen_cf!(
+            (&cf_names.shard_status, db_table_opts_factory.shard_status(),),
             database,
             rw_options
         );
+
+        // It is ok to directly insert the status during storage opening.
+        if let Some(status) = initial_shard_status {
+            status_cf.insert(&(), &status)?;
+        }
+
+        let shard_status = Arc::new(RwLock::new(ShardStatusState {
+            shard_status: status_cf,
+        }));
+
         let shard_sync_progress = reopen_cf!(
             (
                 &cf_names.shard_sync_progress,
-                shard_sync_progress_column_family_options(db_config),
+                db_table_opts_factory.shard_sync_progress(),
             ),
             database,
             rw_options
@@ -312,7 +382,7 @@ impl ShardStorage {
         let pending_recover_slivers = reopen_cf!(
             (
                 &cf_names.pending_recover_slivers,
-                pending_recover_slivers_column_family_options(db_config),
+                db_table_opts_factory.pending_recover_slivers(),
             ),
             database,
             rw_options
@@ -321,25 +391,15 @@ impl ShardStorage {
         // Make sure that sliver column families are created last. They are used to identify
         // whether the shard storage is initialized in `existing_cf_shards_ids`.
         let primary_slivers = reopen_cf!(
-            (
-                &cf_names.primary_slivers,
-                primary_slivers_column_family_options(db_config)
-            ),
+            (&cf_names.primary_slivers, db_table_opts_factory.shard(),),
             database,
             rw_options
         );
         let secondary_slivers = reopen_cf!(
-            (
-                &cf_names.secondary_slivers,
-                secondary_slivers_column_family_options(db_config)
-            ),
+            (&cf_names.secondary_slivers, db_table_opts_factory.shard(),),
             database,
             rw_options
         );
-
-        if let Some(status) = initial_shard_status {
-            shard_status.insert(&(), &status)?;
-        }
 
         Ok(Self {
             id,
@@ -350,6 +410,8 @@ impl ShardStorage {
             pending_recover_slivers,
             metrics,
             cf_names: Arc::new(cf_names),
+            sst_primary_buffer: Arc::new(OnceLock::new()),
+            sst_secondary_buffer: Arc::new(OnceLock::new()),
         })
     }
 
@@ -537,9 +599,11 @@ impl ShardStorage {
         )
     }
 
-    pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
+    pub(crate) async fn status(&self) -> Result<ShardStatus, TypedStoreError> {
         self.shard_status
-            .get(&())
+            .read()
+            .await
+            .get_status()
             .map(|s| s.unwrap_or(ShardStatus::None))
     }
 
@@ -547,24 +611,79 @@ impl ShardStorage {
     ///
     /// This function will delete the existing sync progress for the shard and reset the shard
     /// sync from scratch.
-    pub(crate) fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
-        let mut batch = self.shard_status.batch();
-        batch.delete_batch(&self.shard_sync_progress, [()])?;
-        batch.insert_batch(&self.shard_status, [((), ShardStatus::ActiveSync)])?;
-        batch.write()
+    pub(crate) async fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
+        self.shard_status.write().await.with_shard_status_mut(
+            |shard_status| -> Result<(), TypedStoreError> {
+                let mut batch = self.shard_sync_progress.batch();
+                batch.delete_batch(&self.shard_sync_progress, [()])?;
+                batch.insert_batch(shard_status, [((), ShardStatus::ActiveSync)])?;
+                batch.write()?;
+                Ok(())
+            },
+        )?;
+
+        Ok(())
     }
 
-    pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::Active)
+    /// This function is used to force set the shard status to active. Use this function with
+    /// caution.
+    pub(crate) async fn force_set_active_status(&self) -> Result<(), TypedStoreError> {
+        self.shard_status
+            .write()
+            .await
+            .update_status(ShardStatus::Active)?;
+        Ok(())
     }
 
-    pub(crate) fn resume_active_shard_sync(&self) -> Result<ShardLastSyncStatus, TypedStoreError> {
-        // Note that when active shard sync is stopped in the middle and shard recover starts,
-        // the shard sync progress recorded in the db is not deleted, until the shard is completely
-        // synced. By setting the shard status to active sync, the shard will resume the sync from
-        // the last synced blob id.
-        self.shard_status.insert(&(), &ShardStatus::ActiveSync)?;
-        self.get_last_sync_status(&ShardStatus::ActiveSync)
+    /// This function is used when restarting the shard sync task after a node restart.
+    /// Particularly, if `restart_shard_sync_always_retry_transfer_first` is true, the task will
+    /// retry using active shard sync instead of shard recovery.
+    /// Return the current shard status after shard status is updated.
+    pub(crate) async fn shard_status_resume_active_shard_sync(
+        &self,
+        restart_shard_sync_always_retry_transfer_first: bool,
+    ) -> Result<ShardStatus, TypedStoreError> {
+        let shard_status = if restart_shard_sync_always_retry_transfer_first {
+            self.shard_status.write().await.with_shard_status_mut(
+                |shard_status| -> Result<ShardStatus, TypedStoreError> {
+                    let existing_status = shard_status.get(&())?;
+                    if existing_status == Some(ShardStatus::ActiveRecover) {
+                        // Note that when active shard sync is stopped in the middle and shard
+                        // recover starts, the shard sync progress recorded in the db is not
+                        // deleted, until the shard is completely synced. By setting the shard
+                        // status to active sync, the shard will resume the sync from the last
+                        // synced blob id.
+                        // We can only resume to active sync from active recover.
+                        tracing::info!(
+                            walrus.shard_index = %self.id(),
+                            "resuming shard sync from active recover to active sync"
+                        );
+                        shard_status.insert(&(), &ShardStatus::ActiveSync)?;
+                        Ok(ShardStatus::ActiveSync)
+                    } else {
+                        Ok(existing_status.unwrap_or(ShardStatus::None))
+                    }
+                },
+            )?
+        } else {
+            self.status().await?
+        };
+
+        if shard_status == ShardStatus::ActiveSync {
+            let shard_last_sync_status = self.get_last_sync_status(&ShardStatus::ActiveSync)?;
+            tracing::info!(
+                walrus.shard_index = %self.id(),
+                ?shard_last_sync_status,
+                "resuming shard sync from the last synced blob id"
+            );
+        } else if shard_status == ShardStatus::ActiveRecover {
+            tracing::info!(
+                walrus.shard_index = %self.id(),
+                "resuming shard recover"
+            );
+        }
+
+        Ok(shard_status)
     }
 
     /// Fetches the slivers with `sliver_type` for the provided blob IDs.
@@ -675,6 +794,21 @@ impl ShardStorage {
     ) -> Result<(), SyncShardClientError> {
         tracing::info!(walrus.epoch = epoch, %directly_recover_shard, "syncing shard");
 
+        // Ensure any residual SST ingest buffers are reset before starting (or resuming) sync.
+        // This protects from out-of-order appends after a failed/resumed run.
+        if config.sst_ingestion_config.is_some() {
+            if let Some(m) = self.sst_primary_buffer.get()
+                && let Ok(mut buf) = m.lock()
+            {
+                buf.clear()?;
+            }
+            if let Some(m) = self.sst_secondary_buffer.get()
+                && let Ok(mut buf) = m.lock()
+            {
+                buf.clear()?;
+            }
+        }
+
         #[cfg(msim)]
         {
             // This fail point is used to signal that direct shard sync recovery is triggered.
@@ -682,12 +816,8 @@ impl ShardStorage {
                 sui_macros::fail_point!("fail_point_direct_shard_sync_recovery");
             }
         }
+        let shard_status = self.status().await?;
 
-        if self.status()? == ShardStatus::None {
-            self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
-        }
-
-        let shard_status = self.status()?;
         // (WAL-903): determine the correct behavior for shard status LockedToMove. This status
         // indicates that the previous shard sync hasn't finished yet, but the shard is moving
         // out. We continue to sync the shard in this case.
@@ -740,10 +870,23 @@ impl ShardStorage {
         self.recovery_any_missing_slivers(node, config, epoch)
             .await?;
 
-        let mut batch = self.shard_status.batch();
-        batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
-        batch.delete_batch(&self.shard_sync_progress, [()])?;
-        batch.write()?;
+        self.shard_status.write().await.with_shard_status_mut(
+            |shard_status| -> Result<(), TypedStoreError> {
+                let mut batch = self.shard_sync_progress.batch();
+                let current_status = shard_status.get(&())?;
+                // If the shard is in active sync or active recover, we need to update the status to
+                // active. Otherwise, the shard status is interrupted by another process and are in
+                // unexpected state and we should not update the status.
+                if current_status == Some(ShardStatus::ActiveSync)
+                    || current_status == Some(ShardStatus::ActiveRecover)
+                {
+                    batch.insert_batch(shard_status, [((), ShardStatus::Active)])?;
+                }
+                batch.delete_batch(&self.shard_sync_progress, [()])?;
+                batch.write()?;
+                Ok(())
+            },
+        )?;
 
         Ok(())
     }
@@ -816,7 +959,11 @@ impl ShardStorage {
         // blobs. In case, the shard sync should finish immediately and transition to Active state.
         assert!(epoch != 0 && (epoch > 1 || next_blob_info.is_none()));
         if !directly_recover_shard {
-            while let Some((next_starting_blob_id, _)) = next_blob_info {
+            while next_blob_info.is_some() {
+                let next_starting_blob_id = next_blob_info
+                    .as_ref()
+                    .map(|(id, _)| *id)
+                    .expect("Some checked above");
                 tracing::debug!(
                     "syncing shard to before epoch: {}. Starting blob id: {}",
                     epoch,
@@ -854,6 +1001,7 @@ impl ShardStorage {
                     next_blob_info,
                     &mut blob_info_iter,
                     &mut batch,
+                    config,
                 )?;
 
                 #[cfg(msim)]
@@ -864,12 +1012,31 @@ impl ShardStorage {
 
                 // Record sync progress.
                 last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-                if let Some(last_synced_blob_id) = last_synced_blob_id {
-                    batch.insert_batch(
-                        &self.shard_sync_progress,
-                        [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+                let use_sst = config.sst_ingestion_config.is_some();
+                if use_sst {
+                    let sst_file_threshold = config
+                        .sst_ingestion_config
+                        .as_ref()
+                        .and_then(|c| c.max_entries)
+                        .unwrap_or(100_000);
+                    let end_of_range = next_blob_info.is_none();
+                    let compact_after_sync = config
+                        .sst_ingestion_config
+                        .as_ref()
+                        .map(|c| c.compact_after_sync)
+                        .unwrap_or(true);
+                    self.handle_sst_progress(
+                        &mut batch,
+                        sliver_type,
+                        last_synced_blob_id,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
                     )?;
+                } else if let Some(last_synced_blob_id) = last_synced_blob_id {
+                    self.record_last_synced_blob_id(&mut batch, sliver_type, last_synced_blob_id)?;
                 }
+
                 batch.write()?;
 
                 walrus_utils::with_label!(
@@ -880,6 +1047,12 @@ impl ShardStorage {
                 .inc_by(fetched_slivers.len() as u64);
 
                 if last_synced_blob_id.is_none() {
+                    // TODO(WAL-1050): when the remote server returns no slivers, it is possible
+                    // that the local shard is still expecting more slivers (end_of_range is still
+                    //false). In this case, the buffer may still have slivers that are not flushed
+                    // to the database.
+                    // We need to make sure that the after this loop finishes, the last batch
+                    // in the buffer is flushed to the database.
                     break;
                 }
             }
@@ -902,6 +1075,85 @@ impl ShardStorage {
         Ok(())
     }
 
+    fn record_last_synced_blob_id(
+        &self,
+        batch: &mut DBBatch,
+        sliver_type: SliverType,
+        last_synced_blob_id: BlobId,
+    ) -> Result<(), TypedStoreError> {
+        batch.insert_batch(
+            &self.shard_sync_progress,
+            [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+        )?;
+        Ok(())
+    }
+
+    fn handle_sst_progress(
+        &self,
+        batch: &mut DBBatch,
+        sliver_type: SliverType,
+        last_pushed: Option<BlobId>,
+        end_of_range: bool,
+        sst_file_threshold: usize,
+        compact_after_sync: bool,
+    ) -> Result<(), TypedStoreError> {
+        let flushed = match sliver_type {
+            SliverType::Primary => {
+                if let Some(buf_mutex) = self.sst_primary_buffer.get() {
+                    self.flush_sst(
+                        buf_mutex,
+                        &self.primary_slivers,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
+                    )?
+                } else {
+                    false
+                }
+            }
+            SliverType::Secondary => {
+                if let Some(buf_mutex) = self.sst_secondary_buffer.get() {
+                    self.flush_sst(
+                        buf_mutex,
+                        &self.secondary_slivers,
+                        end_of_range,
+                        sst_file_threshold,
+                        compact_after_sync,
+                    )?
+                } else {
+                    false
+                }
+            }
+        };
+        if flushed && let Some(id) = last_pushed {
+            self.record_last_synced_blob_id(batch, sliver_type, id)?;
+        }
+        Ok(())
+    }
+
+    fn flush_sst<V>(
+        &self,
+        buf_mutex: &std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, V>>,
+        table: &DBMap<BlobId, V>,
+        end_of_range: bool,
+        sst_file_threshold: usize,
+        compact_after_sync: bool,
+    ) -> Result<bool, TypedStoreError>
+    where
+        V: serde::Serialize,
+    {
+        let mut buf = buf_mutex.lock().expect("lock should succeed");
+        let should_flush = buf.size() >= sst_file_threshold || end_of_range;
+        if !should_flush {
+            return Ok(false);
+        }
+        buf.flush()?;
+        if end_of_range && compact_after_sync {
+            table.compact_range_to_bottom(&BlobId::ZERO, &BlobId::MAX)?;
+        }
+        Ok(true)
+    }
+
     /// Helper function to add fetched slivers to the db batch and check for missing blobs.
     /// Advance `blob_info_iter`` to the next blob that is greater than the last fetched blob id,
     /// which is the next expected blob to fetch, and return the next expected blob.
@@ -915,7 +1167,9 @@ impl ShardStorage {
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
         blob_info_iter: &mut BlobInfoIterator,
         batch: &mut DBBatch,
+        config: &crate::node::config::ShardSyncConfig,
     ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
+        let use_sst = config.sst_ingestion_config.is_some();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
                 walrus.blob_id = %blob_id,
@@ -929,20 +1183,65 @@ impl ShardStorage {
             //    change, so we need to fetch metadata if missing)
             //  - metadata is correct
 
-            match sliver {
-                Sliver::Primary(primary) => {
-                    assert_eq!(sliver_type, SliverType::Primary);
-                    batch.insert_batch(
-                        &self.primary_slivers,
-                        [(blob_id, &PrimarySliverData::from(primary.clone()))],
-                    )?;
+            if use_sst {
+                let max_entries = config
+                    .sst_ingestion_config
+                    .as_ref()
+                    .and_then(|c| c.max_entries)
+                    .unwrap_or(100_000);
+                let options = SstIngestOptions {
+                    max_entries,
+                    dir_name: None,
+                    assume_sorted: true,
+                };
+                match sliver {
+                    Sliver::Primary(primary) => {
+                        assert_eq!(sliver_type, SliverType::Primary);
+                        let buffer_mutex = self.sst_primary_buffer.get_or_init(|| {
+                            let buf = typed_store::rocks::SstIngestBuffer::new(
+                                &self.primary_slivers,
+                                options,
+                            )
+                            .expect("SST buffer creation should succeed");
+                            std::sync::Mutex::new(buf)
+                        });
+                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
+                        buffer
+                            .push(*blob_id, PrimarySliverData::from(primary.clone()))
+                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
+                    }
+                    Sliver::Secondary(secondary) => {
+                        assert_eq!(sliver_type, SliverType::Secondary);
+                        let buffer_mutex = self.sst_secondary_buffer.get_or_init(|| {
+                            let buf = typed_store::rocks::SstIngestBuffer::new(
+                                &self.secondary_slivers,
+                                options,
+                            )
+                            .expect("SST buffer creation should succeed");
+                            std::sync::Mutex::new(buf)
+                        });
+                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
+                        buffer
+                            .push(*blob_id, SecondarySliverData::from(secondary.clone()))
+                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
+                    }
                 }
-                Sliver::Secondary(secondary) => {
-                    assert_eq!(sliver_type, SliverType::Secondary);
-                    batch.insert_batch(
-                        &self.secondary_slivers,
-                        [(blob_id, &SecondarySliverData::from(secondary.clone()))],
-                    )?;
+            } else {
+                match sliver {
+                    Sliver::Primary(primary) => {
+                        assert_eq!(sliver_type, SliverType::Primary);
+                        batch.insert_batch(
+                            &self.primary_slivers,
+                            [(blob_id, &PrimarySliverData::from(primary.clone()))],
+                        )?;
+                    }
+                    Sliver::Secondary(secondary) => {
+                        assert_eq!(sliver_type, SliverType::Secondary);
+                        batch.insert_batch(
+                            &self.secondary_slivers,
+                            [(blob_id, &SecondarySliverData::from(secondary.clone()))],
+                        )?;
+                    }
                 }
             }
 
@@ -1020,7 +1319,19 @@ impl ShardStorage {
         sui_macros::fail_point!("fail_point_shard_sync_recovery");
 
         tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
-        self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+        self.shard_status.write().await.with_shard_status_mut(
+            |shard_status| -> Result<(), TypedStoreError> {
+                let existing_status = shard_status.get(&())?;
+                if existing_status == Some(ShardStatus::ActiveSync) {
+                    shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+                }
+                // TODO(WAL-903): currently, we do not stop the shard recover if the shard is no
+                // longer in ActiveSync status. From the shard sync responsibility perspective,
+                // this shard is responsible for all the blobs in the shard to be transferred to
+                // the new node. However, this may not be the most desired behavior.
+                Ok(())
+            },
+        )?;
 
         #[cfg(msim)]
         {
@@ -1305,8 +1616,12 @@ impl ShardStorage {
     }
 
     /// Locks the shard for moving to another node.
-    pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::LockedToMove)
+    pub(crate) async fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
+        // We should always be able to lock the shard for epoch change.
+        self.shard_status
+            .write()
+            .await
+            .update_status(ShardStatus::LockedToMove)
     }
 
     #[cfg(test)]
@@ -1324,8 +1639,11 @@ impl ShardStorage {
     }
 
     #[cfg(test)]
-    pub(crate) fn update_status_in_test(&self, status: ShardStatus) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &status)
+    pub(crate) async fn update_status_in_test(
+        &self,
+        status: ShardStatus,
+    ) -> Result<(), TypedStoreError> {
+        self.shard_status.write().await.update_status(status)
     }
 
     #[cfg(test)]
@@ -1384,36 +1702,6 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
         };
         Some((ShardIndex(id), sliver_type))
     })
-}
-
-/// Returns the name and options for the column families for a shard's primary
-/// sliver with the specified index.
-pub fn primary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's secondary
-/// sliver with the specified index.
-pub fn secondary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's operating status
-/// with the specified index.
-pub fn shard_status_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard_status().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's sync progress
-/// with the specified index.
-pub fn shard_sync_progress_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.shard_sync_progress().to_options()
-}
-
-/// Returns the name and options for the column families for a shard's pending recover slivers
-/// with the specified index.
-pub fn pending_recover_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
-    db_config.pending_recover_slivers().to_options()
 }
 
 #[cfg(msim)]

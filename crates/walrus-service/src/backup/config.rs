@@ -105,6 +105,10 @@ pub struct BackupConfig {
         default = "defaults::idle_garbage_collector_sleep_time"
     )]
     pub idle_garbage_collector_sleep_time: Duration,
+    /// After how many epochs beyond a blob's end_epoch does it become eligible for garbage
+    /// collection?
+    #[serde(default = "defaults::garbage_collection_epoch_offset")]
+    pub garbage_collection_epoch_offset: u64,
 }
 
 impl BackupConfig {
@@ -132,6 +136,7 @@ impl BackupConfig {
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
             idle_garbage_collector_sleep_time: defaults::idle_garbage_collector_sleep_time(),
+            garbage_collection_epoch_offset: defaults::garbage_collection_epoch_offset(),
         }
     }
 }
@@ -211,5 +216,8 @@ pub mod defaults {
     }
     pub fn blob_job_chunk_size() -> u32 {
         10
+    }
+    pub fn garbage_collection_epoch_offset() -> u64 {
+        2
     }
 }

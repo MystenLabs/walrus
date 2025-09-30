@@ -244,4 +244,7 @@ pub enum ClientErrorKind {
     /// An error occurred while uploading a blob to the upload relay.
     #[error("upload relay error: {0}")]
     UploadRelayError(#[from] UploadRelayClientError),
+    /// The blob size exceeds the maximum allowed size.
+    #[error("the blob size exceeds the maximum allowed size: {0}")]
+    BlobTooLarge(u64),
 }

@@ -3,18 +3,19 @@
 
 //! Bindings to call the Walrus contracts from Rust.
 
+#![warn(clippy::large_futures)]
+
 #[macro_use]
 pub mod utils;
 pub mod client;
 pub mod config;
 pub mod contracts;
 pub mod system_setup;
+pub mod types;
 pub mod wallet;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
-
-pub mod types;
 
 /// Schema for the [`sui_types::event::EventID`] type.
 #[cfg(feature = "utoipa")]

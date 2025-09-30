@@ -67,7 +67,7 @@ async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyho
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_initialize_contract() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     initialize_contract_and_wallet_with_single_node().await?;
     Ok(())
 }
@@ -75,7 +75,7 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let encoding_type = EncodingType::RS2;
 
     let (_sui_cluster_handle, walrus_client, _, _) =
@@ -120,7 +120,7 @@ async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Resul
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let encoding_type = EncodingType::RS2;
 
     let (_sui_cluster_handle, walrus_client, _, test_node_keys) =
@@ -306,7 +306,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_invalidate_blob() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_with_single_node().await?;
@@ -358,7 +358,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_get_committee() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_with_single_node().await?;
     let committee = walrus_client
@@ -386,7 +386,7 @@ async fn test_set_authorized() -> anyhow::Result<()> {
     use sui_types::base_types::ObjectID;
     use walrus_sui::types::move_structs::Authorized;
 
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_client, _, _) =
         initialize_contract_and_wallet_with_single_node().await?;
     let protocol_key_pair = ProtocolKeyPair::generate();
@@ -456,7 +456,7 @@ async fn test_set_authorized() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     let (_sui_cluster_handle, walrus_client, system_context, _) =
         initialize_contract_and_wallet_with_single_node().await?;
     let exchange_id = walrus_client
@@ -485,7 +485,7 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_collect_commission() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
 
     // Set zero duration, s.t. we can change the epoch whenever we need to.
     let (_sui_cluster_handle, walrus_client, _, _) =
@@ -544,7 +544,7 @@ async fn test_automatic_wal_coin_squashing(
     n_source_coins: u64,
     n_target_coins: u64,
 ) -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
+    walrus_test_utils::init_tracing();
     // Use a source_amount that is cleanly divisible by `n_target_coins` to make sure that we send
     // the full amount back in `n_target_coins` coins payments.
     let source_amount = 10_000 * n_target_coins;

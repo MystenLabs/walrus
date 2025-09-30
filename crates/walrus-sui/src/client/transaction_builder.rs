@@ -29,7 +29,6 @@ use sui_types::{
         TransactionKind,
     },
 };
-use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
     Epoch,
@@ -118,12 +117,6 @@ pub struct WalrusPtbBuilder {
     wal_coin_arg: Option<Argument>,
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
-    // TODO(WAL-512): revisit caching system/staking objects in the read client
-    // TODO(WAL-514): potentially remove if no longer needed
-    /// Caches the system object to allow reading information about e.g. the committee size.
-    /// Since the Ptb builder is not long-lived (i.e. transactions may anyway fail across epoch
-    /// boundaries), we can cache it for the builder's lifetime.
-    system_object: OnceCell<SystemObject>,
 }
 
 impl Debug for WalrusPtbBuilder {
@@ -152,7 +145,6 @@ impl WalrusPtbBuilder {
             wal_coin_arg: None,
             sender_address,
             args_to_consume: HashSet::new(),
-            system_object: OnceCell::new(),
         }
     }
 
@@ -1592,9 +1584,6 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<TransactionData> {
         self.transfer_remaining_outputs(None).await?;
         let programmable_transaction = self.pt_builder.finish();
-
-        // Get the current gas price from the network
-        // TODO(WAL-512): cache this to avoid RPC roundtrip.
         let gas_price = self.read_client.get_reference_gas_price().await?;
 
         build_transaction_data_with_min_gas_balance(
@@ -1757,10 +1746,8 @@ impl WalrusPtbBuilder {
         self.args_to_consume.insert(arg);
     }
 
-    async fn system_object(&self) -> SuiClientResult<&SystemObject> {
-        self.system_object
-            .get_or_try_init(|| self.read_client.get_system_object())
-            .await
+    async fn system_object(&self) -> SuiClientResult<SystemObject> {
+        self.read_client.get_system_object().await
     }
 
     /// Adds a wal coin resulting from a command to the main WAL coin argument.

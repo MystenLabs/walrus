@@ -335,6 +335,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
             ClientErrorKind::QuiltError(_) => "quilt-error",
             ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
+            ClientErrorKind::BlobTooLarge(_) => "blob-too-large",
         }
     }
 }

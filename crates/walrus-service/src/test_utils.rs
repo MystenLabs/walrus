@@ -16,7 +16,6 @@ use std::{
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
     path::PathBuf,
-    str::FromStr,
     sync::Arc,
 };
 
@@ -86,6 +85,8 @@ use crate::common::config::SuiConfig;
 use crate::event::event_processor::config::{EventProcessorRuntimeConfig, SystemConfig};
 #[cfg(msim)]
 use crate::node::ConfigLoader;
+#[cfg(msim)]
+use crate::node::config::SstIngestionConfig;
 use crate::{
     event::{
         event_processor::{config::EventProcessorConfig, processor::EventProcessor},
@@ -108,6 +109,7 @@ use crate::{
             BlobEventProcessorConfig,
             BlobRecoveryConfig,
             ConfigSynchronizerConfig,
+            GarbageCollectionConfig,
             NodeRecoveryConfig,
             ShardSyncConfig,
             StorageNodeConfig,
@@ -993,6 +995,7 @@ impl StorageNodeHandleBuilder {
                 Default::default()
             },
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
 
@@ -1174,8 +1177,23 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
             blob_recovery: BlobRecoveryConfig::default_for_test(),
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
             ..storage_node_config().inner
         };
+
+        // TODO(WAL-1050): turn this on once the bug is fixed. Also probabilistically set
+        // max_entries small and large values.
+        // if rand::random::<bool>() {
+        //     storage_node_config.shard_sync_config.sst_ingestion_config =
+        //         Some(SstIngestionConfig::default());
+        //     storage_node_config
+        //         .shard_sync_config
+        //         .sst_ingestion_config
+        //         .as_mut()
+        //         .unwrap()
+        //         .max_entries = Some(1);
+        //     tracing::info!("SST based ingestion is enabled on the node");
+        // }
 
         randomize_sliver_recovery_additional_symbols(&mut storage_node_config);
 
@@ -1676,33 +1694,65 @@ impl SystemContractService for StubContractService {
     }
 }
 
-/// Returns a socket address that is not currently in use on the system.
-///
-/// distinct_ip: If true, the returned address will have a distinct IP address from the local
-/// machine.
-pub fn unused_socket_address(distinct_ip: bool) -> SocketAddr {
-    if distinct_ip {
-        try_unused_socket_address_with_distinct_ip()
-            .expect("unused socket address with distinct ip to be available")
-    } else {
-        try_unused_socket_address().expect("unused socket address to be available")
+/// Specifies what kind of IP address to use when looking for an unused socket address.
+#[derive(Debug, Copy, Clone)]
+pub enum UnusedSocketAddress {
+    /// The returned address will have a distinct IP address from the local machine.
+    DistinctIp,
+    /// The returned address will be a wildcard address. It means "listen on all available network
+    /// interfaces".
+    AllInterfaces {
+        /// If true, the function will create and accept a connection to force the port
+        /// into the TIME_WAIT state. This can be useful for testing scenarios.
+        force_time_wait: bool,
+    },
+    /// The returned address will be the loopback address.
+    Loopback {
+        /// If true, the function will create and accept a connection to force the port
+        /// into the TIME_WAIT state. This can be useful for testing scenarios.
+        force_time_wait: bool,
+    },
+}
+
+impl TryFrom<UnusedSocketAddress> for SocketAddr {
+    type Error = anyhow::Error;
+
+    // Returns a socket address that is not currently in use on the system.
+    //
+    // force_time_wait: If true, the function will create and accept a connection to force the port
+    // into the TIME_WAIT state. This can be useful for testing scenarios where you want to ensure
+    // that a port is not immediately reusable.
+    fn try_from(unused_socket_address: UnusedSocketAddress) -> Result<SocketAddr, Self::Error> {
+        let address: String = match unused_socket_address {
+            UnusedSocketAddress::AllInterfaces { .. } => "0.0.0.0:0".to_string(),
+            UnusedSocketAddress::Loopback { .. } => "127.0.0.1:0".to_string(),
+            UnusedSocketAddress::DistinctIp => {
+                format!("{}:1314", sui_config::local_ip_utils::get_new_ip())
+            }
+        };
+        match unused_socket_address {
+            UnusedSocketAddress::AllInterfaces { force_time_wait }
+            | UnusedSocketAddress::Loopback { force_time_wait } => {
+                // If we are using all interfaces or loopback, we check if the address is actually
+                // available.
+                let listener = std::net::TcpListener::bind(address)?;
+                // Update the address with the actual port assigned by the OS.
+                let socket_address = listener.local_addr()?;
+
+                if force_time_wait {
+                    // Create and accept a connection to force the port into the TIME_WAIT state
+                    let _client_stream = TcpStream::connect(socket_address)?;
+                    let _server_stream = listener.accept()?;
+                }
+
+                Ok(socket_address)
+            }
+            UnusedSocketAddress::DistinctIp => {
+                // If we are using a distinct IP, we assume it is available.
+                Ok(address.parse()?)
+            }
+        }
     }
-}
-
-fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let address = listener.local_addr()?;
-
-    // Create and accept a connection to force the port into the TIME_WAIT state
-    let _client_stream = TcpStream::connect(address)?;
-    let _server_stream = listener.accept()?;
-    Ok(address)
-}
-
-fn try_unused_socket_address_with_distinct_ip() -> anyhow::Result<SocketAddr> {
-    Ok(SocketAddr::from_str(
-        (sui_config::local_ip_utils::get_new_ip() + ":1314").as_str(),
-    )?)
 }
 
 #[async_trait::async_trait]
@@ -2214,21 +2264,29 @@ impl StorageNodeTestConfig {
         Self {
             key_pair: ProtocolKeyPair::generate(),
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(use_distinct_ip),
+            rest_api_address: if use_distinct_ip {
+                UnusedSocketAddress::DistinctIp
+            } else {
+                UnusedSocketAddress::Loopback {
+                    force_time_wait: true,
+                }
+            }
+            .try_into()
+            .expect("should be able to find an unused socket address"),
             shards,
         }
     }
 
     /// Creates a new storage node test config with the given keypair.
-    pub fn new_with_keypair(
-        shards: Vec<ShardIndex>,
-        use_distinct_ip: bool,
-        key_pair: ProtocolKeyPair,
-    ) -> Self {
+    pub fn new_with_keypair(shards: Vec<ShardIndex>, key_pair: ProtocolKeyPair) -> Self {
         Self {
             key_pair,
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(use_distinct_ip),
+            rest_api_address: UnusedSocketAddress::Loopback {
+                force_time_wait: true,
+            }
+            .try_into()
+            .expect("should be able to find an unused socket address"),
             shards,
         }
     }
@@ -2962,7 +3020,11 @@ pub mod test_cluster {
 /// Creates a new [`StorageNodeConfig`] object for testing.
 pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = nondeterministic!(TempDir::new().expect("able to create a temporary directory"));
-    let rest_api_address = unused_socket_address(false);
+    let rest_api_address = UnusedSocketAddress::Loopback {
+        force_time_wait: true,
+    }
+    .try_into()
+    .expect("should be able to find an unused socket address");
     WithTempDir {
         inner: StorageNodeConfig {
             name: "node".to_string(),
@@ -2970,7 +3032,11 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             next_protocol_key_pair: None,
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address,
-            metrics_address: unused_socket_address(false),
+            metrics_address: UnusedSocketAddress::Loopback {
+                force_time_wait: true,
+            }
+            .try_into()
+            .expect("should be able to find an unused socket address"),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: Default::default(),
             rest_server: Default::default(),
@@ -3013,6 +3079,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             node_recovery_config: Default::default(),
             // Uses smaller number of workers in tests to avoid overwhelming the tests.
             blob_event_processor_config: BlobEventProcessorConfig { num_workers: 3 },
+            garbage_collection: GarbageCollectionConfig::default_for_test(),
         },
         temp_dir,
     }
@@ -3080,9 +3147,9 @@ pub async fn create_test_node_with_contract_service(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
+    use std::{collections::HashSet, net::SocketAddr};
 
-    use super::unused_socket_address;
+    use super::UnusedSocketAddress;
 
     #[test]
     #[ignore = "ignore to not bind sockets unnecessarily"]
@@ -3090,8 +3157,12 @@ mod test {
         let n = 1000;
         assert_eq!(
             (0..n)
-                .map(|_| unused_socket_address(false))
-                .collect::<HashSet<_>>()
+                .map(|_| UnusedSocketAddress::Loopback {
+                    force_time_wait: true
+                }
+                .try_into()
+                .expect("should be able to find an unused socket address"))
+                .collect::<HashSet<SocketAddr>>()
                 .len(),
             n
         )

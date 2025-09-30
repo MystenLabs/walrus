@@ -448,9 +448,7 @@ mod tests {
         new_cert_subject: &str,
         expect_restart: bool,
     ) -> anyhow::Result<()> {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .try_init();
+        walrus_test_utils::init_tracing();
 
         // Set up test environment with temporary directory and certificate.
         let temp_dir = TempDir::new()?;

@@ -28,43 +28,51 @@
 //
 // See `environment.ts` for ENVIRONMENT defaults.
 import { PutBlobOptions, putBlob } from "../../flows/publisher.ts"
-import { PUBLISHER_URL, PAYLOAD_SOURCE_FILE } from "../../config/environment.ts"
+import { DEFAULT_ENVIRONMENT, loadEnvironment } from "../../config/environment.ts"
 import { open } from 'k6/experimental/fs';
-import { parseHumanFileSize } from "../../lib/utils.ts"
+import { getTestIdTags, loadParameters, parseHumanFileSize } from "../../lib/utils.ts"
 import { check } from "k6";
+import { BlobHistory } from "../../lib/blob_history.ts"
 
-/**
- * The number of pre-allocated virtual users.
- * @default 500
- */
-const PREALLOCATED_VUS: number = parseInt(__ENV.PREALLOCATED_VUS || '500');
+interface TestParameters {
+    /** The number of pre-allocated virtual users. */
+    preallocatedVus: number,
+    /** The payload size of each request with a Ki or Mi or Gi suffix. */
+    payloadSize: string,
+    /** The timeout for storing each blob. */
+    timeout: string
+    /** The target arrival rate to ramp-up to in requests per minute **/
+    targetRate: number,
+    /**
+     * The duration over which to ramp-up the requests.
+     *
+     * This determines how quickly the arrival rate increases, and the test likely ends
+     * long before actually reaching this duration.
+     */
+    duration: string
+    /** The environment in which the test is running. */
+    environment: string,
+}
 
-/**
- * The payload size of each request with a Ki or Mi or Gi suffix.
- * @default 1Ki
- */
-const PAYLOAD_SIZE: string = __ENV.PAYLOAD_SIZE || '1Ki';
+const params = loadParameters<TestParameters>(
+    {
+        preallocatedVus: 500,
+        payloadSize: "1Ki",
+        timeout: "1m",
+        targetRate: 600,
+        duration: "30m",
+        environment: DEFAULT_ENVIRONMENT,
+    },
+    "publisher/v1_put_blobs_breakpoint.plans.json"
+);
 
-/**
- * The timeout for storing each blob.
- * @default 5m
- */
-const TIMEOUT: string = __ENV.TIMEOUT || '5m';
+const env = loadEnvironment(params.environment);
 
-/**
- * The target arrival rate to ramp-up to in requests per minute.
- * @default 600
- */
-const TARGET_RATE: number = parseInt(__ENV.TARGET_RATE || '600')
+const dataFile = await open(env.payloadSourceFile);
 
-/**
- * The duration over which to ramp-up the requests.
- *
- * This determines how quickly the arrival rate increases, and the test likely ends
- * long before actually reaching this duration.
- * @default 30m
- */
-const DURATION: string = __ENV.DURATION || '30m';
+const blobHistory = new BlobHistory(env.redisUrl);
+
+const payloadSize = parseHumanFileSize(params.payloadSize);
 
 export const options = {
     scenarios: {
@@ -72,40 +80,48 @@ export const options = {
             executor: 'ramping-arrival-rate',
             startRate: 1,
             timeUnit: '1m',
-            preAllocatedVUs: PREALLOCATED_VUS,
+            preAllocatedVUs: params.preallocatedVus,
             stages: [
-                { target: TARGET_RATE, duration: DURATION },
+                { target: params.targetRate, duration: params.duration },
             ]
         }
     },
+
+    setupTimeout: "5m",
 
     thresholds: {
         http_req_failed: [{ threshold: 'rate <= 0.05', abortOnFail: true }],
         checks: [{ threshold: 'rate >= 0.95', abortOnFail: true }],
     },
-    tags: {
-        "payload-size": `${PAYLOAD_SIZE}`,
-    },
 
     // Skip TLS verification for self-signed certs.
     insecureSkipTLSVerify: true,
+
+    tags: {
+        ...getTestIdTags(),
+        payload_size: `${params.payloadSize}`,
+        payload_size_bytes: `${parseHumanFileSize(params.payloadSize)}`,
+    },
 };
 
-const dataFile = await open(PAYLOAD_SOURCE_FILE);
-const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
 
 export async function setup(): Promise<number> {
+    const humanFileSize = parseHumanFileSize(params.payloadSize);
+
     console.log('');
-    console.log(`Publisher URL: ${PUBLISHER_URL}`);
-    console.log(`Data file path: ${PAYLOAD_SOURCE_FILE}`);
-    console.log(`Payload size: ${PAYLOAD_SIZE}`);
-    console.log(`Blob store timeout: ${TIMEOUT}`);
-    console.log(`Target rate: ${TARGET_RATE} req/min`);
-    console.log(`Ramp-up duration: ${DURATION}`);
+    console.log(`Publisher URL: ${env.publisherUrl}`);
+    console.log(`Data file path: ${env.payloadSourceFile}`);
+    console.log(`Payload size: ${params.payloadSize} (${humanFileSize} B)`);
+    console.log(`Blob store timeout: ${params.timeout}`);
+    console.log(`Target rate: ${params.targetRate} req/min`);
+    console.log(`Ramp-up duration: ${params.duration}`);
+    if (env.redisUrl != undefined) {
+        console.log(`Blob history written to: ${env.redisUrl}`);
+    }
 
     // Sample the duration to put a blob.
     const result = await putBlob(
-        dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT)
+        dataFile, env.publisherUrl, new PutBlobOptions(payloadSize, payloadSize, params.timeout)
     )
     console.log(`Baseline PUT duration: ${result.timings.duration}ms`);
     return result.timings.duration;
@@ -115,11 +131,23 @@ export async function setup(): Promise<number> {
  * Run the test and checks that the duration is at most twice the base duration.
  */
 export default async function (basePutDurationMillis: number) {
-    const payloadSize = parseHumanFileSize(PAYLOAD_SIZE);
-    const result = await putBlob(
-        dataFile, PUBLISHER_URL, new PutBlobOptions(payloadSize, payloadSize, TIMEOUT)
+    const response = await putBlob(
+        dataFile, env.publisherUrl, new PutBlobOptions(payloadSize, payloadSize, params.timeout)
     );
-    check(result, {
+
+    await blobHistory.maybeRecordFromResponse(params.payloadSize, response);
+
+    check(response, {
+        'is status 200': (r) => r.status === 200,
+    });
+    check(response, {
         'duration is at most twice baseline': (r) => r.timings.duration <= 2 * basePutDurationMillis
     });
+}
+
+export async function teardown() {
+    const blobIdCount = await blobHistory.len(params.payloadSize);
+    if (blobIdCount != null) {
+        console.log(`Total Blob IDs stored under key "${params.payloadSize}": ${blobIdCount}`);
+    }
 }

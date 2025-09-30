@@ -18,6 +18,22 @@ To access Sites deployed on testnet you can either use a thirdparty testnet port
 self-host one or run one locally.
 ```
 
+We maintain a list of known portals. New portals can self-identify by opening a PR to add themselves
+to the list.
+
+## Known portals
+
+Portals can self-identify by opening a PR that adds an entry to `docs/book/portals/list.json`.
+
+{{#if portals}}
+{{#each portals}}
+
+- `{{@key}}{{#if this.operator}} ({{this.operator}}){{/if}}`
+  {{/each}}
+  {{else}}
+- `https://wal.app (operated by Mysten Labs)`
+  {{/if}}
+
 ```admonish note title="Hosting of the service worker"
 The service-worker portal is no longer hosted, but you can still run it locally. Its code is
 available in the `walrus-sites` repository. For more information, see

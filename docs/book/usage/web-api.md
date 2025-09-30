@@ -319,8 +319,10 @@ once per week.
 The following is a list of known public aggregators on Walrus Mainnet; they are checked
 periodically, but each of them may still be temporarily unavailable:
 
-{{ #mainnet.aggregators }}
-{{ /mainnet.aggregators }}
+{{#each mainnet.aggregators as |info url|}}
+
+- `{{url}}`
+  {{/each}}
 
 ### Testnet
 
@@ -329,16 +331,21 @@ periodically, but each of them may still be temporarily unavailable:
 The following is a list of known public aggregators on Walrus Testnet; they are checked
 periodically, but each of them may still be temporarily unavailable:
 
-{{ #testnet.aggregators }}
-{{ /testnet.aggregators }}
+{{#each testnet.aggregators as |info url|}}
+
+- `{{url}}`
+  {{/each}}
 
 #### Publishers {#publishers-testnet}
 
 The following is a list of known public publishers on Walrus Testnet; they are checked
 periodically, but each of them may still be temporarily unavailable:
 
-{{ #testnet.publishers }}
-{{ /testnet.publishers }}
+{{#each testnet.publishers as |info url|}}
+
+- `{{url}}`
+  {{/each}}
+
 <!-- markdownlint-enable proper-names -->
 
 Most of these limit requests to 10 MiB by default. If you want to upload larger files, you need to

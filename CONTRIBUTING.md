@@ -229,13 +229,6 @@ kill $SUI_PID
 
 Note that it is currently not possible to use an external cluster with `cargo nextest`.
 
-### Test coverage
-
-We would like to cover as much code as possible with tests. Ideally you would add unit tests for all
-code you contribute.
-
-<!-- TODO(WAL-299) Add info about tarpaulin again as soon as the setup is fixed. -->
-
 ### Running a local Walrus testbed
 
 In addition to publicly deployed Walrus systems, you can deploy a Walrus testbed on your local
@@ -287,7 +280,7 @@ file is located at [`target/criterion/report/index.html].
 
 Criterion automatically compares the results from multiple runs. To check if your code changes
 improve or worsen the performance, run the benchmarks first on the latest `main` branch and then
-again with your code changes or explicitly set and use baselines with `--set-baseline` and
+again with your code changes or explicitly set and use baselines with `--save-baseline` and
 `--baseline`. See the [Criterion
 documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines)
 for further details.

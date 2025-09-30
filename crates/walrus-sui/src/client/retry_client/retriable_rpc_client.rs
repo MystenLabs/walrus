@@ -274,13 +274,12 @@ impl RetriableRpcClient {
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
-            let inner_request = retry_rpc_errors(
+            retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), sequence_number, self.request_timeout),
                 self.metrics.clone(),
                 method,
-            );
-            Box::pin(inner_request)
+            )
         };
 
         self.client
@@ -315,13 +314,12 @@ impl RetriableRpcClient {
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
-            let inner_request = retry_rpc_errors(
+            retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), sequence_number, self.request_timeout),
                 self.metrics.clone(),
                 method,
-            );
-            Box::pin(inner_request)
+            )
         };
 
         let result = self
@@ -498,13 +496,12 @@ impl RetriableRpcClient {
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
-            let inner_request = retry_rpc_errors(
+            retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), self.request_timeout),
                 self.metrics.clone(),
                 method,
-            );
-            Box::pin(inner_request)
+            )
         };
 
         self.client
@@ -533,13 +530,12 @@ impl RetriableRpcClient {
         }
 
         let request = |client: Arc<FallibleRpcClient>, method| {
-            let inner_request = retry_rpc_errors(
+            retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), id, self.request_timeout),
                 self.metrics.clone(),
                 method,
-            );
-            Box::pin(inner_request)
+            )
         };
 
         self.client
