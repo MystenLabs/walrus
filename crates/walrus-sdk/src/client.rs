@@ -499,8 +499,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         // Check if this is a chunked blob (V2 metadata with multiple chunks)
         match metadata.metadata() {
             BlobMetadata::V2(metadata_v2) if metadata_v2.num_chunks > 1 => {
-                // Use chunked download path (always uses Primary slivers)
-                self.request_chunks_and_decode(certified_epoch, &metadata, metadata_v2)
+                // Use chunked download path with generic encoding axis
+                self.request_chunks_and_decode::<U>(certified_epoch, &metadata, metadata_v2)
                     .await
             }
             _ => {
@@ -1130,7 +1130,6 @@ impl WalrusNodeClient<SuiContractClient> {
                     // Get the Reed-Solomon config
                     let rs_config = match self.encoding_config.get_for_type(encoding_type) {
                         walrus_core::encoding::EncodingConfigEnum::ReedSolomon(config) => config,
-                        _ => return Err(ClientError::store_blob_internal("RS2Chunked requires Reed-Solomon config".to_string())),
                     };
 
                     let chunked_encoder = ChunkedBlobEncoder::new(rs_config, blob, chunk_size)
@@ -2024,13 +2023,16 @@ impl<T> WalrusNodeClient<T> {
     /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
     /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
     #[tracing::instrument(level = Level::ERROR, skip_all)]
-    async fn request_chunks_and_decode(
+    async fn request_chunks_and_decode<U: EncodingAxis>(
         &self,
         certified_epoch: Epoch,
         metadata: &VerifiedBlobMetadataWithId,
         metadata_v2: &walrus_core::metadata::BlobMetadataV2,
-    ) -> ClientResult<Vec<u8>> {
-        use walrus_core::encoding::{ChunkedBlobDecoder, Primary};
+    ) -> ClientResult<Vec<u8>>
+    where
+        walrus_core::encoding::SliverData<U>: TryFrom<walrus_core::Sliver>,
+    {
+        use walrus_core::encoding::ChunkedBlobDecoder;
 
         let committees = self.get_committees().await?;
         let num_chunks = metadata_v2.num_chunks;
@@ -2066,7 +2068,7 @@ impl<T> WalrusNodeClient<T> {
 
             // Create a progress bar for this chunk
             let progress_bar: indicatif::ProgressBar = styled_progress_bar(
-                encoding_config.n_source_symbols::<Primary>().get().into(),
+                encoding_config.n_source_symbols::<U>().get().into(),
             );
             progress_bar.set_message(format!("chunk {}/{}", chunk_index + 1, num_chunks));
 
@@ -2077,7 +2079,7 @@ impl<T> WalrusNodeClient<T> {
             // Create futures to retrieve chunk slivers from all nodes
             let futures = comms.iter().flat_map(|n| {
                 n.node.shard_ids.iter().cloned().map(|s| {
-                    n.retrieve_chunk_sliver::<Primary>(metadata, chunk_index, s)
+                    n.retrieve_chunk_sliver::<U>(metadata, chunk_index, s)
                         .instrument(n.span.clone())
                         .inspect({
                             let value = progress_bar.clone();
@@ -2094,7 +2096,7 @@ impl<T> WalrusNodeClient<T> {
 
             // Get required number of slivers for this chunk
             let RequiredCount::Exact(required_slivers) =
-                encoding_config.n_slivers_for_reconstruction::<Primary>();
+                encoding_config.n_slivers_for_reconstruction::<U>();
             let completed_reason = requests
                 .execute_weight(
                     &|weight| weight >= required_slivers,
@@ -2116,10 +2118,8 @@ impl<T> WalrusNodeClient<T> {
                         "we must have sufficient slivers if the threshold was reached"
                     );
 
-                    // Convert SliverData<A> to SliverPair
-                    // Note: decode_chunk only uses primary slivers, so we create dummy secondaries
-                    use walrus_core::encoding::{SliverData, SliverPair, Secondary};
-                    use walrus_core::SliverIndex;
+                    // Convert SliverData<U> to SliverPair
+                    // We create dummy slivers for the opposite axis
 
                     // Get symbol size for this chunk
                     let symbol_size = rs_config
@@ -2129,17 +2129,7 @@ impl<T> WalrusNodeClient<T> {
                     let sliver_pairs: Vec<SliverPair> = slivers
                         .into_iter()
                         .map(|sliver_data| {
-                            // Create a dummy secondary sliver (it won't be used by decode_chunk)
-                            let dummy_secondary = SliverData::<Secondary>::new_empty(
-                                0,  // length
-                                symbol_size,
-                                SliverIndex(0),
-                            );
-
-                            SliverPair {
-                                primary: sliver_data,
-                                secondary: dummy_secondary,
-                            }
+                            U::make_sliver_pair_with_dummy(sliver_data, symbol_size)
                         })
                         .collect();
 
