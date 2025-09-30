@@ -184,7 +184,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
     // For data existence check, we should only check it if the node is in Active state. Otherwise,
     // the node may not be fully synced with the latest epoch.
-    let enable_sliver_data_existence_check = node
+    let mut enable_sliver_data_existence_check = node
         .consistency_check_config
         .enable_sliver_data_existence_check
         && node_status == NodeStatus::Active;
@@ -200,6 +200,18 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
             Ok(blob_info) => {
                 hasher.write(blob_info.0.as_ref());
 
+                if enable_sliver_data_existence_check && node.current_committee_epoch() > epoch {
+                    enable_sliver_data_existence_check = false;
+                    total_synced_scanned = 0;
+                    total_fully_stored = 0;
+                    tracing::info!(
+                        event_epoch = epoch,
+                        committee_epoch = node.current_committee_epoch(),
+                        "current committee epoch is not the same as the event epoch, skipping \
+                        sliver data existence check"
+                    );
+                }
+
                 if enable_sliver_data_existence_check
                     && !blobs_not_yet_fully_synced.contains(&blob_info.0)
                     && rng.gen_range(0..100)
@@ -208,6 +220,9 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             .sliver_data_existence_check_sample_rate_percentage
                 {
                     total_synced_scanned += 1;
+
+                    #[cfg(msim)]
+                    let total_fully_stored_before = total_fully_stored;
 
                     #[cfg(not(msim))]
                     {
@@ -243,6 +258,14 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             &blob_info.0,
                         );
                     }
+
+                    #[cfg(msim)]
+                    if total_fully_stored_before == total_fully_stored {
+                        tracing::debug!(
+                            blob_id=%blob_info.0,
+                            "sliver data consistency check: blob not fully stored"
+                        );
+                    }
                 }
 
                 walrus_utils::with_label!(scan_counter, epoch_bucket).inc();
@@ -253,6 +276,17 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                 return Err(error);
             }
         }
+    }
+
+    if enable_sliver_data_existence_check && node.current_committee_epoch() > epoch {
+        total_synced_scanned = 0;
+        total_fully_stored = 0;
+        tracing::info!(
+            event_epoch = epoch,
+            committee_epoch = node.current_committee_epoch(),
+            "current committee epoch is not the same as the event epoch, reset sliver data \
+            existence check counters"
+        );
     }
 
     Ok(BlobConsistencyCheckResult {

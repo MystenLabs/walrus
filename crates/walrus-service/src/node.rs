@@ -1985,7 +1985,7 @@ impl StorageNode {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
             };
-            tracing::info!(walrus.shard_index = %shard_id, "locking shard for epoch change");
+            tracing::info!(walrus.shard_index = %shard_id, epoch = event.epoch, "locking shard for epoch change");
             shard_storage
                 .lock_shard_for_epoch_change()
                 .await
@@ -2266,7 +2266,13 @@ impl StorageNodeInner {
     ) -> anyhow::Result<bool> {
         for shard in shards {
             match self.storage.is_stored_at_shard(blob_id, *shard).await {
-                Ok(false) => return Ok(false),
+                Ok(false) => {
+                    if cfg!(msim) {
+                        // Extremely helpful for debugging consistency issue in simtest.
+                        tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                    }
+                    return Ok(false);
+                }
                 Ok(true) => continue,
                 Err(error) => {
                     tracing::warn!(?error, "failed to check if blob is stored at shard");
