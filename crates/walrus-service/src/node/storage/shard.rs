@@ -1058,6 +1058,12 @@ impl ShardStorage {
             }
         }
 
+        tracing::debug!(
+            shard_index = %self.id(),
+            sliver_type = %sliver_type,
+            "ZZZZZ shard sync completed",
+        );
+
         if next_blob_info.is_none() {
             return Ok(());
         }
@@ -1144,6 +1150,13 @@ impl ShardStorage {
     {
         let mut buf = buf_mutex.lock().expect("lock should succeed");
         let should_flush = buf.size() >= sst_file_threshold || end_of_range;
+        tracing::debug!(
+            "ZZZZZ should_flush: {}, buffer_size: {}, sst_file_threshold: {}, end_of_range: {}",
+            should_flush,
+            buf.size(),
+            sst_file_threshold,
+            end_of_range,
+        );
         if !should_flush {
             return Ok(false);
         }

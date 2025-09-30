@@ -696,7 +696,7 @@ impl Default for ShardSyncConfig {
             shard_sync_concurrency: 10,
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
-            sst_ingestion_config: None,
+            sst_ingestion_config: Some(SstIngestionConfig::default()),
         }
     }
 }
