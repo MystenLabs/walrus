@@ -23,12 +23,20 @@ use super::{
 };
 use crate::{
     BlobId,
+    DefaultHashFunction,
+    EncodingType,
     SliverIndex,
     SliverPairIndex,
-    encoding::config::EncodingFactory as _,
+    encoding::config::{EncodingFactory as _, ReedSolomonEncodingConfig},
     ensure,
-    merkle::{MerkleTree, leaf_hash},
-    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode, leaf_hash},
+    metadata::{
+        BlobMetadata,
+        BlobMetadataApi as _,
+        BlobMetadataV2,
+        SliverPairMetadata,
+        VerifiedBlobMetadataWithId,
+    },
 };
 
 /// Struct to perform the full blob encoding.
@@ -693,6 +701,241 @@ impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
 
     fn symbol_usize(&self) -> usize {
         self.symbol_size.get().into()
+    }
+}
+
+/// A blob encoder for chunked encoding (RS2Chunked).
+///
+/// This encoder splits large blobs into chunks, encodes each chunk independently using
+/// Reed-Solomon encoding, and builds Merkle trees over chunk-level hashes to produce
+/// blob-level metadata. This enables:
+/// - Streaming uploads/downloads: chunks can be processed independently
+/// - Memory efficiency: don't need to load entire blob into memory
+/// - Proof-based verification: each chunk can be verified against blob-level hashes
+pub struct ChunkedBlobEncoder<'a> {
+    /// Reference to the full blob data.
+    blob: &'a [u8],
+    /// The encoding configuration.
+    config: &'a ReedSolomonEncodingConfig,
+    /// Number of chunks to split the blob into.
+    num_chunks: u32,
+    /// Size of each chunk (last chunk may be smaller).
+    chunk_size: u64,
+}
+
+impl<'a> ChunkedBlobEncoder<'a> {
+    /// Creates a new chunked blob encoder with the specified chunk size.
+    ///
+    /// The blob will be split into chunks of the specified size (last chunk may be smaller).
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The Reed-Solomon encoding configuration
+    /// * `blob` - The blob data to encode
+    /// * `chunk_size` - The size of each chunk in bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataTooLargeError`] if the chunk size computation fails.
+    pub fn new(
+        config: &'a ReedSolomonEncodingConfig,
+        blob: &'a [u8],
+        chunk_size: u64,
+    ) -> Result<Self, DataTooLargeError> {
+        let blob_size = blob.len() as u64;
+        let num_chunks = super::config::compute_num_chunks(blob_size, chunk_size);
+
+        tracing::debug!(
+            blob_size,
+            num_chunks,
+            chunk_size,
+            "creating chunked blob encoder"
+        );
+
+        Ok(Self {
+            blob,
+            config,
+            num_chunks,
+            chunk_size,
+        })
+    }
+
+    /// Encodes the blob and returns the sliver pairs and verified metadata.
+    ///
+    /// This method:
+    /// 1. Splits the blob into chunks
+    /// 2. Encodes each chunk using the standard BlobEncoder
+    /// 3. Collects chunk-level hashes
+    /// 4. Builds Merkle trees over chunk hashes to get blob-level hashes
+    /// 5. Returns BlobMetadataV2 with chunk information
+    pub fn encode_with_metadata(
+        &self,
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        tracing::debug!("starting chunked encode with metadata");
+
+        let n_shards = self.config.n_shards().get() as usize;
+
+        // Store all chunk-level sliver pair metadata
+        let mut all_chunk_hashes: Vec<Vec<SliverPairMetadata>> =
+            Vec::with_capacity(self.num_chunks as usize);
+        // Store all sliver pairs from all chunks
+        let mut all_sliver_pairs: Vec<SliverPair> = Vec::new();
+
+        // Encode each chunk
+        for chunk_idx in 0..self.num_chunks {
+            let chunk_start = (chunk_idx as u64 * self.chunk_size) as usize;
+            let chunk_end = std::cmp::min(chunk_start + self.chunk_size as usize, self.blob.len());
+            let chunk_data = &self.blob[chunk_start..chunk_end];
+
+            tracing::debug!(chunk_idx, chunk_size = chunk_data.len(), "encoding chunk");
+
+            // Encode this chunk (create config_enum fresh for each iteration)
+            let config_enum = EncodingConfigEnum::ReedSolomon(self.config);
+            let chunk_encoder = BlobEncoder::new(config_enum, chunk_data)?;
+            let (chunk_sliver_pairs, chunk_metadata) = chunk_encoder.encode_with_metadata();
+
+            // Store the chunk-level hashes
+            all_chunk_hashes.push(chunk_metadata.metadata().hashes().clone());
+
+            // Accumulate sliver pairs
+            all_sliver_pairs.extend(chunk_sliver_pairs);
+        }
+
+        // Now build blob-level hashes as Merkle trees over chunk hashes
+        // For each sliver index j, build a Merkle tree over [chunk1_hash_j, chunk2_hash_j, ..., chunkk_hash_j]
+        let mut blob_level_hashes: Vec<SliverPairMetadata> = Vec::with_capacity(n_shards);
+
+        for sliver_idx in 0..n_shards {
+            // Collect primary hashes for this sliver across all chunks
+            let primary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].primary_hash.bytes())
+                .collect();
+
+            // Collect secondary hashes for this sliver across all chunks
+            let secondary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].secondary_hash.bytes())
+                .collect();
+
+            // Build Merkle trees over the chunk hashes
+            let primary_root = if primary_chunk_hashes.len() == 1 {
+                // Single chunk: root is just the chunk hash
+                MerkleNode::Digest(primary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(primary_chunk_hashes.iter()).root()
+            };
+
+            let secondary_root = if secondary_chunk_hashes.len() == 1 {
+                // Single chunk: root is just the chunk hash
+                MerkleNode::Digest(secondary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(secondary_chunk_hashes.iter()).root()
+            };
+
+            blob_level_hashes.push(SliverPairMetadata {
+                primary_hash: primary_root,
+                secondary_hash: secondary_root,
+            });
+        }
+
+        // Create BlobMetadataV2 with chunk information
+        let metadata_v2 = BlobMetadataV2 {
+            encoding_type: EncodingType::RS2Chunked,
+            unencoded_length: self.blob.len() as u64,
+            hashes: blob_level_hashes,
+            num_chunks: self.num_chunks,
+            chunk_size: self.chunk_size,
+            chunk_hashes: all_chunk_hashes,
+        };
+
+        let blob_metadata = BlobMetadata::V2(metadata_v2);
+        let blob_id = BlobId::from_sliver_pair_metadata(&blob_metadata);
+        let verified_metadata =
+            VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, blob_metadata);
+
+        tracing::debug!(
+            blob_id = %verified_metadata.blob_id(),
+            num_chunks = self.num_chunks,
+            "successfully encoded chunked blob"
+        );
+
+        Ok((all_sliver_pairs, verified_metadata))
+    }
+
+    /// Computes only the metadata without encoding the sliver pairs.
+    ///
+    /// This is more memory-efficient when you only need the blob ID and hashes.
+    pub fn compute_metadata(&self) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        tracing::debug!("computing chunked metadata only");
+
+        let n_shards = self.config.n_shards().get() as usize;
+
+        // Store all chunk-level sliver pair metadata
+        let mut all_chunk_hashes: Vec<Vec<SliverPairMetadata>> =
+            Vec::with_capacity(self.num_chunks as usize);
+
+        // Compute metadata for each chunk
+        for chunk_idx in 0..self.num_chunks {
+            let chunk_start = (chunk_idx as u64 * self.chunk_size) as usize;
+            let chunk_end = std::cmp::min(chunk_start + self.chunk_size as usize, self.blob.len());
+            let chunk_data = &self.blob[chunk_start..chunk_end];
+
+            let config_enum = EncodingConfigEnum::ReedSolomon(self.config);
+            let chunk_encoder = BlobEncoder::new(config_enum, chunk_data)?;
+            let chunk_metadata = chunk_encoder.compute_metadata();
+
+            all_chunk_hashes.push(chunk_metadata.metadata().hashes().clone());
+        }
+
+        // Build blob-level hashes
+        let mut blob_level_hashes: Vec<SliverPairMetadata> = Vec::with_capacity(n_shards);
+
+        for sliver_idx in 0..n_shards {
+            let primary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].primary_hash.bytes())
+                .collect();
+
+            let secondary_chunk_hashes: Vec<[u8; DIGEST_LEN]> = all_chunk_hashes
+                .iter()
+                .map(|chunk_hashes| chunk_hashes[sliver_idx].secondary_hash.bytes())
+                .collect();
+
+            let primary_root = if primary_chunk_hashes.len() == 1 {
+                MerkleNode::Digest(primary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(primary_chunk_hashes.iter()).root()
+            };
+
+            let secondary_root = if secondary_chunk_hashes.len() == 1 {
+                MerkleNode::Digest(secondary_chunk_hashes[0])
+            } else {
+                MerkleTree::<DefaultHashFunction>::build(secondary_chunk_hashes.iter()).root()
+            };
+
+            blob_level_hashes.push(SliverPairMetadata {
+                primary_hash: primary_root,
+                secondary_hash: secondary_root,
+            });
+        }
+
+        let metadata_v2 = BlobMetadataV2 {
+            encoding_type: EncodingType::RS2Chunked,
+            unencoded_length: self.blob.len() as u64,
+            hashes: blob_level_hashes,
+            num_chunks: self.num_chunks,
+            chunk_size: self.chunk_size,
+            chunk_hashes: all_chunk_hashes,
+        };
+
+        let blob_metadata = BlobMetadata::V2(metadata_v2);
+        let blob_id = BlobId::from_sliver_pair_metadata(&blob_metadata);
+
+        Ok(VerifiedBlobMetadataWithId::new_verified_unchecked(
+            blob_id,
+            blob_metadata,
+        ))
     }
 }
 
