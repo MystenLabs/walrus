@@ -1985,7 +1985,11 @@ impl StorageNode {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
             };
-            tracing::info!(walrus.shard_index = %shard_id, epoch = event.epoch, "locking shard for epoch change");
+            tracing::info!(
+                walrus.shard_index = %shard_id,
+                epoch = event.epoch,
+                "locking shard for epoch change"
+            );
             shard_storage
                 .lock_shard_for_epoch_change()
                 .await
@@ -2160,6 +2164,8 @@ impl StorageNode {
         Ok(())
     }
 
+    /// Enters recovery mode.
+    /// This function should only be called when the node is lagging behind.
     async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
         self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
 
@@ -7055,6 +7061,68 @@ mod tests {
         )?;
 
         wait_until_events_processed(&cluster.nodes[0], 9).await?;
+        Ok(())
+    }
+
+    // Tests that entering recovery mode cancels all existing blob syncs.
+    #[tokio::test]
+    async fn enter_recovery_mode_cancels_blob_syncs() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+
+        // Create a cluster at epoch 1 without any blobs.
+        let (cluster, _events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+        // Start syncs for multiple random blob ids. Since these blobs do not exist,
+        // the syncs will run indefinitely if not cancelled.
+        let blob_id_1 = random_blob_id();
+        let blob_id_2 = random_blob_id();
+        let blob_id_3 = random_blob_id();
+
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_1, 1, None)
+            .await?;
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_2, 1, None)
+            .await?;
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_3, 1, None)
+            .await?;
+
+        // Verify that 3 blob syncs are in progress.
+        assert_eq!(
+            cluster.nodes[0]
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .len(),
+            3
+        );
+
+        // Enter recovery mode.
+        cluster.nodes[0].storage_node.enter_recovery_mode().await?;
+
+        // Verify that all blob syncs have been cancelled.
+        assert_eq!(
+            cluster.nodes[0]
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .len(),
+            0
+        );
+
+        // Verify that the node status is set to RecoveryCatchUp.
+        assert_eq!(
+            cluster.nodes[0].storage_node.inner.storage.node_status()?,
+            NodeStatus::RecoveryCatchUp
+        );
+
         Ok(())
     }
 }

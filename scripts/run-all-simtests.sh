@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
 
 # Script to run all simtests with seed-search.py
 # Usage: ./scripts/run-all-simtests.sh [--num-seeds NUM] [--seed-start START] [--concurrency CONCURRENCY]
@@ -66,8 +68,8 @@ echo ""
 TEST_COUNT=0
 for test_file_path in $TEST_FILES; do
     test_functions=$(grep -B1 "async fn test_" "$test_file_path" | \
-                     grep "async fn test_" | \
-                     sed 's/.*async fn \(test_[a-zA-Z0-9_]*\).*/\1/')
+                    grep "async fn test_" | \
+                    sed 's/.*async fn \(test_[a-zA-Z0-9_]*\).*/\1/')
     if [ -n "$test_functions" ]; then
         TEST_COUNT=$((TEST_COUNT + $(echo "$test_functions" | wc -l)))
     fi
@@ -115,8 +117,8 @@ for test_file_path in $TEST_FILES; do
     # Extract test function names using grep
     # Look for functions with #[walrus_simtest] attribute
     test_functions=$(grep -B1 "async fn test_" "$test_file_path" | \
-                     grep "async fn test_" | \
-                     sed 's/.*async fn \(test_[a-zA-Z0-9_]*\).*/\1/')
+                    grep "async fn test_" | \
+                    sed 's/.*async fn \(test_[a-zA-Z0-9_]*\).*/\1/')
 
     if [ -z "$test_functions" ]; then
         echo "  No tests found in $test_file, skipping..."

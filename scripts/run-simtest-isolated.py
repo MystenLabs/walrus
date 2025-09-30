@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Wrapper script to run seed-search.py in an isolated process group.
 This prevents seed-search.py from killing the parent process when it exits.

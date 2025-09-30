@@ -200,6 +200,9 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
             Ok(blob_info) => {
                 hasher.write(blob_info.0.as_ref());
 
+                // Check if the committee onchain has moved forward. If so, we cannot perform the
+                // sliver data existence check because the sliver data may not be fully stored
+                // in `epoch` based on the blobs' certified status in committee epoch.
                 if enable_sliver_data_existence_check && node.current_committee_epoch() > epoch {
                     enable_sliver_data_existence_check = false;
                     total_synced_scanned = 0;
@@ -261,6 +264,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
 
                     #[cfg(msim)]
                     if total_fully_stored_before == total_fully_stored {
+                        // This helps to detect which certified blobs are not fully stored.
                         tracing::debug!(
                             blob_id=%blob_info.0,
                             "sliver data consistency check: blob not fully stored"
@@ -278,6 +282,9 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
         }
     }
 
+    // Before we return, we need to check if the committee onchain has moved forward. If so, we
+    // need to reset the sliver data existence check counters, since the sliver data may not be
+    // fully stored in `epoch` based on the blobs' certified status in committee epoch.
     if enable_sliver_data_existence_check && node.current_committee_epoch() > epoch {
         total_synced_scanned = 0;
         total_fully_stored = 0;
