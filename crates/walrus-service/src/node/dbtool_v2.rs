@@ -26,7 +26,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
-        db_options::{DbType, open_db_readonly},
+        db_options::{DbType, open_db_cf_readonly},
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -404,7 +404,19 @@ fn scan_events(
     start_event_index: u64,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: scan_events should only be used with EventProcessor DB
+    if !matches!(db_type, DbType::EventProcessor) {
+        return Err(anyhow::anyhow!(
+            "scan-events command requires --db-type event-processor"
+        ));
+    }
+
+    // Only open the event_store column family
+    let db = open_db_cf_readonly(
+        db_path,
+        &[event_processor_constants::EVENT_STORE],
+        db_config,
+    )?;
     let cf = db
         .cf_handle(event_processor_constants::EVENT_STORE)
         .ok_or_else(|| {
@@ -443,7 +455,19 @@ fn read_blob_info(
     start_blob_id: Option<BlobId>,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: blob info is only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "read-blob-info command requires --db-type main"
+        ));
+    }
+
+    // Only open the aggregate_blob_info column family
+    let db = open_db_cf_readonly(
+        db_path,
+        &[&aggregate_blob_info_cf_name()],
+        db_config,
+    )?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
@@ -479,7 +503,19 @@ fn read_object_blob_info(
     start_object_id: Option<ObjectID>,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: object blob info is only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "read-object-blob-info command requires --db-type main"
+        ));
+    }
+
+    // Only open the per_object_blob_info column family
+    let db = open_db_cf_readonly(
+        db_path,
+        &[&per_object_blob_info_cf_name()],
+        db_config,
+    )?;
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
         .ok_or_else(|| {
@@ -516,7 +552,19 @@ fn count_certified_blobs(
     db_config: &DatabaseConfig,
     epoch: Epoch,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: blob info is only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "count-certified-blobs command requires --db-type main"
+        ));
+    }
+
+    // Only open the aggregate_blob_info column family
+    let db = open_db_cf_readonly(
+        db_path,
+        &[&aggregate_blob_info_cf_name()],
+        db_config,
+    )?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
@@ -589,7 +637,15 @@ fn read_blob_metadata(
     count: usize,
     output_size_only: bool,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: metadata is only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "read-blob-metadata command requires --db-type main"
+        ));
+    }
+
+    // Only open the metadata column family
+    let db = open_db_cf_readonly(db_path, &[&metadata_cf_name()], db_config)?;
     let cf = db
         .cf_handle(metadata_cf_name())
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", metadata_cf_name()))?;
@@ -630,8 +686,16 @@ fn read_primary_slivers(
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: slivers are only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "read-primary-slivers command requires --db-type main"
+        ));
+    }
+
     let cf_name = primary_slivers_column_family_name(shard_index);
+    // Only open the specific primary sliver column family
+    let db = open_db_cf_readonly(db_path, &[&cf_name], db_config)?;
     let cf = db
         .cf_handle(&cf_name)
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", cf_name))?;
@@ -673,8 +737,16 @@ fn read_secondary_slivers(
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: slivers are only in Main DB
+    if !matches!(db_type, DbType::Main) {
+        return Err(anyhow::anyhow!(
+            "read-secondary-slivers command requires --db-type main"
+        ));
+    }
+
     let cf_name = secondary_slivers_column_family_name(shard_index);
+    // Only open the specific secondary sliver column family
+    let db = open_db_cf_readonly(db_path, &[&cf_name], db_config)?;
     let cf = db
         .cf_handle(&cf_name)
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", cf_name))?;
@@ -714,7 +786,23 @@ fn event_blob_writer(
     db_config: &DatabaseConfig,
     command: EventBlobWriterCommands,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: event blob writer commands require EventBlobWriter DB
+    if !matches!(db_type, DbType::EventBlobWriter) {
+        return Err(anyhow::anyhow!(
+            "event-blob-writer command requires --db-type event-blob-writer"
+        ));
+    }
+
+    // Determine which column family we need based on the command
+    let cf_name = match &command {
+        EventBlobWriterCommands::ReadCertified => certified_cf_name(),
+        EventBlobWriterCommands::ReadAttested => attested_cf_name(),
+        EventBlobWriterCommands::ReadPending { .. } => pending_cf_name(),
+        EventBlobWriterCommands::ReadFailedToAttest => failed_to_attest_cf_name(),
+    };
+
+    // Only open the specific column family we need
+    let db = open_db_cf_readonly(db_path, &[&cf_name], db_config)?;
 
     match command {
         EventBlobWriterCommands::ReadCertified => {
@@ -826,7 +914,20 @@ fn event_processor(
     db_config: &DatabaseConfig,
     command: EventProcessorCommands,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path, db_type, db_config)?;
+    // Sanity check: event processor commands require EventProcessor DB
+    if !matches!(db_type, DbType::EventProcessor) {
+        return Err(anyhow::anyhow!(
+            "event-processor command requires --db-type event-processor"
+        ));
+    }
+
+    // Determine which column family we need based on the command
+    let cf_name = match &command {
+        EventProcessorCommands::ReadInitState => event_processor_constants::INIT_STATE,
+    };
+
+    // Only open the specific column family we need
+    let db = open_db_cf_readonly(db_path, &[cf_name], db_config)?;
 
     match command {
         EventProcessorCommands::ReadInitState => {
