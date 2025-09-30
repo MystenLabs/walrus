@@ -27,6 +27,7 @@ use tower::Service;
 use tracing::{Instrument as _, Span, field, instrument::Instrumented};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use walrus_utils::{
+    backoff::SuccessOrFailure,
     http::{BodyVisitor, VisitBody, http_body},
     metrics::{self as metric_utils, OwnedGaugeGuard},
 };
@@ -38,6 +39,7 @@ pub(crate) struct UrlTemplate(pub &'static str); // Helps with incorrect lifetim
 
 const HTTP_RESPONSE_PART_HEADERS: &str = "headers";
 const HTTP_RESPONSE_PART_PAYLOAD: &str = "payload";
+const HTTP_SERVER_ADDRESS_DURATION_THRESHOLD: Duration = Duration::from_secs(1);
 
 metric_utils::define_metric_set! {
     #[namespace = "http_client"]
@@ -87,16 +89,28 @@ impl HttpClientMetrics {
         labels: &HttpLabels,
         http_response_part: &str,
     ) {
+        let mut label_array = labels
+            .to_extended_array::<{ HttpLabels::LENGTH + 1 }>()
+            .with_http_response_part(http_response_part);
+
         let request_duration = &self.request_duration_seconds;
 
-        let mut labels = labels.to_extended_array::<{ HttpLabels::LENGTH + 1 }>();
-        labels[HttpLabels::LENGTH] = http_response_part;
+        // Conditionally report the server address in a subset of cases.
+        //
+        // As a result, there are series with and without server_address originating from each
+        // host. By performing a sum ignoring the server_address label, we get a series which is the
+        // same as never attaching server_address.
+        let observe_server_address = !labels.http_response_status_code.is_success()
+            || duration > HTTP_SERVER_ADDRESS_DURATION_THRESHOLD;
 
-        let histogram = request_duration
-            .get_metric_with_label_values(&labels)
-            .expect("label count is the same as definition");
+        if !observe_server_address {
+            label_array.clear_server_address();
+        }
 
-        histogram.observe(duration.as_secs_f64());
+        request_duration
+            .get_metric_with_label_values(label_array.as_ref())
+            .expect("label count is the same as definition")
+            .observe(duration.as_secs_f64());
     }
 
     fn observe_request_body_size(&self, body_size: u64, labels: &HttpLabels) {
@@ -123,6 +137,66 @@ impl HttpClientMetrics {
                 labels.url_template,
             ])
             .expect("label count is the same as definition")
+    }
+}
+
+#[derive(Clone)]
+struct HttpLabelArray<'a, const N: usize>([&'a str; N]);
+
+impl<'a, const N: usize> HttpLabelArray<'a, N> {
+    /// Sets the label index corresponding to the http_response_part to the provided value.
+    pub fn with_http_response_part<'b>(mut self, http_response_part: &'b str) -> Self
+    where
+        'b: 'a,
+    {
+        assert!(
+            N > HttpLabels::LENGTH,
+            "`N` must be more than `Labels::LENGTH`"
+        );
+        self.0[HttpLabels::LENGTH] = http_response_part;
+        self
+    }
+
+    /// Sets the server address and ports to the empty string.
+    pub fn clear_server_address(&mut self) {
+        self.0[1] = "";
+        self.0[2] = "";
+    }
+
+    /// Create a new instance of `HttpLabelArray` from the provided labels.
+    pub fn from_labels(labels: &'a HttpLabels) -> HttpLabelArray<'a, N> {
+        assert!(
+            N >= HttpLabels::LENGTH,
+            "`N` must be at least `Labels::LENGTH`"
+        );
+        let mut array = [""; N];
+
+        array[0] = labels.http_request_method.as_str();
+        array[1] = &labels.server_address;
+        array[2] = &labels.server_port;
+        array[3] = labels.url_scheme.as_ref();
+        array[4] = labels.url_template;
+        array[5] = labels.network_protocol_version.as_ref();
+        array[6] = labels.error_type_as_str();
+        array[7] = labels
+            .http_response_status_code
+            .as_ref()
+            .map(StatusCode::as_str)
+            .unwrap_or_default();
+
+        HttpLabelArray(array)
+    }
+}
+
+impl<'a, const N: usize> From<HttpLabelArray<'a, N>> for [&'a str; N] {
+    fn from(value: HttpLabelArray<'a, N>) -> Self {
+        value.0
+    }
+}
+
+impl<'a, const N: usize> AsRef<[&'a str]> for HttpLabelArray<'a, N> {
+    fn as_ref(&self) -> &[&'a str] {
+        &self.0
     }
 }
 
@@ -204,29 +278,14 @@ impl HttpLabels {
 
     /// Returns the labels values as an array of `&str` which can be used to get metrics.
     fn to_array(&self) -> [&str; Self::LENGTH] {
-        self.to_extended_array()
+        self.to_extended_array().0
     }
 
     /// Similar to [`Self::to_array`], but the length of the returned array can be specified to be
     /// longer than the minimum required to store the labels, allowing other label values to be
     /// post-pended.
-    fn to_extended_array<const N: usize>(&self) -> [&str; N] {
-        assert!(N >= Self::LENGTH, "`N` must be at least `Labels::LENGTH`");
-        let mut array = [""; N];
-
-        array[0] = self.http_request_method.as_str();
-        array[1] = &self.server_address;
-        array[2] = &self.server_port;
-        array[3] = self.url_scheme.as_ref();
-        array[4] = self.url_template;
-        array[5] = self.network_protocol_version.as_ref();
-        array[6] = self.error_type_as_str();
-        array[7] = self
-            .http_response_status_code
-            .as_ref()
-            .map(StatusCode::as_str)
-            .unwrap_or_default();
-        array
+    fn to_extended_array<const N: usize>(&self) -> HttpLabelArray<'_, N> {
+        HttpLabelArray::from_labels(self)
     }
 
     fn is_aborted(&self) -> bool {
