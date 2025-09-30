@@ -51,7 +51,7 @@ use walrus_sdk::{
         resource::RegisterBlobOp,
         upload_relay_client::UploadRelayClient,
     },
-    config::load_configuration,
+    config::{UploadMode, load_configuration},
     error::ClientErrorKind,
     store_optimizations::StoreOptimizations,
     sui::{
@@ -143,6 +143,14 @@ use crate::{
     },
     utils::{self, MetricsAndLoggingRuntime, generate_sui_wallet},
 };
+
+fn apply_upload_mode_to_config(
+    mut config: walrus_sdk::config::ClientConfig,
+    upload_mode: UploadMode,
+) -> walrus_sdk::config::ClientConfig {
+    config.communication_config = upload_mode.apply_to(config.communication_config.clone());
+    config
+}
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -236,6 +244,7 @@ impl ClientCommandRunner {
                     common_options.encoding_type,
                     common_options.upload_relay,
                     common_options.skip_tip_confirmation.into(),
+                    common_options.upload_mode.map(Into::into),
                 )
                 .await
             }
@@ -262,6 +271,7 @@ impl ClientCommandRunner {
                     common_options.encoding_type,
                     common_options.upload_relay,
                     common_options.skip_tip_confirmation.into(),
+                    common_options.upload_mode.map(Into::into),
                 )
                 .await
             }
@@ -668,6 +678,7 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
         confirmation: UserConfirmation,
+        upload_mode: Option<UploadMode>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -676,7 +687,10 @@ impl ClientCommandRunner {
             ));
         }
 
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        // Apply CLI upload preset to the in-memory config before building the client, if provided.
+        let mut config = self.config?;
+        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
@@ -814,6 +828,7 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
         upload_relay: Option<Url>,
         confirmation: UserConfirmation,
+        upload_mode: Option<UploadMode>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
         if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
@@ -826,7 +841,10 @@ impl ClientCommandRunner {
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        // Apply CLI upload preset to the in-memory config before building the client, if provided.
+        let mut config = self.config?;
+        config = apply_upload_mode_to_config(config, upload_mode.unwrap_or(UploadMode::Balanced));
+        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =

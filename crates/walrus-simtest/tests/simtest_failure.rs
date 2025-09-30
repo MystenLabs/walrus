@@ -39,7 +39,7 @@ mod tests {
     // Tests the scenario where a single node crashes and restarts.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    async fn walrus_with_single_node_crash_and_restart() {
+    async fn test_walrus_with_single_node_crash_and_restart() {
         let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],

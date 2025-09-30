@@ -80,7 +80,7 @@ mod tests {
     // operations deterministically.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(check_determinism)]
-    async fn walrus_basic_determinism() {
+    async fn test_walrus_basic_determinism() {
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
             config.set_enable_jwk_consensus_updates_for_testing(false);
@@ -641,7 +641,6 @@ mod tests {
 
     // The node recovery process is artificially prolonged to be longer than 1 epoch.
     // We should expect the recovering node should eventually become Active.
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_long_node_recovery() {
         let mut node_recovery_config = NodeRecoveryConfig::default();
@@ -749,7 +748,7 @@ mod tests {
     // Tests that non-blocking, out of ordering event processing does not block event progress.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    async fn walrus_certified_event_processing_jitter() {
+    async fn test_certified_event_processing_jitter() {
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
         register_fail_point_async("fail_point_process_blob_certified_event", || async move {

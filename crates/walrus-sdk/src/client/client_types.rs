@@ -13,9 +13,12 @@ use utoipa::ToSchema;
 use walrus_core::{
     BlobId,
     QuiltPatchId,
-    encoding::{SliverPair, quilt_encoding::QuiltPatchInternalIdApi},
+    encoding::{
+        SliverPair,
+        quilt_encoding::{QuiltIndexApi, QuiltPatchApi, QuiltPatchInternalIdApi},
+    },
     messages::ConfirmationCertificate,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadataApi as _, QuiltIndex, VerifiedBlobMetadataWithId},
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
@@ -64,6 +67,23 @@ impl StoredQuiltPatch {
             range: Some((start_index, end_index)),
         }
     }
+}
+
+/// Get the stored quilt patches from a quilt index.
+pub fn get_stored_quilt_patches(
+    quilt_index: &QuiltIndex,
+    quilt_id: BlobId,
+) -> Vec<StoredQuiltPatch> {
+    assert!(matches!(quilt_index, QuiltIndex::V1(_)));
+    let QuiltIndex::V1(quilt_index_v1) = quilt_index;
+    quilt_index_v1
+        .patches()
+        .iter()
+        .map(|patch| {
+            StoredQuiltPatch::new(quilt_id, &patch.identifier, patch.quilt_patch_internal_id())
+                .with_range(patch.start_index.into(), patch.end_index.into())
+        })
+        .collect()
 }
 
 /// API for a blob that is being stored to Walrus.

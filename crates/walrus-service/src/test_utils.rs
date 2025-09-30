@@ -1181,17 +1181,19 @@ impl StorageNodeHandleBuilder {
             ..storage_node_config().inner
         };
 
-        if rand::random::<bool>() {
-            storage_node_config.shard_sync_config.sst_ingestion_config =
-                Some(SstIngestionConfig::default());
-            storage_node_config
-                .shard_sync_config
-                .sst_ingestion_config
-                .as_mut()
-                .unwrap()
-                .max_entries = Some(1);
-            tracing::info!("SST based ingestion is enabled on the node");
-        }
+        // TODO(WAL-1050): turn this on once the bug is fixed. Also probabilistically set
+        // max_entries small and large values.
+        // if rand::random::<bool>() {
+        //     storage_node_config.shard_sync_config.sst_ingestion_config =
+        //         Some(SstIngestionConfig::default());
+        //     storage_node_config
+        //         .shard_sync_config
+        //         .sst_ingestion_config
+        //         .as_mut()
+        //         .unwrap()
+        //         .max_entries = Some(1);
+        //     tracing::info!("SST based ingestion is enabled on the node");
+        // }
 
         randomize_sliver_recovery_additional_symbols(&mut storage_node_config);
 

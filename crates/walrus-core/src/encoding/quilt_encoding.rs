@@ -1616,7 +1616,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             .ok_or(QuiltError::MissingQuiltIndex)
             .and_then(|quilt_index| quilt_index.get_quilt_patches_by_identifiers(identifiers))?
             .iter()
-            .map(|patch| self.get_blob_by_quilt_patch(patch))
+            .map(|patch| self.get_patch_by_quilt_patch(patch))
             .collect()
     }
 
@@ -1643,7 +1643,7 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
                 quilt_index
                     .get_quilt_patches_by_tag(target_tag, target_value)
                     .iter()
-                    .map(|patch| self.get_blob_by_quilt_patch(patch))
+                    .map(|patch| self.get_patch_by_quilt_patch(patch))
                     .collect()
             })
     }
@@ -1774,7 +1774,7 @@ impl<'a> QuiltDecoderV1<'a> {
     }
 
     /// Gets the blob by QuiltPatchV1.
-    fn get_blob_by_quilt_patch(
+    fn get_patch_by_quilt_patch(
         &self,
         quilt_patch: &QuiltPatchV1,
     ) -> Result<QuiltStoreBlob<'static>, QuiltError> {

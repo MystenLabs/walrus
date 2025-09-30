@@ -87,6 +87,7 @@ db_config:
   committee_store: null
   event_store: null
   init_state: null
+  shared_shard_storage_block_cache_config: null
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null
@@ -145,9 +146,7 @@ shard_sync_config:
   shard_sync_concurrency: 10
   shard_sync_retry_switch_to_recovery_interval_secs: 43200
   restart_shard_sync_always_retry_transfer_first: true
-  sst_ingestion_config:
-    max_entries: null
-    compact_after_sync: true
+  sst_ingestion_config: null
 event_processor_config:
   pruning_interval_secs: 3600
   checkpoint_request_timeout_secs: 60

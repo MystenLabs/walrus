@@ -88,7 +88,7 @@ const WALRUS_NATIVE_METADATA_FIELD_NAME: &str = "_metadata";
 
 /// Retrieve a Walrus blob.
 ///
-/// Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
+/// Reconstructs the blob identified by the provided blob ID from Walrus and returns its raw data.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 #[utoipa::path(
     get,
@@ -178,8 +178,8 @@ fn populate_response_headers_from_attributes(
 /// Retrieve a Walrus blob with its associated attribute.
 ///
 /// First retrieves the blob metadata from Sui using the provided object ID (either of the blob
-/// object or a shared blob), then uses the blob_id from that metadata to fetch the actual blob
-/// data via the get_blob function. The response includes the binary data along with any attribute
+/// object or a shared blob), then uses the blob ID from that metadata to fetch the actual blob
+/// data via the get_blob function. The response includes the raw data along with any attribute
 /// headers from the metadata that are present in the configured allowed_headers set.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
 #[utoipa::path(
@@ -189,8 +189,9 @@ fn populate_response_headers_from_attributes(
     responses(
         (
             status = 200,
-            description = "The blob was reconstructed successfully. Any attribute headers present \
-                        in the allowed_headers configuration will be included in the response.",
+            description =
+                "The blob was reconstructed successfully. Any attribute headers present in this \
+                aggregator's allowed_headers configuration will be included in the response.",
             body = [u8]
         ),
         GetBlobError,
@@ -264,9 +265,12 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
-    /// The blob size exceeds the maximum allowed size.
+    /// The blob size exceeds the maximum allowed size that was configured for this service.
+    ///
+    /// The blob is still stored on Walrus and may be accessible through a different aggregator or
+    /// the CLI.
     #[error("the blob size exceeds the maximum allowed size: {0}")]
-    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::InvalidArgument)]
+    #[rest_api_error(reason = "BLOB_TOO_LARGE", status = ApiStatusCode::SizeExceeded)]
     BlobTooLarge(u64),
 
     #[error(transparent)]
@@ -445,15 +449,15 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
         .allow_headers(Any)
 }
 
-/// Retrieve a blob from quilt by its QuiltPatchId.
+/// Retrieve a patch from a Walrus quilt by its quilt patch ID.
 ///
-/// Takes a quilt patch ID and returns the corresponding blob from the quilt.
-/// The blob content is returned as raw bytes in the response body, while metadata
+/// Takes a quilt patch ID and returns the corresponding patch from the quilt.
+/// The patch content is returned as raw bytes in the response body, while metadata
 /// such as the patch identifier and tags are returned in response headers.
 ///
 /// # Example
 /// ```bash
-/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-patch-id/\
+/// curl -X GET "$AGGREGATOR/v1/blobs/by-quilt-patch-id/\
 /// DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
 /// ```
 ///
@@ -464,7 +468,7 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
 /// X-Quilt-Patch-Identifier: my-file.txt
 /// ETag: "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
 ///
-/// [raw blob bytes]
+/// [raw data]
 /// ```
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
@@ -473,24 +477,24 @@ pub(super) fn daemon_cors_layer() -> CorsLayer {
     params(
         (
             "quilt_patch_id" = QuiltPatchId,
-            description = "The QuiltPatchId encoded as URL-safe base64",
-            example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw"
+            description =
+                "The quilt patch ID encoded as a URL-safe base64 string, without the trailing \
+                equal (=) signs.",
+            example = "DJHLsgUoKQKEPcw3uehNQwuJjMu5a2sRdn8r-f7iWSAAC8Pw",
         )
     ),
     responses(
         (
             status = 200,
-            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
-                        the identifier and other attributes are returned as headers.",
-            body = [u8]
+            description =
+                "The patch was retrieved successfully. Returns the raw bytes of the patch; the \
+                identifier and other attributes are returned as header.",
+            body = [u8],
         ),
         GetBlobError,
     ),
-    summary = "Get blob from quilt",
-    description = "Retrieve a specific blob from a quilt using its QuiltPatchId. Returns the \
-                raw blob bytes, the identifier and other attributes are returned as headers.",
 )]
-pub(super) async fn get_blob_by_quilt_patch_id<T: WalrusReadClient>(
+pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path(QuiltPatchIdString(quilt_patch_id)): Path<QuiltPatchIdString>,
@@ -573,15 +577,15 @@ fn build_quilt_patch_response(
     response
 }
 
-/// Retrieve a blob by quilt ID and identifier.
+/// Retrieve a patch from a Walrus quilt by its quilt ID and identifier.
 ///
-/// Takes a quilt ID and an identifier and returns the corresponding blob from the quilt.
-/// The blob content is returned as raw bytes in the response body, while metadata
-/// such as the blob identifier and tags are returned in response headers.
+/// Takes a quilt ID and an identifier and returns the corresponding patch from the quilt.
+/// The patch content is returned as raw bytes in the response body, while metadata
+/// such as the patch identifier and tags are returned in response headers.
 ///
 /// # Example
 /// ```bash
-/// curl -X GET "http://localhost:31415/v1/blobs/by-quilt-id/\
+/// curl -X GET "$aggregator/v1/blobs/by-quilt-id/\
 /// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU/my-file.txt"
 /// ```
 ///
@@ -592,7 +596,7 @@ fn build_quilt_patch_response(
 /// X-Quilt-Patch-Identifier: my-file.txt
 /// ETag: "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
 ///
-/// [raw blob bytes]
+/// [raw data]
 /// ```
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
@@ -601,30 +605,25 @@ fn build_quilt_patch_response(
     params(
         (
             "quilt_id" = BlobId, Path,
-            description = "The quilt ID encoded as URL-safe base64",
-            example = "rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
-        ),
-        (
+            description = "The quilt's blob ID.",
+        ), (
             "identifier" = String,
-            description = "The identifier of the blob within the quilt",
+            description = "The identifier of the patch within the quilt",
             example = "my-file.txt"
         )
     ),
     responses(
         (
             status = 200,
-            description = "The blob was retrieved successfully. Returns the raw blob bytes, \
-                        the identifier and other attributes are returned as headers.",
+            description =
+                "The patch was retrieved successfully. Returns the raw bytes of the patch; \
+                the identifier and other attributes are returned as headers.",
             body = [u8]
         ),
         GetBlobError,
     ),
-    summary = "Get blob from quilt by ID and identifier",
-    description = "Retrieve a specific blob from a quilt using the quilt ID and its identifier. \
-                Returns the raw blob bytes, the identifier and other attributes are returned as \
-                headers. If the quilt ID or identifier is not found, the response is 404.",
 )]
-pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
+pub(super) async fn get_patch_by_quilt_id_and_identifier<T: WalrusReadClient>(
     request_headers: HeaderMap,
     State((client, response_header_config)): State<(Arc<T>, Arc<AggregatorResponseHeaderConfig>)>,
     Path((quilt_id, identifier)): Path<(BlobIdString, String)>,
@@ -637,7 +636,7 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
     );
 
     match client
-        .get_blob_by_quilt_id_and_identifier(&quilt_id, &identifier)
+        .get_patch_by_quilt_id_and_identifier(&quilt_id, &identifier)
         .await
     {
         Ok(blob) => build_quilt_patch_response(
@@ -677,7 +676,8 @@ pub(super) async fn get_blob_by_quilt_id_and_identifier<T: WalrusReadClient>(
 pub struct QuiltPatchItem {
     /// The identifier of the patch (e.g., filename).
     pub identifier: String,
-    /// The QuiltPatchId for this patch, encoded as URL-safe base64.
+    /// The patch ID for this patch, encoded as a URL-safe base64 string, without the trailing equal
+    /// (=) signs.
     #[serde_as(as = "DisplayFromStr")]
     pub patch_id: QuiltPatchId,
     /// Tags for the patch.
@@ -686,12 +686,13 @@ pub struct QuiltPatchItem {
 
 /// List patches in a quilt.
 ///
-/// Returns a list of identifiers and QuiltPatchIds for all patches contained in the specified
-/// quilt.
+/// Returns a list of identifiers and quilt patch IDs for all patches contained in the specified
+/// quilt. Each quilt patch ID can be used with the `/v1/blobs/by-quilt-patch-id` endpoint to
+/// retrieve the actual blob data.
 ///
 /// # Example
 /// ```bash
-/// curl -X GET "http://localhost:31415/v1/quilts/patches-by-id/\
+/// curl -X GET "$aggregator/v1/quilts/patches-by-id/\
 /// rkcHpHQrornOymttgvSq3zvcmQEsMqzmeUM1HSY4ShU"
 /// ```
 ///
@@ -727,10 +728,6 @@ pub struct QuiltPatchItem {
         ),
         GetBlobError,
     ),
-    summary = "List patches in a quilt",
-    description = "Retrieve a list of patches contained in a quilt with their identifiers and \
-                QuiltPatchIds. Each QuiltPatchId can be used with the \
-                /v1/blobs/by-quilt-patch-id endpoint to retrieve the actual blob data.",
 )]
 pub(super) async fn list_patches_in_quilt<T: WalrusReadClient>(
     State(client): State<Arc<T>>,
@@ -890,31 +887,31 @@ pub struct QuiltPatchMetadata {
     pub tags: serde_json::Map<String, serde_json::Value>,
 }
 
-/// Store multiple blobs as a quilt using multipart/form-data.
+/// Store multiple files as a quilt using multipart/form-data.
 ///
-/// Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+/// Accepts a multipart form with files and optional per-file Walrus-native metadata.
 /// The form contains:
-/// - Blobs identified by their identifiers as field names
-/// - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+/// - Files identified by their identifiers as field names
+/// - An optional `_metadata` field containing a JSON array with per-file Walrus-native metadata
 ///
 /// # Contents of Walrus-native metadata
-/// - `identifier`: The identifier of the blob, must match the corresponding blob field name
+/// - `identifier`: The identifier of the file, must match the corresponding file field name
 /// - `tags`: JSON object with string key-value pairs (optional)
 ///
-/// Blobs without corresponding metadata entries will be stored with empty tags.
+/// Files without corresponding metadata entries will be stored with empty tags.
 ///
 /// # Examples
 ///
-/// ## Blobs without Walrus-native metadata, with quilt version V1
+/// ## Files without Walrus-native metadata, with quilt version V1
 /// ```bash
-/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+/// curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&quilt_version=V1" \
 ///   -F "contract-v2=@document.pdf" \
 ///   -F "logo-2024=@image.png"
 /// ```
 ///
-/// ## Blobs with Walrus-native metadata, with default quilt version
+/// ## Files with Walrus-native metadata, with default quilt version
 /// ```bash
-/// curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+/// curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
 ///   -F "quilt-manual=@document.pdf" \
 ///   -F "logo-2025=@image.png" \
 ///   -F "_metadata=[
@@ -928,7 +925,7 @@ pub struct QuiltPatchMetadata {
     path = QUILT_PUT_ENDPOINT,
     request_body(
         content_type = "multipart/form-data",
-        description = "Multipart form with blobs and their Walrus-native metadata"),
+        description = "Multipart form with files and their Walrus-native metadata"),
     params(PublisherQuery),
     responses(
         (status = 200, description = "The quilt was stored successfully", body = QuiltStoreResult),
