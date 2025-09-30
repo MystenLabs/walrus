@@ -3,7 +3,7 @@
 
 //! Tools for inspecting and maintaining the RocksDB database (V2 with proper db options).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use bincode::Options;
@@ -398,13 +398,13 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 }
 
 fn scan_events(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_event_index: u64,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf = db
         .cf_handle(event_processor_constants::EVENT_STORE)
         .ok_or_else(|| {
@@ -437,34 +437,34 @@ fn scan_events(
 }
 
 fn read_blob_info(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
 
     let mut iter = db.raw_iterator_cf(&cf);
     if let Some(blob_id) = start_blob_id {
-        iter.seek(&blob_id.0.to_vec());
+        iter.seek(blob_id.0);
     } else {
         iter.seek_to_first();
     }
 
     let mut entries_read = 0;
     while iter.valid() && entries_read < count {
-        if let (Some(key), Some(value)) = (iter.key(), iter.value()) {
-            if let Ok(blob_id) = BlobId::try_from(key) {
-                let blob_info: BlobInfo = bincode::DefaultOptions::new().deserialize(value)?;
-                println!("Blob ID: {}", blob_id);
-                println!("Blob info: {:#?}", blob_info);
-                println!();
-                entries_read += 1;
-            }
+        if let (Some(key), Some(value)) = (iter.key(), iter.value())
+            && let Ok(blob_id) = BlobId::try_from(key)
+        {
+            let blob_info: BlobInfo = bincode::DefaultOptions::new().deserialize(value)?;
+            println!("Blob ID: {}", blob_id);
+            println!("Blob info: {:#?}", blob_info);
+            println!();
+            entries_read += 1;
         }
         iter.next();
     }
@@ -473,13 +473,13 @@ fn read_blob_info(
 }
 
 fn read_object_blob_info(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_object_id: Option<ObjectID>,
     count: usize,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
         .ok_or_else(|| {
@@ -511,12 +511,12 @@ fn read_object_blob_info(
 }
 
 fn count_certified_blobs(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     epoch: Epoch,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
@@ -582,39 +582,39 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_blob_metadata(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     output_size_only: bool,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf = db
         .cf_handle(metadata_cf_name())
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", metadata_cf_name()))?;
 
     let mut iter = db.raw_iterator_cf(&cf);
     if let Some(blob_id) = start_blob_id {
-        iter.seek(&blob_id.0.to_vec());
+        iter.seek(blob_id.0);
     } else {
         iter.seek_to_first();
     }
 
     let mut entries_read = 0;
     while iter.valid() && entries_read < count {
-        if let (Some(key), Some(value)) = (iter.key(), iter.value()) {
-            if let Ok(blob_id) = BlobId::try_from(key) {
-                let metadata: BlobMetadata = bincode::DefaultOptions::new().deserialize(value)?;
-                if output_size_only {
-                    println!("Blob ID: {}, Size: {:?}", blob_id, metadata.encoded_size());
-                } else {
-                    println!("Blob ID: {}", blob_id);
-                    println!("Metadata: {:#?}", metadata);
-                    println!();
-                }
-                entries_read += 1;
+        if let (Some(key), Some(value)) = (iter.key(), iter.value())
+            && let Ok(blob_id) = BlobId::try_from(key)
+        {
+            let metadata: BlobMetadata = bincode::DefaultOptions::new().deserialize(value)?;
+            if output_size_only {
+                println!("Blob ID: {}, Size: {:?}", blob_id, metadata.encoded_size());
+            } else {
+                println!("Blob ID: {}", blob_id);
+                println!("Metadata: {:#?}", metadata);
+                println!();
             }
+            entries_read += 1;
         }
         iter.next();
     }
@@ -623,14 +623,14 @@ fn read_blob_metadata(
 }
 
 fn read_primary_slivers(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf_name = primary_slivers_column_family_name(shard_index);
     let cf = db
         .cf_handle(&cf_name)
@@ -643,11 +643,7 @@ fn read_primary_slivers(
     }
 
     let mut iter = db.raw_iterator_cf_opt(&cf, read_opts);
-    if start_blob_id.is_some() {
-        iter.seek_to_first();
-    } else {
-        iter.seek_to_first();
-    }
+    iter.seek_to_first();
 
     let mut entries_read = 0;
     while iter.valid() && entries_read < count {
@@ -670,14 +666,14 @@ fn read_primary_slivers(
 }
 
 fn read_secondary_slivers(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
     let cf_name = secondary_slivers_column_family_name(shard_index);
     let cf = db
         .cf_handle(&cf_name)
@@ -690,11 +686,7 @@ fn read_secondary_slivers(
     }
 
     let mut iter = db.raw_iterator_cf_opt(&cf, read_opts);
-    if start_blob_id.is_some() {
-        iter.seek_to_first();
-    } else {
-        iter.seek_to_first();
-    }
+    iter.seek_to_first();
 
     let mut entries_read = 0;
     while iter.valid() && entries_read < count {
@@ -717,12 +709,12 @@ fn read_secondary_slivers(
 }
 
 fn event_blob_writer(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     command: EventBlobWriterCommands,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
 
     match command {
         EventBlobWriterCommands::ReadCertified => {
@@ -829,12 +821,12 @@ fn event_blob_writer(
 }
 
 fn event_processor(
-    db_path: &PathBuf,
+    db_path: &Path,
     db_type: DbType,
     db_config: &DatabaseConfig,
     command: EventProcessorCommands,
 ) -> Result<()> {
-    let db = open_db_readonly(db_path.as_path(), db_type, db_config)?;
+    let db = open_db_readonly(db_path, db_type, db_config)?;
 
     match command {
         EventProcessorCommands::ReadInitState => {
