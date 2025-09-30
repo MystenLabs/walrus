@@ -2115,7 +2115,7 @@ mod tests {
     fn construct_quilt(quilt_store_blobs: &[QuiltStoreBlob<'_>], config: EncodingConfigEnum) {
         walrus_test_utils::init_tracing();
 
-        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs);
+        let encoder = QuiltConfigV1::get_encoder(config, quilt_store_blobs);
 
         let quilt = encoder.construct_quilt().expect("Should construct quilt");
 
@@ -2226,7 +2226,7 @@ mod tests {
 
         let quilt_store_blobs = test_data.take_blobs();
 
-        let encoder = QuiltConfigV1::get_encoder(config.clone(), quilt_store_blobs.as_slice());
+        let encoder = QuiltConfigV1::get_encoder(config, quilt_store_blobs.as_slice());
 
         let (sliver_pairs, quilt_metadata) = encoder
             .encode_with_metadata()
