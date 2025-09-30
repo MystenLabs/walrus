@@ -502,13 +502,15 @@ pub(super) async fn get_patch_by_quilt_patch_id<T: WalrusReadClient>(
     let quilt_patch_id_str = quilt_patch_id.to_string();
     tracing::debug!("starting to read quilt patch: {}", quilt_patch_id_str);
 
+    let quilt_id = quilt_patch_id.quilt_id;
+
     match client.get_blobs_by_quilt_patch_ids(&[quilt_patch_id]).await {
         Ok(mut blobs) => {
             if let Some(blob) = blobs.pop() {
                 build_quilt_patch_response(
                     blob,
                     &request_headers,
-                    &quilt_patch_id_str,
+                    &quilt_id.to_string(),
                     &response_header_config,
                 )
             } else {
