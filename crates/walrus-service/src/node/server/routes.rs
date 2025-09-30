@@ -266,18 +266,75 @@ pub async fn get_chunk_sliver<S: SyncServiceState>(
         SliverType,
     )>,
 ) -> Result<Response, RetrieveSliverError> {
+    use walrus_core::metadata::BlobMetadata;
+
     let blob_id = blob_id.0;
 
-    // TODO: Retrieve metadata to validate chunk_index and extract chunk count
-    // For now, we'll implement this in the storage node serving logic phase
-    let _metadata = state.service.retrieve_metadata(&blob_id)
+    // Retrieve metadata to validate chunk_index
+    let metadata = state.service.retrieve_metadata(&blob_id)
         .map_err(|_| RetrieveSliverError::Unavailable)?;
 
-    // TODO: Validate that chunk_index is within range for this blob
-    let _ = chunk_index; // suppress unused warning for now
+    // Validate chunk_index for chunked blobs
+    match metadata.metadata() {
+        BlobMetadata::V2(metadata_v2) if metadata_v2.num_chunks > 1 => {
+            // This is a chunked blob - validate chunk_index
+            if chunk_index >= metadata_v2.num_chunks {
+                tracing::warn!(
+                    blob_id = %blob_id,
+                    chunk_index,
+                    num_chunks = metadata_v2.num_chunks,
+                    "chunk index out of range"
+                );
+                return Err(RetrieveSliverError::Unavailable);
+            }
 
-    // For now, return the sliver directly - Merkle proof generation will be added
-    // in the storage node implementation phase
+            tracing::debug!(
+                blob_id = %blob_id,
+                chunk_index,
+                num_chunks = metadata_v2.num_chunks,
+                chunk_size = metadata_v2.chunk_size,
+                "retrieving sliver for chunked blob"
+            );
+
+            // TODO: For full chunked blob support with Merkle proofs:
+            // 1. Retrieve the sliver for this chunk from chunk-aware storage
+            // 2. Build Merkle tree over sliver symbols to get chunk-level hash
+            // 3. Generate proof: sliver_symbols → chunk_hash (using MerkleTree::get_proof)
+            // 4. Build Merkle tree over chunk hashes (from metadata_v2.chunk_hashes)
+            // 5. Generate proof: chunk_hash → blob_hash (using MerkleTree::get_proof)
+            // 6. Return ChunkedSliverWithProof struct with both proofs serialized
+            //
+            // For now, we return the sliver without proofs since:
+            // - Chunk-aware storage layer is not yet implemented
+            // - Clients can still verify the complete blob using existing mechanisms
+            // - This endpoint provides the protocol foundation for future optimization
+        }
+        BlobMetadata::V1(_) => {
+            // Non-chunked blob - chunk_index should be 0
+            if chunk_index != 0 {
+                tracing::warn!(
+                    blob_id = %blob_id,
+                    chunk_index,
+                    "non-zero chunk index for non-chunked blob"
+                );
+                return Err(RetrieveSliverError::Unavailable);
+            }
+        }
+        BlobMetadata::V2(metadata_v2) if metadata_v2.num_chunks == 1 => {
+            // Single-chunk blob treated as non-chunked
+            if chunk_index != 0 {
+                tracing::warn!(
+                    blob_id = %blob_id,
+                    chunk_index,
+                    "non-zero chunk index for single-chunk blob"
+                );
+                return Err(RetrieveSliverError::Unavailable);
+            }
+        }
+        _ => {}
+    }
+
+    // Retrieve the sliver (currently returns the complete blob's sliver)
     let sliver = state
         .service
         .retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)
@@ -285,8 +342,8 @@ pub async fn get_chunk_sliver<S: SyncServiceState>(
 
     debug_assert_eq!(sliver.r#type(), sliver_type, "invalid sliver type fetched");
 
-    // TODO: Generate and include Merkle proofs once chunk storage is implemented
-    // For now, just return the sliver BCS-encoded
+    // Return the sliver BCS-encoded
+    // When chunk-aware storage is implemented, this will include Merkle proofs
     match sliver {
         Sliver::Primary(inner) => Ok(Bcs(inner).into_response()),
         Sliver::Secondary(inner) => Ok(Bcs(inner).into_response()),
