@@ -1252,7 +1252,8 @@ impl StorageNode {
                 event,
                 node_status,
                 maybe_epoch_at_start,
-            )?;
+            )
+            .await?;
         }
 
         // Ignore the error here since this is a best effort operation, and we don't
@@ -1295,7 +1296,7 @@ impl StorageNode {
     /// the latest epoch as fast as possible.
     // TODO(WAL-895): We should simplify/improve the way we check if the node is lagging behind
     // after storing the latest event epoch in the DB.
-    fn check_if_node_lagging_and_enter_recovery_mode(
+    async fn check_if_node_lagging_and_enter_recovery_mode(
         &self,
         event: &ContractEvent,
         node_status: NodeStatus,
@@ -1308,6 +1309,9 @@ impl StorageNode {
         // Blob extensions do not contain their event emission epoch. So we use this to filter out
         // blob extensions events.
         let Some(first_new_event_epoch) = event.event_epoch() else {
+            tracing::debug!(
+                "no event epoch found for event; skipping checking if we're severely lagging"
+            );
             return Ok(());
         };
 
@@ -1328,7 +1332,8 @@ impl StorageNode {
                 epoch_at_start,
                 first_new_event_epoch,
             );
-            self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+            self.enter_recovery_mode().await?;
         }
 
         // Set the initial current event epoch. Note that if the first event is an epoch change
@@ -1640,17 +1645,8 @@ impl StorageNode {
                 BeginCommitteeChangeAction::EnterRecoveryMode => {
                     tracing::info!("storage node entering recovery mode during epoch change start");
                     sui_macros::fail_point!("fail-point-enter-recovery-mode");
-                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
 
-                    // Now the node is entering recovery mode, we need to cancel all the blob syncs
-                    // that are in progress, since the node is lagging behind, and we don't have
-                    // any information about the shards that the node should own.
-                    //
-                    // The node now will try to only process blob info upon receiving a blob event
-                    // and blob recovery will be triggered when the node is in the lasted epoch.
-                    self.blob_sync_handler
-                        .cancel_all_syncs_and_mark_events_completed()
-                        .await?;
+                    self.enter_recovery_mode().await?;
 
                     self.execute_epoch_change_while_catching_up(
                         event_handle,
@@ -1989,7 +1985,11 @@ impl StorageNode {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
             };
-            tracing::info!(walrus.shard_index = %shard_id, "locking shard for epoch change");
+            tracing::info!(
+                walrus.shard_index = %shard_id,
+                epoch = event.epoch,
+                "locking shard for epoch change"
+            );
             shard_storage
                 .lock_shard_for_epoch_change()
                 .await
@@ -2164,6 +2164,24 @@ impl StorageNode {
         Ok(())
     }
 
+    /// Enters recovery mode.
+    /// This function should only be called when the node is lagging behind.
+    async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
+        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+        // Now the node is entering recovery mode, we need to cancel all the blob syncs
+        // that are in progress, since the node is lagging behind, and we don't have
+        // any information about the shards that the node should own.
+        //
+        // The node now will try to only process blob info upon receiving a blob event
+        // and blob recovery will be triggered when the node is in the latest epoch.
+        self.blob_sync_handler
+            .cancel_all_syncs_and_mark_events_completed()
+            .await?;
+
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
         &self.inner
@@ -2254,7 +2272,13 @@ impl StorageNodeInner {
     ) -> anyhow::Result<bool> {
         for shard in shards {
             match self.storage.is_stored_at_shard(blob_id, *shard).await {
-                Ok(false) => return Ok(false),
+                Ok(false) => {
+                    if cfg!(msim) {
+                        // Extremely helpful for debugging consistency issue in simtest.
+                        tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                    }
+                    return Ok(false);
+                }
                 Ok(true) => continue,
                 Err(error) => {
                     tracing::warn!(?error, "failed to check if blob is stored at shard");
@@ -7037,6 +7061,68 @@ mod tests {
         )?;
 
         wait_until_events_processed(&cluster.nodes[0], 9).await?;
+        Ok(())
+    }
+
+    // Tests that entering recovery mode cancels all existing blob syncs.
+    #[tokio::test]
+    async fn enter_recovery_mode_cancels_blob_syncs() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+
+        // Create a cluster at epoch 1 without any blobs.
+        let (cluster, _events) = cluster_at_epoch1_without_blobs(shards, None).await?;
+
+        // Start syncs for multiple random blob ids. Since these blobs do not exist,
+        // the syncs will run indefinitely if not cancelled.
+        let blob_id_1 = random_blob_id();
+        let blob_id_2 = random_blob_id();
+        let blob_id_3 = random_blob_id();
+
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_1, 1, None)
+            .await?;
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_2, 1, None)
+            .await?;
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(blob_id_3, 1, None)
+            .await?;
+
+        // Verify that 3 blob syncs are in progress.
+        assert_eq!(
+            cluster.nodes[0]
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .len(),
+            3
+        );
+
+        // Enter recovery mode.
+        cluster.nodes[0].storage_node.enter_recovery_mode().await?;
+
+        // Verify that all blob syncs have been cancelled.
+        assert_eq!(
+            cluster.nodes[0]
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .len(),
+            0
+        );
+
+        // Verify that the node status is set to RecoveryCatchUp.
+        assert_eq!(
+            cluster.nodes[0].storage_node.inner.storage.node_status()?,
+            NodeStatus::RecoveryCatchUp
+        );
+
         Ok(())
     }
 }
