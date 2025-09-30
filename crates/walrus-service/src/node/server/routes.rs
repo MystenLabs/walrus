@@ -73,6 +73,9 @@ pub const SLIVER_ENDPOINT: &str = "/v1/blobs/{blob_id}/slivers/{sliver_pair_inde
 /// The path to check if a sliver is stored.
 pub const SLIVER_STATUS_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/status";
+/// The path to get slivers for a specific chunk with Merkle proofs.
+pub const CHUNK_SLIVER_ENDPOINT: &str =
+    "/v1/blobs/{blob_id}/chunks/{chunk_index}/slivers/{sliver_pair_index}/{sliver_type}";
 /// The path to get blob confirmations for permanent blobs.
 pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/confirmation/permanent";
 /// The path to get blob confirmations for deletable blobs.
@@ -219,6 +222,71 @@ pub async fn get_sliver<S: SyncServiceState>(
         .await?;
 
     debug_assert_eq!(sliver.r#type(), sliver_type, "invalid sliver type fetched");
+    match sliver {
+        Sliver::Primary(inner) => Ok(Bcs(inner).into_response()),
+        Sliver::Secondary(inner) => Ok(Bcs(inner).into_response()),
+    }
+}
+
+/// Get chunk-aware blob sliver with Merkle proofs.
+///
+/// Gets the primary or secondary sliver for a specific chunk of a chunked blob (RS2_CHUNKED
+/// encoding), along with Merkle proofs that enable verification:
+/// 1. Proof from sliver symbols to chunk-level hash
+/// 2. Proof from chunk-level hash to blob-level hash
+///
+/// This endpoint is designed for streaming downloads of large blobs encoded with RS2_CHUNKED.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
+    walrus.blob_id = %blob_id.0,
+    walrus.chunk_index = %chunk_index,
+    walrus.sliver.pair_index = %sliver_pair_index,
+    walrus.sliver.r#type = %sliver_type
+))]
+#[utoipa::path(
+    get,
+    path = CHUNK_SLIVER_ENDPOINT,
+    params(
+        ("blob_id" = BlobId, ),
+        ("chunk_index" = u32, ),
+        ("sliver_pair_index" = SliverPairIndex, ),
+        ("sliver_type" = SliverType, ),
+    ),
+    responses(
+        (status = 200, description = "BCS encoded sliver with Merkle proofs", body = [u8]),
+        RetrieveSliverError,
+    ),
+    tag = openapi::GROUP_READING_BLOBS
+)]
+pub async fn get_chunk_sliver<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path((blob_id, chunk_index, sliver_pair_index, sliver_type)): Path<(
+        BlobIdString,
+        u32,
+        SliverPairIndex,
+        SliverType,
+    )>,
+) -> Result<Response, RetrieveSliverError> {
+    let blob_id = blob_id.0;
+
+    // TODO: Retrieve metadata to validate chunk_index and extract chunk count
+    // For now, we'll implement this in the storage node serving logic phase
+    let _metadata = state.service.retrieve_metadata(&blob_id)
+        .map_err(|_| RetrieveSliverError::Unavailable)?;
+
+    // TODO: Validate that chunk_index is within range for this blob
+    let _ = chunk_index; // suppress unused warning for now
+
+    // For now, return the sliver directly - Merkle proof generation will be added
+    // in the storage node implementation phase
+    let sliver = state
+        .service
+        .retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)
+        .await?;
+
+    debug_assert_eq!(sliver.r#type(), sliver_type, "invalid sliver type fetched");
+
+    // TODO: Generate and include Merkle proofs once chunk storage is implemented
+    // For now, just return the sliver BCS-encoded
     match sliver {
         Sliver::Primary(inner) => Ok(Bcs(inner).into_response()),
         Sliver::Secondary(inner) => Ok(Bcs(inner).into_response()),

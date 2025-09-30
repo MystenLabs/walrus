@@ -384,6 +384,10 @@ where
                 get(routes::get_sliver_status),
             )
             .route(
+                routes::CHUNK_SLIVER_ENDPOINT,
+                get(routes::get_chunk_sliver),
+            )
+            .route(
                 routes::PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
                 get(routes::get_permanent_blob_confirmation),
             )
