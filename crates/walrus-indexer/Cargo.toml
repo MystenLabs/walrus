@@ -30,7 +30,7 @@ walrus-core.workspace = true
 walrus-sdk.workspace = true
 walrus-service.workspace = true
 walrus-sui.workspace = true
-walrus-utils.workspace = true```
+walrus-utils.workspace = true
 
 # Sui dependencies
 sui-types = { workspace = true }
