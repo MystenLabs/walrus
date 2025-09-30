@@ -10,9 +10,64 @@
 use std::path::Path;
 
 use anyhow::Result;
+use clap::ValueEnum;
 use rocksdb::{DB, Options};
+use serde::{Deserialize, Serialize};
 
 use super::DatabaseConfig;
+
+/// Database type selector for db_tools commands.
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DbType {
+    /// Main storage database.
+    Main,
+    /// Event processor database.
+    EventProcessor,
+    /// Event blob writer database.
+    EventBlobWriter,
+}
+
+impl DbType {
+    /// Try to detect the database type from existing column families.
+    pub fn detect_from_path(db_path: &Path) -> Option<Self> {
+        use crate::event::event_processor::db::constants as event_processor_constants;
+
+        // Try to list existing column families.
+        let existing_cfs = DB::list_cf(&Options::default(), db_path).ok()?;
+
+        // Check for main storage database column families.
+        let has_main_storage = existing_cfs.iter().any(|cf| {
+            cf == "node_status"
+                || cf == "metadata"
+                || cf == "aggregate_blob_info"
+                || cf.starts_with("primary_sliver_")
+                || cf.starts_with("secondary_sliver_")
+        });
+
+        // Check for event processor database column families.
+        let has_event_processor = existing_cfs.iter().any(|cf| {
+            cf == event_processor_constants::EVENT_STORE
+                || cf == event_processor_constants::INIT_STATE
+                || cf == event_processor_constants::CHECKPOINT_STORE
+        });
+
+        // Check for event blob writer database column families.
+        let has_event_blob_writer = existing_cfs.iter().any(|cf| {
+            cf == "certified" || cf == "attested" || cf == "pending" || cf == "failed_to_attest"
+        });
+
+        // Return the detected type (prefer more specific types first).
+        if has_main_storage {
+            Some(DbType::Main)
+        } else if has_event_processor {
+            Some(DbType::EventProcessor)
+        } else if has_event_blob_writer {
+            Some(DbType::EventBlobWriter)
+        } else {
+            None
+        }
+    }
+}
 
 /// Represents a column family with its name and options.
 #[derive(Debug, Clone)]
@@ -293,12 +348,9 @@ pub fn open_db_cf_readonly(
     }
 }
 
-/// Get all possible column families for a database path by detecting the database type.
-/// This function returns ALL expected column families, not just existing ones.
-pub fn get_all_possible_column_families(
-    db_path: &Path,
-    _db_config: &DatabaseConfig,
-) -> Vec<DbColumnFamily> {
+/// Get all possible column families for a specific database type.
+/// This function returns ALL expected column families for the given type.
+pub fn get_all_possible_column_families(db_type: DbType, db_path: &Path) -> Vec<DbColumnFamily> {
     use crate::{
         event::event_processor::db::constants as event_processor_constants,
         node::storage::ShardStorage,
@@ -306,91 +358,49 @@ pub fn get_all_possible_column_families(
 
     let mut all_cfs = Vec::new();
 
-    // Try to list existing column families to determine what type of database this is.
-    let existing_cfs = DB::list_cf(&Options::default(), db_path).unwrap_or_default();
+    match db_type {
+        DbType::Main => {
+            // Add all main storage column families.
+            all_cfs.push(DbColumnFamily::NodeStatus);
+            all_cfs.push(DbColumnFamily::Metadata);
+            all_cfs.push(DbColumnFamily::AggregateBlobInfo);
+            all_cfs.push(DbColumnFamily::PerObjectBlobInfo);
+            all_cfs.push(DbColumnFamily::EventCursor);
 
-    // Check for main storage database column families.
-    let has_main_storage = existing_cfs.iter().any(|cf| {
-        cf == "node_status"
-            || cf == "metadata"
-            || cf == "aggregate_blob_info"
-            || cf.starts_with("primary_sliver_")
-            || cf.starts_with("secondary_sliver_")
-    });
+            // Get existing shard IDs from the database.
+            let mut db_opts = Options::default();
+            db_opts.create_missing_column_families(true);
+            let existing_shards_ids = ShardStorage::existing_cf_shards_ids(db_path, &db_opts);
 
-    // Check for event processor database column families.
-    let has_event_processor = existing_cfs.iter().any(|cf| {
-        cf == event_processor_constants::EVENT_STORE
-            || cf == event_processor_constants::INIT_STATE
-            || cf == event_processor_constants::CHECKPOINT_STORE
-            || cf == event_processor_constants::COMMITTEE_STORE
-            || cf == event_processor_constants::WALRUS_PACKAGE_STORE
-    });
-
-    // Check for event blob writer database column families.
-    let has_event_blob_writer = existing_cfs.iter().any(|cf| {
-        cf == "certified" || cf == "attested" || cf == "pending" || cf == "failed_to_attest"
-    });
-
-    // Add ALL main storage column families if detected.
-    if has_main_storage {
-        all_cfs.push(DbColumnFamily::NodeStatus);
-        all_cfs.push(DbColumnFamily::Metadata);
-        all_cfs.push(DbColumnFamily::AggregateBlobInfo);
-        all_cfs.push(DbColumnFamily::PerObjectBlobInfo);
-        all_cfs.push(DbColumnFamily::EventCursor);
-
-        // Get existing shard IDs from both existing CFs and the database.
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        let existing_shards_ids = ShardStorage::existing_cf_shards_ids(db_path, &db_opts);
-
-        for shard_id in existing_shards_ids {
-            all_cfs.push(DbColumnFamily::PrimarySliver(shard_id.0));
-            all_cfs.push(DbColumnFamily::SecondarySliver(shard_id.0));
-            all_cfs.push(DbColumnFamily::ShardStatus(shard_id.0));
-            all_cfs.push(DbColumnFamily::ShardSyncProgress(shard_id.0));
-            all_cfs.push(DbColumnFamily::PendingRecoverSlivers(shard_id.0));
-        }
-    }
-
-    // Add ALL event processor column families if detected.
-    if has_event_processor {
-        // Add the standard event processor column families.
-        all_cfs.push(DbColumnFamily::EventStore);
-        all_cfs.push(DbColumnFamily::InitState);
-        // Also add other event processor CFs that might exist.
-        all_cfs.push(DbColumnFamily::Custom(
-            event_processor_constants::CHECKPOINT_STORE.to_string(),
-        ));
-        all_cfs.push(DbColumnFamily::Custom(
-            event_processor_constants::COMMITTEE_STORE.to_string(),
-        ));
-        all_cfs.push(DbColumnFamily::Custom(
-            event_processor_constants::WALRUS_PACKAGE_STORE.to_string(),
-        ));
-    }
-
-    // Add ALL event blob writer column families if detected.
-    if has_event_blob_writer {
-        all_cfs.push(DbColumnFamily::Certified);
-        all_cfs.push(DbColumnFamily::Attested);
-        all_cfs.push(DbColumnFamily::Pending);
-        all_cfs.push(DbColumnFamily::FailedToAttest);
-    }
-
-    // Add any other custom column families that exist.
-    for cf_name in &existing_cfs {
-        if cf_name != "default" {
-            let cf = DbColumnFamily::from_name(cf_name);
-            // Only add if not already in the list.
-            let cf_name_str = cf.name();
-            if !all_cfs
-                .iter()
-                .any(|existing| existing.name() == cf_name_str)
-            {
-                all_cfs.push(cf);
+            for shard_id in existing_shards_ids {
+                all_cfs.push(DbColumnFamily::PrimarySliver(shard_id.0));
+                all_cfs.push(DbColumnFamily::SecondarySliver(shard_id.0));
+                all_cfs.push(DbColumnFamily::ShardStatus(shard_id.0));
+                all_cfs.push(DbColumnFamily::ShardSyncProgress(shard_id.0));
+                all_cfs.push(DbColumnFamily::PendingRecoverSlivers(shard_id.0));
             }
+        }
+        DbType::EventProcessor => {
+            // Add all event processor column families.
+            all_cfs.push(DbColumnFamily::EventStore);
+            all_cfs.push(DbColumnFamily::InitState);
+            // Also add other event processor CFs.
+            all_cfs.push(DbColumnFamily::Custom(
+                event_processor_constants::CHECKPOINT_STORE.to_string(),
+            ));
+            all_cfs.push(DbColumnFamily::Custom(
+                event_processor_constants::COMMITTEE_STORE.to_string(),
+            ));
+            all_cfs.push(DbColumnFamily::Custom(
+                event_processor_constants::WALRUS_PACKAGE_STORE.to_string(),
+            ));
+        }
+        DbType::EventBlobWriter => {
+            // Add all event blob writer column families.
+            all_cfs.push(DbColumnFamily::Certified);
+            all_cfs.push(DbColumnFamily::Attested);
+            all_cfs.push(DbColumnFamily::Pending);
+            all_cfs.push(DbColumnFamily::FailedToAttest);
         }
     }
 
@@ -399,13 +409,17 @@ pub fn get_all_possible_column_families(
 
 /// Open database with write access and all column families with proper options.
 /// This will create missing column families with the correct options.
-pub fn open_db_for_write(db_path: &Path, db_config: &DatabaseConfig) -> Result<DB> {
+pub fn open_db_for_write(
+    db_path: &Path,
+    db_type: DbType,
+    db_config: &DatabaseConfig,
+) -> Result<DB> {
     let mut db_opts = Options::default();
     db_opts.create_if_missing(false);
     db_opts.create_missing_column_families(true);
 
     // Get all possible column families for this database type.
-    let all_cfs = get_all_possible_column_families(db_path, db_config);
+    let all_cfs = get_all_possible_column_families(db_type, db_path);
 
     // Prepare column family descriptors with proper options.
     // Include ALL column families, not just existing ones.

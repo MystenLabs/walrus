@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use bincode::Options as BincodeOptions;
-use clap::{Subcommand, ValueEnum};
+use clap::Subcommand;
 use rocksdb::{DB, Options, Options as RocksdbOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -26,7 +26,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
-        db_options::{get_all_possible_column_families, open_db_cf_readonly, open_db_for_write},
+        db_options::{self, DbType, open_db_cf_readonly, open_db_for_write},
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -52,17 +52,6 @@ use crate::{
     },
 };
 
-/// Database type selector for db_tools commands (V2 - no defaults).
-#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize)]
-pub enum DbTypeArg {
-    /// Main storage database.
-    Main,
-    /// Event processor database.
-    EventProcessor,
-    /// Event blob writer database.
-    EventBlobWriter,
-}
-
 /// Database inspection and maintenance tools (V2).
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[serde_as]
@@ -82,7 +71,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start index of the events to scan.
         #[arg(long)]
         start_event_index: u64,
@@ -98,7 +87,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -115,7 +104,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start object ID to read.
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -132,7 +121,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Epoch the blobs are in certified status.
         #[arg(long)]
         epoch: Epoch,
@@ -163,7 +152,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -183,7 +172,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -203,7 +192,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Start blob ID in URL-safe base64 format (no padding).
         #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
@@ -223,7 +212,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Commands to read event blob writer metadata.
         #[command(subcommand)]
         command: EventBlobWriterCommands,
@@ -236,7 +225,7 @@ pub enum DbToolCommands {
         db_path: PathBuf,
         /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
         #[arg(long)]
-        db_type: DbTypeArg,
+        db_type: DbType,
         /// Commands to read event processor metadata.
         #[command(subcommand)]
         command: EventProcessorCommands,
@@ -375,18 +364,26 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
     // Create a default database config for repairs.
     let db_config = DatabaseConfig::default();
 
-    // Get all possible column families for this database.
-    let all_cfs = get_all_possible_column_families(&db_path, &db_config);
+    // Detect database type from existing column families.
+    let db_type = DbType::detect_from_path(&db_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not detect database type. Please ensure the database exists and has column families."
+        )
+    })?;
+
+    println!("Detected database type: {:?}", db_type);
+
+    // Get all possible column families for this database type.
+    let all_cfs = db_options::get_all_possible_column_families(db_type, &db_path);
 
     // Prepare options for repair.
     let mut opts = RocksdbOptions::default();
     opts.create_if_missing(false);
     opts.create_missing_column_families(true);
 
-    // Collect column family names and options for repair.
+    // Collect column family names for display.
     let cf_names: Vec<String> = all_cfs.iter().map(|cf| cf.name()).collect();
 
-    println!("Detected database type based on existing column families.");
     println!("Will repair with {} column families:", cf_names.len());
     for cf_name in &cf_names {
         println!("  - {}", cf_name);
@@ -400,7 +397,7 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
     println!("Basic repair completed. Opening database with proper column family options...");
 
     // Open the database with all column families and proper options to ensure consistency.
-    let _db = open_db_for_write(&db_path, &db_config)?;
+    let _db = open_db_for_write(&db_path, db_type, &db_config)?;
 
     println!("Database opened successfully with proper column family options.");
     println!("Repair completed successfully!");
@@ -409,13 +406,13 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 
 fn scan_events(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_event_index: u64,
     count: usize,
 ) -> Result<()> {
     // Sanity check: scan_events should only be used with EventProcessor DB
-    if !matches!(db_type, DbTypeArg::EventProcessor) {
+    if !matches!(db_type, DbType::EventProcessor) {
         return Err(anyhow::anyhow!(
             "scan-events command requires --db-type event-processor"
         ));
@@ -460,13 +457,13 @@ fn scan_events(
 
 fn read_blob_info(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
 ) -> Result<()> {
     // Sanity check: blob info is only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "read-blob-info command requires --db-type main"
         ));
@@ -504,13 +501,13 @@ fn read_blob_info(
 
 fn read_object_blob_info(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_object_id: Option<ObjectID>,
     count: usize,
 ) -> Result<()> {
     // Sanity check: object blob info is only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "read-object-blob-info command requires --db-type main"
         ));
@@ -550,12 +547,12 @@ fn read_object_blob_info(
 
 fn count_certified_blobs(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     epoch: Epoch,
 ) -> Result<()> {
     // Sanity check: blob info is only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "count-certified-blobs command requires --db-type main"
         ));
@@ -600,6 +597,15 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     // Create a default database config.
     let db_config = DatabaseConfig::default();
 
+    // Detect database type from existing column families.
+    let db_type = DbType::detect_from_path(&db_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not detect database type. Please ensure the database exists and has column families."
+        )
+    })?;
+
+    println!("Detected database type: {:?}", db_type);
+
     // Validate that the column families exist before attempting to drop them.
     let existing_cfs = DB::list_cf(&Options::default(), &db_path)?;
     let mut cfs_to_drop = Vec::new();
@@ -631,7 +637,7 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     }
 
     // Open the database with write access and all column families with proper options.
-    let db = open_db_for_write(&db_path, &db_config)?;
+    let db = open_db_for_write(&db_path, db_type, &db_config)?;
 
     // Drop the specified column families.
     for cf_name in cfs_to_drop {
@@ -660,14 +666,14 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
 
 fn read_blob_metadata(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     output_size_only: bool,
 ) -> Result<()> {
     // Sanity check: metadata is only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "read-blob-metadata command requires --db-type main"
         ));
@@ -709,14 +715,14 @@ fn read_blob_metadata(
 
 fn read_primary_slivers(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
     // Sanity check: slivers are only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "read-primary-slivers command requires --db-type main"
         ));
@@ -760,14 +766,14 @@ fn read_primary_slivers(
 
 fn read_secondary_slivers(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
     // Sanity check: slivers are only in Main DB
-    if !matches!(db_type, DbTypeArg::Main) {
+    if !matches!(db_type, DbType::Main) {
         return Err(anyhow::anyhow!(
             "read-secondary-slivers command requires --db-type main"
         ));
@@ -811,12 +817,12 @@ fn read_secondary_slivers(
 
 fn event_blob_writer(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     command: EventBlobWriterCommands,
 ) -> Result<()> {
     // Sanity check: event blob writer commands require EventBlobWriter DB
-    if !matches!(db_type, DbTypeArg::EventBlobWriter) {
+    if !matches!(db_type, DbType::EventBlobWriter) {
         return Err(anyhow::anyhow!(
             "event-blob-writer command requires --db-type event-blob-writer"
         ));
@@ -939,12 +945,12 @@ fn event_blob_writer(
 
 fn event_processor(
     db_path: &Path,
-    db_type: DbTypeArg,
+    db_type: DbType,
     db_config: &DatabaseConfig,
     command: EventProcessorCommands,
 ) -> Result<()> {
     // Sanity check: event processor commands require EventProcessor DB
-    if !matches!(db_type, DbTypeArg::EventProcessor) {
+    if !matches!(db_type, DbType::EventProcessor) {
         return Err(anyhow::anyhow!(
             "event-processor command requires --db-type event-processor"
         ));
