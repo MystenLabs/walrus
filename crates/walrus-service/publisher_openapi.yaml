@@ -145,31 +145,31 @@ paths:
     put:
       tags:
       - routes
-      summary: Store multiple blobs as a quilt using multipart/form-data.
+      summary: Store multiple files as a quilt using multipart/form-data.
       description: |-
-        Accepts a multipart form with blobs and optional per blob Walrus-native metadata.
+        Accepts a multipart form with files and optional per-file Walrus-native metadata.
         The form contains:
-        - Blobs identified by their identifiers as field names
-        - An optional `_metadata` field containing a JSON array with per blob Walrus-native metadata
+        - Files identified by their identifiers as field names
+        - An optional `_metadata` field containing a JSON array with per-file Walrus-native metadata
 
         # Contents of Walrus-native metadata
-        - `identifier`: The identifier of the blob, must match the corresponding blob field name
+        - `identifier`: The identifier of the file, must match the corresponding file field name
         - `tags`: JSON object with string key-value pairs (optional)
 
-        Blobs without corresponding metadata entries will be stored with empty tags.
+        Files without corresponding metadata entries will be stored with empty tags.
 
         # Examples
 
-        ## Blobs without Walrus-native metadata, with quilt version V1
+        ## Files without Walrus-native metadata, with quilt version V1
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5&quilt_version=V1" \
+        curl -X PUT "$PUBLISHER/v1/quilts?epochs=5&quilt_version=V1" \
           -F "contract-v2=@document.pdf" \
           -F "logo-2024=@image.png"
         ```
 
-        ## Blobs with Walrus-native metadata, with default quilt version
+        ## Files with Walrus-native metadata, with default quilt version
         ```bash
-        curl -X PUT "http://localhost:8080/v1/quilts?epochs=5" \
+        curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
           -F "quilt-manual=@document.pdf" \
           -F "logo-2025=@image.png" \
           -F "_metadata=[
@@ -261,7 +261,7 @@ paths:
           description: The exclusive option to share the blob or to send it to an address.
         style: form
       requestBody:
-        description: Multipart form with blobs and their Walrus-native metadata
+        description: Multipart form with files and their Walrus-native metadata
         content:
           multipart/form-data: {}
       responses:
