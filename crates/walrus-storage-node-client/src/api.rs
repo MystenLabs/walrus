@@ -344,13 +344,11 @@ pub struct ChunkedSliverWithProof {
     /// Merkle proof from sliver symbols to chunk-level hash.
     ///
     /// This proves that the sliver data is correctly part of this specific chunk.
-    #[serde(with = "serde_bytes")]
     #[schema(value_type = [u8])]
     pub chunk_level_proof: Vec<u8>,
     /// Merkle proof from chunk-level hash to blob-level hash.
     ///
     /// This proves that the chunk is correctly part of the overall blob.
-    #[serde(with = "serde_bytes")]
     #[schema(value_type = [u8])]
     pub blob_level_proof: Vec<u8>,
 }

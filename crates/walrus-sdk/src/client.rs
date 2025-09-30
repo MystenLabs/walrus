@@ -1087,16 +1087,57 @@ impl WalrusNodeClient<SuiContractClient> {
         encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
+        use walrus_core::encoding::{compute_chunk_parameters, max_blob_size_for_n_shards, ChunkedBlobEncoder};
+
         let spinner = multi_pb.add(styled_spinner());
         spinner.set_message("encoding the blob");
 
         let encode_start_timer = Instant::now();
 
-        let (pairs, metadata) = self
-            .encoding_config
-            .get_for_type(encoding_type)
-            .encode_with_metadata(blob)
-            .map_err(ClientError::other)?;
+        let blob_size = blob.len() as u64;
+        let n_shards = self.encoding_config.n_shards();
+        let max_single_chunk_size = max_blob_size_for_n_shards(n_shards, encoding_type);
+
+        let (pairs, metadata) = if blob_size > max_single_chunk_size {
+            // Use chunked encoding for large blobs
+            let (num_chunks, chunk_size) = compute_chunk_parameters(blob_size, n_shards, encoding_type);
+
+            spinner.set_message(format!("encoding large blob ({} chunks)", num_chunks));
+            tracing::info!(
+                blob_size,
+                chunk_size,
+                num_chunks,
+                "using chunked encoding for large blob"
+            );
+
+            // For chunked encoding, we currently only support RS2Chunked
+            match encoding_type {
+                EncodingType::RS2Chunked => {
+                    // Get the Reed-Solomon config
+                    let rs_config = match self.encoding_config.get_for_type(encoding_type) {
+                        walrus_core::encoding::EncodingConfigEnum::ReedSolomon(config) => config,
+                        _ => return Err(ClientError::store_blob_internal("RS2Chunked requires Reed-Solomon config".to_string())),
+                    };
+
+                    let chunked_encoder = ChunkedBlobEncoder::new(rs_config, blob, chunk_size)
+                        .map_err(ClientError::other)?;
+                    chunked_encoder.encode_with_metadata()
+                        .map_err(ClientError::other)?
+                }
+                _ => {
+                    return Err(ClientError::store_blob_internal(format!(
+                        "Blob size ({}) exceeds maximum for encoding type {:?}. Use RS2Chunked encoding for large blobs.",
+                        blob_size, encoding_type
+                    )));
+                }
+            }
+        } else {
+            // Use standard encoding for smaller blobs
+            self.encoding_config
+                .get_for_type(encoding_type)
+                .encode_with_metadata(blob)
+                .map_err(ClientError::other)?
+        };
 
         let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
