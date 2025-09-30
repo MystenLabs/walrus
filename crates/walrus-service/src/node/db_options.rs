@@ -82,8 +82,22 @@ pub fn open_event_blob_writer_db_readonly(
 pub fn open_db_cf_readonly(
     db_path: &Path,
     cf_names: &[&str],
-    _db_config: &DatabaseConfig,
+    db_config: &DatabaseConfig,
 ) -> Result<DB> {
+    use crate::{
+        event::event_processor::db::constants as event_processor_constants,
+        node::{
+            event_blob_writer::{
+                attested_cf_name, certified_cf_name, failed_to_attest_cf_name, pending_cf_name,
+            },
+            storage::{
+                blob_info::{blob_info_cf_options, per_object_blob_info_cf_options},
+                constants::{aggregate_blob_info_cf_name, metadata_cf_name, per_object_blob_info_cf_name},
+                metadata_options,
+            },
+        },
+    };
+
     let mut db_opts = rocksdb::Options::default();
 
     // Apply common options for read-only access
@@ -97,13 +111,49 @@ pub fn open_db_cf_readonly(
     // Try to get existing column families
     let existing_cfs = DB::list_cf(&db_opts, db_path)?;
 
+    // Helper function to get the proper options for each column family
+    let get_cf_options = |cf_name: &str| -> rocksdb::Options {
+        // Match known column families and return their proper options with merge operators
+        if cf_name == aggregate_blob_info_cf_name() {
+            blob_info_cf_options(db_config)
+        } else if cf_name == per_object_blob_info_cf_name() {
+            per_object_blob_info_cf_options(db_config)
+        } else if cf_name == metadata_cf_name() {
+            metadata_options(db_config)
+        } else if cf_name == certified_cf_name()
+            || cf_name == attested_cf_name()
+            || cf_name == pending_cf_name()
+            || cf_name == failed_to_attest_cf_name()
+        {
+            // Event blob writer CFs don't have special merge operators
+            let mut opts = rocksdb::Options::default();
+            opts.set_allow_mmap_reads(true);
+            opts
+        } else if cf_name.starts_with("primary_sliver_") || cf_name.starts_with("secondary_sliver_") {
+            // Sliver column families don't have merge operators
+            let mut opts = rocksdb::Options::default();
+            opts.set_allow_mmap_reads(true);
+            opts
+        } else if cf_name == event_processor_constants::EVENT_STORE
+            || cf_name == event_processor_constants::INIT_STATE
+        {
+            // Event processor CFs don't have special merge operators
+            let mut opts = rocksdb::Options::default();
+            opts.set_allow_mmap_reads(true);
+            opts
+        } else {
+            // Default options for other column families
+            let mut opts = rocksdb::Options::default();
+            opts.set_allow_mmap_reads(true);
+            opts
+        }
+    };
+
     // Only open the requested column families that exist
     let mut cfs_to_open = Vec::new();
     for cf_name in cf_names {
         if existing_cfs.contains(&cf_name.to_string()) {
-            let mut cf_opts = rocksdb::Options::default();
-            // Apply basic CF options for read-only
-            cf_opts.set_allow_mmap_reads(true);
+            let cf_opts = get_cf_options(cf_name);
             cfs_to_open.push((*cf_name, cf_opts));
         }
     }
@@ -114,9 +164,18 @@ pub fn open_db_cf_readonly(
         DB::open_for_read_only(&db_opts, db_path, false)
             .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))
     } else {
-        // Open with only the requested column families
-        let cf_names: Vec<&str> = cfs_to_open.iter().map(|(name, _)| *name).collect();
-        DB::open_cf_for_read_only(&db_opts, db_path, cf_names, false)
-            .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))
+        // We need to use open_cf_descriptors_read_only to pass the column family options
+        // with their merge operators for proper read behavior
+        let cf_descriptors: Vec<rocksdb::ColumnFamilyDescriptor> = cfs_to_open
+            .into_iter()
+            .map(|(name, opts)| rocksdb::ColumnFamilyDescriptor::new(name, opts))
+            .collect();
+
+        DB::open_cf_descriptors_read_only(
+            &db_opts,
+            db_path,
+            cf_descriptors,
+            false,
+        ).map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))
     }
 }
