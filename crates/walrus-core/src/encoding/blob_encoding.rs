@@ -18,7 +18,7 @@ use super::{
     SliverData,
     SliverPair,
     Symbols,
-    basic_encoding::Decoder,
+    basic_encoding::{Decoder, ReedSolomonDecoder},
     utils,
 };
 use crate::{
@@ -939,6 +939,152 @@ impl<'a> ChunkedBlobEncoder<'a> {
     }
 }
 
+/// Decoder for chunked blobs encoded with RS2Chunked encoding.
+///
+/// This decoder reconstructs blobs chunk-by-chunk, enabling streaming decoding
+/// of large blobs without loading everything into memory at once.
+pub struct ChunkedBlobDecoder<'a> {
+    /// The Reed-Solomon encoding configuration.
+    config: &'a ReedSolomonEncodingConfig,
+    /// Metadata for the chunked blob.
+    metadata: &'a BlobMetadataV2,
+}
+
+impl<'a> ChunkedBlobDecoder<'a> {
+    /// Creates a new chunked blob decoder.
+    ///
+    /// # Parameters
+    ///
+    /// * `config` - The Reed-Solomon encoding configuration
+    /// * `metadata` - The verified blob metadata (must be V2 for chunked blobs)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(decoder)` if the metadata is V2 (chunked), `None` otherwise.
+    pub fn new(
+        config: &'a ReedSolomonEncodingConfig,
+        metadata: &'a BlobMetadata,
+    ) -> Option<Self> {
+        match metadata {
+            BlobMetadata::V2(metadata_v2) => Some(Self {
+                config,
+                metadata: metadata_v2,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Returns the number of chunks in this blob.
+    pub fn num_chunks(&self) -> u32 {
+        self.metadata.num_chunks
+    }
+
+    /// Returns the chunk size used for this blob.
+    pub fn chunk_size(&self) -> u64 {
+        self.metadata.chunk_size
+    }
+
+    /// Decodes a single chunk from the provided sliver pairs.
+    ///
+    /// # Parameters
+    ///
+    /// * `chunk_index` - The index of the chunk to decode (0-based)
+    /// * `sliver_pairs` - The sliver pairs for this chunk
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError`] if:
+    /// - The chunk index is out of bounds
+    /// - Decoding fails (insufficient or invalid slivers)
+    /// - The chunk size exceeds limits
+    ///
+    /// # Returns
+    ///
+    /// The decoded chunk data as a byte vector.
+    pub fn decode_chunk(
+        &self,
+        chunk_index: u32,
+        sliver_pairs: Vec<SliverPair>,
+    ) -> Result<Vec<u8>, DecodeError> {
+        ensure!(
+            chunk_index < self.metadata.num_chunks,
+            DecodeError::DecodingUnsuccessful
+        );
+
+        // Determine chunk size (last chunk may be smaller)
+        let chunk_size = if chunk_index == self.metadata.num_chunks - 1 {
+            // Last chunk: compute remaining size
+            let full_chunks_size = u64::from(self.metadata.num_chunks - 1) * self.metadata.chunk_size;
+            self.metadata.unencoded_length - full_chunks_size
+        } else {
+            self.metadata.chunk_size
+        };
+
+        tracing::debug!(
+            chunk_index,
+            chunk_size,
+            num_slivers = sliver_pairs.len(),
+            "decoding chunk"
+        );
+
+        // Create a decoder for this chunk size
+        let decoder: BlobDecoder<'_, ReedSolomonDecoder> = BlobDecoder::new(self.config, chunk_size)?;
+
+        // Extract primary slivers from sliver pairs
+        let primary_slivers = sliver_pairs
+            .into_iter()
+            .map(|pair| pair.primary)
+            .collect::<Vec<_>>();
+
+        // Decode the chunk
+        decoder.decode(primary_slivers)
+    }
+
+    /// Decodes the entire blob from all chunks.
+    ///
+    /// This method reconstructs the complete blob by decoding all chunks in sequence.
+    ///
+    /// # Parameters
+    ///
+    /// * `all_chunk_sliver_pairs` - A vector containing sliver pairs for each chunk,
+    ///   indexed by chunk number. Must have length equal to `num_chunks`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DecodeError`] if:
+    /// - The number of chunk sliver sets doesn't match `num_chunks`
+    /// - Any chunk fails to decode
+    ///
+    /// # Returns
+    ///
+    /// The complete decoded blob as a byte vector.
+    pub fn decode_all(
+        &self,
+        all_chunk_sliver_pairs: Vec<Vec<SliverPair>>,
+    ) -> Result<Vec<u8>, DecodeError> {
+        ensure!(
+            all_chunk_sliver_pairs.len() == self.metadata.num_chunks as usize,
+            DecodeError::DecodingUnsuccessful
+        );
+
+        tracing::debug!(
+            num_chunks = self.metadata.num_chunks,
+            total_size = self.metadata.unencoded_length,
+            "decoding all chunks"
+        );
+
+        let mut result = Vec::with_capacity(self.metadata.unencoded_length as usize);
+
+        for (chunk_index, chunk_sliver_pairs) in all_chunk_sliver_pairs.into_iter().enumerate() {
+            let chunk_data = self.decode_chunk(chunk_index as u32, chunk_sliver_pairs)?;
+            result.extend(chunk_data);
+        }
+
+        tracing::debug!("successfully decoded all chunks");
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::{param_test, random_data, random_subset};
@@ -1144,5 +1290,104 @@ mod tests {
 
         assert_eq!(blob, blob_dec);
         assert_eq!(metadata_enc, metadata_dec);
+    }
+
+    param_test! {
+        test_chunked_encoding_decoding_roundtrip: [
+            small_chunks: (32, 1024, 10),
+            medium_chunks: (1024, 10 * 1024, 10),
+            large_chunks: (10 * 1024, 100 * 1024, 10),
+            very_large_chunks: (100 * 1024, 1024 * 1024, 100),
+        ]
+    }
+    fn test_chunked_encoding_decoding_roundtrip(chunk_size: u64, blob_size: u64, n_shards: u16) {
+        let blob = random_data(blob_size as usize);
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+
+        // Encode with chunked encoder
+        let chunked_encoder =
+            ChunkedBlobEncoder::new(&config, &blob, chunk_size).expect("encoder creation failed");
+
+        let (all_sliver_pairs, metadata) = chunked_encoder
+            .encode_with_metadata()
+            .expect("encoding failed");
+
+        // Verify metadata is V2
+        match metadata.metadata() {
+            BlobMetadata::V2(v2) => {
+                assert_eq!(v2.encoding_type, EncodingType::RS2Chunked);
+                assert_eq!(v2.unencoded_length, blob_size);
+                assert_eq!(v2.chunk_size, chunk_size);
+                let expected_num_chunks = ((blob_size + chunk_size - 1) / chunk_size) as u32;
+                assert_eq!(v2.num_chunks, expected_num_chunks);
+            }
+            _ => panic!("expected BlobMetadataV2"),
+        }
+
+        // Create decoder
+        let decoder = ChunkedBlobDecoder::new(&config, metadata.metadata())
+            .expect("decoder creation failed");
+
+        // Split sliver pairs by chunk
+        let n_shards_usize = n_shards as usize;
+        let num_chunks = decoder.num_chunks() as usize;
+        let mut all_chunk_sliver_pairs: Vec<Vec<SliverPair>> = Vec::with_capacity(num_chunks);
+
+        for chunk_idx in 0..num_chunks {
+            let chunk_start = chunk_idx * n_shards_usize;
+            let chunk_end = chunk_start + n_shards_usize;
+            let chunk_slivers = all_sliver_pairs[chunk_start..chunk_end].to_vec();
+            all_chunk_sliver_pairs.push(chunk_slivers);
+        }
+
+        // Decode all chunks
+        let decoded_blob = decoder
+            .decode_all(all_chunk_sliver_pairs)
+            .expect("decoding failed");
+
+        // Verify roundtrip
+        assert_eq!(blob.len(), decoded_blob.len());
+        assert_eq!(blob, decoded_blob);
+    }
+
+    param_test! {
+        test_chunked_decoding_individual_chunks: [
+            medium_blob: (10 * 1024, 100 * 1024, 10),
+            small_blob: (1024, 10 * 1024, 100),
+        ]
+    }
+    fn test_chunked_decoding_individual_chunks(chunk_size: u64, blob_size: u64, n_shards: u16) {
+        let blob = random_data(blob_size as usize);
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+
+        // Encode
+        let chunked_encoder =
+            ChunkedBlobEncoder::new(&config, &blob, chunk_size).expect("encoder creation failed");
+        let (all_sliver_pairs, metadata) = chunked_encoder
+            .encode_with_metadata()
+            .expect("encoding failed");
+
+        // Create decoder
+        let decoder = ChunkedBlobDecoder::new(&config, metadata.metadata())
+            .expect("decoder creation failed");
+
+        // Decode and verify each chunk individually
+        let n_shards_usize = n_shards as usize;
+        let num_chunks = decoder.num_chunks();
+        let mut decoded_blob = Vec::new();
+
+        for chunk_idx in 0..num_chunks {
+            let chunk_start = (chunk_idx as usize) * n_shards_usize;
+            let chunk_end = chunk_start + n_shards_usize;
+            let chunk_slivers = all_sliver_pairs[chunk_start..chunk_end].to_vec();
+
+            let decoded_chunk = decoder
+                .decode_chunk(chunk_idx, chunk_slivers)
+                .expect("chunk decoding failed");
+            decoded_blob.extend(decoded_chunk);
+        }
+
+        // Verify roundtrip
+        assert_eq!(blob, decoded_blob);
     }
 }
