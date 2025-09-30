@@ -463,7 +463,7 @@ fn read_blob_info(
     }
 
     // Only open the aggregate_blob_info column family
-    let db = open_db_cf_readonly(db_path, &[&aggregate_blob_info_cf_name()], db_config)?;
+    let db = open_db_cf_readonly(db_path, &[aggregate_blob_info_cf_name()], db_config)?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
@@ -507,7 +507,7 @@ fn read_object_blob_info(
     }
 
     // Only open the per_object_blob_info column family
-    let db = open_db_cf_readonly(db_path, &[&per_object_blob_info_cf_name()], db_config)?;
+    let db = open_db_cf_readonly(db_path, &[per_object_blob_info_cf_name()], db_config)?;
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
         .ok_or_else(|| {
@@ -552,7 +552,7 @@ fn count_certified_blobs(
     }
 
     // Only open the aggregate_blob_info column family
-    let db = open_db_cf_readonly(db_path, &[&aggregate_blob_info_cf_name()], db_config)?;
+    let db = open_db_cf_readonly(db_path, &[aggregate_blob_info_cf_name()], db_config)?;
     let cf = db.cf_handle(aggregate_blob_info_cf_name()).ok_or_else(|| {
         anyhow::anyhow!("Column family {} not found", aggregate_blob_info_cf_name())
     })?;
@@ -633,7 +633,7 @@ fn read_blob_metadata(
     }
 
     // Only open the metadata column family
-    let db = open_db_cf_readonly(db_path, &[&metadata_cf_name()], db_config)?;
+    let db = open_db_cf_readonly(db_path, &[metadata_cf_name()], db_config)?;
     let cf = db
         .cf_handle(metadata_cf_name())
         .ok_or_else(|| anyhow::anyhow!("Column family {} not found", metadata_cf_name()))?;
@@ -790,7 +790,7 @@ fn event_blob_writer(
     };
 
     // Only open the specific column family we need
-    let db = open_db_cf_readonly(db_path, &[&cf_name], db_config)?;
+    let db = open_db_cf_readonly(db_path, &[cf_name], db_config)?;
 
     match command {
         EventBlobWriterCommands::ReadCertified => {
