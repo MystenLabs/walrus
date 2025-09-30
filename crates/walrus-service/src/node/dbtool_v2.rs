@@ -62,6 +62,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
+        #[arg(long)]
+        db_type: DbType,
     },
 
     /// Scan events from the event_store table in RocksDB.
@@ -133,6 +136,9 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[arg(long)]
         db_path: PathBuf,
+        /// Database type (main, event-processor, event-blob-writer) - MANDATORY.
+        #[arg(long)]
+        db_type: DbType,
         /// Column families to drop.
         #[arg(num_args = 1..)]
         column_family_names: Vec<String>,
@@ -273,7 +279,7 @@ impl DbToolCommands {
         let db_config = DatabaseConfig::default();
 
         match self {
-            Self::RepairDb { db_path } => repair_db(db_path),
+            Self::RepairDb { db_path, db_type } => repair_db(db_path, db_type),
             Self::ScanEvents {
                 db_path,
                 db_type,
@@ -299,8 +305,9 @@ impl DbToolCommands {
             } => count_certified_blobs(&db_path, db_type, &db_config, epoch),
             Self::DropColumnFamilies {
                 db_path,
+                db_type,
                 column_family_names,
-            } => drop_column_families(db_path, column_family_names),
+            } => drop_column_families(db_path, column_family_names, db_type),
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
             Self::ReadBlobMetadata {
                 db_path,
@@ -358,20 +365,12 @@ impl DbToolCommands {
     }
 }
 
-fn repair_db(db_path: PathBuf) -> Result<()> {
+fn repair_db(db_path: PathBuf, db_type: DbType) -> Result<()> {
     println!("Repairing RocksDB at path: {:?}", db_path);
+    println!("Database type: {:?}", db_type);
 
     // Create a default database config for repairs.
     let db_config = DatabaseConfig::default();
-
-    // Detect database type from existing column families.
-    let db_type = DbType::detect_from_path(&db_path).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Could not detect database type. Please ensure the database exists and has column families."
-        )
-    })?;
-
-    println!("Detected database type: {:?}", db_type);
 
     // Get all possible column families for this database type.
     let all_cfs = db_options::get_all_possible_column_families(db_type, &db_path);
@@ -588,7 +587,11 @@ fn count_certified_blobs(
     Ok(())
 }
 
-fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
+fn drop_column_families(
+    db_path: PathBuf,
+    column_family_names: Vec<String>,
+    db_type: DbType,
+) -> Result<()> {
     println!(
         "Preparing to drop column families from database at: {:?}",
         db_path
@@ -597,14 +600,7 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     // Create a default database config.
     let db_config = DatabaseConfig::default();
 
-    // Detect database type from existing column families.
-    let db_type = DbType::detect_from_path(&db_path).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Could not detect database type. Please ensure the database exists and has column families."
-        )
-    })?;
-
-    println!("Detected database type: {:?}", db_type);
+    println!("Database type: {:?}", db_type);
 
     // Validate that the column families exist before attempting to drop them.
     let existing_cfs = DB::list_cf(&Options::default(), &db_path)?;

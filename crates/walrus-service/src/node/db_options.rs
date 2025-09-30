@@ -27,48 +27,6 @@ pub enum DbType {
     EventBlobWriter,
 }
 
-impl DbType {
-    /// Try to detect the database type from existing column families.
-    pub fn detect_from_path(db_path: &Path) -> Option<Self> {
-        use crate::event::event_processor::db::constants as event_processor_constants;
-
-        // Try to list existing column families.
-        let existing_cfs = DB::list_cf(&Options::default(), db_path).ok()?;
-
-        // Check for main storage database column families.
-        let has_main_storage = existing_cfs.iter().any(|cf| {
-            cf == "node_status"
-                || cf == "metadata"
-                || cf == "aggregate_blob_info"
-                || cf.starts_with("primary_sliver_")
-                || cf.starts_with("secondary_sliver_")
-        });
-
-        // Check for event processor database column families.
-        let has_event_processor = existing_cfs.iter().any(|cf| {
-            cf == event_processor_constants::EVENT_STORE
-                || cf == event_processor_constants::INIT_STATE
-                || cf == event_processor_constants::CHECKPOINT_STORE
-        });
-
-        // Check for event blob writer database column families.
-        let has_event_blob_writer = existing_cfs.iter().any(|cf| {
-            cf == "certified" || cf == "attested" || cf == "pending" || cf == "failed_to_attest"
-        });
-
-        // Return the detected type (prefer more specific types first).
-        if has_main_storage {
-            Some(DbType::Main)
-        } else if has_event_processor {
-            Some(DbType::EventProcessor)
-        } else if has_event_blob_writer {
-            Some(DbType::EventBlobWriter)
-        } else {
-            None
-        }
-    }
-}
-
 /// Represents a column family with its name and options.
 #[derive(Debug, Clone)]
 pub enum DbColumnFamily {
