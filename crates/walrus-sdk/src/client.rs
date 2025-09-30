@@ -485,6 +485,8 @@ impl<T: ReadClient> WalrusNodeClient<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
+        use walrus_core::metadata::BlobMetadata;
+
         let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
         if let Some(max_blob_size) = self.max_blob_size
             && metadata.metadata().unencoded_length() > max_blob_size
@@ -493,8 +495,20 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 max_blob_size,
             )));
         };
-        self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
-            .await
+
+        // Check if this is a chunked blob (V2 metadata with multiple chunks)
+        match metadata.metadata() {
+            BlobMetadata::V2(metadata_v2) if metadata_v2.num_chunks > 1 => {
+                // Use chunked download path (always uses Primary slivers)
+                self.request_chunks_and_decode(certified_epoch, &metadata, metadata_v2)
+                    .await
+            }
+            _ => {
+                // Use standard download path for V1 or single-chunk V2
+                self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
+                    .await
+            }
+        }
     }
 
     /// Retries the given function if the client gets notified that the committees have changed.
@@ -2001,6 +2015,188 @@ impl<T> WalrusNodeClient<T> {
                 }
             }
         }
+    }
+
+    /// Requests chunk slivers and decodes them for a chunked blob.
+    ///
+    /// Note: Chunked blobs only use Primary slivers for decoding.
+    ///
+    /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
+    /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
+    #[tracing::instrument(level = Level::ERROR, skip_all)]
+    async fn request_chunks_and_decode(
+        &self,
+        certified_epoch: Epoch,
+        metadata: &VerifiedBlobMetadataWithId,
+        metadata_v2: &walrus_core::metadata::BlobMetadataV2,
+    ) -> ClientResult<Vec<u8>> {
+        use walrus_core::encoding::{ChunkedBlobDecoder, Primary};
+
+        let committees = self.get_committees().await?;
+        let num_chunks = metadata_v2.num_chunks;
+
+        tracing::info!(
+            blob_id = %metadata.blob_id(),
+            num_chunks,
+            chunk_size = metadata_v2.chunk_size,
+            total_size = metadata_v2.unencoded_length,
+            "downloading chunked blob"
+        );
+
+        // Get the encoding config for this blob
+        let encoding_config = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type());
+
+        // Extract the ReedSolomonEncodingConfig (chunked blobs always use RS2Chunked)
+        let rs_config = match encoding_config {
+            walrus_core::encoding::EncodingConfigEnum::ReedSolomon(rs) => rs,
+        };
+
+        // Create the chunked decoder
+        let chunked_decoder = ChunkedBlobDecoder::new(rs_config, metadata.metadata())
+            .ok_or_else(|| ClientErrorKind::NotEnoughSlivers)?;
+
+        // Result buffer to accumulate decoded chunks
+        let mut result = Vec::with_capacity(metadata_v2.unencoded_length as usize);
+
+        // Download and decode each chunk
+        for chunk_index in 0..num_chunks {
+            tracing::debug!(chunk_index, "requesting chunk");
+
+            // Create a progress bar for this chunk
+            let progress_bar: indicatif::ProgressBar = styled_progress_bar(
+                encoding_config.n_source_symbols::<Primary>().get().into(),
+            );
+            progress_bar.set_message(format!("chunk {}/{}", chunk_index + 1, num_chunks));
+
+            let comms = self
+                .communication_factory
+                .node_read_communications(&committees, certified_epoch)?;
+
+            // Create futures to retrieve chunk slivers from all nodes
+            let futures = comms.iter().flat_map(|n| {
+                n.node.shard_ids.iter().cloned().map(|s| {
+                    n.retrieve_chunk_sliver::<Primary>(metadata, chunk_index, s)
+                        .instrument(n.span.clone())
+                        .inspect({
+                            let value = progress_bar.clone();
+                            move |result| {
+                                if result.is_ok() {
+                                    value.inc(1)
+                                }
+                            }
+                        })
+                })
+            });
+
+            let mut requests = WeightedFutures::new(futures);
+
+            // Get required number of slivers for this chunk
+            let RequiredCount::Exact(required_slivers) =
+                encoding_config.n_slivers_for_reconstruction::<Primary>();
+            let completed_reason = requests
+                .execute_weight(
+                    &|weight| weight >= required_slivers,
+                    self.communication_limits
+                        .max_concurrent_sliver_reads_for_blob_size(
+                            metadata_v2.chunk_size,
+                            &self.encoding_config,
+                            metadata.metadata().encoding_type(),
+                        ),
+                )
+                .await;
+            progress_bar.finish_and_clear();
+
+            match completed_reason {
+                CompletedReasonWeight::ThresholdReached => {
+                    let slivers = requests.take_inner_ok();
+                    assert!(
+                        slivers.len() >= required_slivers,
+                        "we must have sufficient slivers if the threshold was reached"
+                    );
+
+                    // Convert SliverData<A> to SliverPair
+                    // Note: decode_chunk only uses primary slivers, so we create dummy secondaries
+                    use walrus_core::encoding::{SliverData, SliverPair, Secondary};
+                    use walrus_core::SliverIndex;
+
+                    // Get symbol size for this chunk
+                    let symbol_size = rs_config
+                        .symbol_size_for_blob(metadata_v2.chunk_size)
+                        .map_err(ClientError::other)?;
+
+                    let sliver_pairs: Vec<SliverPair> = slivers
+                        .into_iter()
+                        .map(|sliver_data| {
+                            // Create a dummy secondary sliver (it won't be used by decode_chunk)
+                            let dummy_secondary = SliverData::<Secondary>::new_empty(
+                                0,  // length
+                                symbol_size,
+                                SliverIndex(0),
+                            );
+
+                            SliverPair {
+                                primary: sliver_data,
+                                secondary: dummy_secondary,
+                            }
+                        })
+                        .collect();
+
+                    // Decode the chunk
+                    let chunk_data = chunked_decoder
+                        .decode_chunk(chunk_index, sliver_pairs)
+                        .map_err(ClientError::other)?;
+
+                    tracing::debug!(
+                        chunk_index,
+                        chunk_size = chunk_data.len(),
+                        "chunk decoded successfully"
+                    );
+
+                    result.extend(chunk_data);
+                }
+                CompletedReasonWeight::FuturesConsumed(weight) => {
+                    assert!(
+                        weight < required_slivers,
+                        "the case where we have collected sufficient slivers is handled above"
+                    );
+                    let mut n_not_found = 0;
+                    let mut n_forbidden = 0;
+                    requests.take_results().into_iter().for_each(
+                        |NodeResult { node, result, .. }| {
+                            if let Err(error) = result {
+                                tracing::debug!(%node, %error, "retrieving chunk sliver failed");
+                                if error.is_status_not_found() {
+                                    n_not_found += 1;
+                                } else if error.is_blob_blocked() {
+                                    n_forbidden += 1;
+                                }
+                            }
+                        },
+                    );
+
+                    if committees.is_quorum(n_not_found + n_forbidden) {
+                        if n_not_found > n_forbidden {
+                            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                        } else {
+                            return Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into());
+                        }
+                    } else {
+                        return Err(ClientErrorKind::NotEnoughSlivers.into());
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            blob_id = %metadata.blob_id(),
+            num_chunks,
+            total_size = result.len(),
+            "chunked blob download complete"
+        );
+
+        Ok(result)
     }
 
     /// Requests the metadata from storage nodes, and keeps the first reply that correctly verifies.

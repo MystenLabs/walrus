@@ -244,6 +244,32 @@ impl<W> NodeCommunication<'_, W> {
         self.to_node_result(1, sliver)
     }
 
+    /// Retrieves a chunk sliver for a chunked blob from the storage node.
+    pub async fn retrieve_chunk_sliver<A: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        chunk_index: u32,
+        shard_index: ShardIndex,
+    ) -> NodeResult<SliverData<A>, NodeError>
+    where
+        SliverData<A>: TryFrom<Sliver>,
+    {
+        tracing::debug!(
+            walrus.shard_index = %shard_index,
+            walrus.chunk_index = chunk_index,
+            sliver_type = A::NAME,
+            "retrieving chunk sliver"
+        );
+        let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
+        let sliver = self
+            .client
+            .get_chunk_sliver(metadata.blob_id(), chunk_index, sliver_pair_index)
+            .await;
+
+        // Each sliver is in this case requested individually, so the weight is 1.
+        self.to_node_result(1, sliver)
+    }
+
     /// Requests the status for a blob ID from the node.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> NodeResult<BlobStatus, NodeError> {
