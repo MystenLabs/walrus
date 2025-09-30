@@ -7,38 +7,12 @@
 //! including any custom merge operators. This ensures that databases can be opened consistently
 //! both in production code and in debugging tools like db_tools.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use rocksdb::{DB, Options};
 
-use super::{DatabaseConfig, db_column_family::DatabaseDef};
-
-/// Type of database to open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DbType {
-    /// Main storage database.
-    Main,
-    /// Event processor database.
-    EventProcessor,
-    /// Event blob writer database.
-    EventBlobWriter,
-}
-
-impl DbType {
-    /// Get the database type from a path by checking for specific subdirectories.
-    pub fn from_path(db_path: &Path) -> Self {
-        if db_path.ends_with("event_processor") || db_path.ends_with("event_processor/db") {
-            DbType::EventProcessor
-        } else if db_path.ends_with("event_blob_writer")
-            || db_path.ends_with("event_blob_writer/db")
-        {
-            DbType::EventBlobWriter
-        } else {
-            DbType::Main
-        }
-    }
-}
+use super::DatabaseConfig;
 
 /// Represents a column family with its name and options.
 #[derive(Debug, Clone)]
@@ -272,44 +246,6 @@ impl DbColumnFamily {
     }
 }
 
-/// Open database in read-only mode based on the database type.
-pub fn open_db_readonly(db_path: &Path, db_type: DbType, db_config: &DatabaseConfig) -> Result<DB> {
-    let db_def = match db_type {
-        DbType::Main => DatabaseDef::MainStorage {
-            path: PathBuf::from(db_path),
-            config: db_config.clone(),
-        },
-        DbType::EventProcessor => DatabaseDef::EventProcessor {
-            path: PathBuf::from(db_path),
-            config: db_config.clone(),
-        },
-        DbType::EventBlobWriter => DatabaseDef::EventBlobWriter {
-            path: PathBuf::from(db_path),
-            config: db_config.clone(),
-        },
-    };
-
-    db_def.open_readonly()
-}
-
-/// Open main storage database in read-only mode with proper options.
-pub fn open_main_db_readonly(db_path: &Path, db_config: &DatabaseConfig) -> Result<DB> {
-    open_db_readonly(db_path, DbType::Main, db_config)
-}
-
-/// Open event processor database in read-only mode with proper options.
-pub fn open_event_processor_db_readonly(db_path: &Path, db_config: &DatabaseConfig) -> Result<DB> {
-    open_db_readonly(db_path, DbType::EventProcessor, db_config)
-}
-
-/// Open event blob writer database in read-only mode with proper options.
-pub fn open_event_blob_writer_db_readonly(
-    db_path: &Path,
-    db_config: &DatabaseConfig,
-) -> Result<DB> {
-    open_db_readonly(db_path, DbType::EventBlobWriter, db_config)
-}
-
 /// Open database with only specific column families in read-only mode.
 pub fn open_db_cf_readonly(
     db_path: &Path,
@@ -319,7 +255,6 @@ pub fn open_db_cf_readonly(
     let mut db_opts = Options::default();
 
     // Apply common options for read-only access.
-    db_opts.set_max_open_files(100);
     db_opts.set_allow_mmap_reads(true);
 
     // Don't create if missing for read-only operations.

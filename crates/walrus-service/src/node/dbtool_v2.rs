@@ -26,7 +26,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
-        db_options::{DbType, open_db_cf_readonly},
+        db_options::open_db_cf_readonly,
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -61,16 +61,6 @@ pub enum DbTypeArg {
     EventProcessor,
     /// Event blob writer database.
     EventBlobWriter,
-}
-
-impl From<DbTypeArg> for DbType {
-    fn from(arg: DbTypeArg) -> Self {
-        match arg {
-            DbTypeArg::Main => DbType::Main,
-            DbTypeArg::EventProcessor => DbType::EventProcessor,
-            DbTypeArg::EventBlobWriter => DbType::EventBlobWriter,
-        }
-    }
 }
 
 /// Database inspection and maintenance tools (V2).
@@ -300,32 +290,24 @@ impl DbToolCommands {
                 db_type,
                 start_event_index,
                 count,
-            } => scan_events(
-                &db_path,
-                db_type.into(),
-                &db_config,
-                start_event_index,
-                count,
-            ),
+            } => scan_events(&db_path, db_type, &db_config, start_event_index, count),
             Self::ReadBlobInfo {
                 db_path,
                 db_type,
                 start_blob_id,
                 count,
-            } => read_blob_info(&db_path, db_type.into(), &db_config, start_blob_id, count),
+            } => read_blob_info(&db_path, db_type, &db_config, start_blob_id, count),
             Self::ReadObjectBlobInfo {
                 db_path,
                 db_type,
                 start_object_id,
                 count,
-            } => {
-                read_object_blob_info(&db_path, db_type.into(), &db_config, start_object_id, count)
-            }
+            } => read_object_blob_info(&db_path, db_type, &db_config, start_object_id, count),
             Self::CountCertifiedBlobs {
                 db_path,
                 db_type,
                 epoch,
-            } => count_certified_blobs(&db_path, db_type.into(), &db_config, epoch),
+            } => count_certified_blobs(&db_path, db_type, &db_config, epoch),
             Self::DropColumnFamilies {
                 db_path,
                 column_family_names,
@@ -339,7 +321,7 @@ impl DbToolCommands {
                 output_size_only,
             } => read_blob_metadata(
                 &db_path,
-                db_type.into(),
+                db_type,
                 &db_config,
                 start_blob_id,
                 count,
@@ -353,7 +335,7 @@ impl DbToolCommands {
                 shard_index,
             } => read_primary_slivers(
                 &db_path,
-                db_type.into(),
+                db_type,
                 &db_config,
                 start_blob_id,
                 count,
@@ -367,7 +349,7 @@ impl DbToolCommands {
                 shard_index,
             } => read_secondary_slivers(
                 &db_path,
-                db_type.into(),
+                db_type,
                 &db_config,
                 start_blob_id,
                 count,
@@ -377,12 +359,12 @@ impl DbToolCommands {
                 db_path,
                 db_type,
                 command,
-            } => event_blob_writer(&db_path, db_type.into(), &db_config, command),
+            } => event_blob_writer(&db_path, db_type, &db_config, command),
             Self::EventProcessor {
                 db_path,
                 db_type,
                 command,
-            } => event_processor(&db_path, db_type.into(), &db_config, command),
+            } => event_processor(&db_path, db_type, &db_config, command),
         }
     }
 }
@@ -399,13 +381,13 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 
 fn scan_events(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_event_index: u64,
     count: usize,
 ) -> Result<()> {
     // Sanity check: scan_events should only be used with EventProcessor DB
-    if !matches!(db_type, DbType::EventProcessor) {
+    if !matches!(db_type, DbTypeArg::EventProcessor) {
         return Err(anyhow::anyhow!(
             "scan-events command requires --db-type event-processor"
         ));
@@ -450,13 +432,13 @@ fn scan_events(
 
 fn read_blob_info(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
 ) -> Result<()> {
     // Sanity check: blob info is only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "read-blob-info command requires --db-type main"
         ));
@@ -494,13 +476,13 @@ fn read_blob_info(
 
 fn read_object_blob_info(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_object_id: Option<ObjectID>,
     count: usize,
 ) -> Result<()> {
     // Sanity check: object blob info is only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "read-object-blob-info command requires --db-type main"
         ));
@@ -540,12 +522,12 @@ fn read_object_blob_info(
 
 fn count_certified_blobs(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     epoch: Epoch,
 ) -> Result<()> {
     // Sanity check: blob info is only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "count-certified-blobs command requires --db-type main"
         ));
@@ -619,14 +601,14 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
 
 fn read_blob_metadata(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     output_size_only: bool,
 ) -> Result<()> {
     // Sanity check: metadata is only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "read-blob-metadata command requires --db-type main"
         ));
@@ -668,14 +650,14 @@ fn read_blob_metadata(
 
 fn read_primary_slivers(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
     // Sanity check: slivers are only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "read-primary-slivers command requires --db-type main"
         ));
@@ -719,14 +701,14 @@ fn read_primary_slivers(
 
 fn read_secondary_slivers(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: ShardIndex,
 ) -> Result<()> {
     // Sanity check: slivers are only in Main DB
-    if !matches!(db_type, DbType::Main) {
+    if !matches!(db_type, DbTypeArg::Main) {
         return Err(anyhow::anyhow!(
             "read-secondary-slivers command requires --db-type main"
         ));
@@ -770,12 +752,12 @@ fn read_secondary_slivers(
 
 fn event_blob_writer(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     command: EventBlobWriterCommands,
 ) -> Result<()> {
     // Sanity check: event blob writer commands require EventBlobWriter DB
-    if !matches!(db_type, DbType::EventBlobWriter) {
+    if !matches!(db_type, DbTypeArg::EventBlobWriter) {
         return Err(anyhow::anyhow!(
             "event-blob-writer command requires --db-type event-blob-writer"
         ));
@@ -898,12 +880,12 @@ fn event_blob_writer(
 
 fn event_processor(
     db_path: &Path,
-    db_type: DbType,
+    db_type: DbTypeArg,
     db_config: &DatabaseConfig,
     command: EventProcessorCommands,
 ) -> Result<()> {
     // Sanity check: event processor commands require EventProcessor DB
-    if !matches!(db_type, DbType::EventProcessor) {
+    if !matches!(db_type, DbTypeArg::EventProcessor) {
         return Err(anyhow::anyhow!(
             "event-processor command requires --db-type event-processor"
         ));
