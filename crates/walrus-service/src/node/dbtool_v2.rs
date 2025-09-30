@@ -6,9 +6,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use bincode::Options;
+use bincode::Options as BincodeOptions;
 use clap::{Subcommand, ValueEnum};
-use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
+use rocksdb::{DB, Options, Options as RocksdbOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
@@ -26,7 +26,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
-        db_options::open_db_cf_readonly,
+        db_options::{get_all_possible_column_families, open_db_cf_readonly, open_db_for_write},
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -371,10 +371,38 @@ impl DbToolCommands {
 
 fn repair_db(db_path: PathBuf) -> Result<()> {
     println!("Repairing RocksDB at path: {:?}", db_path);
+
+    // Create a default database config for repairs.
+    let db_config = DatabaseConfig::default();
+
+    // Get all possible column families for this database.
+    let all_cfs = get_all_possible_column_families(&db_path, &db_config);
+
+    // Prepare options for repair.
     let mut opts = RocksdbOptions::default();
     opts.create_if_missing(false);
     opts.create_missing_column_families(true);
+
+    // Collect column family names and options for repair.
+    let cf_names: Vec<String> = all_cfs.iter().map(|cf| cf.name()).collect();
+
+    println!("Detected database type based on existing column families.");
+    println!("Will repair with {} column families:", cf_names.len());
+    for cf_name in &cf_names {
+        println!("  - {}", cf_name);
+    }
+
+    // Perform the repair operation.
+    // Note: DB::repair doesn't take column family options, but we'll open the DB
+    // after repair with proper options to ensure everything is consistent.
     DB::repair(&opts, &db_path)?;
+
+    println!("Basic repair completed. Opening database with proper column family options...");
+
+    // Open the database with all column families and proper options to ensure consistency.
+    let _db = open_db_for_write(&db_path, &db_config)?;
+
+    println!("Database opened successfully with proper column family options.");
     println!("Repair completed successfully!");
     Ok(())
 }
@@ -564,28 +592,59 @@ fn count_certified_blobs(
 }
 
 fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
+    println!(
+        "Preparing to drop column families from database at: {:?}",
+        db_path
+    );
+
+    // Create a default database config.
+    let db_config = DatabaseConfig::default();
+
+    // Validate that the column families exist before attempting to drop them.
+    let existing_cfs = DB::list_cf(&Options::default(), &db_path)?;
+    let mut cfs_to_drop = Vec::new();
+    let mut not_found = Vec::new();
+
     for cf_name in &column_family_names {
-        println!("Dropping column family: {}", cf_name);
+        if existing_cfs.contains(cf_name) {
+            cfs_to_drop.push(cf_name.clone());
+        } else {
+            not_found.push(cf_name.clone());
+        }
     }
 
-    let mut opts = RocksdbOptions::default();
-    opts.create_if_missing(false);
-    opts.create_missing_column_families(false);
-
-    let existing_cfs = DB::list_cf(&opts, &db_path)?;
-    let cfs: Vec<_> = existing_cfs
-        .iter()
-        .map(|name| (name.as_str(), RocksdbOptions::default()))
-        .collect();
-
-    let db = DB::open_cf_with_opts(&opts, &db_path, cfs)?;
-
-    for cf_name in column_family_names {
-        db.drop_cf(&cf_name)?;
-        println!("Dropped column family: {}", cf_name);
+    if !not_found.is_empty() {
+        println!("Warning: The following column families were not found:");
+        for cf in &not_found {
+            println!("  - {}", cf);
+        }
     }
 
-    println!("Successfully dropped all specified column families");
+    if cfs_to_drop.is_empty() {
+        println!("No column families to drop.");
+        return Ok(());
+    }
+
+    println!("Column families to drop:");
+    for cf in &cfs_to_drop {
+        println!("  - {}", cf);
+    }
+
+    // Open the database with write access and all column families with proper options.
+    let db = open_db_for_write(&db_path, &db_config)?;
+
+    // Drop the specified column families.
+    for cf_name in cfs_to_drop {
+        match db.drop_cf(&cf_name) {
+            Ok(_) => println!("Successfully dropped column family: {}", cf_name),
+            Err(e) => {
+                // Log the error but continue with other drops.
+                eprintln!("Failed to drop column family '{}': {}", cf_name, e);
+            }
+        }
+    }
+
+    println!("Column family drop operation completed!");
     Ok(())
 }
 
