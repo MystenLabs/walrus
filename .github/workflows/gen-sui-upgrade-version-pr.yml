@@ -51,4 +51,4 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
         shell: bash
         run: |
-          ./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}"
+          export PR_URL=$(./scripts/bump_sui_testnet_version.sh "${{ env.NEW_TAG }}")
