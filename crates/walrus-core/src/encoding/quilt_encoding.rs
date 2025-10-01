@@ -404,7 +404,10 @@ pub trait QuiltDecoderApi<'a, V: QuiltVersion> {
     ) -> Result<Vec<QuiltStoreBlob<'static>>, QuiltError>;
 
     /// Adds slivers to the decoder.
-    fn add_slivers(&mut self, slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>)
+    fn add_slivers(
+        &mut self,
+        slivers: impl IntoIterator<Item = &'a SliverData<V::SliverAxis>>,
+    ) -> Result<(), QuiltError>
     where
         V::SliverAxis: 'a;
 }
@@ -1648,15 +1651,34 @@ impl<'a> QuiltDecoderApi<'a, QuiltVersionV1> for QuiltDecoderV1<'a> {
             })
     }
 
-    fn add_slivers(&mut self, slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>)
+    fn add_slivers(
+        &mut self,
+        slivers: impl IntoIterator<Item = &'a SliverData<Secondary>>,
+    ) -> Result<(), QuiltError>
     where
         Secondary: 'a,
     {
         for sliver in slivers {
-            self.column_size
-                .get_or_insert_with(|| sliver.symbols.data().len());
+            let sliver_data_len = sliver.symbols.data().len();
+
+            match self.column_size {
+                None => {
+                    self.column_size = Some(sliver_data_len);
+                }
+                Some(expected) => {
+                    if expected != sliver_data_len {
+                        return Err(QuiltError::ColumnSizeMismatch {
+                            expected,
+                            actual: sliver_data_len,
+                        });
+                    }
+                }
+            }
+
             self.slivers.insert(sliver.index, Cow::Borrowed(sliver));
         }
+
+        Ok(())
     }
 }
 
@@ -1764,13 +1786,32 @@ impl<'a> QuiltDecoderV1<'a> {
     }
 
     /// Adds owned slivers to the decoder.
-    pub fn add_owned_slivers(&mut self, slivers: impl IntoIterator<Item = SliverData<Secondary>>) {
+    pub fn add_owned_slivers(
+        &mut self,
+        slivers: impl IntoIterator<Item = SliverData<Secondary>>,
+    ) -> Result<(), QuiltError> {
         for sliver in slivers {
-            self.column_size
-                .get_or_insert_with(|| sliver.symbols.data().len());
+            let sliver_data_len = sliver.symbols.data().len();
+
+            match self.column_size {
+                None => {
+                    self.column_size = Some(sliver_data_len);
+                }
+                Some(expected) => {
+                    if expected != sliver_data_len {
+                        return Err(QuiltError::ColumnSizeMismatch {
+                            expected,
+                            actual: sliver_data_len,
+                        });
+                    }
+                }
+            }
+
             let index = sliver.index;
             self.slivers.insert(index, Cow::Owned(sliver));
         }
+
+        Ok(())
     }
 
     /// Gets the blob by QuiltPatchV1.
@@ -2283,7 +2324,9 @@ mod tests {
             Err(QuiltError::MissingSlivers(_))
         ));
 
-        quilt_decoder.add_slivers(vec![*first_sliver]);
+        quilt_decoder
+            .add_slivers(vec![*first_sliver])
+            .expect("Should be able to add first sliver");
         let decode_index_result = quilt_decoder.get_or_decode_quilt_index();
         let missing_slivers =
             if let Err(QuiltError::MissingSlivers(missing_indices)) = decode_index_result {
@@ -2298,7 +2341,9 @@ mod tests {
             };
 
         if !missing_slivers.is_empty() {
-            quilt_decoder.add_slivers(missing_slivers);
+            quilt_decoder
+                .add_slivers(missing_slivers)
+                .expect("Should be able to add missing slivers");
             assert!(quilt_decoder.get_or_decode_quilt_index().is_ok());
         }
 
@@ -2341,7 +2386,9 @@ mod tests {
             .filter(|sliver| missing_indices.contains(&sliver.index))
             .copied()
             .collect();
-        quilt_decoder.add_slivers(missing_slivers);
+        quilt_decoder
+            .add_slivers(missing_slivers)
+            .expect("Should be able to add slivers");
 
         // Check we can decode the blob with the slivers we added.
         let decoded_blob = quilt_decoder
@@ -2356,7 +2403,9 @@ mod tests {
         assert_eq!(decoded_blob, *expected_blob);
 
         // Now, add all slivers to the decoder, all the blobs should be reconstructed.
-        quilt_decoder.add_slivers(slivers);
+        quilt_decoder
+            .add_slivers(slivers)
+            .expect("Should be able to add all slivers");
         assert_eq!(
             quilt_decoder.get_or_decode_quilt_index(),
             Ok(quilt_metadata_v1.index.into())

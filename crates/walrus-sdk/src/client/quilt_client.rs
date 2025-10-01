@@ -504,7 +504,7 @@ impl<T: ReadClient> QuiltClient<'_, T> {
                         )
                         .await?,
                 );
-                decoder.add_slivers(&all_slivers);
+                decoder.add_slivers(&all_slivers)?;
                 decoder.get_or_decode_quilt_index()?
             }
             Err(e) => return Err(e.into()),
