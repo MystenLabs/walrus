@@ -219,7 +219,7 @@ pub struct RefillHandles {
 ///
 /// The wallet should be refilled if it has less than `MIN_BALANCE` in balance. _However_, if the
 /// RPC returns an error, we assume that the wallet has enough coins and we do not try to refill
-/// it, threfore returning `false`.
+/// it, therefore returning `false`.
 pub async fn should_refill(
     sui_client: &RetriableSuiClient,
     address: SuiAddress,

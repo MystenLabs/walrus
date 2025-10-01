@@ -25,7 +25,7 @@ repos:
         args: []
         pass_filenames: false
   - repo: https://github.com/crate-ci/typos
-    rev: v1.35.4
+    rev: v1
     hooks:
       - id: typos
         pass_filenames: false
@@ -36,7 +36,7 @@ repos:
         args: ["--fix"]
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.18.4
+    rev: 0.18.5
     hooks:
       - id: cargo-deny
         args: ["--all-features", "check", "--hide-inclusion-graph"]
