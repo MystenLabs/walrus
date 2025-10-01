@@ -1,9 +1,9 @@
 # Walrus
 
-Welcome to the developer documentation for Walrus, a decentralized storage and data availability
-protocol designed specifically for large binary files, or "blobs". Walrus focuses on providing a
-robust but affordable solution for storing unstructured content on decentralized storage nodes
-while ensuring high availability and reliability even in the presence of Byzantine faults.
+Welcome to the developer documentation for Walrus, a developer platform that enables data markets
+for the AI era. Walrus focuses on providing a robust but affordable solution for storing
+unstructured content on decentralized storage nodes while ensuring high availability and
+reliability even in the presence of Byzantine faults.
 
 ```admonish tip title="Fun fact"
 If you are viewing this site at <https://docs.wal.app>, you are fetching this from
